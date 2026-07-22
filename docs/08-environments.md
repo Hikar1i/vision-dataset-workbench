@@ -1,15 +1,76 @@
-# Multi-Environment Startup
+# 环境与启动
 
-Purpose: Record how to start the project in local, test, staging, and production-like environments.
+状态：当前仓库没有应用代码，因此没有可执行启动命令。
 
-Status: Draft
+## 当前可执行操作
 
-## Current Facts
+仅可执行项目工作区诊断：
 
-- Unknown. Replace this line only with verified information from code, runtime output, project owners, or supplied references.
+```bash
+aiproj doctor
+aiproj init --repo . --profile generic --gitignore check --dry-run
+```
 
-## Maintenance Notes
+在 2026-07-22 的验证中，两项检查均通过；dry-run 只会更新本地 `.ai-local/config.json` 时间信息，未执行写入式初始化。
 
-- Update this document when code changes alter the facts it records.
-- Keep content concise and avoid duplicating details owned by another document.
-- Do not invent missing details. Mark unknown information as `Unknown` and explain what evidence is needed.
+遗留项目位于 `.ai-local/references/`，只用于阅读和验证，不是新项目的启动目录。
+
+## 计划中的环境
+
+### Local
+
+- 面向开发者的前端、API、Worker 和本地数据库。
+- 媒体存储使用仓库外或被忽略的专用目录。
+- 支持使用假下载适配器和短测试视频，无需访问真实平台即可开发主流程。
+
+### Test
+
+- 每次运行创建隔离数据库和临时存储根。
+- 默认禁用外部网络，使用受控 FFmpeg fixture。
+- 测试结束只清理本次创建的明确路径。
+
+### Staging
+
+- 与生产使用相同的服务拓扑和迁移方式。
+- 使用独立数据库、存储、密钥和低价值测试数据。
+- 用于迁移演练、长任务恢复和升级/回滚验证。
+
+### Production-like / Production
+
+- 关闭 debug 和热重载。
+- API 与 Worker 使用受监管的进程管理。
+- 配置健康检查、日志、指标、备份和磁盘告警。
+- CORS、文件导入根和代理配置使用明确白名单。
+
+## 配置类别
+
+变量名在实现后确定，但至少需要以下配置：
+
+| 类别 | 内容 |
+| --- | --- |
+| Runtime | 环境名、日志级别、服务版本 |
+| Database | 连接地址、池和迁移检查 |
+| Storage | 项目根、导入根、临时根、容量阈值 |
+| Tasks | Worker 并发、租约、重试、超时 |
+| Media | FFmpeg/ffprobe/yt-dlp 路径与限制 |
+| Web | 公共地址、可信代理、CORS 来源 |
+| Auth | 会话/令牌密钥和身份提供方 |
+
+本地示例配置只能包含无敏感默认值；真实密钥通过未提交文件或密钥管理服务注入。
+
+## 启动与停止要求
+
+实现后，本页必须记录可复制执行的：
+
+- 依赖安装与版本检查。
+- 数据库创建和迁移。
+- 前端开发服务器、API 和 Worker 启动。
+- 全栈容器启动。
+- 测试、构建和停止命令。
+- 常见端口与健康检查 URL。
+
+这些命令当前均为 `Unknown`。在首个应用脚手架合并时必须同步补充，不能继续保留占位式“自行启动”说明。
+
+## 外部工具验证
+
+启动时应验证 FFmpeg、ffprobe 和可选 yt-dlp 的存在与版本。运行时版本必须与容器和 CI 基线一致；不得重现遗留项目中 README、pyproject 和 Docker 分别声明不同 Python 版本的情况。

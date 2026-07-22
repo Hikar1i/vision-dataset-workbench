@@ -1,15 +1,61 @@
-# Known Issues and Fix History
+# 已知问题
 
-Purpose: Record traps, incident notes, recurring failures, and verified solutions.
+状态：新项目尚无应用缺陷；下表记录已经验证、重构时必须处理的遗留风险。
 
-Status: Draft
+## 当前项目限制
 
-## Current Facts
+- 当前仓库没有前端、后端、数据库、测试或部署实现，不能启动业务应用。
+- 技术栈、数据库、任务队列、认证方式和首要部署环境尚未确定。
+- 性能规模、并发目标、恢复目标和多用户角色规则尚未量化。
+- `.ai-local/` 中的研究与参考材料是本地内容，不应被运行时或 CI 依赖。
 
-- Unknown. Replace this line only with verified information from code, runtime output, project owners, or supplied references.
+## 遗留风险清单
 
-## Maintenance Notes
+| 级别 | 问题 | 重构要求 |
+| --- | --- | --- |
+| Critical | 无认证授权、全局开放 CORS | 所有资源入口建立身份/权限边界；即使单用户模式也限制来源 |
+| Critical | 帧图片接口可拼接客户端文件路径，且存在任意服务端目录浏览 | 只接受资源 ID，统一安全路径解析和配置存储根 |
+| Critical | 遗留 CI 文件含明文仓库凭据 | 不复制凭据；原凭据如仍有效立即轮换，使用密钥管理 |
+| High | daemon thread 和内存 SSE 队列在重启/多进程时丢失 | 持久任务、租约、心跳、重试及可恢复事件 |
+| High | 数据库与文件系统分阶段写入，失败时不一致 | 临时输出、原子发布、阶段记录和补偿/幂等重试 |
+| High | 查询视频时隐式执行 schema 迁移和状态修复 | 版本化迁移；状态只由明确命令或修复任务改变 |
+| High | 下载被进程内全局锁串行，抽帧又可被多客户端无限创建线程 | 系统级队列、按资源锁和可配置 Worker 并发 |
+| High | Flask debug server 用于遗留容器运行 | 使用受支持的生产服务进程并关闭 debug |
+| Medium | `backend/app.py` 重复定义分组路由，且一份位于 `app.run` 后 | 新实现保持单一路由注册；增加路由唯一性测试 |
+| Medium | `DatasetManager.vue` 在 SFC 结束后残留重复代码 | 按领域拆分组件和状态；构建外做源文件结构检查 |
+| Medium | API 响应、错误和文档不一致 | 机器可读契约、稳定错误模型和 CI 校验 |
+| Medium | 组数据库状态先于文件目录完成 | 分组作为持久任务，发布成功后再更新可见版本 |
+| Medium | 导出可能吞掉复制/配置错误并留下不完整目录 | 失败即失败，验证完整后原子发布 |
+| Medium | 位图按目录排序绑定帧，目录变化会漂移 | 使用稳定 Frame 记录保存启停状态 |
+| Medium | 本地视频统一改名 `.mp4` 但不转码 | 保留真实容器/扩展名，或显式转码并验证 |
+| Medium | Nginx SSE 缓冲规则与实际 `/api` 路径不匹配 | 对真实事件端点配置并做部署级断流测试 |
+| Medium | Python 和依赖声明互相冲突 | 选定单一运行时与锁文件，源码/CI/容器一致 |
+| Low | API 文档漏 fingerprint，并把组 YAML 写作 JSON | 不以遗留手写文档作为兼容规范 |
 
-- Update this document when code changes alter the facts it records.
-- Keep content concise and avoid duplicating details owned by another document.
-- Do not invent missing details. Mark unknown information as `Unknown` and explain what evidence is needed.
+## 状态机已知偏差
+
+- 缺失视频文件只会把 `DOWNLOADED`、`READY_FOR_SAMPLING`、`SAMPLED` 修复为 `ERROR`，不会处理已分组或已过滤状态。
+- 配置加载只更新精确等于 `SAMPLED` 的视频，跳过仍可导出的分组/过滤状态。
+- 分组逻辑的默认分支可能把其他状态重置成 `SAMPLED`。
+- 已抽帧视频不能通过正常状态守卫重新抽帧。
+- 下载和抽帧的瞬时 UI 状态与持久业务状态没有可靠任务记录连接。
+
+新状态机实现前应把这些场景写成回归测试，明确保留、修正或通过迁移兼容。
+
+## 算法与性能限制
+
+- 前端“按标注批量启停”逐帧请求标注，复杂度约 O(视频数 × 帧数)。
+- 前端分组是排序后的蛇形分配，不保证各组总帧数最均衡。
+- 超过 1000 个启用帧的视频强制进入训练集，可能使验证集比例明显偏离配置。
+- 抽帧进度通过每 0.5 秒扫描输出目录计算，大目录成本会增长。
+- 本地视频 ID 需要读取全文件 MD5，并截断为 11 个字符。
+
+这些算法不是全部都必须替换；实现前应把当前行为固化为测试，再根据真实数据基准决定。
+
+## 延期功能风险
+
+图片分支依赖遗留 Python 去重脚本、外部模型与同步文件移动。模型权重来源、许可、资源需求和准确率均为 `Unknown`。在视频主链路重构完成前只保留需求与证据，不直接合并实现。
+
+## 修复记录
+
+当前新项目尚无应用修复记录。后续关闭本页问题时应记录：关联变更、验证测试、数据迁移或运维动作，并删除已经不再成立的临时限制。

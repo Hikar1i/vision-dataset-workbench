@@ -1,15 +1,124 @@
-# Architecture
+# 架构
 
-Purpose: Record the current system architecture, module boundaries, dependencies, and important design decisions.
+状态：目标边界已建立，技术选型与实现尚未开始。
 
-Status: Draft
+## 当前仓库状态
 
-## Current Facts
+当前仓库只有项目文档和本地参考材料，没有可运行的前端、后端、数据库或任务服务。因此本页区分：
 
-- Unknown. Replace this line only with verified information from code, runtime output, project owners, or supplied references.
+- 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
+- 目标边界：第一阶段必须满足的职责划分，不代表已有实现。
+- 待决策项：在实现计划中通过原型和基准确认。
 
-## Maintenance Notes
+## 遗留架构基线
 
-- Update this document when code changes alter the facts it records.
-- Keep content concise and avoid duplicating details owned by another document.
-- Do not invent missing details. Mark unknown information as `Unknown` and explain what evidence is needed.
+```text
+Vue 3 SPA
+  ├─ ProjectSelector.vue
+  └─ DatasetManager.vue
+          │ HTTP + SSE
+          ▼
+Flask app.py
+  ├─ 路由、SQL、运行时迁移
+  ├─ 状态流转与文件编排
+  ├─ daemon threads + 内存队列
+  ├─ FFmpeg / ffprobe
+  └─ VideoManager → yt-dlp
+          │
+          ├─ 管理 SQLite
+          └─ 每项目 SQLite + 项目文件目录
+```
+
+遗留前端以两个超大页面组件承载界面、API、并发调度和业务状态。后端除 yt-dlp 封装外，几乎全部集中在约 4500 行的 `app.py`。任务和 SSE 订阅只存在于单进程内存；数据库与文件系统跨阶段更新；没有认证授权。该结构不得作为新项目模块组织模板。
+
+## 第一阶段目标边界
+
+```text
+Web Client
+  ├─ 页面与工作区布局
+  ├─ 按领域拆分的 UI 状态
+  └─ 生成或集中维护的 API Client
+              │ HTTP + 任务事件
+              ▼
+API Application
+  ├─ 身份/权限入口（第一阶段允许最小实现）
+  ├─ 请求校验与响应映射
+  └─ 应用服务编排
+       ├─ Project / Video / Frame / Group / Export 领域规则
+       ├─ Repository + Unit of Work
+       ├─ Storage Gateway
+       └─ Task Gateway
+              │
+      ┌───────┴────────┐
+      ▼                ▼
+Persistent DB      Task Workers
+                       ├─ yt-dlp
+                       ├─ FFmpeg / ffprobe
+                       ├─ 分组文件生成
+                       └─ 数据集导出
+              │
+              ▼
+       Controlled Storage Root
+```
+
+### 前端职责
+
+- 路由页面只组织用户流程，不直接实现业务算法。
+- 项目、媒体、帧、任务、分组和导出使用独立的功能模块。
+- 服务端状态是任务与资源的事实来源；页面本地状态只保存交互状态和可丢弃缓存。
+- 批量操作提交服务端任务，不在浏览器中制造 O(视频数 × 帧数) 的请求瀑布。
+- UI 追求高信息密度、清晰层级和键鼠高效操作，具体设计系统在前端实现前确认。
+
+### API 应用职责
+
+- 校验输入、认证上下文和资源权限。
+- 把 HTTP 契约映射到应用服务，不直接包含 SQL、FFmpeg 或文件复制细节。
+- 所有状态转移调用同一领域规则，查询不得隐式迁移 schema 或修复业务状态。
+- 对跨数据库与文件系统的操作创建持久任务，并暴露明确的部分失败状态。
+
+### 领域职责
+
+- 定义视频工作流状态、合法转移和导出资格。
+- 把采样估算、train/val 划分等算法实现为无 I/O 的可测试函数。
+- 区分持久资源状态与任务运行状态，避免把 `DOWNLOADING` 等瞬时进度写入视频生命周期。
+- 不依赖具体 Web 框架、ORM、任务队列或文件系统实现。
+
+### 基础设施职责
+
+- Repository：持久化领域数据，迁移只通过版本化迁移工具执行。
+- Task Worker：领取有租约的任务，记录心跳、进度、重试和最终结果。
+- Storage Gateway：所有路径都相对配置的存储根解析，拒绝逃逸和任意绝对路径。
+- Media Adapters：隔离 yt-dlp、FFmpeg、ffprobe 的命令构造、超时和错误映射。
+
+## 状态与任务模型
+
+第一阶段保留以下视频业务状态语义：
+
+`INIT` → `DOWNLOADED` → `READY_FOR_SAMPLING` → `SAMPLED`
+
+采样后再根据是否分组、是否过滤进入 `GROUPED`、`FILTERED_UNGROUPED` 或 `FILTERED_GROUPED`；不可恢复的媒体处理失败进入 `ERROR`。最终名称可以在实现时调整，但必须有显式迁移和单元测试。
+
+任务状态与业务状态分离。下载、抽帧、分组和导出至少需要 queued、running、succeeded、failed、canceled；任务记录必须包含类型、资源范围、进度、尝试次数、错误、创建/开始/结束时间和 Worker 租约。
+
+## 一致性原则
+
+- 数据库是资源元数据和任务状态的事实来源；文件存在本身不自动代表业务完成。
+- 文件输出先写临时位置，验证后原子发布；任务重试不得重复破坏已完成结果。
+- 跨资源事务无法原子完成时，记录执行阶段并提供补偿或安全重试。
+- 事件从持久任务状态派生；进程重启和多 Worker 不得丢失最终状态。
+
+## 延期架构
+
+- 多用户完整权限模型在视频主链路稳定后实现，但第一阶段的数据所有权字段和服务边界不得阻止后续加入。
+- 图片数据集能力在视频重构后实现，复用 Dataset、Asset、Annotation、Task 和 Storage 概念，不直接移植遗留分支路由。
+- 在线标注和模型自动标注是独立应用/任务能力，具体推理拓扑与模型格式目前为 `Unknown`。
+
+## 待决策项
+
+- 前后端框架、语言和版本：`Unknown`。
+- 主数据库引擎、ORM/查询层和迁移工具：`Unknown`。
+- 任务执行方式（数据库队列或专用消息队列）：`Unknown`。
+- 事件传输采用 SSE、WebSocket 或两者结合：`Unknown`。
+- 单机、局域网服务器或容器编排平台的首要部署目标：`Unknown`。
+
+这些选型必须由实现复杂度、部署约束和基准数据驱动，不因遗留项目使用 Flask、Vue 或 SQLite 而默认继承。

@@ -1,15 +1,135 @@
 # API
 
-Purpose: Record public and internal API contracts, request/response conventions, auth, and compatibility notes.
+状态：当前仓库尚无 API 实现；本文记录遗留接口范围和新契约约束。
 
-Status: Draft
+## 遗留接口范围
 
-## Current Facts
+遗留 Flask 应用有 46 个路由声明，功能分为以下资源族。
 
-- Unknown. Replace this line only with verified information from code, runtime output, project owners, or supplied references.
+### 项目与设置
 
-## Maintenance Notes
+- `GET/POST /api/projects`
+- `GET/DELETE /api/projects/{project_id}`
+- `GET/PUT /api/projects/{project_id}/settings`
+- `POST /api/projects/read`
+- `POST /api/projects/preview`
+- `POST /api/projects/check-directory`
+- `POST /api/directories/check-project`
 
-- Update this document when code changes alter the facts it records.
-- Keep content concise and avoid duplicating details owned by another document.
-- Do not invent missing details. Mark unknown information as `Unknown` and explain what evidence is needed.
+### 服务端文件浏览
+
+- `POST /api/directories/db-files`
+- `POST /api/directories/video-files`
+- `GET /api/directories`
+- `GET /api/system/home`
+- `GET /api/system/roots`
+- `POST /api/directories/conf-files`
+- `POST /api/directories/txt-files`
+
+这些接口暴露服务端路径模型，仅适合受信任单机环境。新 API 不提供无边界的绝对路径浏览。
+
+### 视频
+
+- 项目视频列表。
+- 从播放列表、单 URL、单本地文件或本地目录导入。
+- 批量或单视频下载。
+- 更新启用状态、备注。
+- 查询状态、播放媒体和读取缩略图。
+
+遗留兼容接口同时存在 `/is-used` 和 `/enabled`。
+
+### 帧
+
+- 帧列表、指纹、图片和标注。
+- 读取/保存帧启停位图。
+- 计算采样与启动抽帧。
+
+### 任务、分组、导出与配置
+
+- 视频级和项目级 SSE。
+- 保存分组并生成组目录。
+- 创建数据集导出。
+- 预览和加载项目配置。
+
+当前前端只消费项目级 SSE。遗留 API 文档漏记帧 fingerprint，并把实际 `groups_conf.yaml` 写成 JSON；因此不能用作新 API 的兼容规范。
+
+### 图片分支
+
+延期图片分支另有图片列表、标签映射、文件读取、目录导入、批量启停、标签过滤和去重接口。它们只进入后续需求设计。
+
+## 新 API 契约原则
+
+### 资源模型
+
+第一阶段 API 围绕以下资源设计：
+
+- projects
+- videos
+- frames
+- sampling plans
+- groups
+- exports
+- tasks
+
+具体 URL、版本前缀和字段尚未批准。实现时优先使用资源 ID 和项目作用域，避免用文件路径作为资源身份。
+
+### 响应与错误
+
+- 成功响应的资源形状保持稳定，不为了统一包装而无条件增加多层 `data`。
+- 错误至少包含稳定机器码、用户可读消息、请求追踪 ID 和可选字段级详情。
+- HTTP 状态码表达请求结果；业务错误不统一伪装为 200。
+- 批量操作返回任务或逐项结果，明确 accepted、skipped、failed，禁止静默部分成功。
+- 时间使用 ISO 8601 UTC；枚举和单位写入 API 规范。
+
+最终错误 schema 和示例：`Unknown`，在 OpenAPI 初稿中确定。
+
+### 分页、过滤与排序
+
+- 视频、帧、任务和导出列表必须分页。
+- 过滤、排序字段使用白名单，并由 API 规范记录。
+- 大批量帧分析由服务端聚合或任务完成，不允许前端逐帧请求形成瀑布。
+- 游标或页码分页方案：`Unknown`，根据数据规模和排序需求决定。
+
+### 长任务
+
+下载、抽帧、分组文件生成和导出不在请求生命周期内完成：
+
+1. 客户端提交命令。
+2. 服务端验证资源状态并创建持久任务。
+3. 返回 `202 Accepted` 和任务资源位置。
+4. 客户端查询任务，或订阅从持久状态派生的事件。
+5. 最终结果通过任务和目标资源共同确认。
+
+任务创建应支持幂等键。事件必须包含任务 ID、项目 ID、事件序号、状态、进度和时间，使客户端断线后可以补读或重新查询。
+
+### 媒体与文件
+
+- 上传、导入、播放、缩略图和帧图片只引用受控资源 ID。
+- 服务端路径必须在存储层解析，拒绝 `..`、符号链接逃逸和根目录外绝对路径。
+- 大文件传输需要 Range 和合理缓存；是否由 API 服务或反向代理直出为 `Unknown`。
+- 本地服务器目录导入若保留，必须限定管理员配置的导入根目录。
+
+### 状态并发
+
+- 修改资源时使用版本号、ETag 或等效乐观并发控制，避免两个页面互相覆盖帧筛选或分组。
+- 服务端验证视频状态转移，客户端显示状态但不决定合法性。
+- 任务启动接口对相同资源和参数必须幂等或明确返回冲突任务。
+
+## 认证与授权
+
+当前尚未选择认证方案。多用户阶段至少要求：
+
+- 每个请求具有可验证的用户身份。
+- 项目列表和项目子资源按成员权限过滤。
+- 查看、编辑、执行任务、导出和管理成员是可区分权限。
+- SSE/WebSocket 与文件下载执行同样的授权检查。
+- 关键写操作记录操作者和请求追踪信息。
+
+第一阶段是否允许单用户模式为 `Unknown`；即使允许，也不得保留全局开放 CORS 和任意文件系统访问。
+
+## 规范与兼容性
+
+- 新 API 应有机器可读规范，前端类型/客户端和文档应从同一契约生成或在 CI 中校验。
+- 遗留 `/api` 路由没有兼容承诺；需要迁移时通过适配工具，而不是永久携带重复接口。
+- 破坏性变更需要版本策略和迁移说明。
+- API 运行方式、OpenAPI 工具和版本策略：`Unknown`，实现前确认。

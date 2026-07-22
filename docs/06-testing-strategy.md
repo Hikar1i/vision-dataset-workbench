@@ -1,15 +1,79 @@
-# Testing Strategy
+# 测试策略
 
-Purpose: Record test levels, commands, coverage expectations, fixtures, and known testing limitations.
+状态：测试目标已定义；当前仓库没有应用代码或测试命令。
 
-Status: Draft
+## 遗留测试基线
 
-## Current Facts
+`dataset-manager-1` 的前后端包清单没有正式测试脚本。仓库中存在 yt-dlp、缩略图和抽帧格式的临时脚本以及历史测试输出，但不能证明当前提交的正确性。
 
-- Unknown. Replace this line only with verified information from code, runtime output, project owners, or supplied references.
+已验证前端生产构建可成功完成，但主 JavaScript chunk 约 1.4 MB，并有大 chunk 警告。构建成功只证明可编译，不代替行为测试。
 
-## Maintenance Notes
+## 测试层级
 
-- Update this document when code changes alter the facts it records.
-- Keep content concise and avoid duplicating details owned by another document.
-- Do not invent missing details. Mark unknown information as `Unknown` and explain what evidence is needed.
+### 单元测试
+
+优先覆盖无 I/O 业务规则：
+
+- 视频状态的合法和非法转移。
+- 三种采样模式、边界时长、FPS 和参数限制。
+- train/val 视频级划分与目标比例偏差。
+- 帧启停、分组与导出资格推导。
+- 路径解析、ID 和配置校验。
+
+### 数据与迁移测试
+
+- 在空数据库上执行全部迁移。
+- 从每个受支持的前一版本升级。
+- 对真实 schema 的脱敏样本执行遗留项目导入预览。
+- 验证外键、唯一约束、任务领取竞争和租约过期。
+- 迁移失败必须回滚或留下可诊断状态。
+
+### API 集成测试
+
+- 项目、视频、帧、分组、导出和任务的正常路径。
+- 参数错误、资源不存在、冲突、权限不足和部分失败。
+- 分页、过滤、排序、幂等键和乐观并发。
+- 文件下载的 Range、路径安全与内容类型。
+- 事件断线重连后能从任务资源恢复最终状态。
+
+### Worker 与媒体集成测试
+
+- 用短小、仓库可生成的测试视频验证 ffprobe 和 FFmpeg。
+- yt-dlp 网络行为默认使用假适配器；少量真实网络冒烟测试单独运行，不作为普通单元测试前提。
+- 验证任务成功、超时、进程终止、重试、取消和重复领取。
+- 验证临时输出发布、磁盘写失败和数据库提交失败后的清理/补偿。
+
+### 前端测试
+
+- 组件测试覆盖表单、状态、错误、空数据和权限差异。
+- API 客户端使用契约样本测试序列化和错误映射。
+- 端到端测试覆盖创建项目到导出数据集的主路径。
+- 批量操作测试请求数量，防止恢复逐帧请求瀑布。
+- 关键工作区做键盘操作和基础可访问性检查。
+
+## 必测工作流
+
+1. 创建项目并导入本地视频。
+2. 远程视频下载失败后重试成功。
+3. 计算采样、抽帧、重启服务并恢复任务结果。
+4. 筛选部分帧、分组并导出 train/val。
+5. 两个客户端并发修改同一资源时检测冲突。
+6. 路径逃逸、越权访问和跨项目任务订阅被拒绝。
+
+图片、在线标注和自动标注测试在对应功能进入实现范围时补充。
+
+## Fixtures
+
+- 媒体 fixture 应尽量用测试过程生成，体积小且许可明确。
+- 数据库 fixture 通过迁移或工厂创建，不长期保存来源不明的二进制数据库。
+- 遗留兼容 fixture 放在专门测试资源中并脱敏，不直接依赖 `.ai-local/references/`。
+- 测试目录必须隔离，完成后只删除由该测试显式创建的路径。
+
+## 质量门槛
+
+- 每个缺陷修复先有可复现测试。
+- 新状态转移、迁移和权限规则必须有正反例。
+- 覆盖率数字不是唯一门槛；核心领域分支和失败路径必须显式枚举。
+- 合并前至少运行格式、静态检查、单元、集成和前端构建。
+
+测试框架、覆盖率阈值和命令：`Unknown`，待技术栈建立后更新。

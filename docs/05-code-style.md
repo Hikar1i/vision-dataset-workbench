@@ -1,15 +1,55 @@
-# Code Style
+# 代码规范
 
-Purpose: Record project-specific coding rules that cannot be reliably inferred from the codebase.
+状态：适用于后续重构；语言专用格式规则待技术选型后补充。
 
-Status: Draft
+## 通用原则
 
-## Current Facts
+- 优先实现当前已确认需求，避免为未来数据类型或部署方式预建通用框架。
+- 一个模块只有一个清晰职责；页面、路由、领域规则、SQL、后台任务和文件操作不得重新集中到单个大文件。
+- 让业务规则可独立测试，采样、状态转移和数据集划分等纯逻辑不得依赖 Web 请求或数据库连接。
+- 对外部系统的调用集中到适配器；yt-dlp、FFmpeg、文件系统和任务执行器不渗入领域模型。
+- 注释解释原因、约束和不直观行为，不复述代码。
 
-- Unknown. Replace this line only with verified information from code, runtime output, project owners, or supplied references.
+## 后端约束
 
-## Maintenance Notes
+- HTTP handler 只负责输入、权限、应用服务调用和响应映射，不直接执行 SQL 或 shell 命令。
+- 所有视频状态变更通过同一状态机入口；禁止在查询接口中修复状态或执行 DDL。
+- 捕获具体异常并保留上下文。不得使用静默的宽泛 `except` 把部分失败伪装为成功。
+- 跨数据库与文件系统的操作必须显式记录阶段，并提供幂等重试或补偿。
+- 外部命令使用参数数组和受控环境，不拼接 shell 字符串；设置超时并记录退出码和受限日志。
+- 所有文件引用先经过存储网关解析，验证解析后路径仍在配置根目录内。
+- API 使用稳定枚举和带单位的字段名，不依赖前端猜测隐式默认值。
+- 新 schema 只通过版本化迁移修改。
 
-- Update this document when code changes alter the facts it records.
-- Keep content concise and avoid duplicating details owned by another document.
-- Do not invent missing details. Mark unknown information as `Unknown` and explain what evidence is needed.
+## 前端约束
+
+- 页面负责组合功能模块，不直接散布 HTTP 请求和领域算法。
+- API 调用集中在按资源拆分的客户端层，契约类型来自机器可读规范或由 CI 校验。
+- 服务端资源、任务进度、表单草稿和纯视觉状态分开管理。
+- 批量工作提交一个服务端命令或受控批量接口，不逐帧产生请求瀑布。
+- 组件优先使用明确输入和事件；共享状态只服务于确实跨页面或跨功能的资源。
+- 错误、空状态、加载、部分成功和权限不足必须具有独立 UI 表达。
+- 保持键盘可达、可见焦点、语义标签和足够对比度。
+
+## 命名与数据表达
+
+- 领域名称在数据库、API、后端和前端保持一致；同一概念不同时出现 `enabled`、`is_used` 等近义字段。
+- ID 是稳定身份，不承载文件路径、列表位置或可变显示名称。
+- 时间统一为 UTC，持续时间、帧率、字节数等字段明确单位。
+- 任务运行状态与视频业务状态使用不同类型。
+- `Unknown` 只用于文档中的未决事实，不作为运行时兜底值。
+
+## 规模与拆分
+
+不设机械行数上限，但出现以下情况时应拆分：
+
+- 文件同时处理 UI、网络、业务规则和持久化中的多个层级。
+- 修改一个功能需要理解无关流程。
+- 测试只能通过启动整个应用执行。
+- 同一状态、API 路径或辅助函数出现重复定义。
+
+拆分应围绕业务职责，而不是建立只有转发作用的抽象层。
+
+## 工具与自动检查
+
+格式化器、静态检查器、类型检查器和命令：`Unknown`，待语言与框架确定后写入本页和 CI。项目必须使用仓库内固定配置，禁止依赖开发者编辑器的隐式规则。

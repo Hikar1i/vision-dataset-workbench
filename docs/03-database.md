@@ -1,15 +1,102 @@
-# Database, Tables, and Migrations
+# 数据库
 
-Purpose: Record database engines, schema ownership, migration commands, table notes, and data caveats.
+状态：当前仓库尚无数据库实现；本文记录遗留 schema 和新实现的数据约束。
 
-Status: Draft
+## 当前数据库选型
 
-## Current Facts
+新项目数据库引擎、访问层和迁移工具均为 `Unknown`。实现前需结合多用户并发、任务锁、部署目标和历史项目迁移需求确认。
 
-- Unknown. Replace this line only with verified information from code, runtime output, project owners, or supplied references.
+## 遗留数据库基线
 
-## Maintenance Notes
+遗留项目使用一个管理 SQLite 和每项目一个 SQLite。
 
-- Update this document when code changes alter the facts it records.
-- Keep content concise and avoid duplicating details owned by another document.
-- Do not invent missing details. Mark unknown information as `Unknown` and explain what evidence is needed.
+### 管理数据库
+
+代码定义的 `projects` 表包含：
+
+| 字段 | 含义 |
+| --- | --- |
+| `project_id` | 项目主键 |
+| `name` | 唯一项目名 |
+| `description` | 描述 |
+| `root_path` | 项目根目录 |
+| `db_path` | 项目数据库路径 |
+| `created_at` / `updated_at` | 时间戳 |
+
+实际参考数据库还存在 `dataset_type`，并同时包含 video 与 image 记录，但当前 `develop` 代码没有稳定管理该字段。这是历史/分支差异，不是新项目 schema。
+
+### 项目数据库
+
+- `project_info`：项目 ID、名称、描述、根路径和创建时间。
+- `videos`：视频身份、来源、媒体信息、启用状态、业务状态、采样参数、帧位图、备注、播放列表信息和时间戳。
+- `settings`：项目级键值设置。
+
+`group_id`、`frame_bitmap` 及旧 ID/`enabled` 迁移由视频列表查询临时执行。部分异常被忽略，没有 schema 版本表、外键或业务索引。这些行为只用于理解历史数据，不得在新实现中复用。
+
+### 图片分支表
+
+延期实现的图片分支包含以下原型表：
+
+- `images`：文件、标签相对路径、拆分、启用状态、宽高。
+- `image_label_mappings`：类别 ID 到类别名。
+- `duplicate_groups`：去重方法、相似度和保留图片。
+- `duplicate_group_items`：重复组成员及移动结果。
+
+它们是需求证据，不是已批准的新 schema。
+
+## 遗留数据注意事项
+
+- 项目数据库可能随项目目录移动；重新读取时遗留代码会修改 `root_path`。
+- 视频 `frame_bitmap` 使用 LSB-first；空值代表所有帧启用。
+- 位图位置依赖目录中文件排序，文件变化会改变其语义。
+- 本地视频 ID 是全文件 MD5 的 Base64URL 截断值。
+- 项目删除只删管理数据库注册，不删除项目文件或项目数据库。
+- 同一历史目录中可能存在不同版本的 schema。
+
+## 新实现的最小数据概念
+
+最终表名和字段在数据库选型后确定，但第一阶段至少需要表达：
+
+| 概念 | 最小职责 |
+| --- | --- |
+| Dataset Project | 项目身份、类型、存储位置、生命周期 |
+| Video Asset | 来源、稳定身份、媒体元数据、业务状态、启用状态 |
+| Frame Asset | 稳定帧身份、视频关系、序号/时间、文件引用、启用状态 |
+| Sampling Plan | 模式、输入参数、计算结果和版本 |
+| Group / Membership | 组及视频成员关系 |
+| Export | 导出参数、输出位置、结果摘要和任务关系 |
+| Task | 类型、状态、进度、重试、错误、租约和时间戳 |
+| Project Setting | 类型化或受约束的项目配置 |
+
+多用户阶段还需要 User、Project Membership、Role/Permission 与 Audit Event。是否第一阶段预建所有身份表为 `Unknown`；不得提前实现未确认的复杂权限层级。
+
+## 关系与约束要求
+
+- 业务关系使用外键或等效的数据库约束。
+- 项目内自然唯一性必须显式表达，例如视频来源幂等键、帧序号和导出名称规则。
+- 任务领取需要支持原子竞争、租约过期和重试计数。
+- 媒体文件只在数据库保存受控存储根下的相对引用，不保存客户端提交的任意服务端绝对路径。
+- 帧启停应绑定稳定帧记录，不继续用目录位置位图作为唯一事实来源。
+- 时间统一保存为带时区的 UTC 时间，API 输出采用 ISO 8601。
+
+## 迁移规则
+
+- 所有 schema 变更使用版本化迁移文件，并进入代码评审。
+- 应用启动可以检查迁移版本，但普通读取接口不得执行 DDL。
+- 生产升级先备份、再迁移、再启动新版本；回滚能力必须在部署文档中说明。
+- 迁移应在空库和前一受支持版本的真实样本上测试。
+- 破坏性迁移需要显式数据转换和验证查询，禁止吞掉错误继续运行。
+
+迁移命令：`Unknown`，待数据库和迁移工具确定后补充。
+
+## 遗留项目导入原则
+
+历史项目兼容应通过单独的只读扫描和显式导入流程完成：
+
+1. 识别 schema 版本和项目根目录。
+2. 生成导入预览，报告视频、帧、分组、配置和缺失文件。
+3. 在目标数据库事务内导入元数据。
+4. 校验或登记文件引用，不原地修改来源数据库。
+5. 输出可审计报告，失败时不留下半注册项目。
+
+是否在第一阶段交付遗留导入工具：`Unknown`，需根据真实历史项目迁移需求确认。
