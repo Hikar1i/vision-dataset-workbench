@@ -1,10 +1,12 @@
 from fastapi import FastAPI
 
 from .api.auth import router as auth_router
+from .api.projects import router as projects_router
 from .api.registrations import router as registrations_router
 from .api.setup import router as setup_router
 from .config import RuntimeSettings
 from .services.auth import build_auth_service
+from .services.projects import ProjectService
 from .services.setup import SetupService
 from .setup.tokens import SetupToken
 from .storage.locator import WorkspaceLocator, default_locator_path
@@ -30,14 +32,21 @@ def create_app(
     app = FastAPI(title="Vision Dataset Workbench", version="0.1.0")
     app.state.settings = resolved_settings
     app.state.workspace = workspace
-    app.state.auth_service = (
+    auth_service = (
         build_auth_service(workspace, resolved_settings) if workspace is not None else None
+    )
+    app.state.auth_service = auth_service
+    app.state.project_service = (
+        ProjectService(auth_service.engine, resolved_settings, workspace)
+        if auth_service is not None and workspace is not None
+        else None
     )
     app.state.setup_token = token
     app.state.setup_service = SetupService(resolved_settings.home, resolved_locator, token)
     app.include_router(setup_router)
     app.include_router(auth_router)
     app.include_router(registrations_router)
+    app.include_router(projects_router)
 
     @app.get("/api/v1/health")
     def health() -> dict[str, str]:

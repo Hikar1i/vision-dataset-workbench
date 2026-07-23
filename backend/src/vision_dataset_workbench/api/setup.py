@@ -2,6 +2,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ..services.auth import build_auth_service
+from ..services.projects import ProjectService
 from ..services.setup import SetupConflict, SetupService
 from ..setup.tokens import InvalidSetupToken
 from ..storage.paths import HomePathResolver, UnsafePathError
@@ -123,5 +124,10 @@ def initialize(
     request.app.state.workspace = workspace
     request.app.state.auth_service = build_auth_service(
         workspace, request.app.state.settings
+    )
+    request.app.state.project_service = ProjectService(
+        request.app.state.auth_service.engine,
+        request.app.state.settings,
+        workspace,
     )
     return {"initialized": True, "workspace": ".vision-dataset-workbench"}
