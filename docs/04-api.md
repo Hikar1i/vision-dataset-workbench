@@ -1,6 +1,6 @@
 # API
 
-状态：`/api/v1` 健康检查、首次初始化、认证、注册审批、用户管理以及项目成员接口已实现；媒体与数据集资源仍为批准设计。
+状态：`/api/v1` 初始化、认证、用户、项目、文件浏览、视频导入、任务和视频读取接口已实现；采样帧、标注和导出仍为批准设计。
 
 ## 当前接口
 
@@ -27,8 +27,21 @@
 | `POST /api/v1/projects/{id}/members` | owner + 同源 | 按用户名添加已有有效账号 |
 | `PATCH /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 在 editor/viewer 间切换角色 |
 | `DELETE /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 移除 editor/viewer，返回 204 |
+| `GET /api/v1/filesystem` | Session | 按 `kind=directory/video` 浏览 `~` 内目录和视频 |
+| `POST /api/v1/filesystem/directories` | Session + 同源 | 在 `~` 边界内新建目录 |
+| `GET /api/v1/projects/{id}/videos` | 项目成员 | 分页读取视频及媒体元数据 |
+| `POST /api/v1/projects/{id}/imports/local/preview` | owner/editor + 同源 | 预览单文件或目录第一层视频，不递归 |
+| `POST /api/v1/projects/{id}/imports/local` | owner/editor + 同源 | 批量创建本地复制任务，返回 202 |
+| `POST /api/v1/projects/{id}/imports/remote/preview` | owner/editor + 同源 | 用 yt-dlp 解析 HTTP(S) 单视频或播放列表 |
+| `POST /api/v1/projects/{id}/imports/remote` | owner/editor + 同源 | 为已选远程条目创建下载任务，返回 202 |
+| `GET /api/v1/projects/{id}/tasks` | 项目成员 | 分页读取持久任务、进度和错误 |
+| `POST /api/v1/projects/{id}/tasks/{task_id}/cancel` | owner/editor + 同源 | 取消 queued 任务或请求 running 任务协作取消 |
+| `POST /api/v1/projects/{id}/tasks/{task_id}/retry` | owner/editor + 同源 | 为 failed/canceled 任务创建新任务，返回 201 |
+| `GET /api/v1/projects/{id}/videos/{video_id}/content` | 项目成员 | 播放原始视频，支持 HTTP Range |
+| `GET /api/v1/projects/{id}/videos/{video_id}/download` | 项目成员 | 下载原始视频 |
+| `GET /api/v1/projects/{id}/videos/{video_id}/thumbnail` | 项目成员 | 读取 Worker 生成/下载的 JPEG 缩略图 |
 
-目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户列表参数为 `status`、`page`、`page_size`，最大页大小 200。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
+目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接，并从列表隐藏当前工作区。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户、项目、视频和任务列表最大页大小 200。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
 
 认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误、状态或模式限制。禁用账号立即撤销其会话，且不能禁用最后一个有效系统管理员。
 
@@ -41,8 +54,15 @@
 | 查看项目与成员 | 是 | 是 | 是 |
 | 修改项目名称、描述 | 是 | 是 | 否 |
 | 添加、改角色、移除成员 | 是 | 否 | 否 |
+| 浏览 `~` 内文件/目录、新建目录 | 是 | 是 | 是 |
+| 查看、播放、下载项目原始视频 | 是 | 是 | 是 |
+| 查看项目任务 | 是 | 是 | 是 |
+| 预览/导入本地或远程视频 | 是 | 是 | 否 |
+| 取消/重试视频导入任务 | 是 | 是 | 否 |
 
-后续媒体 API 必须延续已确认的 viewer 边界：可查看项目信息、原始视频、采样帧、标注框和已有导出产物，可播放和下载原始视频、下载已有导出产物；不可添加或导入视频、改变采样策略、重新采样、启停视频或帧、标注或创建新导出。
+当前已实现 viewer 查看、播放和下载原始视频，以及查看任务。后续 API 必须继续允许 viewer 查看采样帧、标注框和下载已有导出产物；不得允许其添加或导入视频、改变采样策略、重新采样、启停视频或帧、标注、管理任务或创建新导出。
+
+本地导入可提交单文件或目录预览返回的路径，目录只扫描第一层。远程导入只接受 HTTP/HTTPS，允许局域网 HTTP；播放列表解析后由用户选择条目再提交。批量响应分别列出 `accepted`、`skipped` 和 `rejected`。本地文件在 Worker 中计算完整 SHA-256，远程文件以 yt-dlp extractor + 原始 ID 在项目内判重；重复任务以成功但 skipped 的结果结束，不新增重复 Video。
 
 ## 遗留接口范围
 

@@ -1,6 +1,6 @@
 # 环境与启动
 
-状态：后端、前端、首次初始化和认证模式可在开发环境运行；Worker 和部署启动器尚未实现。
+状态：后端、前端、首次初始化、认证模式和视频 Worker 可在开发环境运行；正式部署启动器尚未实现。
 
 ## 当前可执行操作
 
@@ -18,7 +18,14 @@ cd frontend && npm install
 cd frontend && npm run dev
 ```
 
-默认地址为后端 `http://127.0.0.1:38000`、前端 `http://127.0.0.1:35173`。前端端口被占用时会直接报错，不会静默切换端口。后端未初始化时在终端输出一次性口令；前端向导使用该口令浏览启动用户的 `~`、新建目录、创建工作区和首个管理员。按 `Ctrl+C` 停止开发进程。
+在独立终端启动任务 Worker：
+
+```bash
+cd backend
+uv run python -m vision_dataset_workbench.worker
+```
+
+默认地址为后端 `http://127.0.0.1:38000`、前端 `http://127.0.0.1:35173`。前端端口被占用时会直接报错，不会静默切换端口。后端未初始化时在终端输出一次性口令；前端向导使用该口令浏览启动用户的 `~`、新建目录、创建工作区和首个管理员。Worker 与 API 必须使用相同的 `HOME`、`VDW_WORKSPACE` 和媒体配置。按 `Ctrl+C` 停止各开发进程。
 
 需要从局域网访问时，可显式使用 `uvicorn ... --host 0.0.0.0 --port 38000`，并让前端或反向代理保持 `/api` 同源。系统不提供 IP 白名单，访问控制依赖用户名、密码和服务端 Session。
 
@@ -74,15 +81,18 @@ cd frontend && npm run build
 APP_MODE=multi|single
 REGISTRATION_ENABLED=false|true
 VDW_WORKSPACE=<workspace-path>
+YTDLP_PROXY=<optional-proxy-url>
+YTDLP_COOKIE_FILE=<optional-netscape-cookie-file>
 ```
 
 - 默认 `multi`。
 - `single` 只允许初始化管理员使用用户名和密码登录。
 - 两种模式共用数据库和项目成员数据。
 - 模式切换后重启生效。
-- CLI 参数或 `VDW_WORKSPACE` 优先于平台工作区定位文件。
+- `VDW_WORKSPACE` 优先于平台工作区定位文件；当前 API 启动命令没有单独的工作区 CLI 参数。
+- yt-dlp 默认不使用代理或 Cookie；仅在实例确有需要时配置上述两个变量。
 
-三个变量均已实现。布尔值只接受 `true` 或 `false`；`APP_MODE=single` 与 `REGISTRATION_ENABLED=true` 同时出现会使应用启动失败。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
+上述五个变量均已实现。布尔值只接受 `true` 或 `false`；`APP_MODE=single` 与 `REGISTRATION_ENABLED=true` 同时出现会使应用启动失败。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
 
 管理员忘记密码时，先停止 API，再在终端交互式重置；密码不会出现在命令参数中：
 
@@ -95,7 +105,7 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 
 ## 配置类别
 
-除 `VDW_WORKSPACE` 外，变量名在对应功能实现后确定；目标类别包括：
+除已列出的变量外，后续变量名在对应功能实现后确定；目标类别包括：
 
 | 类别 | 内容 |
 | --- | --- |
@@ -115,7 +125,6 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 后续仍需补充可复制执行的：
 
 - 依赖安装与版本检查。
-- 独立 Worker 启动。
 - 全栈容器启动。
 - 原生生产进程和 Windows 启动器。
 
@@ -123,4 +132,4 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 
 ## 外部工具验证
 
-启动时应验证 FFmpeg、ffprobe 和可选 yt-dlp 的存在与版本。运行时版本必须与容器和 CI 基线一致；不得重现遗留项目中 README、pyproject 和 Docker 分别声明不同 Python 版本的情况。
+视频导入要求 `ffmpeg`、`ffprobe` 可执行；yt-dlp 是后端锁定的 Python 依赖。当前真实链路已验证三者可完成媒体探测、缩略图、本地复制和 HTTP 下载，但启动时的显式能力检查仍待实现。运行时版本必须与容器和 CI 基线一致；不得重现遗留项目中 README、pyproject 和 Docker 分别声明不同 Python 版本的情况。

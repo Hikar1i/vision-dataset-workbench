@@ -1,6 +1,6 @@
 # 数据库
 
-状态：工作区 SQLite、`users`、`sessions`、`projects` 和 `project_memberships` 迁移已实现；其余领域 schema 仍为批准设计。
+状态：工作区 SQLite、账号/会话、项目/成员、`videos` 和 `tasks` 迁移已实现；帧、采样、标注和导出 schema 仍为批准设计。
 
 ## 数据库选型
 
@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -59,7 +59,38 @@ SQLite 不保留时区偏移，当前认证表按 naive UTC 持久化，API 输�
 | `role` | 仅允许 `editor` 或 `viewer` |
 | `created_at` | 加入项目时间 |
 
-owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过成员接口转移、降级或移除。创建项目时同步创建空的 `projects/<project UUID>/` 目录；当前尚无媒体子目录和项目删除流程。
+owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过成员接口转移、降级或移除。创建项目时同步创建空的 `projects/<project UUID>/` 目录；`videos/` 和 `thumbnails/` 由 Worker 首次发布对应文件时创建。当前尚无项目删除流程。
+
+`videos` 表保存受管原始视频：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `project_id` | 视频 UUID 及所属项目外键 |
+| `source_type` | `local` 或 `remote` |
+| `title` / `source_name` / `source_url` | 显示标题、原文件名和规范化远程 URL |
+| `extractor` / `external_id` | yt-dlp 提取器与原始媒体 ID；项目内组合唯一 |
+| `content_sha256` | 本地文件完整 SHA-256；项目内唯一 |
+| `file_path` / `thumbnail_path` | 工作区内相对路径，不保存导入源绝对路径 |
+| `duration` / `width` / `height` / `fps` / `total_frames` / `file_size` | ffprobe 与文件系统确认的媒体元数据 |
+| `status` | `pending`、`ready` 或 `unavailable` |
+| `version` / 时间字段 | 资源版本和创建、更新时间 |
+
+本地重复内容和远程重复身份通过 SQLite partial unique index 约束。复制/下载成功前视频保持 `pending`；Worker 验证文件与元数据后才写入受管路径并切换为 `ready`。
+
+`tasks` 表当前承载 `copy_video` 和 `download_video`：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `project_id` / `submitted_by_id` / `video_id` | 任务、项目、提交者和目标视频关系 |
+| `type` | `copy_video` 或 `download_video` |
+| `status` | `queued`、`running`、`succeeded`、`failed` 或 `canceled` |
+| `payload` / `result` | JSON 文本；分别保存执行输入和最终摘要 |
+| `progress` / `error` / `cancel_requested` | 0–100 进度、安全错误文本和协作取消标记 |
+| `attempts` / `retry_of_id` | 实际领取次数和重试来源 |
+| `lease_owner` / `lease_expires_at` | Worker 租约；过期的 running 任务可重新排队 |
+| 时间字段 | 创建、开始、结束和更新时间 |
+
+同一视频只允许一个 queued/running 任务。重试创建新 Task 并复用原 Video，保留失败或取消记录用于追踪。
 
 初始化服务先在目标父目录创建同文件系统临时目录，执行迁移并写入管理员，成功后原子重命名为 `.vision-dataset-workbench`。定位文件写入失败时会删除未发布工作区，口令保持可重试。
 

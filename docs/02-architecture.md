@@ -1,10 +1,10 @@
 # 架构
 
-状态：总体设计已批准，首次初始化、账号认证和项目成员权限已实现。
+状态：总体设计已批准，初始化、认证、项目权限和视频导入/播放主链路已实现。
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号认证与用户管理、项目与成员管理、三版 SQLite 迁移和安全路径组件；媒体资源与独立 Worker 尚未实现。因此本页区分：
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、四版 SQLite 迁移、安全路径组件、媒体资源和独立 Worker。采样、帧、标注批次、导出和 GPU 能力仍是目标设计。因此本页区分：
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -13,19 +13,28 @@
 ## 当前应用基础
 
 ```text
-Vue setup/auth/admin pages
+Vue setup/auth/admin/project/media pages
   ├─ /api/v1/setup/* → SetupService → HomePathResolver / WorkspaceLocator
   ├─ /api/v1/auth + registrations + admin/users → AuthService
   │    ├─ Argon2 password verification
   │    ├─ SHA-256 token digest + SQLite sessions
   │    └─ User registration/status transitions
-  └─ /api/v1/projects + members → ProjectService
-       ├─ private project visibility + role checks
-       ├─ optimistic version updates
+  ├─ /api/v1/projects + members → ProjectService
+  │    ├─ private project visibility + role checks
+  │    └─ optimistic version updates
+  ├─ /api/v1/filesystem → HomePathResolver
+  └─ /api/v1/projects/<id>/videos|imports|tasks → MediaService
+       ├─ SQLite Video / Task state
+       ├─ authenticated playback, Range and download
        └─ workspace/projects/<project UUID>
+
+Independent Python Worker
+  ├─ SQLite lease / progress / cancel / retry
+  ├─ local copy + SHA-256 + ffprobe + FFmpeg thumbnail
+  └─ yt-dlp HTTP(S) download + remote identity deduplication
 ```
 
-API 请求只负责校验和映射，工作区创建、认证状态流转和项目授权由应用服务编排；数据库和管理员先写入同文件系统临时目录，再原子发布。初始化后认证与项目服务立即启用，无需重启。审计表、媒体服务和持久任务 Worker 尚未实现。
+API 请求只负责校验和映射，工作区创建、认证状态流转、项目授权和媒体命令由应用服务编排；数据库和管理员先写入同文件系统临时目录，再原子发布。视频导入请求只创建持久任务并立即返回，文件复制、下载和媒体探测在独立 Worker 中执行。审计表、采样帧和导出尚未实现。
 
 ## 遗留架构基线
 
@@ -48,7 +57,7 @@ Flask app.py
 
 遗留前端以两个超大页面组件承载界面、API、并发调度和业务状态。后端除 yt-dlp 封装外，几乎全部集中在约 4500 行的 `app.py`。任务和 SSE 订阅只存在于单进程内存；数据库与文件系统跨阶段更新；没有认证授权。该结构不得作为新项目模块组织模板。
 
-## 已批准的目标架构
+## 当前与已批准的扩展架构
 
 ```text
 Vue 3 + TypeScript Client
@@ -62,7 +71,7 @@ FastAPI Application
   ├─ 请求校验与响应映射
   └─ 应用服务编排
        ├─ Project / Video / Frame / AnnotationBatch / Export
-       ├─ Repository + Unit of Work
+       ├─ SQLAlchemy services（当前）
        ├─ Storage Gateway
        └─ Task Gateway
               │
@@ -109,13 +118,13 @@ SQLite             Persistent Worker
 
 ## 状态与任务模型
 
-视频生命周期简化为：
+当前已实现的视频生命周期为：
 
-`pending_download` → `ready` → `sampling_configured` → `sampled`
+`pending` → `ready`
 
-下载或抽帧失败记录在 Task，视频保留在可重试的前一状态；文件确实丢失时标记 `unavailable`。是否启用属于 Video，筛选由 Frame 推导，外部标注分组由 AnnotationBatch 表达，不再组合进视频状态。
+复制或下载失败记录在 Task，视频保留为 `pending` 供重试；文件确实不可用时预留 `unavailable`。采样、启停和帧筛选状态将在对应领域表实现，外部标注分组由 AnnotationBatch 表达，不再组合进视频状态。
 
-任务状态与业务状态分离。下载、复制、抽帧、标注同步和导出使用 queued、running、succeeded、failed、canceled；任务记录包含类型、提交者、资源范围、进度、尝试次数、错误、租约、心跳和时间。
+任务状态与业务状态分离。当前复制、下载使用 queued、running、succeeded、failed、canceled；任务记录包含类型、提交者、资源范围、进度、尝试次数、错误、取消标记、租约和时间。抽帧、标注同步和导出后续复用该状态模型。
 
 ## 一致性原则
 
@@ -132,9 +141,25 @@ SQLite             Persistent Worker
 - 所有模式共用用户、权限和数据，单用户模式临时以工作区管理员访问全部项目。
 - 所有受管理数据位于 `<parent>/.vision-dataset-workbench/`。
 - 所有认证用户可浏览启动用户 `~`，导入后复制到工作区；API 不暴露绝对路径。
+- Worker 与 API 读取同一 SQLite 和工作区。本地复制与远程下载分别全局并发 2，同类型每用户并发 1；当前只部署一个调度 Worker。
+- 项目媒体位于 `projects/<project UUID>/videos/`，缩略图位于 `projects/<project UUID>/thumbnails/`；执行中输出位于顶层 `tmp/<task UUID>/`，验证后原子发布。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
 - Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
 - 只支持单机本地磁盘，不支持跨服务器 Worker 或网络文件系统上的 SQLite。
+
+当前及后续项目目录约定：
+
+```text
+projects/<project UUID>/
+├─ videos/                         # 已实现：受管原始视频
+├─ thumbnails/                     # 已实现：视频缩略图
+├─ frames/<video UUID>/            # 计划：规范采样帧
+├─ labels/<video UUID>/            # 计划：规范标签
+├─ annotation-batches/<batch UUID>/ # 计划：外部并行标注批次
+└─ exports/<export UUID>/           # 计划：不可变数据集导出
+```
+
+遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应后续 `exports/<export UUID>/`；遗留 `groups/` 不作为普通数据目录照搬，而对应后续 `annotation-batches/<batch UUID>/`。后者保留将采样帧分片、并行启动多个 X-AnyLabeling/DINO 实例的用途；内置自动标注直接由任务调度器分片，不依赖该物化目录。
 
 ## 延期架构
 

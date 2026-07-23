@@ -1,6 +1,6 @@
 # 部署
 
-状态：开发启动命令已实现；systemd、Windows 启动器、Docker Compose 和 Worker 部署产物尚未实现。
+状态：API、前端和独立 Worker 开发启动命令已实现；systemd、Windows 启动器和 Docker Compose 部署产物尚未实现。
 
 ## 目标部署
 
@@ -19,7 +19,7 @@
 - Docker Compose 使用 API 和 Worker 服务，共享本机工作区挂载。
 - Docker 基础配置不要求 GPU；可选 GPU 配置只向 Worker 暴露设备。
 
-当前只能按[环境与启动](08-environments.md)运行开发服务器，不应将 Vite 开发服务器或 Uvicorn `--reload` 用作生产部署。
+当前可按[环境与启动](08-environments.md)运行 API、前端和 Worker，但尚无受进程管理器监管的正式部署产物。不应将 Vite 开发服务器或 Uvicorn `--reload` 用作长期部署。
 
 ## 遗留部署风险
 
@@ -34,11 +34,12 @@
 - 所有环境差异通过环境变量或部署平台的密钥机制注入。
 - 数据库密码、会话密钥、对象存储凭据、代理认证和镜像仓库凭据不得进入 Git。
 - 配置启动时校验；缺失必需值时快速失败并给出变量名，不打印密钥值。
-- CORS 使用明确来源白名单，不能沿用全开放配置。
-- 媒体存储根、导入根和临时目录使用不同配置并验证权限。
+- 当前不启用 CORS；浏览器通过同源前端/反向代理访问 API。
+- 媒体存储和任务临时目录均受工作区根约束；外部导入只在启动用户 `~` 内解析。
 - 所有运行模式都要求用户名和密码；当前不提供无认证入口。
 - 当前认证使用数据库可撤销 Session，部署时不需要共享浏览器 Token；不得记录 `vdw_session` Cookie 或数据库中的 token 摘要。
 - 当前同源校验直接使用请求 scheme 与 Host，不支持可信代理头。引入 TLS 终止代理前必须先明确并测试代理边界。
+- `YTDLP_PROXY` 可配置实例级代理，`YTDLP_COOKIE_FILE` 可指向 Netscape Cookie 文件；二者可能包含敏感信息，不得写入日志或仓库。
 
 ## 发布流程要求
 
