@@ -19,4 +19,60 @@ describe('setup routing', () => {
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/setup')
   })
+
+  it('redirects an initialized anonymous user to login', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => {
+        if (path.includes('/setup/')) {
+          return Promise.resolve({ ok: true, json: async () => ({ initialized: true }) })
+        }
+        if (path.includes('/auth/status')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ mode: 'multi', registration_enabled: false }),
+          })
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: async () => ({ detail: 'authentication required' }),
+        })
+      }),
+    )
+    const router = createAppRouter()
+    await router.push('/ready')
+    await router.isReady()
+    expect(router.currentRoute.value.path).toBe('/login')
+  })
+
+  it('redirects an authenticated user away from login', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => {
+        if (path.includes('/setup/')) {
+          return Promise.resolve({ ok: true, json: async () => ({ initialized: true }) })
+        }
+        if (path.includes('/auth/status')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ mode: 'multi', registration_enabled: false }),
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'admin-id',
+            username: 'admin',
+            status: 'active',
+            is_system_admin: true,
+          }),
+        })
+      }),
+    )
+    const router = createAppRouter()
+    await router.push('/login')
+    await router.isReady()
+    expect(router.currentRoute.value.path).toBe('/ready')
+  })
 })

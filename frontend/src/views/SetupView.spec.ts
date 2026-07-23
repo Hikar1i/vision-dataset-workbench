@@ -39,6 +39,6 @@ describe('SetupView', () => {
       '/api/v1/setup/initialize',
       expect.objectContaining({ method: 'POST' }),
     )
-    expect(replace).toHaveBeenCalledWith('/ready')
+    expect(replace).toHaveBeenCalledWith('/login')
   })
 })

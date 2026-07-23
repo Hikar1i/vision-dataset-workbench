@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import { ApiError, getAuthStatus, getCurrentUser } from './api/auth'
 import { getSetupStatus } from './api/setup'
+import LoginView from './views/LoginView.vue'
 import ReadyView from './views/ReadyView.vue'
 import SetupView from './views/SetupView.vue'
 
@@ -10,13 +12,29 @@ export function createAppRouter() {
     routes: [
       { path: '/', redirect: '/ready' },
       { path: '/setup', component: SetupView },
+      { path: '/login', component: LoginView },
       { path: '/ready', component: ReadyView },
     ],
   })
   router.beforeEach(async (to) => {
     const { initialized } = await getSetupStatus()
     if (!initialized && to.path !== '/setup') return '/setup'
-    if (initialized && to.path === '/setup') return '/ready'
+    if (!initialized) return
+
+    const authStatus = await getAuthStatus()
+    let user = null
+    try {
+      user = await getCurrentUser()
+    } catch (reason) {
+      if (!(reason instanceof ApiError) || reason.status !== 401) throw reason
+    }
+
+    if (!user) {
+      if (to.path === '/login') return
+      if (to.path === '/register' && authStatus.registration_enabled) return
+      return '/login'
+    }
+    if (to.path === '/setup' || to.path === '/login' || to.path === '/register') return '/ready'
   })
   return router
 }

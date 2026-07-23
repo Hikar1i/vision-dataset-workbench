@@ -28,7 +28,7 @@ async function initialize() {
       username: username.value,
       password: password.value,
     })
-    await router.replace('/ready')
+    await router.replace('/login')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '初始化失败'
   } finally {
