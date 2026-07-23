@@ -75,6 +75,23 @@ def test_login_authenticate_and_logout(auth_runtime):
         service.authenticate(created.token)
 
 
+def test_username_rules_match_setup_accounts(auth_runtime):
+    engine, _, _ = auth_runtime
+    with Session(engine) as session:
+        session.add(
+            User(
+                username=".operator",
+                username_normalized=".operator",
+                password_hash=hash_password(PASSWORD),
+                status="active",
+                is_system_admin=False,
+            )
+        )
+        session.commit()
+
+    assert make_service(auth_runtime).login(".OPERATOR", PASSWORD).user.username == ".operator"
+
+
 def test_login_rejects_wrong_password_and_single_mode_non_admin(auth_runtime):
     multi = make_service(auth_runtime)
     with pytest.raises(AuthenticationFailed):

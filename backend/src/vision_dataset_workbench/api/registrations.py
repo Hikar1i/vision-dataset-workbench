@@ -17,7 +17,7 @@ router = APIRouter(tags=["users"])
 
 
 class RegistrationRequest(BaseModel):
-    username: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,63}$")
+    username: str = Field(pattern=r"^[A-Za-z0-9_.-]{3,64}$")
     password: str = Field(min_length=12, max_length=256)
 
 

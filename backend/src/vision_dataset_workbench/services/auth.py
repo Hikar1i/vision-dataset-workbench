@@ -23,7 +23,7 @@ TOUCH_INTERVAL = timedelta(minutes=5)
 MINIMUM_PASSWORD_LENGTH = 12
 MAXIMUM_PASSWORD_LENGTH = 256
 
-_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,63}$")
+_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,64}$")
 _DUMMY_PASSWORD_HASH = hash_password("invalid-login-timing-placeholder")
 
 
