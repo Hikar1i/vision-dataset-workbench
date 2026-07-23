@@ -8,7 +8,7 @@
 
 ```bash
 cd backend && uv sync --python 3.12 --dev
-cd backend && uv run uvicorn vision_dataset_workbench.main:app --app-dir src --reload
+cd backend && uv run uvicorn vision_dataset_workbench.main:app --app-dir src --reload --port 38000
 ```
 
 安装与启动前端：
@@ -18,7 +18,7 @@ cd frontend && npm install
 cd frontend && npm run dev
 ```
 
-默认地址为后端 `http://127.0.0.1:8000`、前端 `http://127.0.0.1:5173`。后端未初始化时在终端输出一次性口令；前端向导使用该口令浏览启动用户的 `~`、新建目录、创建工作区和首个管理员。按 `Ctrl+C` 停止开发进程。
+默认地址为后端 `http://127.0.0.1:38000`、前端 `http://127.0.0.1:35173`。前端端口被占用时会直接报错，不会静默切换端口。后端未初始化时在终端输出一次性口令；前端向导使用该口令浏览启动用户的 `~`、新建目录、创建工作区和首个管理员。按 `Ctrl+C` 停止开发进程。
 
 验证命令：
 

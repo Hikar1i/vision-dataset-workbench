@@ -23,12 +23,12 @@
 
 ```bash
 cd backend && uv sync --python 3.12 --dev
-cd backend && uv run uvicorn vision_dataset_workbench.main:app --app-dir src --reload
+cd backend && uv run uvicorn vision_dataset_workbench.main:app --app-dir src --reload --port 38000
 cd frontend && npm install
 cd frontend && npm run dev
 ```
 
-浏览器打开 `http://127.0.0.1:5173`，输入后端终端显示的一次性口令，选择工作区父目录并创建首个管理员。前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`。
+浏览器打开 `http://127.0.0.1:35173`，输入后端终端显示的一次性口令，选择工作区父目录并创建首个管理员。前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:38000`。
 
 验证命令见[测试策略](docs/06-testing-strategy.md)，配置和首次启动细节见[环境与启动](docs/08-environments.md)。
 
