@@ -52,7 +52,7 @@ describe('ProjectsView', () => {
     expect(wrapper.get('[data-test="users-link"]').attributes('href')).toBe('/admin/users')
   })
 
-  it('creates a project and opens its settings', async () => {
+  it('creates a project and opens its video workspace', async () => {
     const created = {
       id: 'project-id',
       name: '缺陷视频',
@@ -88,7 +88,7 @@ describe('ProjectsView', () => {
       '/api/v1/projects',
       expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
     )
-    expect(push).toHaveBeenCalledWith('/projects/project-id/settings')
+    expect(push).toHaveBeenCalledWith('/projects/project-id/videos')
   })
 
   it('renders project identity, role and settings link', async () => {
@@ -127,7 +127,7 @@ describe('ProjectsView', () => {
     expect(wrapper.text()).toContain('12345678')
     expect(wrapper.text()).toContain('所有者')
     expect(wrapper.get('[data-test="open-12345678-project"]').attributes('href')).toBe(
-      '/projects/12345678-project/settings',
+      '/projects/12345678-project/videos',
     )
   })
 })

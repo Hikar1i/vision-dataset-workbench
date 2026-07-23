@@ -128,7 +128,11 @@ onMounted(load)
   <main class="settings-shell">
     <header class="topbar">
       <router-link class="brand" to="/projects">VDW / PROJECTS</router-link>
-      <router-link to="/projects">返回项目列表</router-link>
+      <nav>
+        <router-link :to="`/projects/${projectId}/videos`">视频</router-link>
+        <router-link class="active" :to="`/projects/${projectId}/settings`">设置</router-link>
+        <router-link to="/projects">项目列表</router-link>
+      </nav>
     </header>
 
     <section v-if="project" class="page-heading">
@@ -264,6 +268,16 @@ onMounted(load)
   color: #dce5ed;
   font-size: 14px;
   text-decoration: none;
+}
+
+.topbar nav {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.topbar nav a:not(.active) {
+  color: #9aa7b4;
 }
 
 .topbar .brand,

@@ -47,7 +47,7 @@ async function create() {
   error.value = ''
   try {
     const project = await createProject(name.value, description.value)
-    await router.push(`/projects/${project.id}/settings`)
+    await router.push(`/projects/${project.id}/videos`)
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '项目创建失败'
   } finally {
@@ -145,7 +145,7 @@ onMounted(() => load())
         <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
         <router-link
           :data-test="`open-${project.id}`"
-          :to="`/projects/${project.id}/settings`"
+          :to="`/projects/${project.id}/videos`"
         >
           打开
         </router-link>
