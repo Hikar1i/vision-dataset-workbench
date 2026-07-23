@@ -4,6 +4,7 @@ import { ApiError, getAuthStatus, getCurrentUser } from './api/auth'
 import { getSetupStatus } from './api/setup'
 import LoginView from './views/LoginView.vue'
 import AccountView from './views/AccountView.vue'
+import AdminUsersView from './views/AdminUsersView.vue'
 import ReadyView from './views/ReadyView.vue'
 import RegisterView from './views/RegisterView.vue'
 import SetupView from './views/SetupView.vue'
@@ -17,6 +18,7 @@ export function createAppRouter() {
       { path: '/login', component: LoginView },
       { path: '/register', component: RegisterView },
       { path: '/account', component: AccountView },
+      { path: '/admin/users', component: AdminUsersView },
       { path: '/ready', component: ReadyView },
     ],
   })

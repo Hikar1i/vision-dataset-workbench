@@ -10,6 +10,21 @@ export type CurrentUser = {
   is_system_admin: boolean
 }
 
+export type ManagedUser = Omit<CurrentUser, 'status'> & {
+  status: 'pending' | 'active' | 'rejected' | 'disabled'
+  created_at: string
+  reviewed_at: string | null
+}
+
+export type UserPage = {
+  items: ManagedUser[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export type UserAction = 'approve' | 'reject' | 'disable' | 'enable'
+
 export class ApiError extends Error {
   readonly status: number
 
@@ -50,3 +65,9 @@ export const changePassword = (current_password: string, new_password: string) =
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ current_password, new_password }),
   })
+export const listUsers = (status = '', page = 1) =>
+  json<UserPage>(
+    `/api/v1/admin/users?${new URLSearchParams({ status, page: String(page) })}`,
+  )
+export const setUserStatus = (id: string, action: UserAction) =>
+  json<ManagedUser>(`/api/v1/admin/users/${id}/${action}`, { method: 'POST' })
