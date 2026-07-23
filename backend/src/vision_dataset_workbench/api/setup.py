@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from ..services.auth import build_auth_service
 from ..services.setup import SetupConflict, SetupService
 from ..setup.tokens import InvalidSetupToken
 from ..storage.paths import HomePathResolver, UnsafePathError
@@ -120,4 +121,7 @@ def initialize(
     except (OSError, UnsafePathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     request.app.state.workspace = workspace
+    request.app.state.auth_service = build_auth_service(
+        workspace, request.app.state.settings
+    )
     return {"initialized": True, "workspace": ".vision-dataset-workbench"}

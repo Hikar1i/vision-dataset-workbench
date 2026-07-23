@@ -4,12 +4,14 @@ import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import RuntimeSettings
+from ..database import create_workspace_database, make_engine
 from ..models import AuthSession, User
 from ..security.passwords import hash_password, verify_password
 
@@ -193,3 +195,11 @@ class AuthService:
             )
         )
         return CreatedSession(token=token, user=user)
+
+
+def build_auth_service(workspace: Path, settings: RuntimeSettings) -> AuthService:
+    database_path = workspace / "db" / "workbench.sqlite3"
+    create_workspace_database(database_path)
+    service = AuthService(make_engine(database_path), settings)
+    service.revoke_incompatible_sessions()
+    return service

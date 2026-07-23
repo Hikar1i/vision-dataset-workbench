@@ -55,3 +55,14 @@ def test_create_directory_and_initialize(tmp_path):
     assert (home / "datasets/workbench/.vision-dataset-workbench/db/workbench.sqlite3").exists()
     assert client.get("/api/v1/setup/status").json() == {"initialized": True}
     assert client.get("/api/v1/setup/directories", headers=headers).status_code == 403
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            headers={"Origin": "http://testserver"},
+            json={
+                "username": "admin",
+                "password": "correct horse battery staple",
+            },
+        ).status_code
+        == 200
+    )
