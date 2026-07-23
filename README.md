@@ -4,21 +4,33 @@
 
 ## 当前状态
 
-项目已完成遗留系统分析和总体重构设计，当前仓库尚无可运行的应用代码。已确认采用 Python 3.12、FastAPI、SQLite 持久任务 Worker 与 Vue 3 技术基线，面向单台 Linux 服务器部署并兼容 Windows 本地实例。
+项目已完成遗留系统分析、总体重构设计和首个可运行应用基础：FastAPI 提供首次初始化 API，Vue 3 提供初始化向导，Alembic 创建首个 SQLite `users` schema。任务 Worker、登录认证和数据集主流程尚未实现。
 
-首批实现范围：
+已实现：
 
-- 视频数据集项目管理。
-- 远程和本地视频导入。
-- 可恢复的下载、采样和抽帧任务。
-- 帧筛选、外部标注批次与数据集导出。
-- 统一 API、版本化数据库迁移和安全文件边界。
+- 一次性终端口令保护的首次初始化。
+- 限制在服务启动用户 `~` 内的目录浏览和新建目录。
+- 原子创建 `.vision-dataset-workbench`、初始管理员和工作区定位文件。
+- Python 3.12/FastAPI 与 Vue 3/TypeScript/Vite 项目骨架。
 
-后续范围：
+下一阶段：
 
-- 多用户、项目成员、角色和权限。
-- 图片数据集导入、标签映射、标签过滤和相似图去重。
-- 在线标注、模型管理与自动标注。
+- 登录认证、运行模式、注册审批和项目权限。
+- 持久任务 Worker、能力检测和 GPU 功能降级。
+- 视频项目、导入、采样、抽帧、筛选、标注批次和导出。
+
+## 开发启动
+
+```bash
+cd backend && uv sync --python 3.12 --dev
+cd backend && uv run uvicorn vision_dataset_workbench.main:app --app-dir src --reload
+cd frontend && npm install
+cd frontend && npm run dev
+```
+
+浏览器打开 `http://127.0.0.1:5173`，输入后端终端显示的一次性口令，选择工作区父目录并创建首个管理员。前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`。
+
+验证命令见[测试策略](docs/06-testing-strategy.md)，配置和首次启动细节见[环境与启动](docs/08-environments.md)。
 
 ## 文档
 

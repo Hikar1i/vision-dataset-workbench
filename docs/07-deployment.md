@@ -1,6 +1,6 @@
 # 部署
 
-状态：部署拓扑已批准，尚无部署产物或启动命令。
+状态：开发启动命令已实现；systemd、Windows 启动器、Docker Compose 和 Worker 部署产物尚未实现。
 
 ## 目标部署
 
@@ -18,6 +18,8 @@
 - Windows 本地使用一个启动器管理两个子进程。
 - Docker Compose 使用 API 和 Worker 服务，共享本机工作区挂载。
 - Docker 基础配置不要求 GPU；可选 GPU 配置只向 Worker 暴露设备。
+
+当前只能按[环境与启动](08-environments.md)运行开发服务器，不应将 Vite 开发服务器或 Uvicorn `--reload` 用作生产部署。
 
 ## 遗留部署风险
 

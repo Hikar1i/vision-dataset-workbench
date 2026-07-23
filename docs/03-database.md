@@ -1,6 +1,6 @@
 # 数据库
 
-状态：SQLite 数据设计已批准，schema 尚未实现。
+状态：工作区 SQLite 和首个 `users` 迁移已实现；其余领域 schema 仍为批准设计。
 
 ## 数据库选型
 
@@ -10,6 +10,21 @@
 - 仅支持本机磁盘，不支持 NFS、SMB 等网络文件系统。
 - 运行库包含 SQLite WAL-reset 修复时启用 WAL，否则使用 rollback journal。
 - 开启 foreign keys 和 busy timeout，禁止长事务包围文件复制或外部命令。
+
+## 当前 schema
+
+首次初始化通过 Alembic `0001_initial` 创建 `users` 表：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` | UUID 字符串主键 |
+| `username` | 唯一索引，最长 64 字符 |
+| `password_hash` | Argon2 密码哈希 |
+| `status` | 当前首个管理员写入 `active` |
+| `is_system_admin` | 系统管理员标记 |
+| `created_at` | 创建时间 |
+
+初始化服务先在目标父目录创建同文件系统临时目录，执行迁移并写入管理员，成功后原子重命名为 `.vision-dataset-workbench`。定位文件写入失败时会删除未发布工作区，口令保持可重试。
 
 ## 遗留数据库基线
 
@@ -98,7 +113,14 @@
 - 迁移应在空库和前一受支持版本的真实样本上测试。
 - 破坏性迁移需要显式数据转换和验证查询，禁止吞掉错误继续运行。
 
-迁移命令在应用脚手架建立后补充。应用启动只检查迁移状态，原生与 Docker 部署都由单一初始化步骤执行 Alembic。
+正常首次启动不需要手工执行迁移，初始化 API 会运行 Alembic。开发或修复时可显式指定目标数据库：
+
+```bash
+cd backend
+VDW_DATABASE_URL=sqlite:////absolute/path/to/workbench.sqlite3 uv run alembic upgrade head
+```
+
+当前普通应用重启只验证定位文件指向的 `db/workbench.sqlite3` 存在；自动升级已有工作区尚未实现。
 
 ## 遗留项目
 

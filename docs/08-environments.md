@@ -1,19 +1,42 @@
 # 环境与启动
 
-状态：环境与运行模式已批准；当前仓库没有应用代码，因此没有业务启动命令。
+状态：后端、前端和首次初始化可在开发环境运行；Worker、认证模式和部署启动器尚未实现。
 
 ## 当前可执行操作
 
-仅可执行项目工作区诊断：
+安装与启动后端：
 
 ```bash
-aiproj doctor
-aiproj init --repo . --profile generic --gitignore check --dry-run
+cd backend && uv sync --python 3.12 --dev
+cd backend && uv run uvicorn vision_dataset_workbench.main:app --app-dir src --reload
 ```
 
-在 2026-07-22 的验证中，两项检查均通过；dry-run 只会更新本地 `.ai-local/config.json` 时间信息，未执行写入式初始化。
+安装与启动前端：
+
+```bash
+cd frontend && npm install
+cd frontend && npm run dev
+```
+
+默认地址为后端 `http://127.0.0.1:8000`、前端 `http://127.0.0.1:5173`。后端未初始化时在终端输出一次性口令；前端向导使用该口令浏览启动用户的 `~`、新建目录、创建工作区和首个管理员。按 `Ctrl+C` 停止开发进程。
+
+验证命令：
+
+```bash
+cd backend && uv run pytest
+cd frontend && npm test
+cd frontend && npm run build
+```
 
 遗留项目位于 `.ai-local/references/`，只用于阅读和验证，不是新项目的启动目录。
+
+## 首次初始化与定位
+
+- `VDW_WORKSPACE` 可显式指定已有工作区，优先于平台定位文件。
+- Linux 定位文件默认位于 `$XDG_CONFIG_HOME/vision-dataset-workbench/instance.json`，未设置时使用 `~/.config/vision-dataset-workbench/instance.json`。
+- Windows 定位文件位于 `%APPDATA%/vision-dataset-workbench/instance.json`。
+- 定位目标必须位于启动用户 `~` 内，且包含 `db/workbench.sqlite3`，否则应用保持未初始化状态。
+- 口令只存在于当前 API 进程内；初始化失败可重试，成功后立即失效，重启未初始化实例会生成新口令。
 
 ## 计划中的环境
 
@@ -43,7 +66,7 @@ aiproj init --repo . --profile generic --gitignore check --dry-run
 - 配置健康检查、日志、指标、备份和磁盘告警。
 - CORS、文件导入根和代理配置使用明确白名单。
 
-## 运行模式
+## 计划中的运行模式
 
 ```text
 APP_MODE=multi|single
@@ -57,9 +80,11 @@ VDW_WORKSPACE=<workspace-path>
 - `single/none` 只允许 loopback 或非空 IP 白名单。
 - CLI 参数或 `VDW_WORKSPACE` 优先于平台工作区定位文件。
 
+当前只实现了 `VDW_WORKSPACE`。`APP_MODE`、`SINGLE_AUTH`、登录和无认证 IP 限制属于下一阶段，不应在当前版本中配置。
+
 ## 配置类别
 
-变量名在实现后确定，但至少需要以下配置：
+除 `VDW_WORKSPACE` 外，变量名在对应功能实现后确定；目标类别包括：
 
 | 类别 | 内容 |
 | --- | --- |
@@ -74,18 +99,16 @@ VDW_WORKSPACE=<workspace-path>
 
 本地示例配置只能包含无敏感默认值；真实密钥通过未提交文件或密钥管理服务注入。
 
-## 启动与停止要求
+## 后续启动与停止要求
 
-实现后，本页必须记录可复制执行的：
+后续仍需补充可复制执行的：
 
 - 依赖安装与版本检查。
-- 数据库创建和迁移。
-- 前端开发服务器、API 和 Worker 启动。
+- 独立 Worker 启动。
 - 全栈容器启动。
-- 测试、构建和停止命令。
-- 常见端口与健康检查 URL。
+- 原生生产进程和 Windows 启动器。
 
-这些命令尚未存在。在首个应用脚手架合并时必须同步补充，不能保留占位式“自行启动”说明。
+当前健康检查为 `GET /api/v1/health`。数据库由首次初始化创建；已有数据库的发布升级流程仍待实现。
 
 ## 外部工具验证
 

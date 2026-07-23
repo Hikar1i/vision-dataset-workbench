@@ -1,6 +1,18 @@
 # API
 
-状态：新 API 契约方向已批准，接口尚未实现。
+状态：`/api/v1` 健康检查和首次初始化接口已实现；其余资源仍为批准设计。
+
+## 当前接口
+
+| 方法与路径 | 认证 | 用途 |
+| --- | --- | --- |
+| `GET /api/v1/health` | 无 | 进程存活检查，返回 `{"status":"ok"}` |
+| `GET /api/v1/setup/status` | 无 | 返回工作区是否已初始化 |
+| `GET /api/v1/setup/directories` | `X-Setup-Token` | 分页浏览启动用户 `~` 内目录 |
+| `POST /api/v1/setup/directories` | `X-Setup-Token` | 在受控父目录中新建目录 |
+| `POST /api/v1/setup/initialize` | `X-Setup-Token` | 创建工作区和首个管理员 |
+
+目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接。初始化用户名匹配 `[A-Za-z0-9_.-]{3,64}`，密码长度为 12–256；成功后口令立即失效。当前错误响应使用 FastAPI `detail`，统一业务错误模型将在认证/API 基础层实现。
 
 ## 遗留接口范围
 
@@ -76,6 +88,8 @@
 - tasks
 
 FastAPI OpenAPI 是唯一契约来源。前端类型从规范生成或在 CI 中校验；资源使用稳定 ID 和项目作用域，不用文件路径作为资源身份。
+
+当前初始化客户端为少量手写 TypeScript 类型；OpenAPI 类型生成在业务 API 增长后引入。
 
 ### 响应与错误
 

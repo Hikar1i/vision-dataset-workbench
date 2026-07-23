@@ -56,4 +56,13 @@
 
 ## 工具与自动检查
 
-具体格式化器、静态检查器、类型检查器和命令在应用脚手架计划中确定。项目必须使用仓库内固定配置，禁止依赖开发者编辑器的隐式规则。
+当前仓库检查命令：
+
+```bash
+cd backend && uv run ruff check src tests alembic
+cd backend && uv run pytest
+cd frontend && npm test
+cd frontend && npm run build
+```
+
+后端 Ruff、pytest 配置位于 `backend/pyproject.toml`；前端 TypeScript 检查由 `vue-tsc` 随生产构建执行。当前没有额外前端 lint 工具，不为重复能力增加依赖。
