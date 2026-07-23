@@ -1,6 +1,6 @@
 # API
 
-状态：`/api/v1` 健康检查、首次初始化、认证、注册审批和用户管理接口已实现；项目及数据集资源仍为批准设计。
+状态：`/api/v1` 健康检查、首次初始化、认证、注册审批、用户管理以及项目成员接口已实现；媒体与数据集资源仍为批准设计。
 
 ## 当前接口
 
@@ -19,10 +19,30 @@
 | `POST /api/v1/registrations` | 同源；注册已开放 | 创建 `pending` 用户 |
 | `GET /api/v1/admin/users` | 系统管理员 | 按状态过滤并分页查询用户 |
 | `POST /api/v1/admin/users/{id}/{action}` | 系统管理员 + 同源 | approve、reject、disable 或 enable |
+| `GET /api/v1/projects` | Session | 分页返回当前用户可见项目 |
+| `POST /api/v1/projects` | Session + 同源 | 创建默认私有项目 |
+| `GET /api/v1/projects/{id}` | 项目成员 | 读取项目元数据 |
+| `PATCH /api/v1/projects/{id}` | owner/editor + 同源 | 按 `version` 修改名称和描述 |
+| `GET /api/v1/projects/{id}/members` | 项目成员 | 返回永久 owner 和 editor/viewer 成员 |
+| `POST /api/v1/projects/{id}/members` | owner + 同源 | 按用户名添加已有有效账号 |
+| `PATCH /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 在 editor/viewer 间切换角色 |
+| `DELETE /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 移除 editor/viewer，返回 204 |
 
 目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户列表参数为 `status`、`page`、`page_size`，最大页大小 200。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
 
 认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误、状态或模式限制。禁用账号立即撤销其会话，且不能禁用最后一个有效系统管理员。
+
+项目名称允许重复，资源身份只使用 UUID。无访问权的项目返回 404，避免泄露项目是否存在；viewer 修改返回 403；项目元数据版本不匹配返回 409。项目列表默认每页 50，最大 200。创建者是永久 owner，不存在 owner 成员记录或所有权转移接口。多用户模式下系统管理员不自动获得项目访问权；单用户模式下管理员运行时获得所有项目的 owner 等效权限，但不会改写成员数据。
+
+当前角色能力：
+
+| 能力 | owner | editor | viewer |
+| --- | --- | --- | --- |
+| 查看项目与成员 | 是 | 是 | 是 |
+| 修改项目名称、描述 | 是 | 是 | 否 |
+| 添加、改角色、移除成员 | 是 | 否 | 否 |
+
+后续媒体 API 必须延续已确认的 viewer 边界：可查看项目信息、原始视频、采样帧、标注框和已有导出产物，可播放和下载原始视频、下载已有导出产物；不可添加或导入视频、改变采样策略、重新采样、启停视频或帧、标注或创建新导出。
 
 ## 遗留接口范围
 

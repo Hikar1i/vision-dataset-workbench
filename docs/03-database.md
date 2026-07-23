@@ -1,6 +1,6 @@
 # 数据库
 
-状态：工作区 SQLite、`users` 和 `sessions` 迁移已实现；其余领域 schema 仍为批准设计。
+状态：工作区 SQLite、`users`、`sessions`、`projects` 和 `project_memberships` 迁移已实现；其余领域 schema 仍为批准设计。
 
 ## 数据库选型
 
@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -39,6 +39,27 @@ Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加�
 | `absolute_expires_at` | 创建后 7 天绝对到期时间 |
 
 SQLite 不保留时区偏移，当前认证表按 naive UTC 持久化，API 输出时明确追加 UTC 语义。
+
+`projects` 表为：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` | UUID 字符串主键，同时作为受管项目目录名 |
+| `name` | 1–128 字符；允许不同项目重名 |
+| `description` | 最长 2000 字符 |
+| `creator_id` | 创建者外键，删除受限；该用户是永久 owner |
+| `version` | 从 1 开始的乐观并发版本 |
+| `created_at` / `updated_at` | 创建和最近修改时间 |
+
+`project_memberships` 只保存非所有者成员：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `project_id` / `user_id` | 复合主键；同一用户不能重复加入项目 |
+| `role` | 仅允许 `editor` 或 `viewer` |
+| `created_at` | 加入项目时间 |
+
+owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过成员接口转移、降级或移除。创建项目时同步创建空的 `projects/<project UUID>/` 目录；当前尚无媒体子目录和项目删除流程。
 
 初始化服务先在目标父目录创建同文件系统临时目录，执行迁移并写入管理员，成功后原子重命名为 `.vision-dataset-workbench`。定位文件写入失败时会删除未发布工作区，口令保持可重试。
 
