@@ -43,3 +43,19 @@ export async function createSetupDirectory(token: string, parent: string, name: 
   if (!response.ok) throw new Error('无法创建目录')
   return response.json() as Promise<{ path: string; display_path: string }>
 }
+
+export async function initializeWorkspace(
+  token: string,
+  payload: { parent: string; username: string; password: string },
+) {
+  const response = await fetch('/api/v1/setup/initialize', {
+    method: 'POST',
+    headers: setupHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body.detail || '初始化失败')
+  }
+  return response.json() as Promise<{ initialized: true }>
+}
