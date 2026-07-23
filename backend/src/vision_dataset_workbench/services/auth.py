@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import RuntimeSettings
@@ -27,6 +28,14 @@ _DUMMY_PASSWORD_HASH = hash_password("invalid-login-timing-placeholder")
 
 
 class AuthenticationFailed(ValueError):
+    pass
+
+
+class AuthConflict(ValueError):
+    pass
+
+
+class UserNotFound(ValueError):
     pass
 
 
@@ -177,6 +186,86 @@ class AuthService:
                 delete(AuthSession).where(AuthSession.user_id.in_(non_admin_ids))
             )
             database.commit()
+
+    def register(self, username: str, password: str) -> User:
+        if self.settings.app_mode != "multi" or not self.settings.registration_enabled:
+            raise AuthenticationFailed("registration is disabled")
+        normalized = normalize_username(username)
+        validate_password(password)
+        now = self._now()
+        user = User(
+            username=username.strip(),
+            username_normalized=normalized,
+            password_hash=hash_password(password),
+            status="pending",
+            is_system_admin=False,
+            created_at=now,
+            updated_at=now,
+        )
+        with self._session_factory() as database:
+            try:
+                database.add(user)
+                database.commit()
+            except IntegrityError as exc:
+                database.rollback()
+                raise AuthConflict("username already exists") from exc
+        return user
+
+    def list_users(
+        self, *, status: str | None, page: int, page_size: int
+    ) -> tuple[list[User], int]:
+        condition = User.status == status if status else None
+        with self._session_factory() as database:
+            total_query = select(func.count()).select_from(User)
+            users_query = select(User)
+            if condition is not None:
+                total_query = total_query.where(condition)
+                users_query = users_query.where(condition)
+            total = database.scalar(total_query) or 0
+            users = list(
+                database.scalars(
+                    users_query
+                    .order_by(User.username_normalized)
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            )
+            return users, total
+
+    def set_user_status(self, user_id: str, action: str, reviewer_id: str) -> User:
+        transitions = {
+            "approve": ({"pending"}, "active"),
+            "reject": ({"pending"}, "rejected"),
+            "disable": ({"active"}, "disabled"),
+            "enable": ({"disabled", "rejected"}, "active"),
+        }
+        accepted_statuses, next_status = transitions[action]
+        now = self._now()
+        with self._session_factory() as database:
+            user = database.get(User, user_id)
+            if user is None:
+                raise UserNotFound("user not found")
+            if user.status not in accepted_statuses:
+                raise AuthConflict("user status does not allow this action")
+            if action == "disable" and user.is_system_admin:
+                active_admins = database.scalar(
+                    select(func.count())
+                    .select_from(User)
+                    .where(User.is_system_admin.is_(True), User.status == "active")
+                )
+                if active_admins is None or active_admins <= 1:
+                    raise AuthConflict("cannot disable the last active administrator")
+
+            user.status = next_status
+            user.reviewed_by_id = reviewer_id
+            user.reviewed_at = now
+            user.updated_at = now
+            if next_status != "active":
+                database.execute(
+                    delete(AuthSession).where(AuthSession.user_id == user.id)
+                )
+            database.commit()
+            return user
 
     @staticmethod
     def _create_session(
