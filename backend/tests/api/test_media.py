@@ -5,7 +5,7 @@ from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.main import create_app
 from vision_dataset_workbench.media import RemotePreview
-from vision_dataset_workbench.models import Project, ProjectMembership, User
+from vision_dataset_workbench.models import Project, ProjectMembership, User, Video
 from vision_dataset_workbench.security.passwords import hash_password
 from vision_dataset_workbench.services.media import MediaService
 
@@ -143,3 +143,71 @@ def test_remote_preview_cancel_retry_and_same_origin(tmp_path):
     assert canceled.json()["status"] == "canceled"
     assert retried.status_code == 201
     assert retried.json()["retry_of_id"] == task_id
+
+
+def test_members_stream_download_and_thumbnail_with_range(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "owner")
+    viewer = client_for(app, "viewer")
+    outsider = client_for(app, "outsider")
+    imported = owner.post(
+        "/api/v1/projects/project-id/imports/local",
+        headers=ORIGIN,
+        json={"paths": ["clips/one.mp4"]},
+    ).json()
+    video_id = imported["accepted"][0]["video"]["id"]
+    video_path = app.state.workspace / f"projects/project-id/videos/{video_id}.mp4"
+    thumbnail_path = app.state.workspace / f"projects/project-id/thumbnails/{video_id}.jpg"
+    video_path.parent.mkdir(parents=True, exist_ok=True)
+    thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
+    video_path.write_bytes(b"0123456789")
+    thumbnail_path.write_bytes(b"jpeg")
+    with Session(app.state.auth_service.engine) as session:
+        video = session.get(Video, video_id)
+        assert video is not None
+        video.status = "ready"
+        video.file_path = video_path.relative_to(app.state.workspace).as_posix()
+        video.thumbnail_path = thumbnail_path.relative_to(app.state.workspace).as_posix()
+        session.commit()
+
+    ranged = viewer.get(
+        f"/api/v1/projects/project-id/videos/{video_id}/content",
+        headers={"Range": "bytes=2-5"},
+    )
+    downloaded = viewer.get(
+        f"/api/v1/projects/project-id/videos/{video_id}/download"
+    )
+    thumbnail = viewer.get(
+        f"/api/v1/projects/project-id/videos/{video_id}/thumbnail"
+    )
+
+    assert ranged.status_code == 206
+    assert ranged.content == b"2345"
+    assert ranged.headers["content-range"] == "bytes 2-5/10"
+    assert downloaded.status_code == 200
+    assert "attachment" in downloaded.headers["content-disposition"]
+    assert thumbnail.content == b"jpeg"
+    assert (
+        outsider.get(
+            f"/api/v1/projects/project-id/videos/{video_id}/content"
+        ).status_code
+        == 404
+    )
+
+
+def test_pending_video_cannot_be_streamed(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "owner")
+    imported = owner.post(
+        "/api/v1/projects/project-id/imports/local",
+        headers=ORIGIN,
+        json={"paths": ["clips/one.mp4"]},
+    ).json()
+    video_id = imported["accepted"][0]["video"]["id"]
+
+    assert (
+        owner.get(
+            f"/api/v1/projects/project-id/videos/{video_id}/content"
+        ).status_code
+        == 409
+    )

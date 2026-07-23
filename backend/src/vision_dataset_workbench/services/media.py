@@ -254,6 +254,34 @@ class MediaService:
             ).all()
             return list(items), total
 
+    def ready_video_file(
+        self,
+        actor: User,
+        project_id: str,
+        video_id: str,
+        *,
+        thumbnail: bool = False,
+    ) -> tuple[Video, Path]:
+        self._project_role(actor, project_id)
+        with self._session_factory() as database:
+            video = database.get(Video, video_id)
+            if video is None or video.project_id != project_id:
+                raise MediaNotFound("video not found")
+            if video.status != "ready":
+                raise MediaConflict("video is not ready")
+            relative = video.thumbnail_path if thumbnail else video.file_path
+            if not relative:
+                raise MediaNotFound("video file not found")
+            try:
+                path = (self.workspace / relative).resolve(strict=True)
+            except OSError as exc:
+                raise MediaNotFound("video file not found") from exc
+            project_root = (self.workspace / "projects" / project_id).resolve()
+            if not path.is_file() or not path.is_relative_to(project_root):
+                raise MediaNotFound("video file not found")
+            database.expunge(video)
+            return video, path
+
     def cancel_task(self, actor: User, project_id: str, task_id: str) -> Task:
         self._require_editor(actor, project_id)
         now = _utc_now()

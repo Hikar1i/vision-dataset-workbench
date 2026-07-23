@@ -1,8 +1,10 @@
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..media import InvalidMediaSource, MediaToolError, RemotePreview
@@ -222,6 +224,59 @@ def list_videos(
         page_size=page_size,
         total=total,
     )
+
+
+def _video_file(
+    project_id: str,
+    video_id: str,
+    request: Request,
+    user: User,
+    *,
+    thumbnail: bool = False,
+) -> tuple[Video, str]:
+    try:
+        video, path = media_service(request).ready_video_file(
+            user, project_id, video_id, thumbnail=thumbnail
+        )
+    except (ProjectNotFound, ProjectForbidden, MediaNotFound, MediaConflict) as exc:
+        _raise_media_error(exc)
+    return video, str(path)
+
+
+@router.get("/videos/{video_id}/content", response_class=FileResponse)
+def video_content(
+    project_id: str,
+    video_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> FileResponse:
+    _video, path = _video_file(project_id, video_id, request, user)
+    return FileResponse(path)
+
+
+@router.get("/videos/{video_id}/download", response_class=FileResponse)
+def download_video(
+    project_id: str,
+    video_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> FileResponse:
+    video, path = _video_file(project_id, video_id, request, user)
+    suffix = Path(path).suffix
+    return FileResponse(path, filename=video.source_name or f"{video.title}{suffix}")
+
+
+@router.get("/videos/{video_id}/thumbnail", response_class=FileResponse)
+def video_thumbnail(
+    project_id: str,
+    video_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> FileResponse:
+    _video, path = _video_file(
+        project_id, video_id, request, user, thumbnail=True
+    )
+    return FileResponse(path, media_type="image/jpeg")
 
 
 @router.post("/imports/local/preview", response_model=list[LocalPreviewResponse])
