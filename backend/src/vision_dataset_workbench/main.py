@@ -2,11 +2,13 @@ from fastapi import FastAPI
 
 from .api.auth import router as auth_router
 from .api.filesystem import router as filesystem_router
+from .api.media import router as media_router
 from .api.projects import router as projects_router
 from .api.registrations import router as registrations_router
 from .api.setup import router as setup_router
 from .config import RuntimeSettings
 from .services.auth import build_auth_service
+from .services.media import MediaService
 from .services.projects import ProjectService
 from .services.setup import SetupService
 from .setup.tokens import SetupToken
@@ -42,6 +44,11 @@ def create_app(
         if auth_service is not None and workspace is not None
         else None
     )
+    app.state.media_service = (
+        MediaService(auth_service.engine, resolved_settings, workspace)
+        if auth_service is not None and workspace is not None
+        else None
+    )
     app.state.setup_token = token
     app.state.setup_service = SetupService(resolved_settings.home, resolved_locator, token)
     app.include_router(setup_router)
@@ -49,6 +56,7 @@ def create_app(
     app.include_router(filesystem_router)
     app.include_router(registrations_router)
     app.include_router(projects_router)
+    app.include_router(media_router)
 
     @app.get("/api/v1/health")
     def health() -> dict[str, str]:

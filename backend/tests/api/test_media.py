@@ -1,0 +1,145 @@
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from vision_dataset_workbench.config import RuntimeSettings
+from vision_dataset_workbench.database import create_workspace_database, make_engine
+from vision_dataset_workbench.main import create_app
+from vision_dataset_workbench.media import RemotePreview
+from vision_dataset_workbench.models import Project, ProjectMembership, User
+from vision_dataset_workbench.security.passwords import hash_password
+from vision_dataset_workbench.services.media import MediaService
+
+PASSWORD = "correct horse battery staple"
+ORIGIN = {"Origin": "http://testserver"}
+
+
+def make_app(tmp_path):
+    home = tmp_path / "home"
+    workspace = home / ".vision-dataset-workbench"
+    (workspace / "projects" / "project-id").mkdir(parents=True)
+    (home / "clips").mkdir()
+    (home / "clips" / "one.mp4").write_bytes(b"one")
+    database_path = workspace / "db" / "workbench.sqlite3"
+    create_workspace_database(database_path)
+    engine = make_engine(database_path)
+    password_hash = hash_password(PASSWORD)
+    with Session(engine) as session:
+        for name in ("owner", "editor", "viewer", "outsider"):
+            session.add(
+                User(
+                    id=f"{name}-id",
+                    username=name,
+                    username_normalized=name,
+                    password_hash=password_hash,
+                    status="active",
+                )
+            )
+        session.flush()
+        session.add(Project(id="project-id", name="project", creator_id="owner-id"))
+        session.add_all(
+            [
+                ProjectMembership(
+                    project_id="project-id", user_id="editor-id", role="editor"
+                ),
+                ProjectMembership(
+                    project_id="project-id", user_id="viewer-id", role="viewer"
+                ),
+            ]
+        )
+        session.commit()
+    engine.dispose()
+    settings = RuntimeSettings(home=home, workspace=workspace)
+    app = create_app(settings)
+    app.state.media_service = MediaService(
+        app.state.auth_service.engine,
+        settings,
+        workspace,
+        previewer=lambda *_: [
+            RemotePreview(
+                title="remote",
+                url="https://example.test/video",
+                duration=2,
+                extractor="generic",
+                external_id="remote-id",
+            )
+        ],
+    )
+    return app
+
+
+def client_for(app, username):
+    client = TestClient(app)
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            headers=ORIGIN,
+            json={"username": username, "password": PASSWORD},
+        ).status_code
+        == 200
+    )
+    return client
+
+
+def test_editor_imports_and_viewer_reads_but_cannot_write(tmp_path):
+    app = make_app(tmp_path)
+    editor = client_for(app, "editor")
+    viewer = client_for(app, "viewer")
+
+    preview = editor.post(
+        "/api/v1/projects/project-id/imports/local/preview",
+        headers=ORIGIN,
+        json={"path": "clips"},
+    )
+    imported = editor.post(
+        "/api/v1/projects/project-id/imports/local",
+        headers=ORIGIN,
+        json={"paths": ["clips/one.mp4"]},
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()[0]["path"] == "clips/one.mp4"
+    assert imported.status_code == 202
+    assert len(imported.json()["accepted"]) == 1
+    assert viewer.get("/api/v1/projects/project-id/videos").json()["total"] == 1
+    assert viewer.get("/api/v1/projects/project-id/tasks").json()["total"] == 1
+    assert (
+        viewer.post(
+            "/api/v1/projects/project-id/imports/remote",
+            headers=ORIGIN,
+            json={"items": [{"title": "x", "url": "https://example.test/x"}]},
+        ).status_code
+        == 403
+    )
+
+
+def test_remote_preview_cancel_retry_and_same_origin(tmp_path):
+    owner = client_for(make_app(tmp_path), "owner")
+
+    preview = owner.post(
+        "/api/v1/projects/project-id/imports/remote/preview",
+        headers=ORIGIN,
+        json={"url": "https://example.test/video"},
+    )
+    assert preview.json()[0]["external_id"] == "remote-id"
+    assert (
+        owner.post(
+            "/api/v1/projects/project-id/imports/remote",
+            json={"items": [{"title": "x", "url": "https://example.test/x"}]},
+        ).status_code
+        == 403
+    )
+    imported = owner.post(
+        "/api/v1/projects/project-id/imports/remote",
+        headers=ORIGIN,
+        json={"items": [{"title": "remote", "url": "https://example.test/video"}]},
+    )
+    task_id = imported.json()["accepted"][0]["task"]["id"]
+    canceled = owner.post(
+        f"/api/v1/projects/project-id/tasks/{task_id}/cancel", headers=ORIGIN
+    )
+    retried = owner.post(
+        f"/api/v1/projects/project-id/tasks/{task_id}/retry", headers=ORIGIN
+    )
+    assert canceled.json()["status"] == "canceled"
+    assert retried.status_code == 201
+    assert retried.json()["retry_of_id"] == task_id

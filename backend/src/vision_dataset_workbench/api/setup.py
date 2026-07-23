@@ -2,6 +2,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ..services.auth import build_auth_service
+from ..services.media import MediaService
 from ..services.projects import ProjectService
 from ..services.setup import SetupConflict, SetupService
 from ..setup.tokens import InvalidSetupToken
@@ -98,6 +99,11 @@ def initialize(
         workspace, request.app.state.settings
     )
     request.app.state.project_service = ProjectService(
+        request.app.state.auth_service.engine,
+        request.app.state.settings,
+        workspace,
+    )
+    request.app.state.media_service = MediaService(
         request.app.state.auth_service.engine,
         request.app.state.settings,
         workspace,
