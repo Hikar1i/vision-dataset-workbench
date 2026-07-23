@@ -1,6 +1,6 @@
 # API
 
-状态：`/api/v1` 健康检查和首次初始化接口已实现；其余资源仍为批准设计。
+状态：`/api/v1` 健康检查、首次初始化、认证、注册审批和用户管理接口已实现；项目及数据集资源仍为批准设计。
 
 ## 当前接口
 
@@ -11,8 +11,18 @@
 | `GET /api/v1/setup/directories` | `X-Setup-Token` | 分页浏览启动用户 `~` 内目录 |
 | `POST /api/v1/setup/directories` | `X-Setup-Token` | 在受控父目录中新建目录 |
 | `POST /api/v1/setup/initialize` | `X-Setup-Token` | 创建工作区和首个管理员 |
+| `GET /api/v1/auth/status` | 无 | 返回 `multi/single` 运行模式和注册开关 |
+| `POST /api/v1/auth/login` | 同源 | 登录并设置 `vdw_session` Cookie |
+| `GET /api/v1/auth/me` | Session | 返回当前安全用户字段 |
+| `POST /api/v1/auth/logout` | 同源 | 存在 Session 时撤销，并删除 Cookie |
+| `PUT /api/v1/auth/password` | Session + 同源 | 校验当前密码、改密并撤销该用户其他会话 |
+| `POST /api/v1/registrations` | 同源；注册已开放 | 创建 `pending` 用户 |
+| `GET /api/v1/admin/users` | 系统管理员 | 按状态过滤并分页查询用户 |
+| `POST /api/v1/admin/users/{id}/{action}` | 系统管理员 + 同源 | approve、reject、disable 或 enable |
 
-目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接。初始化用户名匹配 `[A-Za-z0-9_.-]{3,64}`，密码长度为 12–256；成功后口令立即失效。当前错误响应使用 FastAPI `detail`，统一业务错误模型将在认证/API 基础层实现。
+目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户列表参数为 `status`、`page`、`page_size`，最大页大小 200。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
+
+认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误、状态或模式限制。禁用账号立即撤销其会话，且不能禁用最后一个有效系统管理员。
 
 ## 遗留接口范围
 
@@ -140,7 +150,7 @@ FastAPI OpenAPI 是唯一契约来源。前端类型从规范生成或在 CI 中
 
 所有模式要求：
 
-- 每个请求具有可验证或单用户模式注入的用户身份。
+- 每个受保护请求都从服务端 Session 解析用户身份；单用户模式不会注入匿名身份。
 - 项目列表和项目子资源按成员权限过滤。
 - 查看、编辑、执行任务、导出和管理成员是可区分权限。
 - SSE/WebSocket 与文件下载执行同样的授权检查。

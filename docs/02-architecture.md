@@ -1,10 +1,10 @@
 # 架构
 
-状态：总体设计已批准，首次初始化应用基础已实现。
+状态：总体设计已批准，首次初始化和账号认证基础已实现。
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、SQLite 首个迁移和安全路径组件；认证、项目、媒体与独立 Worker 尚未实现。因此本页区分：
+当前仓库已有 Vue/FastAPI 初始化链路、账号认证与用户管理、两版 SQLite 迁移和安全路径组件；项目、媒体与独立 Worker 尚未实现。因此本页区分：
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -13,15 +13,16 @@
 ## 当前应用基础
 
 ```text
-Vue setup wizard
-  └─ /api/v1/setup/*
-       └─ FastAPI SetupService
-            ├─ HomePathResolver
-            ├─ Alembic + SQLite users
-            └─ WorkspaceLocator
+Vue setup/auth/admin pages
+  ├─ /api/v1/setup/* → SetupService → HomePathResolver / WorkspaceLocator
+  └─ /api/v1/auth + registrations + admin/users
+       └─ AuthService
+            ├─ Argon2 password verification
+            ├─ SHA-256 token digest + SQLite sessions
+            └─ User registration/status transitions
 ```
 
-API 请求只负责校验和映射，工作区创建由应用服务编排；数据库和管理员先写入同文件系统临时目录，再原子发布。该结构是后续模块的边界基线，不代表持久任务 Worker 已存在。
+API 请求只负责校验和映射，工作区创建和认证状态流转由应用服务编排；数据库和管理员先写入同文件系统临时目录，再原子发布。初始化后认证服务立即启用，无需重启。该结构是后续模块的边界基线，不代表项目权限、审计表或持久任务 Worker 已存在。
 
 ## 遗留架构基线
 
@@ -123,6 +124,8 @@ SQLite             Persistent Worker
 ## 运行与存储边界
 
 - 默认多用户；可通过配置切换为仅初始化管理员可登录的单用户账号密码模式。
+- 浏览器会话只把随机原始值放入 HttpOnly Cookie，SQLite 只保存 SHA-256 摘要；12 小时空闲过期、7 天绝对过期，访问触达最多每 5 分钟写库一次。
+- 所有浏览器写请求要求 `Origin` 与当前请求 origin 完全一致；当前不提供跨域认证、IP 规则或可信代理模式。
 - 所有模式共用用户、权限和数据，单用户模式临时以工作区管理员访问全部项目。
 - 所有受管理数据位于 `<parent>/.vision-dataset-workbench/`。
 - 所有认证用户可浏览启动用户 `~`，导入后复制到工作区；API 不暴露绝对路径。

@@ -1,6 +1,6 @@
 # 数据库
 
-状态：工作区 SQLite 和首个 `users` 迁移已实现；其余领域 schema 仍为批准设计。
+状态：工作区 SQLite、`users` 和 `sessions` 迁移已实现；其余领域 schema 仍为批准设计。
 
 ## 数据库选型
 
@@ -13,16 +13,32 @@
 
 ## 当前 schema
 
-首次初始化通过 Alembic `0001_initial` 创建 `users` 表：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
 | `id` | UUID 字符串主键 |
-| `username` | 唯一索引，最长 64 字符 |
+| `username` | 用户显示名，最长 64 字符 |
+| `username_normalized` | 小写登录名，唯一索引；确保用户名大小写不重复 |
 | `password_hash` | Argon2 密码哈希 |
-| `status` | 当前首个管理员写入 `active` |
+| `status` | `pending`、`active`、`rejected` 或 `disabled` |
 | `is_system_admin` | 系统管理员标记 |
 | `created_at` | 创建时间 |
+| `updated_at` | 最后修改时间 |
+| `reviewed_at` / `reviewed_by_id` | 最近审批/状态操作时间及管理员 |
+
+`sessions` 表为：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` | UUID 字符串主键 |
+| `user_id` | 用户外键；删除用户时级联删除会话 |
+| `token_hash` | 原始随机 Cookie 的 SHA-256 摘要，唯一索引 |
+| `created_at` / `last_seen_at` | 创建和最近触达时间 |
+| `idle_expires_at` | 12 小时空闲到期时间 |
+| `absolute_expires_at` | 创建后 7 天绝对到期时间 |
+
+SQLite 不保留时区偏移，当前认证表按 naive UTC 持久化，API 输出时明确追加 UTC 语义。
 
 初始化服务先在目标父目录创建同文件系统临时目录，执行迁移并写入管理员，成功后原子重命名为 `.vision-dataset-workbench`。定位文件写入失败时会删除未发布工作区，口令保持可重试。
 
@@ -120,7 +136,7 @@ cd backend
 VDW_DATABASE_URL=sqlite:////absolute/path/to/workbench.sqlite3 uv run alembic upgrade head
 ```
 
-当前普通应用重启只验证定位文件指向的 `db/workbench.sqlite3` 存在；自动升级已有工作区尚未实现。
+应用启动会先确认定位文件指向的 `db/workbench.sqlite3` 存在，再执行 Alembic `upgrade head` 并建立认证服务。发布前仍必须按部署流程备份；普通资源读取接口不会执行 DDL。
 
 ## 遗留项目
 

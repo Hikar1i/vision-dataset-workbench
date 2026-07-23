@@ -1,6 +1,6 @@
 # 环境与启动
 
-状态：后端、前端和首次初始化可在开发环境运行；Worker、认证模式和部署启动器尚未实现。
+状态：后端、前端、首次初始化和认证模式可在开发环境运行；Worker 和部署启动器尚未实现。
 
 ## 当前可执行操作
 
@@ -19,6 +19,8 @@ cd frontend && npm run dev
 ```
 
 默认地址为后端 `http://127.0.0.1:38000`、前端 `http://127.0.0.1:35173`。前端端口被占用时会直接报错，不会静默切换端口。后端未初始化时在终端输出一次性口令；前端向导使用该口令浏览启动用户的 `~`、新建目录、创建工作区和首个管理员。按 `Ctrl+C` 停止开发进程。
+
+需要从局域网访问时，可显式使用 `uvicorn ... --host 0.0.0.0 --port 38000`，并让前端或反向代理保持 `/api` 同源。系统不提供 IP 白名单，访问控制依赖用户名、密码和服务端 Session。
 
 验证命令：
 
@@ -66,7 +68,7 @@ cd frontend && npm run build
 - 配置健康检查、日志、指标、备份和磁盘告警。
 - CORS、文件导入根和代理配置使用明确白名单。
 
-## 计划中的运行模式
+## 运行模式
 
 ```text
 APP_MODE=multi|single
@@ -80,7 +82,16 @@ VDW_WORKSPACE=<workspace-path>
 - 模式切换后重启生效。
 - CLI 参数或 `VDW_WORKSPACE` 优先于平台工作区定位文件。
 
-当前只实现了 `VDW_WORKSPACE`。`APP_MODE`、`REGISTRATION_ENABLED` 和登录属于下一阶段，在对应代码合并前不应配置。
+三个变量均已实现。布尔值只接受 `true` 或 `false`；`APP_MODE=single` 与 `REGISTRATION_ENABLED=true` 同时出现会使应用启动失败。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
+
+管理员忘记密码时，先停止 API，再在终端交互式重置；密码不会出现在命令参数中：
+
+```bash
+cd backend
+uv run python -m vision_dataset_workbench.admin reset-password \
+  --workspace /absolute/path/.vision-dataset-workbench \
+  --username admin
+```
 
 ## 配置类别
 
@@ -108,7 +119,7 @@ VDW_WORKSPACE=<workspace-path>
 - 全栈容器启动。
 - 原生生产进程和 Windows 启动器。
 
-当前健康检查为 `GET /api/v1/health`。数据库由首次初始化创建；已有数据库的发布升级流程仍待实现。
+当前健康检查为 `GET /api/v1/health`。数据库由首次初始化创建，已有工作区在应用启动时自动执行 Alembic 升级；带备份和回滚验证的正式发布流程仍待实现。
 
 ## 外部工具验证
 
