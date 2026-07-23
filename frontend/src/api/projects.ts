@@ -21,6 +21,14 @@ export type ProjectPage = {
   total: number
 }
 
+export type ProjectMember = {
+  id: string
+  username: string
+  status: string
+  role: ProjectRole
+  created_at: string
+}
+
 export const listProjects = (page = 1) =>
   json<ProjectPage>(`/api/v1/projects?page=${page}`)
 
@@ -30,3 +38,41 @@ export const createProject = (name: string, description: string) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, description }),
   })
+
+export const getProject = (id: string) => json<Project>(`/api/v1/projects/${id}`)
+
+export const updateProject = (
+  id: string,
+  name: string,
+  description: string,
+  version: number,
+) =>
+  json<Project>(`/api/v1/projects/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description, version }),
+  })
+
+export const listMembers = (id: string) =>
+  json<ProjectMember[]>(`/api/v1/projects/${id}/members`)
+
+export const addMember = (id: string, username: string, role: 'editor' | 'viewer') =>
+  json<ProjectMember>(`/api/v1/projects/${id}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, role }),
+  })
+
+export const changeMemberRole = (
+  id: string,
+  userId: string,
+  role: 'editor' | 'viewer',
+) =>
+  json<ProjectMember>(`/api/v1/projects/${id}/members/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  })
+
+export const removeMember = (id: string, userId: string) =>
+  json<void>(`/api/v1/projects/${id}/members/${userId}`, { method: 'DELETE' })

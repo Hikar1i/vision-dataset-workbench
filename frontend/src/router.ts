@@ -6,6 +6,7 @@ import LoginView from './views/LoginView.vue'
 import AccountView from './views/AccountView.vue'
 import AdminUsersView from './views/AdminUsersView.vue'
 import ProjectsView from './views/ProjectsView.vue'
+import ProjectSettingsView from './views/ProjectSettingsView.vue'
 import RegisterView from './views/RegisterView.vue'
 import SetupView from './views/SetupView.vue'
 
@@ -21,6 +22,7 @@ export function createAppRouter() {
       { path: '/admin/users', component: AdminUsersView },
       { path: '/ready', redirect: '/projects' },
       { path: '/projects', component: ProjectsView },
+      { path: '/projects/:id/settings', component: ProjectSettingsView },
     ],
   })
   router.beforeEach(async (to) => {
