@@ -23,6 +23,8 @@ class RuntimeSettings:
     workspace: Path | None
     app_mode: Literal["multi", "single"] = "multi"
     registration_enabled: bool = False
+    ytdlp_proxy: str | None = None
+    ytdlp_cookie_file: Path | None = None
 
     @classmethod
     def from_env(cls) -> "RuntimeSettings":
@@ -40,4 +42,10 @@ class RuntimeSettings:
             workspace=workspace,
             app_mode=mode,
             registration_enabled=registration_enabled,
+            ytdlp_proxy=os.environ.get("YTDLP_PROXY") or None,
+            ytdlp_cookie_file=(
+                Path(cookie_file).expanduser().resolve()
+                if (cookie_file := os.environ.get("YTDLP_COOKIE_FILE"))
+                else None
+            ),
         )

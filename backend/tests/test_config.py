@@ -16,6 +16,17 @@ def test_auth_settings_default_to_multi_and_closed_registration(tmp_path, monkey
     assert settings.registration_enabled is False
 
 
+def test_ytdlp_settings_are_optional_instance_configuration(tmp_path, monkeypatch):
+    monkeypatch.setenv("YTDLP_PROXY", "http://proxy.test:8080")
+    monkeypatch.setenv("YTDLP_COOKIE_FILE", str(tmp_path / "cookies.txt"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    settings = RuntimeSettings.from_env()
+
+    assert settings.ytdlp_proxy == "http://proxy.test:8080"
+    assert settings.ytdlp_cookie_file == tmp_path / "cookies.txt"
+
+
 @pytest.mark.parametrize("value", ["yes", "1", "enabled"])
 def test_registration_boolean_is_strict(tmp_path, monkeypatch, value):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)

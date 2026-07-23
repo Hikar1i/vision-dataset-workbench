@@ -8,6 +8,7 @@ dependencies = [
   "fastapi>=0.116,<1",
   "sqlalchemy>=2.0,<3",
   "uvicorn[standard]>=0.35,<1",
+  "yt-dlp>=2026.3.17",
 ]
 
 [dependency-groups]
