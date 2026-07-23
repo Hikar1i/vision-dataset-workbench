@@ -70,17 +70,17 @@ cd frontend && npm run build
 
 ```text
 APP_MODE=multi|single
-SINGLE_AUTH=password|token|none
+REGISTRATION_ENABLED=false|true
 VDW_WORKSPACE=<workspace-path>
 ```
 
 - 默认 `multi`。
-- 单用户三种认证方式与多用户共用数据库和项目成员数据。
+- `single` 只允许初始化管理员使用用户名和密码登录。
+- 两种模式共用数据库和项目成员数据。
 - 模式切换后重启生效。
-- `single/none` 只允许 loopback 或非空 IP 白名单。
 - CLI 参数或 `VDW_WORKSPACE` 优先于平台工作区定位文件。
 
-当前只实现了 `VDW_WORKSPACE`。`APP_MODE`、`SINGLE_AUTH`、登录和无认证 IP 限制属于下一阶段，不应在当前版本中配置。
+当前只实现了 `VDW_WORKSPACE`。`APP_MODE`、`REGISTRATION_ENABLED` 和登录属于下一阶段，在对应代码合并前不应配置。
 
 ## 配置类别
 
@@ -93,8 +93,8 @@ VDW_WORKSPACE=<workspace-path>
 | Storage | 工作区、用户 home、临时根、容量阈值 |
 | Tasks | Worker 并发、租约、重试、超时 |
 | Media | FFmpeg/ffprobe/yt-dlp 路径与限制 |
-| Web | 绑定地址、可信代理、IP/CIDR 白名单 |
-| Auth | 运行模式、会话密钥、单用户 Token |
+| Web | 绑定地址、前端来源和 Cookie 安全属性 |
+| Auth | 运行模式、注册开关和 Session 生命周期 |
 | GPU | 能力检测、每 GPU 任务数和模型依赖 |
 
 本地示例配置只能包含无敏感默认值；真实密钥通过未提交文件或密钥管理服务注入。

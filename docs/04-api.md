@@ -76,7 +76,7 @@
 第一阶段使用 `/api/v1`，围绕以下资源设计：
 
 - setup
-- auth sessions、single token、registrations、users
+- auth sessions、registrations、users
 - capabilities、filesystem
 - projects
 - project members
@@ -135,8 +135,8 @@ FastAPI OpenAPI 是唯一契约来源。前端类型从规范生成或在 CI 中
 运行模式：
 
 - 默认 `multi`，内置账号密码认证。
-- `single/password`、`single/token`、`single/none` 共用工作区管理员身份。
-- 单用户无认证只允许 loopback，或必须配置非空 IP/CIDR 白名单。
+- `single` 只允许初始化管理员使用用户名和密码登录。
+- 两种模式共用 User、Session 和后续项目成员数据；模式切换不修改业务数据。
 
 所有模式要求：
 
@@ -147,6 +147,7 @@ FastAPI OpenAPI 是唯一契约来源。前端类型从规范生成或在 CI 中
 - 关键写操作记录操作者和请求追踪信息。
 - 浏览器使用 HttpOnly Session Cookie，写请求执行同源/CSRF 检查。
 - 注册默认关闭；启用后新账号需管理员批准。
+- 当前可信局域网部署不提供浏览器 Token、无认证、IP/CIDR 或可信代理模式。
 
 项目角色为 owner、editor、viewer。系统管理员在多用户模式下不自动读取全部项目内容；单用户模式临时授予工作区管理员全部项目访问权。
 

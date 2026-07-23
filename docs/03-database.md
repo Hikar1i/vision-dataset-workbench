@@ -80,8 +80,8 @@
 | 概念 | 最小职责 |
 | --- | --- |
 | Dataset Project | 项目身份、类型、存储位置、生命周期 |
-| User / Session / Single Token | 内置账号、浏览器会话和单用户 Token 哈希 |
-| Registration Request | 待审批、批准、拒绝和禁用状态 |
+| User / Session | 内置账号和服务端浏览器会话 |
+| Registration State | User 的 pending、active、rejected、disabled 状态 |
 | Project Membership | owner、editor、viewer 项目权限 |
 | Video Asset | 来源、稳定身份、媒体元数据、业务状态、启用状态 |
 | Frame Asset | 稳定帧身份、视频关系、序号/时间、文件引用、启用状态 |
