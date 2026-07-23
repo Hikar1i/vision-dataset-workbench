@@ -38,3 +38,15 @@ export const login = (username: string, password: string) =>
     body: JSON.stringify({ username, password }),
   })
 export const logout = () => json<void>('/api/v1/auth/logout', { method: 'POST' })
+export const register = (username: string, password: string) =>
+  json<{ id: string; username: string; status: 'pending' }>('/api/v1/registrations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+export const changePassword = (current_password: string, new_password: string) =>
+  json<CurrentUser>('/api/v1/auth/password', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password, new_password }),
+  })

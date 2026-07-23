@@ -20,3 +20,72 @@ body {
   border: 1px solid #dfe1e5;
   border-radius: 10px;
 }
+
+.utility-shell {
+  min-height: 100vh;
+  color: #17212b;
+  background: #f4f7fa;
+}
+
+.utility-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 0 clamp(20px, 4vw, 56px);
+  background: #17212b;
+  border-bottom: 2px solid #76dfc2;
+}
+
+.utility-topbar a {
+  color: #dce5ed;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.utility-brand,
+.utility-code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.11em;
+}
+
+.utility-brand {
+  color: #76dfc2;
+}
+
+.utility-code {
+  color: #2563eb;
+}
+
+.utility-card {
+  display: grid;
+  gap: 28px;
+  width: min(560px, calc(100% - 32px));
+  margin: clamp(40px, 8vh, 88px) auto;
+  padding: clamp(28px, 5vw, 48px);
+  background: white;
+  border: 1px solid #d8dee6;
+}
+
+.utility-heading {
+  padding-bottom: 24px;
+  border-bottom: 1px solid #d8dee6;
+}
+
+.utility-card h1 {
+  margin: 14px 0 8px;
+  font-size: 30px;
+  letter-spacing: -0.035em;
+}
+
+.utility-card p {
+  margin: 0;
+  color: #687482;
+  line-height: 1.65;
+}
+
+.utility-card form,
+.utility-card form > .el-button {
+  width: 100%;
+}

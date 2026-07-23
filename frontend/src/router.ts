@@ -3,7 +3,9 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { ApiError, getAuthStatus, getCurrentUser } from './api/auth'
 import { getSetupStatus } from './api/setup'
 import LoginView from './views/LoginView.vue'
+import AccountView from './views/AccountView.vue'
 import ReadyView from './views/ReadyView.vue'
+import RegisterView from './views/RegisterView.vue'
 import SetupView from './views/SetupView.vue'
 
 export function createAppRouter() {
@@ -13,6 +15,8 @@ export function createAppRouter() {
       { path: '/', redirect: '/ready' },
       { path: '/setup', component: SetupView },
       { path: '/login', component: LoginView },
+      { path: '/register', component: RegisterView },
+      { path: '/account', component: AccountView },
       { path: '/ready', component: ReadyView },
     ],
   })
@@ -35,6 +39,7 @@ export function createAppRouter() {
       return '/login'
     }
     if (to.path === '/setup' || to.path === '/login' || to.path === '/register') return '/ready'
+    if (to.path.startsWith('/admin/') && !user.is_system_admin) return '/ready'
   })
   return router
 }
