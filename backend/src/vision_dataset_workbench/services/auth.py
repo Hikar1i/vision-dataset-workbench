@@ -77,6 +77,7 @@ class AuthService:
     ):
         self.settings = settings
         self._now = now
+        self._engine = engine
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
     def login(self, username: str, password: str) -> CreatedSession:
@@ -105,6 +106,9 @@ class AuthService:
             created = self._create_session(database, user, self._now())
             database.commit()
             return created
+
+    def close(self) -> None:
+        self._engine.dispose()
 
     def authenticate(self, token: str) -> User:
         if not token:
@@ -264,6 +268,28 @@ class AuthService:
                 database.execute(
                     delete(AuthSession).where(AuthSession.user_id == user.id)
                 )
+            database.commit()
+            return user
+
+    def reset_admin_password(self, username: str, new_password: str) -> User:
+        try:
+            normalized = normalize_username(username)
+        except ValueError:
+            raise UserNotFound("administrator not found") from None
+        validate_password(new_password)
+        replacement_hash = hash_password(new_password)
+        now = self._now()
+        with self._session_factory() as database:
+            user = database.scalar(
+                select(User).where(User.username_normalized == normalized)
+            )
+            if user is None or not user.is_system_admin:
+                raise UserNotFound("administrator not found")
+            user.password_hash = replacement_hash
+            user.updated_at = now
+            database.execute(
+                delete(AuthSession).where(AuthSession.user_id == user.id)
+            )
             database.commit()
             return user
 
