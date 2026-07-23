@@ -38,7 +38,7 @@ describe('AccountView', () => {
       '/api/v1/auth/password',
       expect.objectContaining({ method: 'PUT', credentials: 'same-origin' }),
     )
-    expect(replace).toHaveBeenCalledWith('/ready')
+    expect(replace).toHaveBeenCalledWith('/projects')
   })
 
   it('keeps submission disabled while new passwords differ', async () => {

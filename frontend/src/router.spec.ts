@@ -73,6 +73,6 @@ describe('setup routing', () => {
     const router = createAppRouter()
     await router.push('/login')
     await router.isReady()
-    expect(router.currentRoute.value.path).toBe('/ready')
+    expect(router.currentRoute.value.path).toBe('/projects')
   })
 })

@@ -27,7 +27,7 @@ async function submit() {
   error.value = ''
   try {
     await login(username.value, password.value)
-    await router.replace('/ready')
+    await router.replace('/projects')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '登录失败'
   } finally {

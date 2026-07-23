@@ -49,7 +49,7 @@ describe('LoginView', () => {
       expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
     )
     expect(wrapper.get('[data-test="register-link"]').attributes('href')).toBe('/register')
-    expect(replace).toHaveBeenCalledWith('/ready')
+    expect(replace).toHaveBeenCalledWith('/projects')
   })
 
   it('shows the server login error', async () => {

@@ -23,7 +23,7 @@ async function submit() {
   error.value = ''
   try {
     await changePassword(currentPassword.value, newPassword.value)
-    await router.replace('/ready')
+    await router.replace('/projects')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '密码修改失败'
   } finally {
@@ -36,7 +36,7 @@ async function submit() {
   <main class="utility-shell">
     <header class="utility-topbar">
       <span class="utility-brand">VDW</span>
-      <router-link to="/ready">返回工作台</router-link>
+      <router-link to="/projects">返回项目</router-link>
     </header>
 
     <section class="utility-card">

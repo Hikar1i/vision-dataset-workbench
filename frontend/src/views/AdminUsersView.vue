@@ -65,7 +65,7 @@ onMounted(() => load())
         <h1>用户与注册审批</h1>
         <p>审批新账号，或控制现有账号能否登录当前实例。</p>
       </div>
-      <router-link to="/ready">返回工作台</router-link>
+      <router-link to="/projects">返回项目</router-link>
     </header>
 
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />

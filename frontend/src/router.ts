@@ -5,7 +5,7 @@ import { getSetupStatus } from './api/setup'
 import LoginView from './views/LoginView.vue'
 import AccountView from './views/AccountView.vue'
 import AdminUsersView from './views/AdminUsersView.vue'
-import ReadyView from './views/ReadyView.vue'
+import ProjectsView from './views/ProjectsView.vue'
 import RegisterView from './views/RegisterView.vue'
 import SetupView from './views/SetupView.vue'
 
@@ -13,13 +13,14 @@ export function createAppRouter() {
   const router = createRouter({
     history: createWebHistory(),
     routes: [
-      { path: '/', redirect: '/ready' },
+      { path: '/', redirect: '/projects' },
       { path: '/setup', component: SetupView },
       { path: '/login', component: LoginView },
       { path: '/register', component: RegisterView },
       { path: '/account', component: AccountView },
       { path: '/admin/users', component: AdminUsersView },
-      { path: '/ready', component: ReadyView },
+      { path: '/ready', redirect: '/projects' },
+      { path: '/projects', component: ProjectsView },
     ],
   })
   router.beforeEach(async (to) => {
@@ -40,8 +41,8 @@ export function createAppRouter() {
       if (to.path === '/register' && authStatus.registration_enabled) return
       return '/login'
     }
-    if (to.path === '/setup' || to.path === '/login' || to.path === '/register') return '/ready'
-    if (to.path.startsWith('/admin/') && !user.is_system_admin) return '/ready'
+    if (to.path === '/setup' || to.path === '/login' || to.path === '/register') return '/projects'
+    if (to.path.startsWith('/admin/') && !user.is_system_admin) return '/projects'
   })
   return router
 }
