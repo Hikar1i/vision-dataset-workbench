@@ -1,0 +1,22 @@
+:root {
+  color: #1f2329;
+  background: #f5f6f8;
+  font-family: Inter, "Noto Sans SC", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.center-card {
+  width: min(720px, calc(100% - 32px));
+  margin: 64px auto;
+  padding: 32px;
+  background: white;
+  border: 1px solid #dfe1e5;
+  border-radius: 10px;
+}
