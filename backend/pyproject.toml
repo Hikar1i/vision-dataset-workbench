@@ -25,6 +25,7 @@ build-backend = "hatchling.build"
 packages = ["src/vision_dataset_workbench"]
 
 [tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 
