@@ -13,7 +13,14 @@ from vision_dataset_workbench.database import (
     make_engine,
     sqlite_supports_safe_wal,
 )
-from vision_dataset_workbench.models import AuthSession, Project, ProjectMembership, User
+from vision_dataset_workbench.models import (
+    AuthSession,
+    Project,
+    ProjectMembership,
+    Task,
+    User,
+    Video,
+)
 from vision_dataset_workbench.security.passwords import hash_password, verify_password
 
 
@@ -22,7 +29,14 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
     create_workspace_database(database_path)
     engine = make_engine(database_path)
 
-    assert {"users", "sessions", "projects", "project_memberships"}.issubset(
+    assert {
+        "users",
+        "sessions",
+        "projects",
+        "project_memberships",
+        "videos",
+        "tasks",
+    }.issubset(
         inspect(engine).get_table_names()
     )
     assert AuthSession.__tablename__ == "sessions"
@@ -109,6 +123,88 @@ def test_projects_allow_duplicate_names_and_memberships_are_unique(tmp_path):
         session.add(
             ProjectMembership(
                 project_id="project-2", user_id="member-id", role="owner"
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    engine.dispose()
+
+
+def test_video_identities_and_active_tasks_are_unique_per_project(tmp_path):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    create_workspace_database(database_path)
+    engine = make_engine(database_path)
+    password_hash = hash_password("correct horse battery staple")
+    with Session(engine) as session:
+        session.add(
+            User(
+                id="owner-id",
+                username="owner",
+                username_normalized="owner",
+                password_hash=password_hash,
+            )
+        )
+        session.flush()
+        session.add(Project(id="project-1", name="project", creator_id="owner-id"))
+        session.commit()
+
+        local = Video(
+            id="local-1",
+            project_id="project-1",
+            source_type="local",
+            title="local",
+            content_sha256="a" * 64,
+        )
+        remote = Video(
+            id="remote-1",
+            project_id="project-1",
+            source_type="remote",
+            title="remote",
+            extractor="youtube",
+            external_id="remote-id",
+        )
+        session.add_all([local, remote])
+        session.commit()
+
+    for duplicate in (
+        Video(
+            project_id="project-1",
+            source_type="local",
+            title="duplicate local",
+            content_sha256="a" * 64,
+        ),
+        Video(
+            project_id="project-1",
+            source_type="remote",
+            title="duplicate remote",
+            extractor="youtube",
+            external_id="remote-id",
+        ),
+    ):
+        with Session(engine) as session:
+            session.add(duplicate)
+            with pytest.raises(IntegrityError):
+                session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            Task(
+                id="task-1",
+                project_id="project-1",
+                submitted_by_id="owner-id",
+                video_id="local-1",
+                type="copy_video",
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            Task(
+                project_id="project-1",
+                submitted_by_id="owner-id",
+                video_id="local-1",
+                type="copy_video",
             )
         )
         with pytest.raises(IntegrityError):
