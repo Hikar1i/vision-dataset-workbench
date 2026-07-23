@@ -13,7 +13,7 @@ from vision_dataset_workbench.database import (
     make_engine,
     sqlite_supports_safe_wal,
 )
-from vision_dataset_workbench.models import AuthSession, User
+from vision_dataset_workbench.models import AuthSession, Project, ProjectMembership, User
 from vision_dataset_workbench.security.passwords import hash_password, verify_password
 
 
@@ -22,7 +22,9 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
     create_workspace_database(database_path)
     engine = make_engine(database_path)
 
-    assert {"users", "sessions"}.issubset(inspect(engine).get_table_names())
+    assert {"users", "sessions", "projects", "project_memberships"}.issubset(
+        inspect(engine).get_table_names()
+    )
     assert AuthSession.__tablename__ == "sessions"
     with engine.connect() as connection:
         journal_mode = connection.exec_driver_sql("PRAGMA journal_mode").scalar_one()
@@ -51,6 +53,62 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
                 username_normalized="admin",
                 password_hash=password_hash,
                 is_system_admin=False,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    engine.dispose()
+
+
+def test_projects_allow_duplicate_names_and_memberships_are_unique(tmp_path):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    create_workspace_database(database_path)
+    engine = make_engine(database_path)
+    password_hash = hash_password("correct horse battery staple")
+    with Session(engine) as session:
+        session.add_all(
+            [
+                User(
+                    id="owner-id",
+                    username="owner",
+                    username_normalized="owner",
+                    password_hash=password_hash,
+                ),
+                User(
+                    id="member-id",
+                    username="member",
+                    username_normalized="member",
+                    password_hash=password_hash,
+                ),
+            ]
+        )
+        session.flush()
+        session.add_all(
+            [
+                Project(id="project-1", name="same name", creator_id="owner-id"),
+                Project(id="project-2", name="same name", creator_id="owner-id"),
+            ]
+        )
+        session.add(
+            ProjectMembership(
+                project_id="project-1", user_id="member-id", role="editor"
+            )
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            ProjectMembership(
+                project_id="project-1", user_id="member-id", role="viewer"
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            ProjectMembership(
+                project_id="project-2", user_id="member-id", role="owner"
             )
         )
         with pytest.raises(IntegrityError):
@@ -87,4 +145,7 @@ def test_authentication_migration_backfills_existing_administrator(tmp_path, mon
     assert admin is not None
     assert admin.username_normalized == "admin"
     assert admin.updated_at == admin.created_at
+    assert {"projects", "project_memberships"}.issubset(
+        inspect(engine).get_table_names()
+    )
     engine.dispose()
