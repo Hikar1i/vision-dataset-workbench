@@ -77,7 +77,7 @@ class AuthService:
     ):
         self.settings = settings
         self._now = now
-        self._engine = engine
+        self.engine = engine
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
     def login(self, username: str, password: str) -> CreatedSession:
@@ -108,7 +108,7 @@ class AuthService:
             return created
 
     def close(self) -> None:
-        self._engine.dispose()
+        self.engine.dispose()
 
     def authenticate(self, token: str) -> User:
         if not token:
