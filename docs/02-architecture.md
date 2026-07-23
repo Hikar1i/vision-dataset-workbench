@@ -1,14 +1,13 @@
 # 架构
 
-状态：目标边界已建立，技术选型与实现尚未开始。
+状态：总体设计已批准，应用实现尚未开始。
 
 ## 当前仓库状态
 
 当前仓库只有项目文档和本地参考材料，没有可运行的前端、后端、数据库或任务服务。因此本页区分：
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
-- 目标边界：第一阶段必须满足的职责划分，不代表已有实现。
-- 待决策项：在实现计划中通过原型和基准确认。
+- 目标设计：已经批准的职责划分和技术基线，不代表已有实现。
 
 ## 遗留架构基线
 
@@ -31,30 +30,30 @@ Flask app.py
 
 遗留前端以两个超大页面组件承载界面、API、并发调度和业务状态。后端除 yt-dlp 封装外，几乎全部集中在约 4500 行的 `app.py`。任务和 SSE 订阅只存在于单进程内存；数据库与文件系统跨阶段更新；没有认证授权。该结构不得作为新项目模块组织模板。
 
-## 第一阶段目标边界
+## 已批准的目标架构
 
 ```text
-Web Client
+Vue 3 + TypeScript Client
   ├─ 页面与工作区布局
   ├─ 按领域拆分的 UI 状态
-  └─ 生成或集中维护的 API Client
+  └─ OpenAPI 契约 Client
               │ HTTP + 任务事件
               ▼
-API Application
-  ├─ 身份/权限入口（第一阶段允许最小实现）
+FastAPI Application
+  ├─ 初始化、身份、注册审批与项目权限
   ├─ 请求校验与响应映射
   └─ 应用服务编排
-       ├─ Project / Video / Frame / Group / Export 领域规则
+       ├─ Project / Video / Frame / AnnotationBatch / Export
        ├─ Repository + Unit of Work
        ├─ Storage Gateway
        └─ Task Gateway
               │
       ┌───────┴────────┐
       ▼                ▼
-Persistent DB      Task Workers
+SQLite             Persistent Worker
                        ├─ yt-dlp
                        ├─ FFmpeg / ffprobe
-                       ├─ 分组文件生成
+                       ├─ 标注批次物化/同步
                        └─ 数据集导出
               │
               ▼
@@ -64,7 +63,7 @@ Persistent DB      Task Workers
 ### 前端职责
 
 - 路由页面只组织用户流程，不直接实现业务算法。
-- 项目、媒体、帧、任务、分组和导出使用独立的功能模块。
+- 项目、媒体、帧、任务、标注批次和导出使用独立的功能模块。
 - 服务端状态是任务与资源的事实来源；页面本地状态只保存交互状态和可丢弃缓存。
 - 批量操作提交服务端任务，不在浏览器中制造 O(视频数 × 帧数) 的请求瀑布。
 - UI 追求高信息密度、清晰层级和键鼠高效操作，具体设计系统在前端实现前确认。
@@ -74,7 +73,7 @@ Persistent DB      Task Workers
 - 校验输入、认证上下文和资源权限。
 - 把 HTTP 契约映射到应用服务，不直接包含 SQL、FFmpeg 或文件复制细节。
 - 所有状态转移调用同一领域规则，查询不得隐式迁移 schema 或修复业务状态。
-- 对跨数据库与文件系统的操作创建持久任务，并暴露明确的部分失败状态。
+- 对跨数据库与文件系统的操作创建 SQLite 持久任务，并暴露明确的部分失败状态。
 
 ### 领域职责
 
@@ -86,19 +85,19 @@ Persistent DB      Task Workers
 ### 基础设施职责
 
 - Repository：持久化领域数据，迁移只通过版本化迁移工具执行。
-- Task Worker：领取有租约的任务，记录心跳、进度、重试和最终结果。
+- Task Worker：独立于 API，领取有租约的 SQLite 任务，记录心跳、进度、重试和最终结果。
 - Storage Gateway：所有路径都相对配置的存储根解析，拒绝逃逸和任意绝对路径。
 - Media Adapters：隔离 yt-dlp、FFmpeg、ffprobe 的命令构造、超时和错误映射。
 
 ## 状态与任务模型
 
-第一阶段保留以下视频业务状态语义：
+视频生命周期简化为：
 
-`INIT` → `DOWNLOADED` → `READY_FOR_SAMPLING` → `SAMPLED`
+`pending_download` → `ready` → `sampling_configured` → `sampled`
 
-采样后再根据是否分组、是否过滤进入 `GROUPED`、`FILTERED_UNGROUPED` 或 `FILTERED_GROUPED`；不可恢复的媒体处理失败进入 `ERROR`。最终名称可以在实现时调整，但必须有显式迁移和单元测试。
+下载或抽帧失败记录在 Task，视频保留在可重试的前一状态；文件确实丢失时标记 `unavailable`。是否启用属于 Video，筛选由 Frame 推导，外部标注分组由 AnnotationBatch 表达，不再组合进视频状态。
 
-任务状态与业务状态分离。下载、抽帧、分组和导出至少需要 queued、running、succeeded、failed、canceled；任务记录必须包含类型、资源范围、进度、尝试次数、错误、创建/开始/结束时间和 Worker 租约。
+任务状态与业务状态分离。下载、复制、抽帧、标注同步和导出使用 queued、running、succeeded、failed、canceled；任务记录包含类型、提交者、资源范围、进度、尝试次数、错误、租约、心跳和时间。
 
 ## 一致性原则
 
@@ -107,18 +106,20 @@ Persistent DB      Task Workers
 - 跨资源事务无法原子完成时，记录执行阶段并提供补偿或安全重试。
 - 事件从持久任务状态派生；进程重启和多 Worker 不得丢失最终状态。
 
+## 运行与存储边界
+
+- 默认多用户；可通过配置切换单用户密码、Token 或受限无认证模式。
+- 所有模式共用用户、权限和数据，单用户模式临时以工作区管理员访问全部项目。
+- 所有受管理数据位于 `<parent>/.vision-dataset-workbench/`。
+- 所有认证用户可浏览启动用户 `~`，导入后复制到工作区；API 不暴露绝对路径。
+- Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
+- Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
+- 只支持单机本地磁盘，不支持跨服务器 Worker 或网络文件系统上的 SQLite。
+
 ## 延期架构
 
-- 多用户完整权限模型在视频主链路稳定后实现，但第一阶段的数据所有权字段和服务边界不得阻止后续加入。
-- 图片数据集能力在视频重构后实现，复用 Dataset、Asset、Annotation、Task 和 Storage 概念，不直接移植遗留分支路由。
-- 在线标注和模型自动标注是独立应用/任务能力，具体推理拓扑与模型格式目前为 `Unknown`。
-
-## 待决策项
-
-- 前后端框架、语言和版本：`Unknown`。
-- 主数据库引擎、ORM/查询层和迁移工具：`Unknown`。
-- 任务执行方式（数据库队列或专用消息队列）：`Unknown`。
-- 事件传输采用 SSE、WebSocket 或两者结合：`Unknown`。
-- 单机、局域网服务器或容器编排平台的首要部署目标：`Unknown`。
-
-这些选型必须由实现复杂度、部署约束和基准数据驱动，不因遗留项目使用 Flask、Vue 或 SQLite 而默认继承。
+- 图片数据集能力在视频重构后实现，不直接移植遗留分支路由。
+- 在线标注另行设计。
+- 自动标注和可视化训练首批只支持 Ultralytics YOLO 检测模型。
+- 内置自动标注由 Worker 动态切分 Frame，不依赖外部 AnnotationBatch 目录。
+- 不预建任意模型或训练脚本插件框架。

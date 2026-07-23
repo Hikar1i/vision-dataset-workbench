@@ -1,6 +1,6 @@
 # 环境与启动
 
-状态：当前仓库没有应用代码，因此没有可执行启动命令。
+状态：环境与运行模式已批准；当前仓库没有应用代码，因此没有业务启动命令。
 
 ## 当前可执行操作
 
@@ -19,9 +19,10 @@ aiproj init --repo . --profile generic --gitignore check --dry-run
 
 ### Local
 
-- 面向开发者的前端、API、Worker 和本地数据库。
-- 媒体存储使用仓库外或被忽略的专用目录。
+- Linux 或 Windows 上的前端、FastAPI、Worker 和 SQLite。
+- 默认工作区为用户选择位置下的 `.vision-dataset-workbench`。
 - 支持使用假下载适配器和短测试视频，无需访问真实平台即可开发主流程。
+- 未检测到 GPU 时正常启动并禁用自动标注和训练。
 
 ### Test
 
@@ -42,6 +43,20 @@ aiproj init --repo . --profile generic --gitignore check --dry-run
 - 配置健康检查、日志、指标、备份和磁盘告警。
 - CORS、文件导入根和代理配置使用明确白名单。
 
+## 运行模式
+
+```text
+APP_MODE=multi|single
+SINGLE_AUTH=password|token|none
+VDW_WORKSPACE=<workspace-path>
+```
+
+- 默认 `multi`。
+- 单用户三种认证方式与多用户共用数据库和项目成员数据。
+- 模式切换后重启生效。
+- `single/none` 只允许 loopback 或非空 IP 白名单。
+- CLI 参数或 `VDW_WORKSPACE` 优先于平台工作区定位文件。
+
 ## 配置类别
 
 变量名在实现后确定，但至少需要以下配置：
@@ -50,11 +65,12 @@ aiproj init --repo . --profile generic --gitignore check --dry-run
 | --- | --- |
 | Runtime | 环境名、日志级别、服务版本 |
 | Database | 连接地址、池和迁移检查 |
-| Storage | 项目根、导入根、临时根、容量阈值 |
+| Storage | 工作区、用户 home、临时根、容量阈值 |
 | Tasks | Worker 并发、租约、重试、超时 |
 | Media | FFmpeg/ffprobe/yt-dlp 路径与限制 |
-| Web | 公共地址、可信代理、CORS 来源 |
-| Auth | 会话/令牌密钥和身份提供方 |
+| Web | 绑定地址、可信代理、IP/CIDR 白名单 |
+| Auth | 运行模式、会话密钥、单用户 Token |
+| GPU | 能力检测、每 GPU 任务数和模型依赖 |
 
 本地示例配置只能包含无敏感默认值；真实密钥通过未提交文件或密钥管理服务注入。
 
@@ -69,7 +85,7 @@ aiproj init --repo . --profile generic --gitignore check --dry-run
 - 测试、构建和停止命令。
 - 常见端口与健康检查 URL。
 
-这些命令当前均为 `Unknown`。在首个应用脚手架合并时必须同步补充，不能继续保留占位式“自行启动”说明。
+这些命令尚未存在。在首个应用脚手架合并时必须同步补充，不能保留占位式“自行启动”说明。
 
 ## 外部工具验证
 
