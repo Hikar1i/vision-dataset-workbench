@@ -5,6 +5,7 @@ from ..services.auth import build_auth_service
 from ..services.projects import ProjectService
 from ..services.setup import SetupConflict, SetupService
 from ..setup.tokens import InvalidSetupToken
+from ..storage.browser import create_home_directory, list_home_entries
 from ..storage.paths import HomePathResolver, UnsafePathError
 
 router = APIRouter(prefix="/api/v1/setup", tags=["setup"])
@@ -47,39 +48,15 @@ def list_directories(
 
     resolver = HomePathResolver(request.app.state.settings.home)
     try:
-        directory = resolver.resolve_existing(path)
-        hidden_workspace = request.app.state.workspace
-        children = sorted(
-            (
-                item
-                for item in directory.iterdir()
-                if item.is_dir()
-                and item.resolve().is_relative_to(resolver.home)
-                and (hidden_workspace is None or item.resolve() != hidden_workspace)
-            ),
-            key=lambda item: item.name.casefold(),
+        return list_home_entries(
+            resolver,
+            path,
+            page=page,
+            page_size=page_size,
+            hidden_root=request.app.state.workspace,
         )
     except (OSError, UnsafePathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    start = (page - 1) * page_size
-    items = [
-        {"name": child.name, "path": child.relative_to(resolver.home).as_posix()}
-        for child in children[start : start + page_size]
-    ]
-    parent = (
-        None
-        if directory == resolver.home
-        else directory.parent.relative_to(resolver.home).as_posix()
-    )
-    return {
-        "path": resolver.display(directory),
-        "parent": parent,
-        "items": items,
-        "page": page,
-        "page_size": page_size,
-        "total": len(children),
-    }
 
 
 @router.post("/directories", status_code=status.HTTP_201_CREATED)
@@ -91,16 +68,11 @@ def create_directory(
     require_token(request, x_setup_token)
     resolver = HomePathResolver(request.app.state.settings.home)
     try:
-        target = resolver.resolve_child(payload.parent, payload.name)
-        target.mkdir()
+        return create_home_directory(resolver, payload.parent, payload.name)
     except FileExistsError as exc:
         raise HTTPException(status_code=409, detail="directory already exists") from exc
     except (OSError, UnsafePathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {
-        "path": target.relative_to(resolver.home).as_posix(),
-        "display_path": resolver.display(target),
-    }
 
 
 @router.post("/initialize", status_code=status.HTTP_201_CREATED)

@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from .api.auth import router as auth_router
+from .api.filesystem import router as filesystem_router
 from .api.projects import router as projects_router
 from .api.registrations import router as registrations_router
 from .api.setup import router as setup_router
@@ -45,6 +46,7 @@ def create_app(
     app.state.setup_service = SetupService(resolved_settings.home, resolved_locator, token)
     app.include_router(setup_router)
     app.include_router(auth_router)
+    app.include_router(filesystem_router)
     app.include_router(registrations_router)
     app.include_router(projects_router)
 
