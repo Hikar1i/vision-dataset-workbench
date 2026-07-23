@@ -29,6 +29,7 @@ def test_setup_creates_workspace_and_admin(tmp_path):
     with Session(make_engine(workspace / "db" / "workbench.sqlite3")) as session:
         admin = session.scalar(select(User).where(User.username == "admin"))
     assert admin is not None and admin.is_system_admin
+    assert admin.username_normalized == "admin"
 
 
 def test_setup_refuses_existing_workspace(tmp_path):

@@ -46,6 +46,7 @@ class SetupService:
                     session.add(
                         User(
                             username=username,
+                            username_normalized=username.lower(),
                             password_hash=hash_password(password),
                             status="active",
                             is_system_admin=True,

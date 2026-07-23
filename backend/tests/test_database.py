@@ -1,12 +1,19 @@
+from pathlib import Path
+
+import pytest
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import inspect, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from vision_dataset_workbench.database import (
     create_workspace_database,
+    database_url,
     make_engine,
     sqlite_supports_safe_wal,
 )
-from vision_dataset_workbench.models import User
+from vision_dataset_workbench.models import AuthSession, User
 from vision_dataset_workbench.security.passwords import hash_password, verify_password
 
 
@@ -15,16 +22,69 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
     create_workspace_database(database_path)
     engine = make_engine(database_path)
 
-    assert "users" in inspect(engine).get_table_names()
+    assert {"users", "sessions"}.issubset(inspect(engine).get_table_names())
+    assert AuthSession.__tablename__ == "sessions"
     with engine.connect() as connection:
         journal_mode = connection.exec_driver_sql("PRAGMA journal_mode").scalar_one()
     assert journal_mode == ("wal" if sqlite_supports_safe_wal() else "delete")
     password_hash = hash_password("correct horse battery staple")
     with Session(engine) as session:
-        session.add(User(username="admin", password_hash=password_hash, is_system_admin=True))
+        session.add(
+            User(
+                username="Admin",
+                username_normalized="admin",
+                password_hash=password_hash,
+                is_system_admin=True,
+            )
+        )
         session.commit()
-        user = session.scalar(select(User).where(User.username == "admin"))
+        user = session.scalar(select(User).where(User.username_normalized == "admin"))
 
     assert user is not None
+    assert user.username == "Admin"
     assert verify_password(user.password_hash, "correct horse battery staple")
+
+    with Session(engine) as session:
+        session.add(
+            User(
+                username="admin",
+                username_normalized="admin",
+                password_hash=password_hash,
+                is_system_admin=False,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    engine.dispose()
+
+
+def test_authentication_migration_backfills_existing_administrator(tmp_path, monkeypatch):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    database_path.parent.mkdir(parents=True)
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    monkeypatch.setenv(
+        "VDW_DATABASE_URL", database_url(database_path).render_as_string(hide_password=False)
+    )
+    command.upgrade(config, "0001_initial")
+    engine = make_engine(database_path)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            INSERT INTO users
+                (id, username, password_hash, status, is_system_admin, created_at)
+            VALUES
+                (?, ?, ?, ?, ?, ?)
+            """,
+            ("admin-id", "Admin", "hash", "active", True, "2026-07-23 00:00:00.000000"),
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        admin = session.get(User, "admin-id")
+    assert admin is not None
+    assert admin.username_normalized == "admin"
+    assert admin.updated_at == admin.created_at
     engine.dispose()
