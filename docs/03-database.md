@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -73,9 +73,12 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | `file_path` / `thumbnail_path` | 工作区内相对路径，不保存导入源绝对路径 |
 | `duration` / `width` / `height` / `fps` / `total_frames` / `file_size` | ffprobe 与文件系统确认的媒体元数据 |
 | `status` | `pending`、`ready` 或 `unavailable` |
+| `enabled` | 视频是否进入后续标注、自动标注和导出；默认启用 |
 | `version` / 时间字段 | 资源版本和创建、更新时间 |
 
-本地重复内容和远程重复身份通过 SQLite partial unique index 约束。复制/下载成功前视频保持 `pending`；Worker 验证文件与元数据后才写入受管路径并切换为 `ready`。
+本地重复内容和远程重复身份通过 SQLite partial unique index 约束。每个项目最多保存 999 条 Video：导入服务先检查剩余容量并返回逐项 accepted/rejected，SQLite `trg_videos_project_limit` 插入触发器处理多用户并发越过前置检查的竞争场景。复制/下载成功前视频保持 `pending`；Worker 验证文件与元数据后才写入受管路径并切换为 `ready`。
+
+视频 `enabled` 与媒体 `status` 相互独立。停用不删除文件、不取消任务，也不阻止播放、采样配置、抽帧或帧管理；后续标注与导出实现必须显式过滤 `enabled = true`。备注和遗留自由文本 `status_info` 不进入新 schema，状态信息由任务、视频和采样方案结构化字段推导。
 
 `sampling_plans` 每个视频最多一行：
 

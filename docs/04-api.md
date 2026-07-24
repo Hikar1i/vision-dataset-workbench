@@ -29,7 +29,8 @@
 | `DELETE /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 移除 editor/viewer，返回 204 |
 | `GET /api/v1/filesystem` | Session | 按 `kind=directory/video` 浏览 `~` 内目录和视频 |
 | `POST /api/v1/filesystem/directories` | Session + 同源 | 在 `~` 边界内新建目录 |
-| `GET /api/v1/projects/{id}/videos` | 项目成员 | 分页读取视频及媒体元数据 |
+| `GET /api/v1/projects/{id}/videos` | 项目成员 | 分页读取视频、采样摘要和各视频最新任务；`page_size` 最大 999 |
+| `PUT /api/v1/projects/{id}/videos/{video_id}/enabled` | owner/editor + 同源 | 按 `version` 修改视频整体启用状态 |
 | `POST /api/v1/projects/{id}/imports/local/preview` | owner/editor + 同源 | 预览单文件或目录第一层视频，不递归 |
 | `POST /api/v1/projects/{id}/imports/local` | owner/editor + 同源 | 批量创建本地复制任务，返回 202 |
 | `POST /api/v1/projects/{id}/imports/remote/preview` | owner/editor + 同源 | 用 yt-dlp 解析 HTTP(S) 单视频或播放列表 |
@@ -47,7 +48,7 @@
 | `GET /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/image` | 项目成员 | 读取受管 JPG/PNG 帧图片 |
 | `PUT /api/v1/projects/{id}/videos/{video_id}/frames/enabled` | owner/editor + 同源 | 按帧 ID 或全部帧批量启停，校验 `frame_revision` |
 
-目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接，并从列表隐藏当前工作区。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户、项目、视频和任务列表最大页大小 200。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
+目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接，并从列表隐藏当前工作区。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户、项目和任务列表最大页大小 200，视频列表最大页大小 999，帧列表保持自身接口约束。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
 
 认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误、状态或模式限制。禁用账号立即撤销其会话，且不能禁用最后一个有效系统管理员。
 
@@ -65,11 +66,16 @@
 | 查看项目任务 | 是 | 是 | 是 |
 | 预览/导入本地或远程视频 | 是 | 是 | 否 |
 | 取消/重试视频导入任务 | 是 | 是 | 否 |
+| 启停视频整体下游参与状态 | 是 | 是 | 否 |
 | 查看和下载采样帧 | 是 | 是 | 是 |
 | 配置采样方案、创建抽帧任务 | 是 | 是 | 否 |
 | 批量启停采样帧 | 是 | 是 | 否 |
 
-viewer 已可查看、播放和下载原始视频，查看任务、采样方案和采样帧图片；不能添加或导入视频、改变采样策略、重新采样或启停帧。标注和导出实现后仍需允许 viewer 查看标注框和下载已有导出产物，但不得标注、管理任务或创建新导出。
+viewer 已可查看、播放和下载原始视频，查看任务、采样方案和采样帧图片；不能添加或导入视频、启停视频整体、改变采样策略、重新采样或启停帧。标注和导出实现后仍需允许 viewer 查看标注框和下载已有导出产物，但不得标注、管理任务或创建新导出。
+
+视频列表每项包含 `enabled`、可空 `sampling` 和可空 `latest_task`。采样摘要包含 `updated_at`，前端据此判断失败任务是否已被后续资源修改覆盖。各视频最新任务由服务端一次批量查询取得，列表请求不会逐视频查询。`PUT .../enabled` 请求体为 `{"enabled": false, "version": 2}`；版本过期返回 409，viewer 返回 403。视频停用只控制未来标注、自动标注和导出的参与资格，不禁止播放、采样配置、抽帧或帧管理。
+
+单个项目最多 999 个视频。批量导入容量不足时，剩余容量内条目进入 `accepted`，超出部分进入 `rejected` 并给出容量原因；前端按钮禁用不是最终约束，数据库触发器仍会拒绝并发产生的第 1000 条记录。
 
 采样方案支持：
 
@@ -169,7 +175,7 @@ FastAPI OpenAPI 是唯一契约来源。前端类型从规范生成或在 CI 中
 
 ### 分页、过滤与排序
 
-- 视频、帧、任务和导出列表使用 `page`、`page_size`、`total` 分页。
+- 视频、帧、任务和导出列表使用 `page`、`page_size`、`total` 分页；视频页的 999 表示读取单项目全部视频。
 - 过滤、排序字段使用白名单，并由 API 规范记录。
 - 大批量帧分析由服务端聚合或任务完成，不允许前端逐帧请求形成瀑布。
 
