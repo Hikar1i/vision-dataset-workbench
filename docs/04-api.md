@@ -35,6 +35,7 @@
 | `POST /api/v1/projects/{id}/imports/local` | owner/editor + 同源 | 批量创建本地复制任务，返回 202 |
 | `POST /api/v1/projects/{id}/imports/remote/preview` | owner/editor + 同源 | 用 yt-dlp 解析 HTTP(S) 单视频或播放列表 |
 | `POST /api/v1/projects/{id}/imports/remote` | owner/editor + 同源 | 为已选远程条目创建下载任务，返回 202 |
+| `GET /api/v1/tasks` | Session | 分页返回当前用户可见项目的后台任务及项目上下文 |
 | `GET /api/v1/projects/{id}/tasks` | 项目成员 | 分页读取持久任务、进度和错误 |
 | `POST /api/v1/projects/{id}/tasks/{task_id}/cancel` | owner/editor + 同源 | 取消 queued 任务或请求 running 任务协作取消 |
 | `POST /api/v1/projects/{id}/tasks/{task_id}/retry` | owner/editor + 同源 | 为 failed/canceled 任务创建新任务，返回 201 |
@@ -72,6 +73,8 @@
 | 批量启停采样帧 | 是 | 是 | 否 |
 
 viewer 已可查看、播放和下载原始视频，查看任务、采样方案和采样帧图片；不能添加或导入视频、启停视频整体、改变采样策略、重新采样或启停帧。标注和导出实现后仍需允许 viewer 查看标注框和下载已有导出产物，但不得标注、管理任务或创建新导出。
+
+全局任务接口按项目可见性过滤，按任务创建时间倒序返回。每项在普通任务字段之外包含 `project_id`、`project_name` 和 `can_manage`；viewer 的 `can_manage=false`。分页响应的 `latest_terminal_at` 在全部可见任务中计算，不受当前页限制，用于浏览器任务中心判断 succeeded、failed 或 canceled 任务是否未读。取消和重试仍使用项目级写接口，权限检查不在全局查询中复制。
 
 视频列表每项包含 `enabled`、可空 `sampling` 和可空 `latest_task`。采样摘要包含 `updated_at`，前端据此判断失败任务是否已被后续资源修改覆盖。各视频最新任务由服务端一次批量查询取得，列表请求不会逐视频查询。`PUT .../enabled` 请求体为 `{"enabled": false, "version": 2}`；版本过期返回 409，viewer 返回 403。视频停用只控制未来标注、自动标注和导出的参与资格，不禁止播放、采样配置、抽帧或帧管理。
 
