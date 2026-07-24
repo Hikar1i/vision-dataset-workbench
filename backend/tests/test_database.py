@@ -15,8 +15,10 @@ from vision_dataset_workbench.database import (
 )
 from vision_dataset_workbench.models import (
     AuthSession,
+    Frame,
     Project,
     ProjectMembership,
+    SamplingPlan,
     Task,
     User,
     Video,
@@ -36,6 +38,8 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         "project_memberships",
         "videos",
         "tasks",
+        "sampling_plans",
+        "frames",
     }.issubset(
         inspect(engine).get_table_names()
     )
@@ -205,6 +209,95 @@ def test_video_identities_and_active_tasks_are_unique_per_project(tmp_path):
                 submitted_by_id="owner-id",
                 video_id="local-1",
                 type="copy_video",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    engine.dispose()
+
+
+def test_sampling_plan_frames_and_extraction_task_constraints(tmp_path):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    create_workspace_database(database_path)
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        session.add(
+            User(
+                id="owner-id",
+                username="owner",
+                username_normalized="owner",
+                password_hash="hash",
+            )
+        )
+        session.flush()
+        session.add(Project(id="project-id", name="project", creator_id="owner-id"))
+        session.flush()
+        session.add(
+            Video(
+                id="video-id",
+                project_id="project-id",
+                source_type="local",
+                title="video",
+                status="ready",
+            )
+        )
+        session.flush()
+        session.add(
+            SamplingPlan(
+                id="plan-id",
+                video_id="video-id",
+                mode="target_frames",
+                parameters='{"minimum": 50, "maximum": 200}',
+                output_format="jpg",
+                output_quality=2,
+                expected_frames=50,
+            )
+        )
+        session.add_all(
+            [
+                Frame(
+                    id="frame-1",
+                    video_id="video-id",
+                    generation=1,
+                    sequence=1,
+                    source_frame_index=0,
+                    time_offset=0,
+                    file_path="projects/project-id/frames/video-id/000001.jpg",
+                ),
+                Task(
+                    id="extract-id",
+                    project_id="project-id",
+                    submitted_by_id="owner-id",
+                    video_id="video-id",
+                    type="extract_frames",
+                ),
+            ]
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            SamplingPlan(
+                video_id="video-id",
+                mode="target_frames",
+                parameters="{}",
+                output_format="jpg",
+                output_quality=2,
+                expected_frames=10,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            Frame(
+                video_id="video-id",
+                generation=2,
+                sequence=1,
+                source_frame_index=1,
+                time_offset=0.04,
+                file_path="projects/project-id/frames/video-id/duplicate.jpg",
             )
         )
         with pytest.raises(IntegrityError):

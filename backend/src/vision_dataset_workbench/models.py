@@ -149,11 +149,78 @@ class Video(Base):
     )
 
 
+class SamplingPlan(Base):
+    __tablename__ = "sampling_plans"
+    __table_args__ = (
+        CheckConstraint(
+            "mode IN ('target_frames', 'frame_interval', 'time_interval')",
+            name="ck_sampling_plans_mode",
+        ),
+        CheckConstraint(
+            "output_format IN ('jpg', 'png')",
+            name="ck_sampling_plans_output_format",
+        ),
+        CheckConstraint(
+            "(output_format = 'jpg' AND output_quality BETWEEN 1 AND 31) OR "
+            "(output_format = 'png' AND output_quality BETWEEN 0 AND 9)",
+            name="ck_sampling_plans_output_quality",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    mode: Mapped[str] = mapped_column(String(32))
+    parameters: Mapped[str] = mapped_column(Text)
+    output_format: Mapped[str] = mapped_column(String(8))
+    output_quality: Mapped[int] = mapped_column(Integer)
+    computed_interval: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    expected_frames: Mapped[int] = mapped_column(Integer)
+    extracted_frames: Mapped[int] = mapped_column(Integer, default=0)
+    enabled_frames: Mapped[int] = mapped_column(Integer, default=0)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    applied_version: Mapped[int] = mapped_column(Integer, default=0)
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+    frame_revision: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class Frame(Base):
+    __tablename__ = "frames"
+    __table_args__ = (
+        Index("uq_frames_video_sequence", "video_id", "sequence", unique=True),
+        CheckConstraint("sequence >= 1", name="ck_frames_sequence"),
+        CheckConstraint("source_frame_index >= 0", name="ck_frames_source_index"),
+        CheckConstraint("time_offset >= 0", name="ck_frames_time_offset"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), index=True
+    )
+    generation: Mapped[int] = mapped_column(Integer)
+    sequence: Mapped[int] = mapped_column(Integer)
+    source_frame_index: Mapped[int] = mapped_column(Integer)
+    time_offset: Mapped[float] = mapped_column(Float)
+    file_path: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (
         CheckConstraint(
-            "type IN ('copy_video', 'download_video')", name="ck_tasks_type"
+            "type IN ('copy_video', 'download_video', 'extract_frames')",
+            name="ck_tasks_type",
         ),
         CheckConstraint(
             "status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')",
