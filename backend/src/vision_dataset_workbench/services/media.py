@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from ..config import RuntimeSettings
@@ -23,6 +24,10 @@ class MediaNotFound(ValueError):
 
 class MediaConflict(ValueError):
     pass
+
+
+PROJECT_VIDEO_LIMIT = 999
+PROJECT_VIDEO_LIMIT_MESSAGE = "项目视频数量已达上限（999）"
 
 
 @dataclass(frozen=True)
@@ -215,11 +220,23 @@ class MediaService:
             created_at=now,
             updated_at=now,
         )
-        with self._session_factory() as database:
-            database.add(video)
-            database.flush()
-            database.add(task)
-            database.commit()
+        try:
+            with self._session_factory() as database:
+                total = database.scalar(
+                    select(func.count())
+                    .select_from(Video)
+                    .where(Video.project_id == project_id)
+                )
+                if (total or 0) >= PROJECT_VIDEO_LIMIT:
+                    raise MediaConflict(PROJECT_VIDEO_LIMIT_MESSAGE)
+                database.add(video)
+                database.flush()
+                database.add(task)
+                database.commit()
+        except IntegrityError as exc:
+            if "project video limit reached" in str(exc.orig):
+                raise MediaConflict(PROJECT_VIDEO_LIMIT_MESSAGE) from exc
+            raise
         return AcceptedImport(video, task)
 
     def list_videos(
@@ -237,6 +254,55 @@ class MediaService:
                 .limit(page_size)
             ).all()
             return list(items), total
+
+    def update_enabled(
+        self,
+        actor: User,
+        project_id: str,
+        video_id: str,
+        *,
+        enabled: bool,
+        version: int,
+    ) -> Video:
+        self._require_editor(actor, project_id)
+        with self._session_factory() as database:
+            video = database.get(Video, video_id)
+            if video is None or video.project_id != project_id:
+                raise MediaNotFound("video not found")
+            if video.version != version:
+                raise MediaConflict("video version conflict")
+            video.enabled = enabled
+            video.version += 1
+            video.updated_at = _utc_now()
+            database.commit()
+            return video
+
+    def latest_tasks(
+        self, actor: User, project_id: str, video_ids: Sequence[str]
+    ) -> dict[str, Task]:
+        self._project_role(actor, project_id)
+        if not video_ids:
+            return {}
+        ranked = (
+            select(
+                Task.id.label("task_id"),
+                func.row_number()
+                .over(
+                    partition_by=Task.video_id,
+                    order_by=(Task.created_at.desc(), Task.id.desc()),
+                )
+                .label("position"),
+            )
+            .where(Task.project_id == project_id, Task.video_id.in_(video_ids))
+            .subquery()
+        )
+        with self._session_factory() as database:
+            tasks = database.scalars(
+                select(Task)
+                .join(ranked, Task.id == ranked.c.task_id)
+                .where(ranked.c.position == 1)
+            ).all()
+            return {task.video_id: task for task in tasks if task.video_id is not None}
 
     def list_tasks(
         self, actor: User, project_id: str, *, page: int, page_size: int
