@@ -101,6 +101,7 @@ def test_editor_configures_and_queues_while_viewer_is_read_only(tmp_path):
     assert configured["accepted"][0]["plan"]["expected_frames"] == 106
     listed = viewer.get("/api/v1/projects/project-id/videos").json()
     assert listed["items"][0]["sampling"]["state"] == "configured"
+    assert listed["items"][0]["sampling"]["updated_at"].endswith("Z")
     assert viewer.get(
         "/api/v1/projects/project-id/videos/video-id/sampling-plan"
     ).status_code == 200

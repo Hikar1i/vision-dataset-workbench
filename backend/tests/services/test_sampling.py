@@ -99,6 +99,10 @@ def test_editor_configures_batch_and_creates_persistent_extraction(tmp_path):
 
     assert len(batch.accepted) == 1
     assert batch.accepted[0].plan.expected_frames == 106
+    summary = service.summaries(
+        actors["viewer"], "project-id", ["ready-id"]
+    )["ready-id"]
+    assert summary.updated_at == batch.accepted[0].plan.updated_at
     assert batch.rejected[0].input == "pending-id"
     assert service.get_plan(actors["viewer"], "project-id", "ready-id") is not None
     with pytest.raises(ProjectForbidden):

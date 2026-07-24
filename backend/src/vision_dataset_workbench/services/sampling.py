@@ -69,6 +69,7 @@ class SamplingSummary:
     applied_version: int
     generation: int
     frame_revision: int
+    updated_at: datetime
 
 
 def _utc_now() -> datetime:
@@ -96,6 +97,7 @@ def sampling_summary(plan: SamplingPlan) -> SamplingSummary:
         applied_version=plan.applied_version,
         generation=plan.generation,
         frame_revision=plan.frame_revision,
+        updated_at=plan.updated_at,
     )
 
 

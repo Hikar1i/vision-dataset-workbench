@@ -75,25 +75,7 @@ class SamplingSummaryResponse(BaseModel):
     applied_version: int
     generation: int
     frame_revision: int
-
-
-class VideoResponse(BaseModel):
-    id: str
-    source_type: str
-    title: str
-    source_name: str | None
-    source_url: str | None
-    duration: float
-    width: int
-    height: int
-    fps: float
-    total_frames: int
-    file_size: int
-    status: str
-    version: int
-    created_at: str
     updated_at: str
-    sampling: SamplingSummaryResponse | None = None
 
 
 class TaskResponse(BaseModel):
@@ -111,6 +93,32 @@ class TaskResponse(BaseModel):
     started_at: str | None
     finished_at: str | None
     updated_at: str
+
+
+class VideoResponse(BaseModel):
+    id: str
+    source_type: str
+    title: str
+    source_name: str | None
+    source_url: str | None
+    duration: float
+    width: int
+    height: int
+    fps: float
+    total_frames: int
+    file_size: int
+    status: str
+    enabled: bool
+    version: int
+    created_at: str
+    updated_at: str
+    sampling: SamplingSummaryResponse | None = None
+    latest_task: TaskResponse | None = None
+
+
+class VideoEnabledRequest(BaseModel):
+    enabled: bool
+    version: int = Field(ge=1)
 
 
 class AcceptedResponse(BaseModel):
@@ -159,11 +167,15 @@ def _utc_text(value: datetime | None) -> str | None:
 
 
 def _sampling_response(summary: SamplingSummary) -> SamplingSummaryResponse:
-    return SamplingSummaryResponse(**summary.__dict__)
+    return SamplingSummaryResponse(
+        **{**summary.__dict__, "updated_at": _utc_text(summary.updated_at) or ""}
+    )
 
 
 def _video_response(
-    video: Video, summary: SamplingSummary | None = None
+    video: Video,
+    summary: SamplingSummary | None = None,
+    latest_task: Task | None = None,
 ) -> VideoResponse:
     return VideoResponse(
         id=video.id,
@@ -178,10 +190,12 @@ def _video_response(
         total_frames=video.total_frames,
         file_size=video.file_size,
         status=video.status,
+        enabled=video.enabled,
         version=video.version,
         created_at=_utc_text(video.created_at) or "",
         updated_at=_utc_text(video.updated_at) or "",
         sampling=_sampling_response(summary) if summary else None,
+        latest_task=_task_response(latest_task) if latest_task else None,
     )
 
 
@@ -236,10 +250,11 @@ def list_videos(
     request: Request,
     user: Annotated[User, Depends(current_user)],
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    page_size: Annotated[int, Query(ge=1, le=999)] = 50,
 ) -> VideoPageResponse:
+    service = media_service(request)
     try:
-        items, total = media_service(request).list_videos(
+        items, total = service.list_videos(
             user, project_id, page=page, page_size=page_size
         )
     except (ProjectNotFound, ProjectForbidden) as exc:
@@ -247,12 +262,42 @@ def list_videos(
     summaries = request.app.state.sampling_service.summaries(
         user, project_id, [item.id for item in items]
     )
+    latest_tasks = service.latest_tasks(user, project_id, [item.id for item in items])
     return VideoPageResponse(
-        items=[_video_response(item, summaries.get(item.id)) for item in items],
+        items=[
+            _video_response(
+                item,
+                summaries.get(item.id),
+                latest_tasks.get(item.id),
+            )
+            for item in items
+        ],
         page=page,
         page_size=page_size,
         total=total,
     )
+
+
+@router.put("/videos/{video_id}/enabled", response_model=VideoResponse)
+def update_video_enabled(
+    project_id: str,
+    video_id: str,
+    payload: VideoEnabledRequest,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> VideoResponse:
+    require_same_origin(request)
+    try:
+        video = media_service(request).update_enabled(
+            user,
+            project_id,
+            video_id,
+            enabled=payload.enabled,
+            version=payload.version,
+        )
+    except (ProjectNotFound, ProjectForbidden, MediaNotFound, MediaConflict) as exc:
+        _raise_media_error(exc)
+    return _video_response(video)
 
 
 def _video_file(

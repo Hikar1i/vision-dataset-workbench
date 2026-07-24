@@ -100,7 +100,15 @@ def test_editor_imports_and_viewer_reads_but_cannot_write(tmp_path):
     assert preview.json()[0]["path"] == "clips/one.mp4"
     assert imported.status_code == 202
     assert len(imported.json()["accepted"]) == 1
-    assert viewer.get("/api/v1/projects/project-id/videos").json()["total"] == 1
+    listed = viewer.get("/api/v1/projects/project-id/videos?page_size=999")
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert listed.json()["items"][0]["enabled"] is True
+    assert listed.json()["items"][0]["latest_task"]["status"] == "queued"
+    assert (
+        viewer.get("/api/v1/projects/project-id/videos?page_size=1000").status_code
+        == 422
+    )
     assert viewer.get("/api/v1/projects/project-id/tasks").json()["total"] == 1
     assert (
         viewer.post(
@@ -110,6 +118,41 @@ def test_editor_imports_and_viewer_reads_but_cannot_write(tmp_path):
         ).status_code
         == 403
     )
+
+
+def test_editor_updates_video_enabled_and_viewer_is_read_only(tmp_path):
+    app = make_app(tmp_path)
+    editor = client_for(app, "editor")
+    viewer = client_for(app, "viewer")
+    imported = editor.post(
+        "/api/v1/projects/project-id/imports/local",
+        headers=ORIGIN,
+        json={"paths": ["clips/one.mp4"]},
+    ).json()
+    video = imported["accepted"][0]["video"]
+    endpoint = f"/api/v1/projects/project-id/videos/{video['id']}/enabled"
+
+    forbidden = viewer.put(
+        endpoint,
+        headers=ORIGIN,
+        json={"enabled": False, "version": video["version"]},
+    )
+    disabled = editor.put(
+        endpoint,
+        headers=ORIGIN,
+        json={"enabled": False, "version": video["version"]},
+    )
+    conflict = editor.put(
+        endpoint,
+        headers=ORIGIN,
+        json={"enabled": True, "version": video["version"]},
+    )
+
+    assert forbidden.status_code == 403
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] is False
+    assert disabled.json()["version"] == video["version"] + 1
+    assert conflict.status_code == 409
 
 
 def test_remote_preview_cancel_retry_and_same_origin(tmp_path):
