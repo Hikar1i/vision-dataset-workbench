@@ -216,6 +216,69 @@ def test_video_identities_and_active_tasks_are_unique_per_project(tmp_path):
     engine.dispose()
 
 
+def test_project_video_limit_and_enabled_default_are_enforced(tmp_path):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    create_workspace_database(database_path)
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        session.add(
+            User(
+                id="owner-id",
+                username="owner",
+                username_normalized="owner",
+                password_hash="hash",
+            )
+        )
+        session.flush()
+        session.add_all(
+            [
+                Project(id="project-1", name="one", creator_id="owner-id"),
+                Project(id="project-2", name="two", creator_id="owner-id"),
+            ]
+        )
+        session.commit()
+
+        session.add_all(
+            [
+                Video(
+                    id=f"video-{index}",
+                    project_id="project-1",
+                    source_type="local",
+                    title=f"video {index}",
+                )
+                for index in range(999)
+            ]
+        )
+        session.commit()
+        first = session.get(Video, "video-0")
+        assert first is not None
+        assert first.enabled is True
+
+        session.add(
+            Video(
+                id="video-1000",
+                project_id="project-1",
+                source_type="local",
+                title="too many",
+            )
+        )
+        with pytest.raises(IntegrityError, match="project video limit reached"):
+            session.commit()
+        session.rollback()
+
+        session.add(
+            Video(
+                id="other-project-video",
+                project_id="project-2",
+                source_type="local",
+                title="other project",
+            )
+        )
+        session.commit()
+
+    engine.dispose()
+
+
 def test_sampling_plan_frames_and_extraction_task_constraints(tmp_path):
     database_path = tmp_path / "db" / "workbench.sqlite3"
     create_workspace_database(database_path)

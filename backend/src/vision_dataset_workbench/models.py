@@ -140,6 +140,7 @@ class Video(Base):
     total_frames: Mapped[int] = mapped_column(Integer, default=0)
     file_size: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="pending")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
