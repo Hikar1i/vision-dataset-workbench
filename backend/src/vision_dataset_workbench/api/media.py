@@ -16,6 +16,7 @@ from ..services.media import (
     MediaService,
 )
 from ..services.projects import ProjectForbidden, ProjectNotFound
+from ..services.sampling import SamplingSummary
 from ..storage.paths import UnsafePathError
 from .auth import current_user, require_same_origin
 
@@ -59,6 +60,23 @@ class RemotePreviewResponse(BaseModel):
     playlist_index: int | None
 
 
+class SamplingSummaryResponse(BaseModel):
+    id: str
+    state: str
+    mode: str
+    parameters: dict[str, int]
+    output_format: str
+    output_quality: int
+    computed_interval: int | None
+    expected_frames: int
+    extracted_frames: int
+    enabled_frames: int
+    version: int
+    applied_version: int
+    generation: int
+    frame_revision: int
+
+
 class VideoResponse(BaseModel):
     id: str
     source_type: str
@@ -75,6 +93,7 @@ class VideoResponse(BaseModel):
     version: int
     created_at: str
     updated_at: str
+    sampling: SamplingSummaryResponse | None = None
 
 
 class TaskResponse(BaseModel):
@@ -139,7 +158,13 @@ def _utc_text(value: datetime | None) -> str | None:
     return f"{value.isoformat(timespec='seconds')}Z"
 
 
-def _video_response(video: Video) -> VideoResponse:
+def _sampling_response(summary: SamplingSummary) -> SamplingSummaryResponse:
+    return SamplingSummaryResponse(**summary.__dict__)
+
+
+def _video_response(
+    video: Video, summary: SamplingSummary | None = None
+) -> VideoResponse:
     return VideoResponse(
         id=video.id,
         source_type=video.source_type,
@@ -156,6 +181,7 @@ def _video_response(video: Video) -> VideoResponse:
         version=video.version,
         created_at=_utc_text(video.created_at) or "",
         updated_at=_utc_text(video.updated_at) or "",
+        sampling=_sampling_response(summary) if summary else None,
     )
 
 
@@ -218,8 +244,11 @@ def list_videos(
         )
     except (ProjectNotFound, ProjectForbidden) as exc:
         _raise_media_error(exc)
+    summaries = request.app.state.sampling_service.summaries(
+        user, project_id, [item.id for item in items]
+    )
     return VideoPageResponse(
-        items=[_video_response(item) for item in items],
+        items=[_video_response(item, summaries.get(item.id)) for item in items],
         page=page,
         page_size=page_size,
         total=total,
