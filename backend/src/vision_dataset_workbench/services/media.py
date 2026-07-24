@@ -5,14 +5,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import aliased, sessionmaker
 
 from ..config import RuntimeSettings
 from ..media import RemotePreview, normalize_remote_url, preview_remote
-from ..models import Task, User, Video
+from ..models import Project, ProjectMembership, Task, User, Video
 from ..storage.browser import VIDEO_EXTENSIONS
 from ..storage.paths import HomePathResolver, UnsafePathError
 from .projects import ProjectForbidden, ProjectService
@@ -54,6 +54,13 @@ class ImportBatch:
     accepted: list[AcceptedImport]
     skipped: list[ImportNotice]
     rejected: list[ImportNotice]
+
+
+@dataclass(frozen=True)
+class VisibleTask:
+    task: Task
+    project_name: str
+    can_manage: bool
 
 
 def _utc_now() -> datetime:
@@ -319,6 +326,63 @@ class MediaService:
                 .limit(page_size)
             ).all()
             return list(items), total
+
+    def list_visible_tasks(
+        self, actor: User, *, page: int, page_size: int
+    ) -> tuple[list[VisibleTask], int, datetime | None]:
+        membership = aliased(ProjectMembership)
+        membership_ids = select(ProjectMembership.project_id).where(
+            ProjectMembership.user_id == actor.id
+        )
+        visible = or_(
+            Project.creator_id == actor.id,
+            Project.id.in_(membership_ids),
+        )
+        unrestricted = self.settings.app_mode == "single" and actor.is_system_admin
+        with self._session_factory() as database:
+            items_query = (
+                select(Task, Project.name, Project.creator_id, membership.role)
+                .join(Project, Project.id == Task.project_id)
+                .outerjoin(
+                    membership,
+                    (membership.project_id == Project.id)
+                    & (membership.user_id == actor.id),
+                )
+            )
+            total_query = (
+                select(func.count())
+                .select_from(Task)
+                .join(Project, Project.id == Task.project_id)
+            )
+            terminal_query = (
+                select(func.max(Task.updated_at))
+                .select_from(Task)
+                .join(Project, Project.id == Task.project_id)
+                .where(Task.status.in_(("succeeded", "failed", "canceled")))
+            )
+            if not unrestricted:
+                items_query = items_query.where(visible)
+                total_query = total_query.where(visible)
+                terminal_query = terminal_query.where(visible)
+            rows = database.execute(
+                items_query.order_by(Task.created_at.desc(), Task.id)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).all()
+            return (
+                [
+                    VisibleTask(
+                        task=row[0],
+                        project_name=row[1],
+                        can_manage=(
+                            unrestricted or row[2] == actor.id or row[3] == "editor"
+                        ),
+                    )
+                    for row in rows
+                ],
+                database.scalar(total_query) or 0,
+                database.scalar(terminal_query),
+            )
 
     def ready_video_file(
         self,

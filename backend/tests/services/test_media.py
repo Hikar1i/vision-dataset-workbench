@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy.orm import Session
@@ -113,6 +113,61 @@ def test_viewer_cannot_import_but_can_list_tasks(tmp_path):
     )
     assert total == 1
     assert tasks[0].type == "copy_video"
+    engine.dispose()
+
+
+def test_visible_tasks_follow_project_permissions(tmp_path):
+    service, engine, actors = make_service(tmp_path)
+    older = datetime(2026, 7, 24, 8, 0, 0)
+    newer = datetime(2026, 7, 24, 9, 0, 0)
+    with Session(engine) as session:
+        session.add(Project(id="hidden-project", name="hidden", creator_id="outsider-id"))
+        session.add_all(
+            [
+                Task(
+                    id="older-task",
+                    project_id="project-id",
+                    submitted_by_id="owner-id",
+                    type="copy_video",
+                    status="queued",
+                    created_at=older,
+                    updated_at=older,
+                ),
+                Task(
+                    id="newer-task",
+                    project_id="project-id",
+                    submitted_by_id="owner-id",
+                    type="copy_video",
+                    status="failed",
+                    created_at=newer,
+                    updated_at=newer,
+                ),
+                Task(
+                    id="hidden-task",
+                    project_id="hidden-project",
+                    submitted_by_id="outsider-id",
+                    type="copy_video",
+                    status="succeeded",
+                    created_at=newer + timedelta(hours=1),
+                    updated_at=newer + timedelta(hours=1),
+                ),
+            ]
+        )
+        session.commit()
+
+    for role, can_manage in (("owner", True), ("editor", True), ("viewer", False)):
+        items, total, latest_terminal_at = service.list_visible_tasks(
+            actors[role], page=1, page_size=20
+        )
+        assert total == 2
+        assert [item.task.id for item in items] == ["newer-task", "older-task"]
+        assert all(item.project_name == "project" for item in items)
+        assert all(item.can_manage is can_manage for item in items)
+        assert latest_terminal_at == newer
+
+    assert service.list_visible_tasks(
+        actors["outsider"], page=1, page_size=20
+    )[0][0].task.id == "hidden-task"
     engine.dispose()
 
 
