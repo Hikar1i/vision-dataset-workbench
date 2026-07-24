@@ -293,6 +293,7 @@ def test_extract_task_publishes_stable_frames_and_plan_counts(tmp_path):
         assert all((workspace / frame.file_path).is_file() for frame in frames)
     assert "-progress" in commands[0]
     assert "-threads" in commands[0]
+    assert commands[0][commands[0].index("-vsync") + 1] == "vfr"
     assert any("floor" in value for value in commands[0])
     engine.dispose()
 

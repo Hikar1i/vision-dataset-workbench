@@ -335,7 +335,7 @@ class TaskWorker:
             str(video_path),
             "-vf",
             f"select={ffmpeg_select(estimate, video.total_frames)}",
-            "-fps_mode",
+            "-vsync",
             "vfr",
             "-threads",
             "2",
