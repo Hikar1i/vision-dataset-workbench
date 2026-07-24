@@ -13,10 +13,12 @@ export type Video = {
   total_frames: number
   file_size: number
   status: 'pending' | 'ready' | 'unavailable'
+  enabled: boolean
   version: number
   created_at: string
   updated_at: string
   sampling: SamplingSummary | null
+  latest_task: ProjectTask | null
 }
 
 export type SamplingSummary = {
@@ -34,6 +36,7 @@ export type SamplingSummary = {
   applied_version: number
   generation: number
   frame_revision: number
+  updated_at: string
 }
 
 export type SamplingConfig = {
@@ -136,8 +139,25 @@ export type FramePage = {
 
 const projectPath = (projectId: string) => `/api/v1/projects/${projectId}`
 
-export const listVideos = (projectId: string, page = 1) =>
-  json<VideoPage>(`${projectPath(projectId)}/videos?page=${page}`)
+export const listVideos = (projectId: string, page = 1, pageSize = 50) =>
+  json<VideoPage>(
+    `${projectPath(projectId)}/videos?${new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    })}`,
+  )
+
+export const setVideoEnabled = (
+  projectId: string,
+  videoId: string,
+  enabled: boolean,
+  version: number,
+) =>
+  json<Video>(`${projectPath(projectId)}/videos/${videoId}/enabled`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled, version }),
+  })
 
 export const listTasks = (projectId: string, page = 1) =>
   json<TaskPage>(`${projectPath(projectId)}/tasks?page=${page}`)
