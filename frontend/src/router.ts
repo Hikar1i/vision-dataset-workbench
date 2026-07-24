@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { ApiError, getAuthStatus, getCurrentUser } from './api/auth'
 import { getSetupStatus } from './api/setup'
+import AppShell from './layouts/AppShell.vue'
+import ProjectLayout from './layouts/ProjectLayout.vue'
 import LoginView from './views/LoginView.vue'
 import AccountView from './views/AccountView.vue'
 import AdminUsersView from './views/AdminUsersView.vue'
@@ -19,12 +21,48 @@ export function createAppRouter() {
       { path: '/setup', component: SetupView },
       { path: '/login', component: LoginView },
       { path: '/register', component: RegisterView },
-      { path: '/account', component: AccountView },
-      { path: '/admin/users', component: AdminUsersView },
       { path: '/ready', redirect: '/projects' },
-      { path: '/projects', component: ProjectsView },
-      { path: '/projects/:id/videos', component: ProjectVideosView },
-      { path: '/projects/:id/settings', component: ProjectSettingsView },
+      {
+        path: '/',
+        component: AppShell,
+        children: [
+          {
+            path: 'projects',
+            name: 'projects',
+            component: ProjectsView,
+            meta: { section: '数据集项目', page: '全部项目' },
+          },
+          {
+            path: 'projects/:id',
+            component: ProjectLayout,
+            children: [
+              { path: '', redirect: { name: 'project-videos' } },
+              {
+                path: 'videos',
+                name: 'project-videos',
+                component: ProjectVideosView,
+                meta: { section: '数据集项目', page: '原始数据' },
+              },
+              {
+                path: 'settings',
+                name: 'project-settings',
+                component: ProjectSettingsView,
+                meta: { section: '数据集项目', page: '项目设置' },
+              },
+            ],
+          },
+          {
+            path: 'account',
+            component: AccountView,
+            meta: { section: '系统', page: '账号设置' },
+          },
+          {
+            path: 'admin/users',
+            component: AdminUsersView,
+            meta: { section: '系统管理', page: '用户管理' },
+          },
+        ],
+      },
     ],
   })
   router.beforeEach(async (to) => {

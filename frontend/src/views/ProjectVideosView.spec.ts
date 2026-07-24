@@ -4,8 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectVideosView from './ProjectVideosView.vue'
 
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'project-id' } }) }))
-
 const project = {
   id: 'project-id',
   name: '缺陷视频',
@@ -46,8 +44,9 @@ const video = {
 
 beforeEach(() => vi.restoreAllMocks())
 
-function mountView() {
+function mountView(role: 'owner' | 'editor' | 'viewer' = 'viewer') {
   return mount(ProjectVideosView, {
+    props: { project: { ...project, role } },
     global: {
       plugins: [ElementPlus],
       stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } },
@@ -76,7 +75,6 @@ describe('ProjectVideosView', () => {
     expect(wrapper.text()).toContain('01:05')
     expect(wrapper.text()).toContain('48/50')
     expect(wrapper.text()).toContain('已筛选 · 48/50 帧启用')
-    expect(wrapper.find('[data-test="project-rail"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="import-videos"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="enabled-video-id"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(false)
@@ -103,16 +101,13 @@ describe('ProjectVideosView', () => {
         }),
       ),
     )
-    const wrapper = mountView()
+    const wrapper = mountView('editor')
     await flushPromises()
 
     expect(wrapper.find('[data-test="import-videos"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="select-video-id"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="extract-video-id"]').exists()).toBe(true)
-    expect(wrapper.get('[data-test="settings-link"]').attributes('href')).toBe(
-      '/projects/project-id/settings',
-    )
   })
 
   it('selects the current page and requests the explicit all page size', async () => {
@@ -130,7 +125,7 @@ describe('ProjectVideosView', () => {
       })
     })
     vi.stubGlobal('fetch', fetchMock)
-    const wrapper = mountView()
+    const wrapper = mountView('editor')
     await flushPromises()
 
     await wrapper.get('[data-test="select-video-id"] input').setValue(true)
@@ -166,10 +161,10 @@ describe('ProjectVideosView', () => {
         }),
       ),
     )
-    const wrapper = mountView()
+    const wrapper = mountView('owner')
     await flushPromises()
 
-    expect(wrapper.get('[data-test="project-capacity"]').text()).toBe('999 / 999')
+    expect(wrapper.text()).toContain('999 个视频')
     expect(wrapper.get('[data-test="import-videos"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-test="import-videos"]').attributes('title')).toContain('999')
   })
@@ -187,7 +182,7 @@ describe('ProjectVideosView', () => {
         }),
       ),
     )
-    const wrapper = mountView()
+    const wrapper = mountView('editor')
     await flushPromises()
 
     expect(wrapper.text()).toContain('视频已停用，不参与标注与导出')
@@ -210,7 +205,7 @@ describe('ProjectVideosView', () => {
       }),
     )
     vi.stubGlobal('fetch', fetchMock)
-    const wrapper = mountView()
+    const wrapper = mountView('editor')
     await flushPromises()
 
     await wrapper.get('[data-test="enabled-video-id"] input').setValue(false)

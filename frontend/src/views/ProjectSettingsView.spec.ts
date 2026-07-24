@@ -4,8 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectSettingsView from './ProjectSettingsView.vue'
 
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'project-id' } }) }))
-
 const project = {
   id: 'project-id',
   name: '缺陷视频',
@@ -28,8 +26,9 @@ const owner = {
 
 beforeEach(() => vi.restoreAllMocks())
 
-function mountView() {
+function mountView(role: 'owner' | 'editor' | 'viewer' = 'owner') {
   return mount(ProjectSettingsView, {
+    props: { project: { ...project, role } },
     global: {
       plugins: [ElementPlus],
       stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } },
@@ -37,11 +36,11 @@ function mountView() {
   })
 }
 
-function readMock(role = 'owner') {
+function readMock() {
   return vi.fn().mockImplementation((path: string) =>
     Promise.resolve({
       ok: true,
-      json: async () => (path.endsWith('/members') ? [owner] : { ...project, role }),
+      json: async () => (path.endsWith('/members') ? [owner] : project),
     }),
   )
 }
@@ -90,14 +89,14 @@ describe('ProjectSettingsView', () => {
   })
 
   it('lets editors edit but hides member controls, and makes viewers read-only', async () => {
-    vi.stubGlobal('fetch', readMock('editor'))
-    const editor = mountView()
+    vi.stubGlobal('fetch', readMock())
+    const editor = mountView('editor')
     await flushPromises()
     expect(editor.find('[data-test="project-name"]').exists()).toBe(true)
     expect(editor.find('[data-test="member-username"]').exists()).toBe(false)
 
-    vi.stubGlobal('fetch', readMock('viewer'))
-    const viewer = mountView()
+    vi.stubGlobal('fetch', readMock())
+    const viewer = mountView('viewer')
     await flushPromises()
     expect(viewer.find('[data-test="project-name"]').exists()).toBe(false)
     expect(viewer.text()).toContain('产线 A')
@@ -132,6 +131,6 @@ describe('ProjectSettingsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('project was modified by another user')
-    expect(projectReads).toBe(2)
+    expect(projectReads).toBe(1)
   })
 })

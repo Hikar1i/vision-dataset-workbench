@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
 
 import { ApiError } from '../api/auth'
 import {
@@ -12,16 +11,15 @@ import {
   type ImportBatch,
   type Video,
 } from '../api/media'
-import { getProject, type Project } from '../api/projects'
+import type { Project } from '../api/projects'
 import FramesDialog from '../components/FramesDialog.vue'
 import ImportVideosDialog from '../components/ImportVideosDialog.vue'
 import ProjectTaskDrawer from '../components/ProjectTaskDrawer.vue'
 import SamplingDialog from '../components/SamplingDialog.vue'
 import { videoStatusInfo } from './videoStatus'
 
-const route = useRoute()
-const projectId = String(route.params.id)
-const project = ref<Project | null>(null)
+const props = defineProps<{ project: Project }>()
+const projectId = props.project.id
 const videos = ref<Video[]>([])
 const page = ref(1)
 const pageSize = ref(50)
@@ -38,7 +36,7 @@ const changingEnabled = ref('')
 const error = ref('')
 const notice = ref('')
 
-const canEdit = computed(() => project.value?.role === 'owner' || project.value?.role === 'editor')
+const canEdit = computed(() => props.project.role === 'owner' || props.project.role === 'editor')
 const importLimitReached = computed(() => total.value >= 999)
 const selectableIds = computed(() =>
   canEdit.value ? videos.value.filter((video) => video.status === 'ready').map((video) => video.id) : [],
@@ -52,7 +50,6 @@ const allSelected = computed(
 const someSelected = computed(
   () => selectedOnPage.value.length > 0 && !allSelected.value,
 )
-const roleLabels = { owner: '所有者', editor: '编辑者', viewer: '只读' } as const
 const statusLabels = { pending: '等待导入', ready: '可用', unavailable: '不可用' } as const
 
 function duration(seconds: number) {
@@ -80,11 +77,7 @@ async function load(nextPage = page.value, nextPageSize = pageSize.value) {
   loading.value = true
   error.value = ''
   try {
-    const [projectResult, videoResult] = await Promise.all([
-      getProject(projectId),
-      listVideos(projectId, nextPage, nextPageSize),
-    ])
-    project.value = projectResult
+    const videoResult = await listVideos(projectId, nextPage, nextPageSize)
     videos.value = videoResult.items
     selected.value = []
     page.value = videoResult.page
@@ -162,34 +155,7 @@ onMounted(() => load())
 
 <template>
   <main class="workbench-shell">
-    <header class="global-bar">
-      <router-link class="brand" to="/projects">VDW</router-link>
-      <nav aria-label="全局导航">
-        <router-link to="/projects">项目</router-link>
-        <button data-test="task-drawer" type="button" @click="taskOpen = true">任务</button>
-        <router-link to="/account">账号</router-link>
-      </nav>
-    </header>
-
-    <div class="project-layout">
-      <aside v-if="project" class="project-rail" data-test="project-rail">
-        <div class="project-identity">
-          <code>PROJECT / {{ project.id.slice(0, 8) }}</code>
-          <strong :title="project.name">{{ project.name }}</strong>
-          <p :title="project.description">{{ project.description || '暂无项目描述' }}</p>
-          <span class="role-mark" :data-role="project.role">{{ roleLabels[project.role] }}</span>
-        </div>
-        <nav aria-label="项目导航">
-          <router-link class="active" :to="`/projects/${projectId}/videos`">视频资料库</router-link>
-          <router-link data-test="settings-link" :to="`/projects/${projectId}/settings`">项目设置</router-link>
-        </nav>
-        <div class="project-capacity">
-          <span>视频容量</span>
-          <strong data-test="project-capacity">{{ total }} / 999</strong>
-        </div>
-      </aside>
-
-      <section class="workspace">
+    <section class="workspace">
         <header class="workspace-toolbar">
           <div>
             <h1>视频资料库</h1>
@@ -360,8 +326,7 @@ onMounted(() => load())
             />
           </footer>
         </section>
-      </section>
-    </div>
+    </section>
 
     <el-dialog
       :model-value="playing !== null"
@@ -406,150 +371,9 @@ onMounted(() => load())
 
 <style scoped>
 .workbench-shell {
-  min-height: 100vh;
+  min-height: 100%;
   color: var(--vdw-ink);
   background: var(--vdw-canvas);
-}
-
-.global-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 44px;
-  padding: 0 16px;
-  color: #dce5ed;
-  background: var(--vdw-ink);
-  border-bottom: 2px solid var(--vdw-mint);
-}
-
-.brand {
-  color: var(--vdw-mint);
-  font: 700 12px var(--vdw-mono);
-  letter-spacing: 0.12em;
-  text-decoration: none;
-}
-
-.global-bar nav {
-  display: flex;
-  align-items: center;
-  height: 100%;
-}
-
-.global-bar nav a,
-.global-bar nav button {
-  display: grid;
-  place-items: center;
-  height: 100%;
-  padding: 0 12px;
-  color: #b8c3cc;
-  font: inherit;
-  font-size: 12px;
-  text-decoration: none;
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-
-.global-bar nav a:hover,
-.global-bar nav button:hover {
-  color: white;
-  background: rgb(255 255 255 / 6%);
-}
-
-.project-layout {
-  display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
-  min-height: calc(100vh - 44px);
-}
-
-.project-rail {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  color: #dce5ed;
-  background: var(--vdw-rail);
-}
-
-.project-identity {
-  display: grid;
-  gap: 7px;
-  padding: 16px 14px;
-  border-bottom: 1px solid rgb(255 255 255 / 8%);
-}
-
-.project-identity code {
-  color: var(--vdw-mint);
-  font: 9px var(--vdw-mono);
-  letter-spacing: 0.08em;
-}
-
-.project-identity strong,
-.project-identity p {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-identity strong {
-  font-size: 14px;
-}
-
-.project-identity p {
-  margin: 0;
-  color: #9eacb8;
-  font-size: 11px;
-}
-
-.role-mark {
-  width: fit-content;
-  padding: 2px 5px;
-  color: #b9c7d2;
-  font-size: 10px;
-  border: 1px solid #586a79;
-}
-
-.role-mark[data-role='owner'] {
-  color: var(--vdw-mint);
-  border-color: #4f9b88;
-}
-
-.project-rail nav {
-  display: grid;
-  padding: 8px 0;
-}
-
-.project-rail nav a {
-  padding: 9px 14px 9px 17px;
-  color: #a8b4bf;
-  font-size: 12px;
-  text-decoration: none;
-  border-left: 3px solid transparent;
-}
-
-.project-rail nav a:hover {
-  color: white;
-}
-
-.project-rail nav a.active {
-  color: white;
-  background: #18252e;
-  border-left-color: var(--vdw-mint);
-}
-
-.project-capacity {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-  padding: 12px 14px;
-  color: #8f9da9;
-  font-size: 10px;
-  border-top: 1px solid rgb(255 255 255 / 8%);
-}
-
-.project-capacity strong {
-  color: #dce5ed;
-  font: 11px var(--vdw-mono);
 }
 
 .workspace {

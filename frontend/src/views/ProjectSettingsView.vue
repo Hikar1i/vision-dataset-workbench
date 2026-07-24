@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
 
 import { ApiError } from '../api/auth'
 import {
@@ -14,9 +13,10 @@ import {
   type ProjectMember,
 } from '../api/projects'
 
-const route = useRoute()
-const projectId = String(route.params.id)
-const project = ref<Project | null>(null)
+const props = defineProps<{ project: Project }>()
+const emit = defineEmits<{ 'project-updated': [project: Project] }>()
+const projectId = props.project.id
+const project = computed(() => props.project)
 const members = ref<ProjectMember[]>([])
 const name = ref('')
 const description = ref('')
@@ -32,21 +32,16 @@ const canManageMembers = computed(() => project.value?.role === 'owner')
 const roleLabels = { owner: '所有者', editor: '编辑者', viewer: '只读' } as const
 
 function setProject(value: Project) {
-  project.value = value
   name.value = value.name
   description.value = value.description
+  emit('project-updated', value)
 }
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [projectResult, memberResult] = await Promise.all([
-      getProject(projectId),
-      listMembers(projectId),
-    ])
-    setProject(projectResult)
-    members.value = memberResult
+    members.value = await listMembers(projectId)
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '项目加载失败'
   } finally {
@@ -121,29 +116,15 @@ async function remove(member: ProjectMember) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  name.value = project.value.name
+  description.value = project.value.description
+  void load()
+})
 </script>
 
 <template>
   <main class="settings-shell">
-    <header class="topbar">
-      <router-link class="brand" to="/projects">VDW / PROJECTS</router-link>
-      <nav>
-        <router-link :to="`/projects/${projectId}/videos`">视频</router-link>
-        <router-link class="active" :to="`/projects/${projectId}/settings`">设置</router-link>
-        <router-link to="/projects">项目列表</router-link>
-      </nav>
-    </header>
-
-    <section v-if="project" class="page-heading">
-      <div>
-        <span class="section-code">PROJECT / {{ project.id.slice(0, 8) }}</span>
-        <h1>{{ project.name }}</h1>
-        <p>永久所有者：{{ project.creator_username }}</p>
-      </div>
-      <span class="role-mark" :data-role="project.role">{{ roleLabels[project.role] }}</span>
-    </section>
-
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
 
     <div v-loading="loading" class="settings-grid">
@@ -247,78 +228,26 @@ onMounted(load)
 
 <style scoped>
 .settings-shell {
-  min-height: 100vh;
-  padding: 0 clamp(20px, 4vw, 56px) 64px;
+  min-height: 100%;
+  padding: 16px;
   color: #17212b;
   background: #f4f7fa;
 }
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 64px;
-  margin: 0 calc(clamp(20px, 4vw, 56px) * -1);
-  padding: 0 clamp(20px, 4vw, 56px);
-  background: #17212b;
-  border-bottom: 2px solid #76dfc2;
-}
-
-.topbar a {
-  color: #dce5ed;
-  font-size: 14px;
-  text-decoration: none;
-}
-
-.topbar nav {
-  display: flex;
-  gap: 20px;
-  align-items: center;
-}
-
-.topbar nav a:not(.active) {
-  color: #9aa7b4;
-}
-
-.topbar .brand,
 .section-code {
   color: #76dfc2;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 11px;
   letter-spacing: 0.1em;
 }
-
-.page-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 44px 0 26px;
-  border-bottom: 1px solid #d8dee6;
-}
-
-.page-heading .section-code,
 .panel .section-code {
   color: #2563eb;
-}
-
-h1 {
-  margin: 12px 0 6px;
-  font-family: Bahnschrift, "Arial Narrow", "Noto Sans SC", sans-serif;
-  font-size: 34px;
-  letter-spacing: -0.04em;
-}
-
-.page-heading p {
-  margin: 0;
-  color: #687482;
 }
 
 .settings-grid {
   display: grid;
   grid-template-columns: minmax(300px, 0.8fr) minmax(460px, 1.2fr);
   gap: 24px;
-  margin-top: 24px;
+  margin-top: 0;
 }
 
 .panel {
