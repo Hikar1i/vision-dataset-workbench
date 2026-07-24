@@ -20,7 +20,11 @@ const error = ref('')
 let timer: ReturnType<typeof setInterval> | undefined
 let knownStatuses = new Map<string, ProjectTask['status']>()
 
-const typeLabels = { copy_video: '本地复制', download_video: '远程下载' } as const
+const typeLabels = {
+  copy_video: '本地复制',
+  download_video: '远程下载',
+  extract_frames: '采样抽帧',
+} as const
 const statusLabels = {
   queued: '排队中',
   running: '执行中',
