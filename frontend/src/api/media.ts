@@ -55,6 +55,7 @@ export type VideoPage = {
 
 export type ProjectTask = {
   id: string
+  project_id: string
   video_id: string | null
   type: 'copy_video' | 'download_video' | 'extract_frames'
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
@@ -75,6 +76,19 @@ export type TaskPage = {
   page: number
   page_size: number
   total: number
+}
+
+export type GlobalProjectTask = ProjectTask & {
+  project_name: string
+  can_manage: boolean
+}
+
+export type GlobalTaskPage = {
+  items: GlobalProjectTask[]
+  page: number
+  page_size: number
+  total: number
+  latest_terminal_at: string | null
 }
 
 export type FilesystemItem = {
@@ -161,6 +175,14 @@ export const setVideoEnabled = (
 
 export const listTasks = (projectId: string, page = 1) =>
   json<TaskPage>(`${projectPath(projectId)}/tasks?page=${page}`)
+
+export const listGlobalTasks = (page = 1, pageSize = 50) =>
+  json<GlobalTaskPage>(
+    `/api/v1/tasks?${new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    })}`,
+  )
 
 export const listFilesystem = (path = '.', page = 1) =>
   json<FilesystemPage>(

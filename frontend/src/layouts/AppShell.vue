@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 import { getCurrentUser, logout, type CurrentUser } from '../api/auth'
 import { listProjects, type Project } from '../api/projects'
+import TaskCenterDrawer from '../components/TaskCenterDrawer.vue'
 import {
   readRecentProjects,
   rememberProject,
@@ -23,6 +24,8 @@ const collapsed = ref(
     : savedCollapsed === 'true',
 )
 const mobileOpen = ref(false)
+const taskCenterOpen = ref(false)
+const taskCenterUnread = ref(false)
 
 const shortcuts = computed(() =>
   resolveProjectShortcuts(
@@ -60,6 +63,10 @@ function projectLoaded(project: Project) {
 async function signOut() {
   await logout()
   await router.replace('/login')
+}
+
+function taskSettled() {
+  window.dispatchEvent(new Event('vdm:tasks-settled'))
 }
 
 onMounted(async () => {
@@ -135,7 +142,9 @@ onMounted(async () => {
         <nav class="app-breadcrumb" aria-label="面包屑">
           <span v-for="item in breadcrumbs" :key="item">{{ item }}</span>
         </nav>
-        <button class="task-center-trigger" data-test="task-center" type="button">任务中心</button>
+        <button class="task-center-trigger" data-test="task-center" type="button" @click="taskCenterOpen = true">
+          任务中心<span v-if="taskCenterUnread" class="notification-dot" aria-label="有已完成任务" />
+        </button>
         <details class="user-menu">
           <summary>{{ user?.username }}</summary>
           <RouterLink to="/account">账号设置</RouterLink>
@@ -149,5 +158,10 @@ onMounted(async () => {
         </RouterView>
       </main>
     </section>
+    <TaskCenterDrawer
+      v-model="taskCenterOpen"
+      @unread="taskCenterUnread = $event"
+      @settled="taskSettled"
+    />
   </div>
 </template>

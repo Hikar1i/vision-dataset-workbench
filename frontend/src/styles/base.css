@@ -115,6 +115,7 @@ body {
 .app-breadcrumb { display: flex; gap: 8px; min-width: 0; color: var(--vdw-muted); font-size: 12px; }
 .app-breadcrumb span + span::before { margin-right: 8px; color: #aeb8c0; content: '/'; }
 .task-center-trigger { position: relative; width: auto !important; padding: 0 10px; color: var(--vdw-ink); font-size: 13px; }
+.notification-dot { position: absolute; top: 5px; right: 2px; width: 7px; height: 7px; background: #d94742; border: 1px solid white; border-radius: 50%; }
 .user-menu { position: relative; font-size: 13px; }
 .user-menu summary { padding: 8px; cursor: pointer; }
 .user-menu[open] { z-index: 50; }

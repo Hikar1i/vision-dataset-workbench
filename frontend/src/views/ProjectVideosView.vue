@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { ApiError } from '../api/auth'
 import {
@@ -14,7 +14,6 @@ import {
 import type { Project } from '../api/projects'
 import FramesDialog from '../components/FramesDialog.vue'
 import ImportVideosDialog from '../components/ImportVideosDialog.vue'
-import ProjectTaskDrawer from '../components/ProjectTaskDrawer.vue'
 import SamplingDialog from '../components/SamplingDialog.vue'
 import { videoStatusInfo } from './videoStatus'
 
@@ -26,7 +25,6 @@ const pageSize = ref(50)
 const total = ref(0)
 const loading = ref(false)
 const importOpen = ref(false)
-const taskOpen = ref(false)
 const playing = ref<Video | null>(null)
 const frameVideo = ref<Video | null>(null)
 const selected = ref<string[]>([])
@@ -122,7 +120,6 @@ async function changeVideoEnabled(video: Video, enabled: boolean) {
 
 function imported(batch: ImportBatch) {
   notice.value = `已创建 ${batch.accepted.length} 个任务，跳过 ${batch.skipped.length} 项，拒绝 ${batch.rejected.length} 项。`
-  taskOpen.value = true
   void load(1)
 }
 
@@ -143,14 +140,21 @@ async function extract(videoIds: string[]) {
     const batch = await createExtractions(projectId, videoIds)
     notice.value = `已创建 ${batch.accepted.length} 个抽帧任务，拒绝 ${batch.rejected.length} 项。`
     selected.value = []
-    taskOpen.value = true
     await load()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '抽帧任务创建失败'
   }
 }
 
-onMounted(() => load())
+function refreshAfterTask() {
+  void load()
+}
+
+onMounted(() => {
+  void load()
+  window.addEventListener('vdm:tasks-settled', refreshAfterTask)
+})
+onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTask))
 </script>
 
 <template>
@@ -359,12 +363,6 @@ onMounted(() => load())
       :can-edit="canEdit"
       @update:model-value="!$event && (frameVideo = null)"
       @updated="load()"
-    />
-    <ProjectTaskDrawer
-      v-model="taskOpen"
-      :project-id="projectId"
-      :can-manage="canEdit"
-      @settled="load()"
     />
   </main>
 </template>
