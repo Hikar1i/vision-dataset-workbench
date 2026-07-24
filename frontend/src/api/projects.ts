@@ -29,8 +29,13 @@ export type ProjectMember = {
   created_at: string
 }
 
-export const listProjects = (page = 1) =>
-  json<ProjectPage>(`/api/v1/projects?page=${page}`)
+export const listProjects = (page = 1, pageSize = 50) =>
+  json<ProjectPage>(
+    `/api/v1/projects?${new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    })}`,
+  )
 
 export const createProject = (name: string, description: string) =>
   json<Project>('/api/v1/projects', {
