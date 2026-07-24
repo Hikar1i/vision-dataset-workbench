@@ -2,11 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { getCurrentUser, logout, type CurrentUser } from '../api/auth'
 import { createProject, listProjects, type Project } from '../api/projects'
 
 const router = useRouter()
-const user = ref<CurrentUser | null>(null)
 const projects = ref<Project[]>([])
 const page = ref(1)
 const pageSize = ref(50)
@@ -25,11 +23,7 @@ async function load(nextPage = page.value) {
   loading.value = true
   error.value = ''
   try {
-    const [currentUser, result] = await Promise.all([
-      getCurrentUser(),
-      listProjects(nextPage),
-    ])
-    user.value = currentUser
+    const result = await listProjects(nextPage)
     projects.value = result.items
     page.value = result.page
     pageSize.value = result.page_size
@@ -55,42 +49,22 @@ async function create() {
   }
 }
 
-async function signOut() {
-  try {
-    await logout()
-    await router.replace('/login')
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '退出失败'
-  }
-}
-
 onMounted(() => load())
 </script>
 
 <template>
-  <main class="projects-shell">
-    <header class="topbar">
-      <router-link class="brand" to="/projects">VDW / PROJECTS</router-link>
-      <nav v-if="user" aria-label="账号操作">
-        <span>{{ user.username }}</span>
-        <router-link data-test="account-link" to="/account">账号设置</router-link>
-        <router-link v-if="user.is_system_admin" data-test="users-link" to="/admin/users">
-          用户管理
-        </router-link>
-        <el-button data-test="logout" text @click="signOut">退出</el-button>
-      </nav>
-    </header>
-
-    <section class="page-heading">
-      <div>
-        <span class="section-code">WORKSPACE / VIDEO PROJECTS</span>
-        <h1>数据集项目</h1>
-        <p>每个项目拥有独立成员和受管存储目录。</p>
+  <main class="content-page projects-shell">
+    <header class="content-toolbar">
+      <div class="content-toolbar-title">
+        <h1 data-test="page-title">数据集项目</h1>
+        <span>{{ total }} 个项目</span>
       </div>
       <el-button data-test="show-create" type="primary" @click="showCreate = !showCreate">
         {{ showCreate ? '取消新建' : '新建项目' }}
       </el-button>
-    </section>
+    </header>
+
+    <div class="content-body">
 
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
 
@@ -167,30 +141,15 @@ onMounted(() => load())
         @current-change="load"
       />
     </section>
+    </div>
   </main>
 </template>
 
 <style scoped>
 .projects-shell {
-  min-height: 100vh;
-  padding: 0 clamp(20px, 4vw, 56px) 64px;
   color: #17212b;
   background: #f4f7fa;
 }
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 64px;
-  margin: 0 calc(clamp(20px, 4vw, 56px) * -1);
-  padding: 0 clamp(20px, 4vw, 56px);
-  color: #dce5ed;
-  background: #17212b;
-  border-bottom: 2px solid #76dfc2;
-}
-
-.brand,
 .section-code,
 .project-identity code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -198,49 +157,15 @@ onMounted(() => load())
   letter-spacing: 0.1em;
 }
 
-.brand {
-  color: #76dfc2;
-  text-decoration: none;
-}
-
-nav {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  font-size: 14px;
-}
-
-nav > span {
-  color: #8795a3;
-}
-
-nav a,
 .project-row > a {
   color: #76a7ff;
   text-decoration: none;
-}
-
-.page-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 48px 0 28px;
-  border-bottom: 1px solid #d8dee6;
 }
 
 .section-code {
   color: #2563eb;
 }
 
-h1 {
-  margin: 12px 0 6px;
-  font-family: Bahnschrift, "Arial Narrow", "Noto Sans SC", sans-serif;
-  font-size: 36px;
-  letter-spacing: -0.04em;
-}
-
-.page-heading p,
 .project-row p,
 .empty-state p {
   margin: 0;

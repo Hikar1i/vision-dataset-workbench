@@ -126,6 +126,12 @@ body {
 .state-panel { padding: 48px 20px; color: var(--vdw-muted); text-align: center; }
 .state-panel--error { color: #a33e39; }
 .app-sidebar-backdrop { display: none; }
+.content-page { display: grid; grid-template-rows: 66px minmax(0, 1fr); min-height: 100%; }
+.content-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 16px; background: white; border-bottom: 1px solid var(--vdw-rule); }
+.content-toolbar-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.content-toolbar h1 { margin: 0; font: 700 20px var(--vdw-title); letter-spacing: -0.02em; }
+.content-toolbar-title span { color: var(--vdw-muted); font-size: 12px; }
+.content-body { min-width: 0; padding: 16px; }
 
 @media (max-width: 767px) {
   .app-shell,

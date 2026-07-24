@@ -31,7 +31,7 @@ function mountView() {
 }
 
 describe('ProjectsView', () => {
-  it('shows an actionable empty state and account navigation', async () => {
+  it('shows an actionable empty state without a second global header', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((path: string) =>
@@ -48,8 +48,8 @@ describe('ProjectsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('还没有项目')
-    expect(wrapper.get('[data-test="account-link"]').attributes('href')).toBe('/account')
-    expect(wrapper.get('[data-test="users-link"]').attributes('href')).toBe('/admin/users')
+    expect(wrapper.get('[data-test="page-title"]').text()).toBe('数据集项目')
+    expect(wrapper.find('.topbar').exists()).toBe(false)
   })
 
   it('creates a project and opens its video workspace', async () => {

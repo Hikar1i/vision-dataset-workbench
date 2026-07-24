@@ -33,16 +33,18 @@ async function submit() {
 </script>
 
 <template>
-  <main class="utility-shell">
-    <header class="utility-topbar">
-      <span class="utility-brand">VDW</span>
-      <router-link to="/projects">返回项目</router-link>
+  <main class="content-page">
+    <header class="content-toolbar">
+      <div class="content-toolbar-title">
+        <h1 data-test="page-title">账号设置</h1>
+        <span>修改登录密码</span>
+      </div>
     </header>
-
-    <section class="utility-card">
+    <div class="content-body">
+    <section class="utility-card account-card">
       <header class="utility-heading">
         <span class="utility-code">ACCOUNT / PASSWORD</span>
-        <h1>修改登录密码</h1>
+        <h2>修改登录密码</h2>
         <p>保存后，当前账号在其他浏览器中的会话会立即失效。</p>
       </header>
 
@@ -90,5 +92,11 @@ async function submit() {
         </el-button>
       </form>
     </section>
+    </div>
   </main>
 </template>
+
+<style scoped>
+.account-card { margin: 16px auto; }
+.utility-heading h2 { margin: 14px 0 8px; font-size: 24px; }
+</style>

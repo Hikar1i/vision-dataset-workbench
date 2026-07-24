@@ -58,16 +58,15 @@ onMounted(() => load())
 </script>
 
 <template>
-  <main class="users-shell">
-    <header class="users-header">
-      <div>
-        <span class="utility-code">ADMIN / USERS</span>
-        <h1>用户与注册审批</h1>
-        <p>审批新账号，或控制现有账号能否登录当前实例。</p>
+  <main class="content-page users-shell">
+    <header class="content-toolbar">
+      <div class="content-toolbar-title">
+        <h1 data-test="page-title">用户与注册审批</h1>
+        <span>审批与登录状态管理</span>
       </div>
-      <router-link to="/projects">返回项目</router-link>
     </header>
 
+    <div class="content-body">
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
 
     <section class="users-panel">
@@ -150,50 +149,21 @@ onMounted(() => load())
         @current-change="load"
       />
     </section>
+    </div>
   </main>
 </template>
 
 <style scoped>
 .users-shell {
-  min-height: 100vh;
-  padding: 32px clamp(20px, 4vw, 56px) 64px;
   color: #17212b;
   background: #f4f7fa;
 }
-
-.users-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 28px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid #d8dee6;
-}
-
-.users-header h1 {
-  margin: 12px 0 6px;
-  font-size: 30px;
-  letter-spacing: -0.035em;
-}
-
-.users-header p,
 .table-tools {
   color: #687482;
 }
 
-.users-header p {
-  margin: 0;
-}
-
-.users-header a {
-  color: #2563eb;
-  font-size: 14px;
-  text-decoration: none;
-}
-
 .users-panel {
-  margin-top: 20px;
+  margin-top: 0;
   padding: 24px;
   background: white;
   border: 1px solid #d8dee6;
@@ -225,11 +195,6 @@ onMounted(() => load())
 }
 
 @media (max-width: 680px) {
-  .users-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
   .users-panel {
     padding: 12px;
     overflow-x: auto;
