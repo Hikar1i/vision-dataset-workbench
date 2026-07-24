@@ -1,6 +1,6 @@
 # 数据库
 
-状态：工作区 SQLite、账号/会话、项目/成员、`videos` 和 `tasks` 迁移已实现；帧、采样、标注和导出 schema 仍为批准设计。
+状态：工作区 SQLite、账号/会话、项目/成员、视频、任务、采样方案和帧迁移已实现；标注和导出 schema 仍为批准设计。
 
 ## 数据库选型
 
@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -77,12 +77,39 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 
 本地重复内容和远程重复身份通过 SQLite partial unique index 约束。复制/下载成功前视频保持 `pending`；Worker 验证文件与元数据后才写入受管路径并切换为 `ready`。
 
-`tasks` 表当前承载 `copy_video` 和 `download_video`：
+`sampling_plans` 每个视频最多一行：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `video_id` | 方案 UUID 和唯一视频外键 |
+| `mode` / `parameters` | `target_frames`、`frame_interval` 或 `time_interval` 及规范化参数 JSON |
+| `output_format` / `output_quality` | JPG 质量 1–31，或 PNG 压缩级别 0–9 |
+| `computed_interval` / `expected_frames` | 计算后的帧间隔和可预测目标数量 |
+| `extracted_frames` / `enabled_frames` | 当前已发布帧和启用帧计数 |
+| `version` / `applied_version` | 当前方案版本及已成功抽帧的方案版本 |
+| `generation` | 成功发布一代帧后递增 |
+| `frame_revision` | 批量启停成功后递增，用于乐观并发 |
+| 时间字段 | 创建和更新时间 |
+
+`frames` 表保存当前一代采样帧：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `video_id` | 稳定帧 UUID 和视频外键 |
+| `generation` / `sequence` | 所属发布代次和从 1 开始的视频内唯一序号 |
+| `source_frame_index` / `time_offset` | 原视频帧位置和秒偏移 |
+| `file_path` | 工作区内相对图片路径 |
+| `enabled` | 帧是否进入后续流程 |
+| `created_at` | 当前代次发布时间 |
+
+重采样先在任务临时目录生成并验证全部文件，再替换 `frames/<video UUID>/` 并在同一数据库事务中重建 Frame 记录。失败、取消或方案版本改变时保留上一代目录和记录。
+
+`tasks` 表当前承载 `copy_video`、`download_video` 和 `extract_frames`：
 
 | 字段 | 约束/含义 |
 | --- | --- |
 | `id` / `project_id` / `submitted_by_id` / `video_id` | 任务、项目、提交者和目标视频关系 |
-| `type` | `copy_video` 或 `download_video` |
+| `type` | `copy_video`、`download_video` 或 `extract_frames` |
 | `status` | `queued`、`running`、`succeeded`、`failed` 或 `canceled` |
 | `payload` / `result` | JSON 文本；分别保存执行输入和最终摘要 |
 | `progress` / `error` / `cancel_requested` | 0–100 进度、安全错误文本和协作取消标记 |

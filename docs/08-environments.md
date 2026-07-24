@@ -1,6 +1,6 @@
 # 环境与启动
 
-状态：后端、前端、首次初始化、认证模式和视频 Worker 可在开发环境运行；正式部署启动器尚未实现。
+状态：后端、前端、首次初始化、认证模式，以及视频导入/抽帧 Worker 可在开发环境运行；正式部署启动器尚未实现。
 
 ## 当前可执行操作
 
@@ -132,4 +132,4 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 
 ## 外部工具验证
 
-视频导入要求 `ffmpeg`、`ffprobe` 可执行；yt-dlp 是后端锁定的 Python 依赖。当前真实链路已验证三者可完成媒体探测、缩略图、本地复制和 HTTP 下载，但启动时的显式能力检查仍待实现。运行时版本必须与容器和 CI 基线一致；不得重现遗留项目中 README、pyproject 和 Docker 分别声明不同 Python 版本的情况。
+视频导入和抽帧要求 `ffmpeg`、`ffprobe` 可执行；yt-dlp 是后端锁定的 Python 依赖。当前真实链路已验证三者可完成媒体探测、缩略图、本地复制、HTTP 下载、JPG/PNG 抽帧和重采样替换。抽帧使用兼容较旧 FFmpeg 的 `-vsync vfr`；启动时的显式能力/版本检查仍待实现。运行时版本必须与容器和 CI 基线一致；不得重现遗留项目中 README、pyproject 和 Docker 分别声明不同 Python 版本的情况。

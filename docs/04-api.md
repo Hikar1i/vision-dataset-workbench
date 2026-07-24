@@ -1,6 +1,6 @@
 # API
 
-状态：`/api/v1` 初始化、认证、用户、项目、文件浏览、视频导入、任务和视频读取接口已实现；采样帧、标注和导出仍为批准设计。
+状态：`/api/v1` 初始化、认证、用户、项目、文件浏览、视频导入、任务、采样方案和帧接口已实现；标注和导出仍为批准设计。
 
 ## 当前接口
 
@@ -40,6 +40,12 @@
 | `GET /api/v1/projects/{id}/videos/{video_id}/content` | 项目成员 | 播放原始视频，支持 HTTP Range |
 | `GET /api/v1/projects/{id}/videos/{video_id}/download` | 项目成员 | 下载原始视频 |
 | `GET /api/v1/projects/{id}/videos/{video_id}/thumbnail` | 项目成员 | 读取 Worker 生成/下载的 JPEG 缩略图 |
+| `POST /api/v1/projects/{id}/sampling-plans` | owner/editor + 同源 | 为一个或多个 ready 视频创建或更新采样方案 |
+| `POST /api/v1/projects/{id}/extractions` | owner/editor + 同源 | 按当前方案批量创建抽帧任务，返回 202 |
+| `GET /api/v1/projects/{id}/videos/{video_id}/sampling-plan` | 项目成员 | 读取方案、预计/实际帧数、版本和帧修订号 |
+| `GET /api/v1/projects/{id}/videos/{video_id}/frames` | 项目成员 | 分页读取帧；可用 `enabled=true/false` 过滤 |
+| `GET /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/image` | 项目成员 | 读取受管 JPG/PNG 帧图片 |
+| `PUT /api/v1/projects/{id}/videos/{video_id}/frames/enabled` | owner/editor + 同源 | 按帧 ID 或全部帧批量启停，校验 `frame_revision` |
 
 目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接，并从列表隐藏当前工作区。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户、项目、视频和任务列表最大页大小 200。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
 
@@ -59,8 +65,20 @@
 | 查看项目任务 | 是 | 是 | 是 |
 | 预览/导入本地或远程视频 | 是 | 是 | 否 |
 | 取消/重试视频导入任务 | 是 | 是 | 否 |
+| 查看和下载采样帧 | 是 | 是 | 是 |
+| 配置采样方案、创建抽帧任务 | 是 | 是 | 否 |
+| 批量启停采样帧 | 是 | 是 | 否 |
 
-当前已实现 viewer 查看、播放和下载原始视频，以及查看任务。后续 API 必须继续允许 viewer 查看采样帧、标注框和下载已有导出产物；不得允许其添加或导入视频、改变采样策略、重新采样、启停视频或帧、标注、管理任务或创建新导出。
+viewer 已可查看、播放和下载原始视频，查看任务、采样方案和采样帧图片；不能添加或导入视频、改变采样策略、重新采样或启停帧。标注和导出实现后仍需允许 viewer 查看标注框和下载已有导出产物，但不得标注、管理任务或创建新导出。
+
+采样方案支持：
+
+- `target_frames`：参数 `minimum` 为 10–100，`maximum` 为 100–300，且前者小于后者；默认 50/200。2 分钟及以下取 minimum，2–10 分钟线性增长，10 分钟及以上取 maximum，源视频帧数不足时保留全部帧。
+- `frame_interval`：参数 `interval` 为 1–100000，从第 0 帧开始每 N 帧取一帧。
+- `time_interval`：参数 `seconds` 和 `frames` 均为 1–10，换算成确定的帧间隔。
+- 输出为 `jpg` 时质量为 1–31、默认 2；输出为 `png` 时压缩级别为 0–9、默认 6。
+
+更新方案只增加方案版本，不立即删除旧帧。抽帧成功才更新 `applied_version`、`generation` 和帧记录；旧方案任务、活动任务和未配置方案以逐项 rejected 返回。帧批量启停要求客户端提交当前 `frame_revision`，过期值返回 409，一次请求最多传 999 个帧 ID；不传 `frame_ids` 表示操作该视频全部帧。
 
 本地导入可提交单文件或目录预览返回的路径，目录只扫描第一层。远程导入只接受 HTTP/HTTPS，允许局域网 HTTP；播放列表解析后由用户选择条目再提交。批量响应分别列出 `accepted`、`skipped` 和 `rejected`。本地文件在 Worker 中计算完整 SHA-256，远程文件以 yt-dlp extractor + 原始 ID 在项目内判重；重复任务以成功但 skipped 的结果结束，不新增重复 Video。
 
