@@ -2,7 +2,7 @@ from fastapi import FastAPI
 
 from .api.auth import router as auth_router
 from .api.filesystem import router as filesystem_router
-from .api.media import router as media_router
+from .api.media import global_task_router, router as media_router
 from .api.projects import router as projects_router
 from .api.registrations import router as registrations_router
 from .api.sampling import router as sampling_router
@@ -63,6 +63,7 @@ def create_app(
     app.include_router(filesystem_router)
     app.include_router(registrations_router)
     app.include_router(projects_router)
+    app.include_router(global_task_router)
     app.include_router(media_router)
     app.include_router(sampling_router)
 

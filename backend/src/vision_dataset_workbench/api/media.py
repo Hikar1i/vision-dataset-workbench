@@ -21,6 +21,7 @@ from ..storage.paths import UnsafePathError
 from .auth import current_user, require_same_origin
 
 router = APIRouter(prefix="/api/v1/projects/{project_id}", tags=["media"])
+global_task_router = APIRouter(prefix="/api/v1", tags=["tasks"])
 
 
 class LocalPreviewRequest(BaseModel):
@@ -80,6 +81,7 @@ class SamplingSummaryResponse(BaseModel):
 
 class TaskResponse(BaseModel):
     id: str
+    project_id: str
     video_id: str | None
     type: str
     status: str
@@ -151,6 +153,19 @@ class TaskPageResponse(BaseModel):
     total: int
 
 
+class GlobalTaskResponse(TaskResponse):
+    project_name: str
+    can_manage: bool
+
+
+class GlobalTaskPageResponse(BaseModel):
+    items: list[GlobalTaskResponse]
+    page: int
+    page_size: int
+    total: int
+    latest_terminal_at: str | None
+
+
 def media_service(request: Request) -> MediaService:
     service = request.app.state.media_service
     if service is None:
@@ -203,6 +218,7 @@ def _task_response(task: Task) -> TaskResponse:
     result = json.loads(task.result) if task.result else None
     return TaskResponse(
         id=task.id,
+        project_id=task.project_id,
         video_id=task.video_id,
         type=task.type,
         status=task.status,
@@ -216,6 +232,32 @@ def _task_response(task: Task) -> TaskResponse:
         started_at=_utc_text(task.started_at),
         finished_at=_utc_text(task.finished_at),
         updated_at=_utc_text(task.updated_at) or "",
+    )
+
+
+@global_task_router.get("/tasks", response_model=GlobalTaskPageResponse)
+def list_global_tasks(
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> GlobalTaskPageResponse:
+    items, total, latest_terminal_at = media_service(request).list_visible_tasks(
+        user, page=page, page_size=page_size
+    )
+    return GlobalTaskPageResponse(
+        items=[
+            GlobalTaskResponse(
+                **_task_response(item.task).model_dump(),
+                project_name=item.project_name,
+                can_manage=item.can_manage,
+            )
+            for item in items
+        ],
+        page=page,
+        page_size=page_size,
+        total=total,
+        latest_terminal_at=_utc_text(latest_terminal_at),
     )
 
 

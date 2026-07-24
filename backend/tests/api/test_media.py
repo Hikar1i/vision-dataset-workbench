@@ -120,6 +120,36 @@ def test_editor_imports_and_viewer_reads_but_cannot_write(tmp_path):
     )
 
 
+def test_global_tasks_include_project_context_and_permissions(tmp_path):
+    app = make_app(tmp_path)
+    assert TestClient(app).get("/api/v1/tasks").status_code == 401
+    owner = client_for(app, "owner")
+    editor = client_for(app, "editor")
+    viewer = client_for(app, "viewer")
+    outsider = client_for(app, "outsider")
+    imported = owner.post(
+        "/api/v1/projects/project-id/imports/local",
+        headers=ORIGIN,
+        json={"paths": ["clips/one.mp4"]},
+    ).json()
+
+    viewer_page = viewer.get("/api/v1/tasks?page=1&page_size=50")
+    editor_page = editor.get("/api/v1/tasks")
+
+    assert viewer_page.status_code == 200
+    assert viewer_page.json()["items"] == [
+        {
+            **imported["accepted"][0]["task"],
+            "project_id": "project-id",
+            "project_name": "project",
+            "can_manage": False,
+        }
+    ]
+    assert viewer_page.json()["latest_terminal_at"] is None
+    assert editor_page.json()["items"][0]["can_manage"] is True
+    assert outsider.get("/api/v1/tasks").json()["total"] == 0
+
+
 def test_editor_updates_video_enabled_and_viewer_is_read_only(tmp_path):
     app = make_app(tmp_path)
     editor = client_for(app, "editor")
