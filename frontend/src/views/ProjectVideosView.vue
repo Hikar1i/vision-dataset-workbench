@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ElMessage } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { ApiError } from '../api/auth'
@@ -32,10 +33,10 @@ const samplingOpen = ref(false)
 const samplingVideoIds = ref<string[]>([])
 const changingEnabled = ref('')
 const error = ref('')
-const notice = ref('')
 
 const canEdit = computed(() => props.project.role === 'owner' || props.project.role === 'editor')
 const importLimitReached = computed(() => total.value >= 999)
+const enabledOnPage = computed(() => videos.value.filter((video) => video.enabled).length)
 const selectableIds = computed(() =>
   canEdit.value ? videos.value.filter((video) => video.status === 'ready').map((video) => video.id) : [],
 )
@@ -108,10 +109,10 @@ async function changeVideoEnabled(video: Video, enabled: boolean) {
   error.value = ''
   try {
     await setVideoEnabled(projectId, video.id, enabled, video.version)
-    notice.value = enabled ? '视频已启用。' : '视频已停用；仍可播放和管理采样。'
+    ElMessage.success(enabled ? '视频已启用。' : '视频已停用；仍可播放和管理采样。')
     await load()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '视频启停状态修改失败'
+    ElMessage.error(reason instanceof Error ? reason.message : '视频启停状态修改失败')
     if (reason instanceof ApiError && reason.status === 409) await load()
   } finally {
     changingEnabled.value = ''
@@ -119,7 +120,7 @@ async function changeVideoEnabled(video: Video, enabled: boolean) {
 }
 
 function imported(batch: ImportBatch) {
-  notice.value = `已创建 ${batch.accepted.length} 个任务，跳过 ${batch.skipped.length} 项，拒绝 ${batch.rejected.length} 项。`
+  ElMessage.success(`已创建 ${batch.accepted.length} 个任务，跳过 ${batch.skipped.length} 项，拒绝 ${batch.rejected.length} 项。`)
   void load(1)
 }
 
@@ -129,7 +130,7 @@ function configure(videoIds: string[]) {
 }
 
 function samplingSubmitted() {
-  notice.value = '采样方案已保存。'
+  ElMessage.success('采样方案已保存。')
   selected.value = []
   void load()
 }
@@ -138,11 +139,11 @@ async function extract(videoIds: string[]) {
   error.value = ''
   try {
     const batch = await createExtractions(projectId, videoIds)
-    notice.value = `已创建 ${batch.accepted.length} 个抽帧任务，拒绝 ${batch.rejected.length} 项。`
+    ElMessage.success(`已创建 ${batch.accepted.length} 个抽帧任务，拒绝 ${batch.rejected.length} 项。`)
     selected.value = []
     await load()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '抽帧任务创建失败'
+    ElMessage.error(reason instanceof Error ? reason.message : '抽帧任务创建失败')
   }
 }
 
@@ -177,20 +178,22 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
           </el-button>
         </header>
 
-        <div class="alerts">
-          <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-          <el-alert v-if="notice" :title="notice" type="success" :closable="false" />
-        </div>
-
-        <section v-if="canEdit && selected.length" class="batch-bar">
-          <strong>已选择 {{ selected.length }} 个视频</strong>
-          <div>
+        <section class="video-action-lane" data-test="video-action-lane">
+          <template v-if="canEdit && selected.length">
+            <strong>已选择 {{ selected.length }} 个视频</strong>
+            <div>
             <el-button data-test="batch-configure" @click="configure(selected)">批量配置采样</el-button>
             <el-button data-test="batch-extract" @click="extract(selected)">批量抽帧</el-button>
-          </div>
+            </div>
+          </template>
+          <template v-else>
+            <span>共 {{ total }} 个视频</span>
+            <span>当前页 {{ enabledOnPage }} 个已启用</span>
+          </template>
         </section>
 
         <section v-loading="loading" class="video-ledger">
+          <div v-if="error" class="state-panel state-panel--error">{{ error }}</div>
           <div v-if="videos.length" class="ledger-scroll">
             <header class="ledger-row ledger-head">
               <span class="selection-cell">
@@ -401,43 +404,34 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .workspace-toolbar span {
   color: var(--vdw-muted);
-  font: 10px var(--vdw-mono);
+  font: 12px var(--vdw-mono);
 }
 
 .workspace-toolbar :deep(.el-button) {
-  height: 30px;
+  height: var(--vdm-control-height);
   border-radius: 2px;
 }
 
-.alerts:empty {
-  display: none;
-}
-
-.alerts {
-  display: grid;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.batch-bar {
+.video-action-lane {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  min-height: 38px;
-  margin-top: 8px;
-  padding: 4px 8px 4px 12px;
-  background: #e7f4f0;
-  border: 1px solid #9bcfc1;
-  font-size: 12px;
+  gap: 12px;
+  justify-content: flex-start;
+  height: 44px;
+  padding: 0 8px;
+  color: var(--vdw-muted);
+  font-size: 13px;
+  border-bottom: 1px solid var(--vdw-rule);
 }
 
-.batch-bar > div {
+.video-action-lane > div {
   display: flex;
   gap: 6px;
+  margin-left: auto;
 }
 
-.batch-bar :deep(.el-button) {
-  height: 28px;
+.video-action-lane :deep(.el-button) {
+  height: var(--vdm-control-height);
   border-radius: 2px;
 }
 
@@ -474,7 +468,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .media-row {
   position: relative;
-  min-height: 55px;
+  min-height: var(--vdm-row-height);
   border-bottom: 1px solid #e7ebef;
 }
 
@@ -515,7 +509,6 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .enabled-cell :deep(.el-switch) {
   --el-switch-on-color: var(--vdw-teal);
-  transform: scale(0.82);
 }
 
 .readonly-enabled {
@@ -529,7 +522,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .media-identity {
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
   min-width: 0;
@@ -537,8 +530,8 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .thumbnail {
   position: relative;
-  width: 62px;
-  height: 35px;
+  width: 72px;
+  height: 42px;
   overflow: hidden;
   background: linear-gradient(135deg, #1f2c38, #344556);
 }
@@ -569,13 +562,13 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .media-identity strong {
   margin-bottom: 3px;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .media-identity p {
   margin: 0;
   color: var(--vdw-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .source-mark {
@@ -630,7 +623,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 .row-actions {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  height: 27px;
+  height: var(--vdm-control-height);
   border: 1px solid #cbd3da;
 }
 
@@ -639,7 +632,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   min-width: 0;
   color: #284c5f;
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   background: #fff;
   border: 0;
   border-right: 1px solid #d7dde2;

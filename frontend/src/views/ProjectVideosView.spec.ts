@@ -128,7 +128,9 @@ describe('ProjectVideosView', () => {
     const wrapper = mountView('editor')
     await flushPromises()
 
+    const actionLane = wrapper.get('[data-test="video-action-lane"]').element
     await wrapper.get('[data-test="select-video-id"] input').setValue(true)
+    expect(wrapper.get('[data-test="video-action-lane"]').element).toBe(actionLane)
     expect(
       wrapper.get('[data-test="select-all"] .el-checkbox__input').classes(),
     ).toContain('is-indeterminate')
@@ -145,7 +147,7 @@ describe('ProjectVideosView', () => {
       ),
     ).toBe(true)
     expect(wrapper.find('option[value="999"]').text()).toBe('全部')
-    expect(wrapper.find('.batch-bar').exists()).toBe(false)
+    expect(wrapper.get('[data-test="video-action-lane"]').text()).toContain('共 2 个视频')
   })
 
   it('disables importing at 999 videos', async () => {
