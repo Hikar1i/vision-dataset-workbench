@@ -2,19 +2,22 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { ApiError } from '../api/auth'
 import {
   createExtractions,
   listVideos,
+  setVideoEnabled,
   videoContentUrl,
   videoThumbnailUrl,
   type ImportBatch,
   type Video,
 } from '../api/media'
 import { getProject, type Project } from '../api/projects'
-import ImportVideosDialog from '../components/ImportVideosDialog.vue'
 import FramesDialog from '../components/FramesDialog.vue'
+import ImportVideosDialog from '../components/ImportVideosDialog.vue'
 import ProjectTaskDrawer from '../components/ProjectTaskDrawer.vue'
 import SamplingDialog from '../components/SamplingDialog.vue'
+import { videoStatusInfo } from './videoStatus'
 
 const route = useRoute()
 const projectId = String(route.params.id)
@@ -31,10 +34,24 @@ const frameVideo = ref<Video | null>(null)
 const selected = ref<string[]>([])
 const samplingOpen = ref(false)
 const samplingVideoIds = ref<string[]>([])
+const changingEnabled = ref('')
 const error = ref('')
 const notice = ref('')
 
 const canEdit = computed(() => project.value?.role === 'owner' || project.value?.role === 'editor')
+const importLimitReached = computed(() => total.value >= 999)
+const selectableIds = computed(() =>
+  canEdit.value ? videos.value.filter((video) => video.status === 'ready').map((video) => video.id) : [],
+)
+const selectedOnPage = computed(() =>
+  selected.value.filter((id) => selectableIds.value.includes(id)),
+)
+const allSelected = computed(
+  () => selectableIds.value.length > 0 && selectedOnPage.value.length === selectableIds.value.length,
+)
+const someSelected = computed(
+  () => selectedOnPage.value.length > 0 && !allSelected.value,
+)
 const roleLabels = { owner: '所有者', editor: '编辑者', viewer: '只读' } as const
 const statusLabels = { pending: '等待导入', ready: '可用', unavailable: '不可用' } as const
 
@@ -59,13 +76,13 @@ function hideBrokenThumbnail(event: Event) {
   image.style.display = 'none'
 }
 
-async function load(nextPage = page.value) {
+async function load(nextPage = page.value, nextPageSize = pageSize.value) {
   loading.value = true
   error.value = ''
   try {
     const [projectResult, videoResult] = await Promise.all([
       getProject(projectId),
-      listVideos(projectId, nextPage),
+      listVideos(projectId, nextPage, nextPageSize),
     ])
     project.value = projectResult
     videos.value = videoResult.items
@@ -77,6 +94,36 @@ async function load(nextPage = page.value) {
     error.value = reason instanceof Error ? reason.message : '视频工作区加载失败'
   } finally {
     loading.value = false
+  }
+}
+
+function changePageSize(event: Event) {
+  const nextPageSize = Number((event.target as HTMLSelectElement).value)
+  void load(1, nextPageSize)
+}
+
+function toggleCurrentPage(checked: boolean) {
+  selected.value = checked ? [...selectableIds.value] : []
+}
+
+function toggleVideo(video: Video, checked: boolean) {
+  selected.value = checked
+    ? [...new Set([...selected.value, video.id])]
+    : selected.value.filter((id) => id !== video.id)
+}
+
+async function changeVideoEnabled(video: Video, enabled: boolean) {
+  changingEnabled.value = video.id
+  error.value = ''
+  try {
+    await setVideoEnabled(projectId, video.id, enabled, video.version)
+    notice.value = enabled ? '视频已启用。' : '视频已停用；仍可播放和管理采样。'
+    await load()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '视频启停状态修改失败'
+    if (reason instanceof ApiError && reason.status === 409) await load()
+  } finally {
+    changingEnabled.value = ''
   }
 }
 
@@ -114,143 +161,207 @@ onMounted(() => load())
 </script>
 
 <template>
-  <main class="video-shell">
-    <header class="topbar">
-      <router-link class="brand" to="/projects">VDW / MEDIA DESK</router-link>
-      <nav v-if="project" aria-label="项目导航">
-        <router-link class="active" :to="`/projects/${projectId}/videos`">视频</router-link>
-        <router-link data-test="settings-link" :to="`/projects/${projectId}/settings`">设置</router-link>
-        <el-button text data-test="task-drawer" @click="taskOpen = true">任务</el-button>
+  <main class="workbench-shell">
+    <header class="global-bar">
+      <router-link class="brand" to="/projects">VDW</router-link>
+      <nav aria-label="全局导航">
+        <router-link to="/projects">项目</router-link>
+        <button data-test="task-drawer" type="button" @click="taskOpen = true">任务</button>
+        <router-link to="/account">账号</router-link>
       </nav>
     </header>
 
-    <section v-if="project" class="project-strip">
-      <div>
-        <code>PROJECT / {{ project.id.slice(0, 8) }}</code>
-        <strong>{{ project.name }}</strong>
-        <span>{{ project.description || '暂无项目描述' }}</span>
-      </div>
-      <span class="role-mark" :data-role="project.role">{{ roleLabels[project.role] }}</span>
-    </section>
+    <div class="project-layout">
+      <aside v-if="project" class="project-rail" data-test="project-rail">
+        <div class="project-identity">
+          <code>PROJECT / {{ project.id.slice(0, 8) }}</code>
+          <strong :title="project.name">{{ project.name }}</strong>
+          <p :title="project.description">{{ project.description || '暂无项目描述' }}</p>
+          <span class="role-mark" :data-role="project.role">{{ roleLabels[project.role] }}</span>
+        </div>
+        <nav aria-label="项目导航">
+          <router-link class="active" :to="`/projects/${projectId}/videos`">视频资料库</router-link>
+          <router-link data-test="settings-link" :to="`/projects/${projectId}/settings`">项目设置</router-link>
+        </nav>
+        <div class="project-capacity">
+          <span>视频容量</span>
+          <strong data-test="project-capacity">{{ total }} / 999</strong>
+        </div>
+      </aside>
 
-    <section class="page-heading">
-      <div>
-        <span class="section-code">VIDEO INDEX / {{ total }}</span>
-        <h1>视频资料库</h1>
-        <p>受管原始视频、导入状态与媒体元数据。</p>
-      </div>
-      <el-button
-        v-if="canEdit"
-        data-test="import-videos"
-        type="primary"
-        @click="importOpen = true"
-      >
-        导入视频
-      </el-button>
-    </section>
-
-    <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-    <el-alert v-if="notice" :title="notice" type="success" :closable="false" />
-
-    <section v-if="canEdit && selected.length" class="batch-bar">
-      <strong>已选择 {{ selected.length }} 个视频</strong>
-      <div>
-        <el-button data-test="batch-configure" @click="configure(selected)">批量配置采样</el-button>
-        <el-button data-test="batch-extract" type="primary" @click="extract(selected)">批量抽帧</el-button>
-      </div>
-    </section>
-
-    <section v-loading="loading" class="video-index">
-      <header v-if="videos.length" class="video-row table-head" :class="{ selectable: canEdit }">
-        <span v-if="canEdit"></span><span>媒体</span><span>来源</span><span>规格 / 采样</span><span>状态</span><span>操作</span>
-      </header>
-      <article
-        v-for="video in videos"
-        :key="video.id"
-        class="video-row media-row"
-        :class="{ selectable: canEdit }"
-        :data-status="video.status"
-      >
-        <input
-          v-if="canEdit"
-          v-model="selected"
-          :data-test="`select-${video.id}`"
-          type="checkbox"
-          :value="video.id"
-          :disabled="video.status !== 'ready'"
-          aria-label="选择视频"
-        />
-        <div class="media-identity">
-          <div class="thumbnail">
-            <img
-              v-if="video.status === 'ready'"
-              :src="videoThumbnailUrl(projectId, video.id)"
-              alt=""
-              @error="hideBrokenThumbnail"
-            />
-            <code>{{ video.id.slice(0, 8) }}</code>
-          </div>
+      <section class="workspace">
+        <header class="workspace-toolbar">
           <div>
-            <strong>{{ video.title }}</strong>
-            <p>{{ video.source_name || video.source_url || '等待 Worker 解析来源' }}</p>
+            <h1>视频资料库</h1>
+            <span>{{ total }} 个视频</span>
           </div>
-        </div>
-        <span class="source-mark">{{ video.source_type === 'local' ? 'LOCAL' : 'REMOTE' }}</span>
-        <div class="media-spec">
-          <span>{{ video.width && video.height ? `${video.width}×${video.height}` : '—' }}</span>
-          <small>{{ duration(video.duration) }} · {{ fileSize(video.file_size) }}</small>
-          <small v-if="video.sampling">
-            {{ video.sampling.state === 'sampled' ? '已采样' : '待抽帧' }} ·
-            {{ video.sampling.enabled_frames }}/{{ video.sampling.extracted_frames || video.sampling.expected_frames }} 帧
-          </small>
-        </div>
-        <span class="status-mark" :data-status="video.status">{{ statusLabels[video.status] }}</span>
-        <div class="actions">
           <el-button
-            v-if="video.status === 'ready'"
-            :data-test="`play-${video.id}`"
-            text
-            @click="playing = video"
+            v-if="canEdit"
+            data-test="import-videos"
+            type="primary"
+            :disabled="importLimitReached"
+            :title="importLimitReached ? '项目视频数量已达上限（999）' : '导入视频'"
+            @click="importOpen = true"
           >
-            播放
+            导入视频
           </el-button>
-          <el-button
-            v-if="canEdit && video.status === 'ready'"
-            :data-test="`configure-${video.id}`"
-            text
-            @click="configure([video.id])"
-          >采样</el-button>
-          <el-button
-            v-if="canEdit && video.sampling"
-            :data-test="`extract-${video.id}`"
-            text
-            @click="extract([video.id])"
-          >抽帧</el-button>
-          <el-button
-            v-if="video.sampling?.extracted_frames"
-            :data-test="`frames-${video.id}`"
-            text
-            @click="frameVideo = video"
-          >帧</el-button>
+        </header>
+
+        <div class="alerts">
+          <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
+          <el-alert v-if="notice" :title="notice" type="success" :closable="false" />
         </div>
-      </article>
 
-      <div v-if="!loading && !videos.length" class="empty-state">
-        <span class="section-code">MEDIA INDEX / EMPTY</span>
-        <h2>项目中还没有视频</h2>
-        <p>{{ canEdit ? '从本地目录或远程 URL 创建第一批导入任务。' : '项目编辑者导入视频后会显示在这里。' }}</p>
-        <el-button v-if="canEdit" type="primary" @click="importOpen = true">导入视频</el-button>
-      </div>
+        <section v-if="canEdit && selected.length" class="batch-bar">
+          <strong>已选择 {{ selected.length }} 个视频</strong>
+          <div>
+            <el-button data-test="batch-configure" @click="configure(selected)">批量配置采样</el-button>
+            <el-button data-test="batch-extract" @click="extract(selected)">批量抽帧</el-button>
+          </div>
+        </section>
 
-      <el-pagination
-        v-if="total > pageSize"
-        layout="prev, pager, next"
-        :current-page="page"
-        :page-size="pageSize"
-        :total="total"
-        @current-change="load"
-      />
-    </section>
+        <section v-loading="loading" class="video-ledger">
+          <div v-if="videos.length" class="ledger-scroll">
+            <header class="ledger-row ledger-head">
+              <span class="selection-cell">
+                <el-checkbox
+                  v-if="canEdit"
+                  data-test="select-all"
+                  aria-label="选择当前页全部可操作视频"
+                  :model-value="allSelected"
+                  :indeterminate="someSelected"
+                  :disabled="!selectableIds.length"
+                  @change="toggleCurrentPage(Boolean($event))"
+                />
+              </span>
+              <span>启用</span>
+              <span>视频</span>
+              <span>来源</span>
+              <span>规格</span>
+              <span>启用帧/采样帧</span>
+              <span>媒体状态</span>
+              <span>状态信息</span>
+              <span>操作</span>
+            </header>
+
+            <article
+              v-for="video in videos"
+              :key="video.id"
+              class="ledger-row media-row"
+              :data-status="video.status"
+              :data-enabled="video.enabled"
+            >
+              <span class="selection-cell">
+                <el-checkbox
+                  v-if="canEdit"
+                  :data-test="`select-${video.id}`"
+                  aria-label="选择视频"
+                  :model-value="selected.includes(video.id)"
+                  :disabled="video.status !== 'ready'"
+                  @change="toggleVideo(video, Boolean($event))"
+                />
+              </span>
+              <span class="enabled-cell">
+                <el-switch
+                  v-if="canEdit"
+                  :data-test="`enabled-${video.id}`"
+                  :model-value="video.enabled"
+                  :loading="changingEnabled === video.id"
+                  :aria-label="`${video.enabled ? '停用' : '启用'}视频 ${video.title}`"
+                  @change="changeVideoEnabled(video, Boolean($event))"
+                />
+                <span v-else class="readonly-enabled" :data-enabled="video.enabled">
+                  {{ video.enabled ? '启用' : '停用' }}
+                </span>
+              </span>
+              <div class="media-identity">
+                <div class="thumbnail">
+                  <img
+                    v-if="video.status === 'ready'"
+                    :src="videoThumbnailUrl(projectId, video.id)"
+                    alt=""
+                    @error="hideBrokenThumbnail"
+                  />
+                  <code>{{ video.id.slice(0, 8) }}</code>
+                </div>
+                <div>
+                  <strong :title="video.title">{{ video.title }}</strong>
+                  <p :title="video.source_name || video.source_url || ''">
+                    {{ video.source_name || video.source_url || '等待 Worker 解析来源' }}
+                  </p>
+                </div>
+              </div>
+              <span class="source-mark">{{ video.source_type === 'local' ? 'LOCAL' : 'REMOTE' }}</span>
+              <div class="media-spec">
+                <span>{{ video.width && video.height ? `${video.width}×${video.height}` : '—' }}</span>
+                <small>{{ duration(video.duration) }} · {{ fileSize(video.file_size) }}</small>
+              </div>
+              <span class="frame-count">
+                {{ video.sampling ? `${video.sampling.enabled_frames}/${video.sampling.extracted_frames || video.sampling.expected_frames}` : '—' }}
+              </span>
+              <span class="status-mark" :data-status="video.status">{{ statusLabels[video.status] }}</span>
+              <span class="status-info" :title="videoStatusInfo(video)">{{ videoStatusInfo(video) }}</span>
+              <div class="row-actions">
+                <button
+                  :data-test="`play-${video.id}`"
+                  type="button"
+                  :disabled="video.status !== 'ready'"
+                  @click="playing = video"
+                >播放</button>
+                <button
+                  v-if="canEdit"
+                  :data-test="`configure-${video.id}`"
+                  type="button"
+                  :disabled="video.status !== 'ready'"
+                  @click="configure([video.id])"
+                >采样</button>
+                <span v-else />
+                <button
+                  v-if="canEdit"
+                  :data-test="`extract-${video.id}`"
+                  type="button"
+                  :disabled="!video.sampling"
+                  @click="extract([video.id])"
+                >抽帧</button>
+                <span v-else />
+                <button
+                  :data-test="`frames-${video.id}`"
+                  type="button"
+                  :disabled="!video.sampling?.extracted_frames"
+                  @click="frameVideo = video"
+                >帧</button>
+              </div>
+            </article>
+          </div>
+
+          <div v-if="!loading && !videos.length" class="empty-state">
+            <h2>项目中还没有视频</h2>
+            <p>{{ canEdit ? '从本地目录或远程 URL 创建第一批导入任务。' : '项目编辑者导入视频后会显示在这里。' }}</p>
+            <el-button v-if="canEdit" type="primary" @click="importOpen = true">导入视频</el-button>
+          </div>
+
+          <footer v-if="total" class="ledger-footer">
+            <label>
+              每页
+              <select data-test="page-size" :value="pageSize" @change="changePageSize">
+                <option :value="25">25</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+                <option :value="200">200</option>
+                <option :value="999">全部</option>
+              </select>
+            </label>
+            <el-pagination
+              layout="prev, pager, next"
+              :current-page="page"
+              :page-size="pageSize"
+              :total="total"
+              @current-change="load($event, pageSize)"
+            />
+          </footer>
+        </section>
+      </section>
+    </div>
 
     <el-dialog
       :model-value="playing !== null"
@@ -259,16 +370,11 @@ onMounted(() => load())
       :teleported="false"
       @update:model-value="!$event && (playing = null)"
     >
-      <video
-        v-if="playing"
-        controls
-        preload="metadata"
-        :src="videoContentUrl(projectId, playing.id)"
-      />
+      <video v-if="playing" controls preload="metadata" :src="videoContentUrl(projectId, playing.id)" />
     </el-dialog>
 
     <ImportVideosDialog
-      v-if="canEdit"
+      v-if="canEdit && !importLimitReached"
       v-model="importOpen"
       :project-id="projectId"
       @submitted="imported"
@@ -299,184 +405,318 @@ onMounted(() => load())
 </template>
 
 <style scoped>
-.video-shell {
+.workbench-shell {
   min-height: 100vh;
-  padding: 0 clamp(20px, 4vw, 56px) 64px;
-  color: #17212b;
-  background: #f4f7fa;
+  color: var(--vdw-ink);
+  background: var(--vdw-canvas);
 }
 
-.topbar {
+.global-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 64px;
-  margin: 0 calc(clamp(20px, 4vw, 56px) * -1);
-  padding: 0 clamp(20px, 4vw, 56px);
+  height: 44px;
+  padding: 0 16px;
   color: #dce5ed;
-  background: #17212b;
-  border-bottom: 2px solid #76dfc2;
-}
-
-.brand,
-.section-code,
-.project-strip code,
-.thumbnail code,
-.source-mark {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
-  letter-spacing: 0.1em;
+  background: var(--vdw-ink);
+  border-bottom: 2px solid var(--vdw-mint);
 }
 
 .brand {
-  color: #76dfc2;
+  color: var(--vdw-mint);
+  font: 700 12px var(--vdw-mono);
+  letter-spacing: 0.12em;
   text-decoration: none;
 }
 
-nav {
+.global-bar nav {
   display: flex;
   align-items: center;
-  gap: 20px;
+  height: 100%;
 }
 
-nav a {
-  color: #9aa7b4;
-  font-size: 13px;
-  text-decoration: none;
-}
-
-nav a.active {
-  color: #f7fafc;
-}
-
-.project-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  min-height: 54px;
-  margin: 0 calc(clamp(20px, 4vw, 56px) * -1);
-  padding: 0 clamp(20px, 4vw, 56px);
-  background: #e9eef3;
-  border-bottom: 1px solid #d0d8e1;
-}
-
-.project-strip > div {
-  display: flex;
-  gap: 16px;
-  align-items: baseline;
-  min-width: 0;
-}
-
-.project-strip code {
-  color: #2563eb;
-}
-
-.project-strip span:not(.role-mark) {
-  overflow: hidden;
-  color: #687482;
+.global-bar nav a,
+.global-bar nav button {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 0 12px;
+  color: #b8c3cc;
+  font: inherit;
   font-size: 12px;
+  text-decoration: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.global-bar nav a:hover,
+.global-bar nav button:hover {
+  color: white;
+  background: rgb(255 255 255 / 6%);
+}
+
+.project-layout {
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr);
+  min-height: calc(100vh - 44px);
+}
+
+.project-rail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: #dce5ed;
+  background: var(--vdw-rail);
+}
+
+.project-identity {
+  display: grid;
+  gap: 7px;
+  padding: 16px 14px;
+  border-bottom: 1px solid rgb(255 255 255 / 8%);
+}
+
+.project-identity code {
+  color: var(--vdw-mint);
+  font: 9px var(--vdw-mono);
+  letter-spacing: 0.08em;
+}
+
+.project-identity strong,
+.project-identity p {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.page-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 42px 0 26px;
-  border-bottom: 1px solid #d8dee6;
+.project-identity strong {
+  font-size: 14px;
 }
 
-.section-code {
-  color: #2563eb;
-}
-
-h1 {
-  margin: 10px 0 5px;
-  font-family: Bahnschrift, "Arial Narrow", "Noto Sans SC", sans-serif;
-  font-size: 34px;
-  letter-spacing: -0.04em;
-}
-
-.page-heading p,
-.media-identity p,
-.empty-state p {
+.project-identity p {
   margin: 0;
-  color: #687482;
+  color: #9eacb8;
+  font-size: 11px;
 }
 
-.video-index {
-  margin-top: 22px;
-  overflow-x: auto;
-  background: white;
-  border: 1px solid #d8dee6;
+.role-mark {
+  width: fit-content;
+  padding: 2px 5px;
+  color: #b9c7d2;
+  font-size: 10px;
+  border: 1px solid #586a79;
+}
+
+.role-mark[data-role='owner'] {
+  color: var(--vdw-mint);
+  border-color: #4f9b88;
+}
+
+.project-rail nav {
+  display: grid;
+  padding: 8px 0;
+}
+
+.project-rail nav a {
+  padding: 9px 14px 9px 17px;
+  color: #a8b4bf;
+  font-size: 12px;
+  text-decoration: none;
+  border-left: 3px solid transparent;
+}
+
+.project-rail nav a:hover {
+  color: white;
+}
+
+.project-rail nav a.active {
+  color: white;
+  background: #18252e;
+  border-left-color: var(--vdw-mint);
+}
+
+.project-capacity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding: 12px 14px;
+  color: #8f9da9;
+  font-size: 10px;
+  border-top: 1px solid rgb(255 255 255 / 8%);
+}
+
+.project-capacity strong {
+  color: #dce5ed;
+  font: 11px var(--vdw-mono);
+}
+
+.workspace {
+  min-width: 0;
+  padding: 0 16px 24px;
+}
+
+.workspace-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  border-bottom: 1px solid var(--vdw-rule);
+}
+
+.workspace-toolbar > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.workspace-toolbar h1 {
+  margin: 0;
+  font: 700 20px var(--vdw-title);
+  letter-spacing: -0.02em;
+}
+
+.workspace-toolbar span {
+  color: var(--vdw-muted);
+  font: 10px var(--vdw-mono);
+}
+
+.workspace-toolbar :deep(.el-button) {
+  height: 30px;
+  border-radius: 2px;
+}
+
+.alerts:empty {
+  display: none;
+}
+
+.alerts {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
 }
 
 .batch-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 18px;
-  padding: 10px 14px;
-  background: #e8f5f1;
-  border: 1px solid #9bd4c5;
-}
-
-.video-row {
-  display: grid;
-  grid-template-columns: minmax(360px, 2fr) 90px 180px 100px 220px;
-  gap: 18px;
-  align-items: center;
-  min-width: 880px;
-}
-
-.video-row.selectable {
-  grid-template-columns: 24px minmax(360px, 2fr) 90px 180px 100px 220px;
-}
-
-.table-head {
-  padding: 11px 16px;
-  color: #687482;
+  min-height: 38px;
+  margin-top: 8px;
+  padding: 4px 8px 4px 12px;
+  background: #e7f4f0;
+  border: 1px solid #9bcfc1;
   font-size: 12px;
-  background: #f8fafc;
-  border-bottom: 1px solid #d8dee6;
+}
+
+.batch-bar > div {
+  display: flex;
+  gap: 6px;
+}
+
+.batch-bar :deep(.el-button) {
+  height: 28px;
+  border-radius: 2px;
+}
+
+.video-ledger {
+  margin-top: 8px;
+  background: white;
+  border: 1px solid var(--vdw-rule);
+}
+
+.ledger-scroll {
+  overflow-x: auto;
+}
+
+.ledger-row {
+  display: grid;
+  grid-template-columns: 30px 54px minmax(220px, 1.35fr) 72px 126px 98px 84px minmax(190px, 1fr) 224px;
+  gap: 8px;
+  align-items: center;
+  min-width: 1120px;
+  padding: 0 8px;
+}
+
+.ledger-head {
+  height: 29px;
+  color: var(--vdw-muted);
+  font-size: 10px;
+  background: #f5f7f9;
+  border-bottom: 1px solid var(--vdw-rule);
+}
+
+.ledger-head > span:last-child {
+  text-align: center;
 }
 
 .media-row {
   position: relative;
-  min-height: 84px;
-  padding: 12px 16px 12px 20px;
-  border-bottom: 1px solid #e6eaf0;
+  min-height: 55px;
+  border-bottom: 1px solid #e7ebef;
+}
+
+.media-row:last-child {
+  border-bottom: 0;
 }
 
 .media-row::before {
   position: absolute;
   inset: 0 auto 0 0;
-  width: 4px;
-  background: #9aa7b4;
+  width: 3px;
+  background: #9ba8b4;
   content: '';
 }
 
 .media-row[data-status='ready']::before {
-  background: #39b79a;
+  background: var(--vdw-teal);
 }
 
 .media-row[data-status='unavailable']::before {
-  background: #d5574f;
+  background: #c74c46;
+}
+
+.media-row[data-enabled='false'] {
+  color: #65717c;
+  background: #f6f8f9;
+}
+
+.selection-cell,
+.enabled-cell {
+  display: grid;
+  place-items: center;
+}
+
+.selection-cell :deep(.el-checkbox) {
+  height: 20px;
+}
+
+.enabled-cell :deep(.el-switch) {
+  --el-switch-on-color: var(--vdw-teal);
+  transform: scale(0.82);
+}
+
+.readonly-enabled {
+  color: var(--vdw-muted);
+  font-size: 10px;
+}
+
+.readonly-enabled[data-enabled='false'] {
+  color: #a33e39;
 }
 
 .media-identity {
   display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
+  min-width: 0;
 }
 
 .thumbnail {
   position: relative;
-  height: 58px;
+  width: 62px;
+  height: 35px;
   overflow: hidden;
   background: linear-gradient(135deg, #1f2c38, #344556);
 }
@@ -489,82 +729,159 @@ h1 {
 
 .thumbnail code {
   position: absolute;
-  right: 5px;
-  bottom: 4px;
-  padding: 2px 4px;
+  right: 2px;
+  bottom: 2px;
+  padding: 1px 2px;
   color: #c9fff0;
-  background: rgb(13 23 32 / 76%);
+  font: 7px var(--vdw-mono);
+  background: rgb(13 23 32 / 72%);
 }
 
-.media-identity strong {
-  display: block;
-  margin-bottom: 5px;
-}
-
+.media-identity strong,
 .media-identity p {
+  display: block;
   overflow: hidden;
-  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.media-identity strong {
+  margin-bottom: 3px;
+  font-size: 12px;
+}
+
+.media-identity p {
+  margin: 0;
+  color: var(--vdw-muted);
+  font-size: 10px;
+}
+
 .source-mark {
   width: fit-content;
-  padding: 4px 6px;
-  color: #325d9d;
-  border: 1px solid #9eb9df;
+  padding: 2px 4px;
+  color: #315d78;
+  font: 9px var(--vdw-mono);
+  border: 1px solid #a8bfcd;
 }
 
 .media-spec {
   display: grid;
-  gap: 4px;
-  font-size: 13px;
+  gap: 2px;
+  font-size: 11px;
 }
 
 .media-spec small {
-  color: #687482;
+  color: var(--vdw-muted);
+  font-size: 9px;
 }
 
-.status-mark,
-.role-mark {
+.frame-count {
+  font: 11px var(--vdw-mono);
+}
+
+.status-mark {
   width: fit-content;
-  padding: 4px 7px;
-  color: #687482;
-  font-size: 11px;
-  border: 1px solid #cbd3dd;
+  padding: 2px 5px;
+  color: var(--vdw-muted);
+  font-size: 10px;
+  border: 1px solid #c8d0d7;
 }
 
-.status-mark[data-status='ready'],
-.role-mark[data-role='owner'] {
-  color: #0f6c59;
-  border-color: #78cdb6;
+.status-mark[data-status='ready'] {
+  color: #0d6b58;
+  border-color: #70bda9;
 }
 
-.actions {
+.status-mark[data-status='unavailable'] {
+  color: #a33e39;
+  border-color: #d9aaa7;
+}
+
+.status-info {
+  overflow: hidden;
+  color: #53616d;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  height: 27px;
+  border: 1px solid #cbd3da;
+}
+
+.row-actions > button,
+.row-actions > span {
+  min-width: 0;
+  color: #284c5f;
+  font: inherit;
+  font-size: 10px;
+  background: #fff;
+  border: 0;
+  border-right: 1px solid #d7dde2;
+}
+
+.row-actions > :last-child {
+  border-right: 0;
+}
+
+.row-actions > button {
+  cursor: pointer;
+}
+
+.row-actions > button:hover:not(:disabled) {
+  color: white;
+  background: var(--vdw-teal);
+}
+
+.row-actions > button:disabled,
+.row-actions > span {
+  color: #a6afb7;
+  background: #f4f6f7;
+  cursor: not-allowed;
+}
+
+.ledger-footer {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 4px 8px 4px 12px;
+  border-top: 1px solid var(--vdw-rule);
 }
 
-.actions a {
-  color: #2563eb;
-  font-size: 13px;
-  text-decoration: none;
+.ledger-footer label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vdw-muted);
+  font-size: 11px;
+}
+
+.ledger-footer select {
+  height: 26px;
+  padding: 0 22px 0 7px;
+  color: var(--vdw-ink);
+  background: white;
+  border: 1px solid #bfc8d0;
 }
 
 .empty-state {
-  padding: 72px 30px;
+  padding: 48px 24px;
   text-align: center;
 }
 
 .empty-state h2 {
-  margin: 14px 0 8px;
-  font-size: 26px;
+  margin: 0 0 7px;
+  font: 700 20px var(--vdw-title);
 }
 
-.empty-state .el-button {
-  margin-top: 22px;
+.empty-state p {
+  margin: 0 0 16px;
+  color: var(--vdw-muted);
+  font-size: 12px;
 }
 
 video {
@@ -574,23 +891,44 @@ video {
   background: #0d171f;
 }
 
-@media (max-width: 700px) {
-  .topbar,
-  .page-heading,
-  .project-strip,
-  .project-strip > div {
-    align-items: flex-start;
-    flex-direction: column;
+@media (max-width: 760px) {
+  .project-layout {
+    display: block;
   }
 
-  .topbar,
-  .project-strip {
-    padding-top: 16px;
-    padding-bottom: 16px;
+  .project-rail {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  nav {
-    flex-wrap: wrap;
+  .project-identity {
+    border-bottom: 0;
+  }
+
+  .project-rail nav {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+  }
+
+  .project-rail nav a {
+    padding: 8px 10px;
+    border-bottom: 2px solid transparent;
+    border-left: 0;
+  }
+
+  .project-rail nav a.active {
+    border-bottom-color: var(--vdw-mint);
+  }
+
+  .project-capacity {
+    grid-column: 1 / -1;
+    margin-top: 0;
+    padding: 7px 14px;
+  }
+
+  .workspace {
+    padding: 0 8px 16px;
   }
 }
 </style>

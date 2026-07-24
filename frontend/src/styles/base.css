@@ -1,7 +1,18 @@
 :root {
-  color: #1f2329;
-  background: #f5f6f8;
-  font-family: Inter, "Noto Sans SC", system-ui, sans-serif;
+  --vdw-ink: #17212b;
+  --vdw-rail: #22303b;
+  --vdw-canvas: #f3f6f8;
+  --vdw-rule: #d5dde4;
+  --vdw-teal: #16866f;
+  --vdw-mint: #78d2b8;
+  --vdw-muted: #687482;
+  --vdw-title: Bahnschrift, "Arial Narrow", "Noto Sans SC", sans-serif;
+  --vdw-body: Inter, "Noto Sans SC", system-ui, sans-serif;
+  --vdw-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  color: var(--vdw-ink);
+  background: var(--vdw-canvas);
+  font-family: var(--vdw-body);
 }
 
 * {
@@ -10,6 +21,33 @@
 
 body {
   margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--vdw-teal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 .center-card {
