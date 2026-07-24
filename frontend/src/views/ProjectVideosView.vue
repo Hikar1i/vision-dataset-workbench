@@ -6,7 +6,6 @@ import {
   createExtractions,
   listVideos,
   videoContentUrl,
-  videoDownloadUrl,
   videoThumbnailUrl,
   type ImportBatch,
   type Video,
@@ -215,13 +214,6 @@ onMounted(() => load())
           >
             播放
           </el-button>
-          <a
-            v-if="video.status === 'ready'"
-            :data-test="`download-${video.id}`"
-            :href="videoDownloadUrl(projectId, video.id)"
-          >
-            下载
-          </a>
           <el-button
             v-if="canEdit && video.status === 'ready'"
             :data-test="`configure-${video.id}`"

@@ -54,7 +54,7 @@ function mountView() {
 }
 
 describe('ProjectVideosView', () => {
-  it('lets a viewer inspect, play and download ready videos without write controls', async () => {
+  it('lets a viewer inspect and play ready videos without write controls', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((path: string) =>
@@ -75,9 +75,7 @@ describe('ProjectVideosView', () => {
     expect(wrapper.find('[data-test="import-videos"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="frames-video-id"]').exists()).toBe(true)
-    expect(wrapper.get('[data-test="download-video-id"]').attributes('href')).toBe(
-      '/api/v1/projects/project-id/videos/video-id/download',
-    )
+    expect(wrapper.find('[data-test="download-video-id"]').exists()).toBe(false)
 
     await wrapper.get('[data-test="play-video-id"]').trigger('click')
     await flushPromises()
