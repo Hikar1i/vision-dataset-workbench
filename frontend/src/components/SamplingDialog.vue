@@ -20,10 +20,18 @@ const submitting = ref(false)
 const error = ref('')
 const result = ref<PlanBatch | null>(null)
 
-const parameters = computed(() => {
-  if (mode.value === 'target_frames') return { minimum: minimum.value, maximum: maximum.value }
-  if (mode.value === 'frame_interval') return { interval: interval.value }
-  return { seconds: seconds.value, frames: frames.value }
+const parameters = computed<Record<string, number>>(() => {
+  const values: Record<string, number> = {}
+  if (mode.value === 'target_frames') {
+    values.minimum = minimum.value
+    values.maximum = maximum.value
+  } else if (mode.value === 'frame_interval') {
+    values.interval = interval.value
+  } else {
+    values.seconds = seconds.value
+    values.frames = frames.value
+  }
+  return values
 })
 
 function changeFormat() {

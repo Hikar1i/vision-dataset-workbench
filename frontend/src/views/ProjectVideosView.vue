@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import {
+  createExtractions,
   listVideos,
   videoContentUrl,
   videoDownloadUrl,
@@ -12,7 +13,9 @@ import {
 } from '../api/media'
 import { getProject, type Project } from '../api/projects'
 import ImportVideosDialog from '../components/ImportVideosDialog.vue'
+import FramesDialog from '../components/FramesDialog.vue'
 import ProjectTaskDrawer from '../components/ProjectTaskDrawer.vue'
+import SamplingDialog from '../components/SamplingDialog.vue'
 
 const route = useRoute()
 const projectId = String(route.params.id)
@@ -25,6 +28,10 @@ const loading = ref(false)
 const importOpen = ref(false)
 const taskOpen = ref(false)
 const playing = ref<Video | null>(null)
+const frameVideo = ref<Video | null>(null)
+const selected = ref<string[]>([])
+const samplingOpen = ref(false)
+const samplingVideoIds = ref<string[]>([])
 const error = ref('')
 const notice = ref('')
 
@@ -63,6 +70,7 @@ async function load(nextPage = page.value) {
     ])
     project.value = projectResult
     videos.value = videoResult.items
+    selected.value = []
     page.value = videoResult.page
     pageSize.value = videoResult.page_size
     total.value = videoResult.total
@@ -77,6 +85,30 @@ function imported(batch: ImportBatch) {
   notice.value = `已创建 ${batch.accepted.length} 个任务，跳过 ${batch.skipped.length} 项，拒绝 ${batch.rejected.length} 项。`
   taskOpen.value = true
   void load(1)
+}
+
+function configure(videoIds: string[]) {
+  samplingVideoIds.value = videoIds
+  samplingOpen.value = true
+}
+
+function samplingSubmitted() {
+  notice.value = '采样方案已保存。'
+  selected.value = []
+  void load()
+}
+
+async function extract(videoIds: string[]) {
+  error.value = ''
+  try {
+    const batch = await createExtractions(projectId, videoIds)
+    notice.value = `已创建 ${batch.accepted.length} 个抽帧任务，拒绝 ${batch.rejected.length} 项。`
+    selected.value = []
+    taskOpen.value = true
+    await load()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '抽帧任务创建失败'
+  }
 }
 
 onMounted(() => load())
@@ -121,16 +153,34 @@ onMounted(() => load())
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <el-alert v-if="notice" :title="notice" type="success" :closable="false" />
 
+    <section v-if="canEdit && selected.length" class="batch-bar">
+      <strong>已选择 {{ selected.length }} 个视频</strong>
+      <div>
+        <el-button data-test="batch-configure" @click="configure(selected)">批量配置采样</el-button>
+        <el-button data-test="batch-extract" type="primary" @click="extract(selected)">批量抽帧</el-button>
+      </div>
+    </section>
+
     <section v-loading="loading" class="video-index">
-      <header v-if="videos.length" class="video-row table-head">
-        <span>媒体</span><span>来源</span><span>规格</span><span>状态</span><span>操作</span>
+      <header v-if="videos.length" class="video-row table-head" :class="{ selectable: canEdit }">
+        <span v-if="canEdit"></span><span>媒体</span><span>来源</span><span>规格 / 采样</span><span>状态</span><span>操作</span>
       </header>
       <article
         v-for="video in videos"
         :key="video.id"
         class="video-row media-row"
+        :class="{ selectable: canEdit }"
         :data-status="video.status"
       >
+        <input
+          v-if="canEdit"
+          v-model="selected"
+          :data-test="`select-${video.id}`"
+          type="checkbox"
+          :value="video.id"
+          :disabled="video.status !== 'ready'"
+          aria-label="选择视频"
+        />
         <div class="media-identity">
           <div class="thumbnail">
             <img
@@ -150,6 +200,10 @@ onMounted(() => load())
         <div class="media-spec">
           <span>{{ video.width && video.height ? `${video.width}×${video.height}` : '—' }}</span>
           <small>{{ duration(video.duration) }} · {{ fileSize(video.file_size) }}</small>
+          <small v-if="video.sampling">
+            {{ video.sampling.state === 'sampled' ? '已采样' : '待抽帧' }} ·
+            {{ video.sampling.enabled_frames }}/{{ video.sampling.extracted_frames || video.sampling.expected_frames }} 帧
+          </small>
         </div>
         <span class="status-mark" :data-status="video.status">{{ statusLabels[video.status] }}</span>
         <div class="actions">
@@ -168,6 +222,24 @@ onMounted(() => load())
           >
             下载
           </a>
+          <el-button
+            v-if="canEdit && video.status === 'ready'"
+            :data-test="`configure-${video.id}`"
+            text
+            @click="configure([video.id])"
+          >采样</el-button>
+          <el-button
+            v-if="canEdit && video.sampling"
+            :data-test="`extract-${video.id}`"
+            text
+            @click="extract([video.id])"
+          >抽帧</el-button>
+          <el-button
+            v-if="video.sampling?.extracted_frames"
+            :data-test="`frames-${video.id}`"
+            text
+            @click="frameVideo = video"
+          >帧</el-button>
         </div>
       </article>
 
@@ -208,6 +280,22 @@ onMounted(() => load())
       v-model="importOpen"
       :project-id="projectId"
       @submitted="imported"
+    />
+    <SamplingDialog
+      v-if="canEdit"
+      v-model="samplingOpen"
+      :project-id="projectId"
+      :video-ids="samplingVideoIds"
+      @submitted="samplingSubmitted"
+    />
+    <FramesDialog
+      :model-value="frameVideo !== null"
+      :project-id="projectId"
+      :video-id="frameVideo?.id || ''"
+      :title="frameVideo?.title || ''"
+      :can-edit="canEdit"
+      @update:model-value="!$event && (frameVideo = null)"
+      @updated="load()"
     />
     <ProjectTaskDrawer
       v-model="taskOpen"
@@ -334,12 +422,26 @@ h1 {
   border: 1px solid #d8dee6;
 }
 
+.batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding: 10px 14px;
+  background: #e8f5f1;
+  border: 1px solid #9bd4c5;
+}
+
 .video-row {
   display: grid;
-  grid-template-columns: minmax(360px, 2fr) 90px 150px 100px 120px;
+  grid-template-columns: minmax(360px, 2fr) 90px 180px 100px 220px;
   gap: 18px;
   align-items: center;
   min-width: 880px;
+}
+
+.video-row.selectable {
+  grid-template-columns: 24px minmax(360px, 2fr) 90px 180px 100px 220px;
 }
 
 .table-head {
@@ -450,6 +552,7 @@ h1 {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .actions a {

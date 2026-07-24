@@ -34,6 +34,12 @@ const video = {
   version: 2,
   created_at: '2026-07-23T01:00:00Z',
   updated_at: '2026-07-23T01:00:00Z',
+  sampling: {
+    id: 'plan-id', state: 'sampled', mode: 'target_frames', parameters: { minimum: 50, maximum: 200 },
+    output_format: 'jpg', output_quality: 2, computed_interval: null, expected_frames: 50,
+    extracted_frames: 50, enabled_frames: 48, version: 1, applied_version: 1,
+    generation: 1, frame_revision: 2,
+  },
 }
 
 beforeEach(() => vi.restoreAllMocks())
@@ -67,6 +73,8 @@ describe('ProjectVideosView', () => {
     expect(wrapper.text()).toContain('camera-01')
     expect(wrapper.text()).toContain('01:05')
     expect(wrapper.find('[data-test="import-videos"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="frames-video-id"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="download-video-id"]').attributes('href')).toBe(
       '/api/v1/projects/project-id/videos/video-id/download',
     )
@@ -86,7 +94,7 @@ describe('ProjectVideosView', () => {
           ok: true,
           json: async () =>
             path.includes('/videos?')
-              ? { items: [], page: 1, page_size: 50, total: 0 }
+              ? { items: [video], page: 1, page_size: 50, total: 1 }
               : { ...project, role: 'editor' },
         }),
       ),
@@ -95,6 +103,9 @@ describe('ProjectVideosView', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-test="import-videos"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="select-video-id"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="extract-video-id"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="settings-link"]').attributes('href')).toBe(
       '/projects/project-id/settings',
     )

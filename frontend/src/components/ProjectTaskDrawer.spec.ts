@@ -7,7 +7,7 @@ import ProjectTaskDrawer from './ProjectTaskDrawer.vue'
 const failedTask = {
   id: 'task-id',
   video_id: 'video-id',
-  type: 'download_video',
+  type: 'extract_frames',
   status: 'failed',
   progress: 30,
   error: 'network failed',
@@ -46,6 +46,7 @@ describe('ProjectTaskDrawer', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('network failed')
+    expect(wrapper.text()).toContain('采样抽帧')
     await wrapper.get('[data-test="retry-task-id"]').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledWith(
