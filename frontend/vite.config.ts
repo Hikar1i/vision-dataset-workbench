@@ -6,7 +6,12 @@ export default defineConfig({
   server: {
     port: 35173,
     strictPort: true,
-    proxy: { '/api': 'http://127.0.0.1:38000' },
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:38000',
+        changeOrigin: false,
+      },
+    },
   },
   test: { environment: 'jsdom' },
 })
