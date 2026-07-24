@@ -16,19 +16,20 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from .config import RuntimeSettings
 from .database import make_engine
 from .media import MediaMetadata, MediaToolError, normalize_remote_url, probe_video, ytdlp_base_args
-from .models import Task, Video
+from .models import Frame, SamplingPlan, Task, Video
+from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
 from .storage.browser import VIDEO_EXTENSIONS
 from .storage.locator import WorkspaceLocator, default_locator_path
 from .storage.paths import HomePathResolver, UnsafePathError
 
-LIMITS = {"copy_video": 2, "download_video": 2}
+LIMITS = {"copy_video": 2, "download_video": 2, "extract_frames": 2}
 LEASE_SECONDS = 30
 COPY_CHUNK_SIZE = 1024 * 1024
 
@@ -164,6 +165,8 @@ class TaskWorker:
                 self._execute_copy(task_id, task_temp)
             elif task_type == "download_video":
                 self._execute_download(task_id, task_temp)
+            elif task_type == "extract_frames":
+                self._execute_extract(task_id, task_temp)
             else:
                 raise RuntimeError("unsupported task type")
         except TaskCanceled:
@@ -286,6 +289,205 @@ class TaskWorker:
         video.extractor = extractor
         video.external_id = external_id
         self._publish(task, video, downloaded, metadata, thumbnail=thumbnail)
+
+    def _execute_extract(self, task_id: str, task_temp: Path) -> None:
+        task, video, payload = self._load_task(task_id)
+        requested_version = int(payload.get("sampling_plan_version") or 0)
+        with self._session_factory() as database:
+            plan = database.scalar(
+                select(SamplingPlan).where(SamplingPlan.video_id == video.id)
+            )
+            if plan is None or plan.version != requested_version:
+                raise MediaToolError("sampling plan changed; create a new extraction task")
+            database.expunge(plan)
+        if video.status != "ready" or not video.file_path:
+            raise MediaToolError("video is not ready for extraction")
+        try:
+            video_path = (self.workspace / video.file_path).resolve(strict=True)
+        except OSError as exc:
+            raise MediaToolError("video file not found") from exc
+        videos_root = (
+            self.workspace / "projects" / video.project_id / "videos"
+        ).resolve()
+        if not video_path.is_file() or not video_path.is_relative_to(videos_root):
+            raise MediaToolError("video file not found")
+
+        estimate = SamplingEstimate(
+            mode=plan.mode,
+            parameters=json.loads(plan.parameters),
+            computed_interval=plan.computed_interval,
+            expected_frames=plan.expected_frames,
+        )
+        staged_frames = task_temp / "frames"
+        staged_frames.mkdir()
+        extension = plan.output_format
+        quality_args = (
+            ["-q:v", str(plan.output_quality)]
+            if extension == "jpg"
+            else ["-compression_level", str(plan.output_quality)]
+        )
+        output_pattern = staged_frames / f"%06d.{extension}"
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-i",
+            str(video_path),
+            "-vf",
+            f"select={ffmpeg_select(estimate, video.total_frames)}",
+            "-fps_mode",
+            "vfr",
+            "-threads",
+            "2",
+            *quality_args,
+            "-progress",
+            "pipe:1",
+            "-nostats",
+            "-y",
+            str(output_pattern),
+        ]
+        process = self._popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        lines: queue.Queue[str] = queue.Queue()
+
+        def read_output() -> None:
+            assert process.stdout is not None
+            for line in process.stdout:
+                lines.put(line.rstrip())
+
+        reader = threading.Thread(target=read_output, daemon=True)
+        reader.start()
+        recent: list[str] = []
+        last_update = 0.0
+        while process.poll() is None or reader.is_alive() or not lines.empty():
+            try:
+                line = lines.get(timeout=0.25)
+                recent.append(line)
+                recent = recent[-20:]
+                match = re.match(r"frame=\s*(\d+)", line)
+                if match:
+                    extracted = int(match.group(1))
+                    progress = min(
+                        99,
+                        round(extracted * 100 / plan.expected_frames),
+                    )
+                    now = time.monotonic()
+                    if now - last_update >= 1 or progress >= 99:
+                        self._heartbeat(task_id, progress)
+                        last_update = now
+            except queue.Empty:
+                now = time.monotonic()
+                if now - last_update >= 1:
+                    self._heartbeat(task_id, None)
+                    last_update = now
+            if self._cancel_requested(task_id):
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+                raise TaskCanceled("task canceled")
+        reader.join(timeout=1)
+        if process.returncode != 0:
+            raise MediaToolError("\n".join(recent[-5:]) or "ffmpeg extraction failed")
+        if self._cancel_requested(task_id):
+            raise TaskCanceled("task canceled")
+
+        files = sorted(staged_frames.glob(f"*.{extension}"))
+        if not files or any(not path.is_file() or path.stat().st_size == 0 for path in files):
+            raise MediaToolError("ffmpeg did not produce valid frame files")
+        self._publish_frames(
+            task,
+            video,
+            plan,
+            estimate,
+            staged_frames,
+            files,
+        )
+
+    def _publish_frames(
+        self,
+        task: Task,
+        video: Video,
+        plan: SamplingPlan,
+        estimate: SamplingEstimate,
+        staged_frames: Path,
+        files: list[Path],
+    ) -> None:
+        target = self.workspace / "projects" / video.project_id / "frames" / video.id
+        target.parent.mkdir(parents=True, exist_ok=True)
+        backup = staged_frames.parent / "previous-frames"
+        with self._session_factory() as database:
+            current = database.get(SamplingPlan, plan.id)
+            if current is None or current.version != plan.version:
+                raise MediaToolError("sampling plan changed; create a new extraction task")
+        if target.exists():
+            os.replace(target, backup)
+        os.replace(staged_frames, target)
+        now = self._now()
+        try:
+            with self._session_factory() as database:
+                stored_plan = database.get(SamplingPlan, plan.id)
+                stored_task = database.get(Task, task.id)
+                if (
+                    stored_plan is None
+                    or stored_plan.version != plan.version
+                    or stored_task is None
+                ):
+                    raise MediaToolError("sampling task resources changed")
+                generation = stored_plan.generation + 1
+                database.execute(delete(Frame).where(Frame.video_id == video.id))
+                for index, source in enumerate(files):
+                    source_index = source_frame_index(
+                        estimate,
+                        min(index, estimate.expected_frames - 1),
+                        video.total_frames,
+                    )
+                    destination = target / source.name
+                    database.add(
+                        Frame(
+                            id=str(uuid4()),
+                            video_id=video.id,
+                            generation=generation,
+                            sequence=index + 1,
+                            source_frame_index=source_index,
+                            time_offset=source_index / video.fps,
+                            file_path=destination.relative_to(self.workspace).as_posix(),
+                            enabled=True,
+                            created_at=now,
+                        )
+                    )
+                stored_plan.applied_version = stored_plan.version
+                stored_plan.generation = generation
+                stored_plan.extracted_frames = len(files)
+                stored_plan.enabled_frames = len(files)
+                stored_plan.frame_revision = 1
+                stored_plan.updated_at = now
+                stored_task.status = "succeeded"
+                stored_task.progress = 100
+                stored_task.result = json.dumps(
+                    {"outcome": "extracted", "frames": len(files), "generation": generation}
+                )
+                stored_task.error = None
+                stored_task.finished_at = now
+                stored_task.updated_at = now
+                stored_task.lease_owner = None
+                stored_task.lease_expires_at = None
+                database.commit()
+        except Exception:
+            if target.exists():
+                shutil.rmtree(target)
+            if backup.exists():
+                os.replace(backup, target)
+            raise
+        if backup.exists():
+            shutil.rmtree(backup)
 
     def _load_task(self, task_id: str) -> tuple[Task, Video, dict[str, Any]]:
         with self._session_factory() as database:
