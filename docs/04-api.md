@@ -29,8 +29,8 @@
 | `PATCH /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 在 editor/viewer 间切换角色 |
 | `DELETE /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 移除 editor/viewer，返回 204 |
 | `GET /api/v1/projects/{id}/labels` | 项目成员 | 按顺序返回项目全部标签，不分页 |
-| `POST /api/v1/projects/{id}/labels` | owner/editor + 同源 | 新增英文类别和颜色 |
-| `PATCH /api/v1/projects/{id}/labels/{label_id}` | owner/editor + 同源 | 按 `version` 修改名称、颜色或启用状态 |
+| `POST /api/v1/projects/{id}/labels` | owner/editor + 同源 | 新增英文类别、可选中文描述和颜色 |
+| `PATCH /api/v1/projects/{id}/labels/{label_id}` | owner/editor + 同源 | 按 `version` 修改名称、中文描述、颜色或启用状态 |
 | `PUT /api/v1/projects/{id}/labels/order` | owner/editor + 同源 | 原子提交项目全部标签 ID 的新顺序 |
 | `DELETE /api/v1/projects/{id}/labels/{label_id}` | owner/editor + 同源 | 删除未使用标签，返回 204 |
 | `GET /api/v1/filesystem` | Session | 按 `kind=directory/video` 浏览 `~` 内目录和视频 |
@@ -82,7 +82,7 @@
 
 viewer 已可查看、播放和下载原始视频，查看任务、采样方案和采样帧图片；不能添加或导入视频、启停视频整体、改变采样策略、重新采样或启停帧。标注和导出实现后仍需允许 viewer 查看标注框和下载已有导出产物，但不得标注、管理任务或创建新导出。
 
-标签名称由服务端转为小写并压缩空白，只允许英文字母、数字、空格、连字符和下划线；项目内不区分大小写唯一。批量排序请求必须恰好包含项目当前全部标签 ID，否则返回 422。标签重名和过期版本返回 409。内部标签身份使用 UUID，排序变化不修改未来标注关联。
+标签名称由服务端转为小写并压缩空白，只允许英文字母、数字、空格、连字符和下划线；项目内不区分大小写唯一。`description_zh` 为最长 64 字符的可选显示说明，不作为 YOLO 类别或 DINO 提示词。批量排序请求必须恰好包含项目当前全部标签 ID，否则返回 422。标签重名和过期版本返回 409。内部标签身份使用 UUID，排序变化不修改未来标注关联。
 
 能力接口在后端进程启动时探测一次。`gpu` 返回设备序号、名称和总显存；`pytorch_cuda`、`onnx_cuda` 以及 `features.manual_annotation/yolo_auto_annotation/grounding_dino_auto_annotation/model_training` 分别返回 `available` 和可空 `reason`。探测失败只降级功能，不影响应用启动；模型文件是否已导入不属于该接口。
 

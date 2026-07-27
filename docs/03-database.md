@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述并为已有标签回填空字符串。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -67,6 +67,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | --- | --- |
 | `id` / `project_id` | 标签 UUID 及所属项目；项目删除时级联删除 |
 | `name` / `name_normalized` | 1–64 位规范英文类别；项目内不区分大小写唯一 |
+| `description_zh` | 可选中文显示说明，最长 64 字符；不参与模型提示词和导出映射 |
 | `color` | 六位十六进制标注框颜色 |
 | `sort_order` | 非负排序；导出 YOLO 时据此生成从 0 开始的类别编号 |
 | `enabled` | 是否允许新增该类别标注；停用不删除未来历史标注 |
