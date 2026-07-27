@@ -17,6 +17,7 @@ from vision_dataset_workbench.models import (
     AuthSession,
     Frame,
     FrameAnnotation,
+    InferenceModel,
     Project,
     ProjectLabel,
     ProjectMembership,
@@ -44,6 +45,7 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         "sampling_plans",
         "frames",
         "annotations",
+        "inference_models",
     }.issubset(
         inspect(engine).get_table_names()
     )
@@ -621,7 +623,6 @@ def test_annotation_migration_backfills_frames_and_cascades(tmp_path, monkeypatc
             ),
         )
     engine.dispose()
-
     command.upgrade(config, "head")
 
     engine = make_engine(database_path)
@@ -657,6 +658,77 @@ def test_annotation_migration_backfills_frames_and_cascades(tmp_path, monkeypatc
                 x_max=10,
                 y_max=30,
                 source="unknown",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    engine.dispose()
+
+
+def test_inference_models_and_auto_annotation_task_constraints(tmp_path):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    create_workspace_database(database_path)
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        session.add(
+            User(
+                id="admin-id",
+                username="admin",
+                username_normalized="admin",
+                password_hash="hash",
+                is_system_admin=True,
+            )
+        )
+        session.flush()
+        session.add(Project(id="project-id", name="project", creator_id="admin-id"))
+        session.flush()
+        session.add(
+            Video(
+                id="video-id",
+                project_id="project-id",
+                source_type="local",
+                title="video",
+                status="ready",
+            )
+        )
+        session.flush()
+        session.add(
+            InferenceModel(
+                id="model-id",
+                name="YOLO detector",
+                kind="yolo",
+                status="ready",
+                storage_path="models/model-id/model.pt",
+                source_name="model.pt",
+                created_by_id="admin-id",
+            )
+        )
+        session.add_all(
+            [
+                Task(
+                    id="import-model-task",
+                    project_id="project-id",
+                    submitted_by_id="admin-id",
+                    type="import_model",
+                ),
+                Task(
+                    id="auto-task",
+                    project_id="project-id",
+                    submitted_by_id="admin-id",
+                    video_id="video-id",
+                    type="auto_annotate",
+                ),
+            ]
+        )
+        session.commit()
+
+        session.add(
+            InferenceModel(
+                name="invalid",
+                kind="unknown",
+                status="ready",
+                source_name="invalid.bin",
+                created_by_id="admin-id",
             )
         )
         with pytest.raises(IntegrityError):

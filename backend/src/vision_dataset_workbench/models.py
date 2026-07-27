@@ -278,11 +278,43 @@ class FrameAnnotation(Base):
     )
 
 
+class InferenceModel(Base):
+    __tablename__ = "inference_models"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('yolo', 'grounding_dino')",
+            name="ck_inference_models_kind",
+        ),
+        CheckConstraint(
+            "status IN ('copying', 'ready', 'failed')",
+            name="ck_inference_models_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(128))
+    kind: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), default="copying", index=True)
+    storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_name: Mapped[str] = mapped_column(String(512))
+    created_by_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (
         CheckConstraint(
-            "type IN ('copy_video', 'download_video', 'extract_frames')",
+            "type IN ('copy_video', 'download_video', 'extract_frames', "
+            "'import_model', 'auto_annotate')",
             name="ck_tasks_type",
         ),
         CheckConstraint(
