@@ -3,6 +3,7 @@ import { json } from './auth'
 export type ProjectLabel = {
   id: string
   name: string
+  description_zh: string
   color: string
   sort_order: number
   enabled: boolean
@@ -11,17 +12,24 @@ export type ProjectLabel = {
   updated_at: string
 }
 
-export type LabelChanges = Partial<Pick<ProjectLabel, 'name' | 'color' | 'enabled'>>
+export type LabelChanges = Partial<
+  Pick<ProjectLabel, 'name' | 'description_zh' | 'color' | 'enabled'>
+>
 
 const path = (projectId: string) => `/api/v1/projects/${projectId}/labels`
 
 export const listLabels = (projectId: string) => json<ProjectLabel[]>(path(projectId))
 
-export const createLabel = (projectId: string, name: string, color: string) =>
+export const createLabel = (
+  projectId: string,
+  name: string,
+  descriptionZh: string,
+  color: string,
+) =>
   json<ProjectLabel>(path(projectId), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, color }),
+    body: JSON.stringify({ name, description_zh: descriptionZh, color }),
   })
 
 export const updateLabel = (

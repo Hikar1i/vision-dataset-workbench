@@ -13,12 +13,19 @@ import {
   type ProjectLabel,
 } from '../api/labels'
 import type { Project } from '../api/projects'
+import {
+  randomLabelColor,
+  readLabelColorCandidate,
+  writeLabelColorCandidate,
+} from './labelColor'
 
 const props = defineProps<{ project: Project }>()
 const labels = ref<ProjectLabel[]>([])
 const names = reactive<Record<string, string>>({})
+const descriptions = reactive<Record<string, string>>({})
 const newName = ref('')
-const newColor = ref('#16866f')
+const newDescription = ref('')
+const newColor = ref('')
 const loading = ref(false)
 const saving = ref('')
 const error = ref('')
@@ -27,13 +34,36 @@ const canEdit = computed(() => props.project.role !== 'viewer')
 function setLabels(value: ProjectLabel[]) {
   labels.value = value
   for (const key of Object.keys(names)) delete names[key]
-  for (const label of value) names[label.id] = label.name
+  for (const key of Object.keys(descriptions)) delete descriptions[key]
+  for (const label of value) {
+    names[label.id] = label.name
+    descriptions[label.id] = label.description_zh
+  }
 }
 
 function replaceLabel(value: ProjectLabel) {
   const index = labels.value.findIndex((label) => label.id === value.id)
   if (index !== -1) labels.value[index] = value
   names[value.id] = value.name
+  descriptions[value.id] = value.description_zh
+}
+
+function nextColor() {
+  newColor.value = randomLabelColor(labels.value.map((label) => label.color))
+  writeLabelColorCandidate(props.project.id, newColor.value)
+}
+
+function initializeColor() {
+  const stored = readLabelColorCandidate(props.project.id)?.toLowerCase()
+  if (/^#[0-9a-f]{6}$/.test(stored ?? '')) {
+    newColor.value = stored ?? ''
+    return
+  }
+  nextColor()
+}
+
+function saveSelectedColor() {
+  writeLabelColorCandidate(props.project.id, newColor.value)
 }
 
 async function load() {
@@ -41,6 +71,7 @@ async function load() {
   error.value = ''
   try {
     setLabels(await listLabels(props.project.id))
+    initializeColor()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '标签加载失败'
   } finally {
@@ -49,14 +80,22 @@ async function load() {
 }
 
 async function add() {
-  if (!newName.value.trim() || saving.value) return
+  if (!newName.value.trim() || !newColor.value || saving.value) return
   saving.value = 'new'
   error.value = ''
   try {
-    const label = await createLabel(props.project.id, newName.value, newColor.value)
+    const label = await createLabel(
+      props.project.id,
+      newName.value,
+      newDescription.value,
+      newColor.value,
+    )
     labels.value.push(label)
     names[label.id] = label.name
+    descriptions[label.id] = label.description_zh
     newName.value = ''
+    newDescription.value = ''
+    nextColor()
     ElMessage.success('标签已添加')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '标签添加失败'
@@ -73,6 +112,7 @@ async function change(label: ProjectLabel, changes: LabelChanges) {
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '标签修改失败'
     names[label.id] = label.name
+    descriptions[label.id] = label.description_zh
     if (reason instanceof ApiError && reason.status === 409) await load()
   } finally {
     saving.value = ''
@@ -88,9 +128,13 @@ function rename(label: ProjectLabel) {
   void change(label, { name })
 }
 
-function recolor(label: ProjectLabel, event: Event) {
-  const color = (event.target as HTMLInputElement).value
-  if (color !== label.color) void change(label, { color })
+function redescribe(label: ProjectLabel) {
+  const description = descriptions[label.id]?.trim() ?? ''
+  if (description === label.description_zh) {
+    descriptions[label.id] = label.description_zh
+    return
+  }
+  void change(label, { description_zh: description })
 }
 
 async function move(index: number, direction: -1 | 1) {
@@ -151,49 +195,65 @@ onMounted(load)
 
       <section v-loading="loading" class="label-index">
         <form v-if="canEdit" class="label-create" @submit.prevent="add">
-          <input v-model="newColor" class="color-input" type="color" aria-label="新标签颜色" />
-          <el-input
-            v-model="newName"
-            data-test="new-label-name"
-            maxlength="64"
-            placeholder="输入英文类别，例如 helmet"
-          />
+          <label class="create-field create-field--color">
+            <span>颜色</span>
+            <input
+              v-model="newColor"
+              class="color-input"
+              data-test="new-label-color"
+              type="color"
+              aria-label="新标签颜色"
+              @change="saveSelectedColor"
+            />
+          </label>
+          <label class="create-field">
+            <span>英文类别</span>
+            <el-input
+              v-model="newName"
+              data-test="new-label-name"
+              maxlength="64"
+              placeholder="例如 helmet"
+            />
+          </label>
+          <label class="create-field">
+            <span>中文描述</span>
+            <el-input
+              v-model="newDescription"
+              data-test="new-label-description"
+              maxlength="64"
+              placeholder="可选，例如 安全帽"
+            />
+          </label>
           <el-button
             data-test="add-label"
             native-type="submit"
             type="primary"
             :loading="saving === 'new'"
-            :disabled="!newName.trim()"
-          >添加标签</el-button>
+            :disabled="!newName.trim() || !newColor"
+          >添加</el-button>
         </form>
 
         <header
           v-if="labels.length"
           class="label-row label-header"
-          :class="{ 'label-row--readonly': !canEdit }"
         >
-          <span>颜色</span><span>英文类别</span><span>状态</span><span>顺序</span><span v-if="canEdit">操作</span>
+          <span>启用状态</span><span>英文类别</span><span>中文描述</span><span>映射顺序</span><span>操作</span>
         </header>
 
         <article
           v-for="(label, index) in labels"
           :key="label.id"
           class="label-row"
-          :class="{ 'label-row--readonly': !canEdit }"
         >
-          <div class="color-cell">
-            <input
-              v-if="canEdit"
-              class="color-input"
-              type="color"
-              :value="label.color"
-              :aria-label="`${label.name}颜色`"
-              :disabled="saving === label.id"
-              @change="recolor(label, $event)"
-            />
-            <span v-else class="color-swatch" :style="{ backgroundColor: label.color }" />
-            <code>{{ label.color }}</code>
-          </div>
+          <el-switch
+            :model-value="label.enabled"
+            :data-test="`enabled-${label.id}`"
+            inline-prompt
+            active-text="启用"
+            inactive-text="停用"
+            :disabled="!canEdit || saving === label.id"
+            @change="canEdit && change(label, { enabled: Boolean($event) })"
+          />
 
           <el-input
             v-if="canEdit"
@@ -205,22 +265,19 @@ onMounted(load)
           />
           <strong v-else>{{ label.name }}</strong>
 
-          <el-switch
+          <el-input
             v-if="canEdit"
-            :model-value="label.enabled"
-            :data-test="`enabled-${label.id}`"
-            inline-prompt
-            active-text="启用"
-            inactive-text="停用"
+            v-model="descriptions[label.id]"
+            :data-test="`description-${label.id}`"
+            maxlength="64"
             :disabled="saving === label.id"
-            @change="change(label, { enabled: Boolean($event) })"
+            @change="redescribe(label)"
           />
-          <span v-else class="label-state" :data-enabled="label.enabled">
-            {{ label.enabled ? '启用' : '停用' }}
-          </span>
+          <span v-else class="description-text">{{ label.description_zh || '—' }}</span>
 
-          <div class="order-cell">
-            <code>{{ String(index + 1).padStart(2, '0') }}</code>
+          <code class="mapping-order" :data-test="`order-${label.id}`">{{ label.sort_order }}</code>
+
+          <div class="action-cell">
             <template v-if="canEdit">
               <el-button
                 :data-test="`move-up-${label.id}`"
@@ -236,16 +293,14 @@ onMounted(load)
                 :disabled="index === labels.length - 1 || Boolean(saving)"
                 @click="move(index, 1)"
               >↓</el-button>
+              <el-button
+                text
+                type="danger"
+                :loading="saving === label.id"
+                @click="remove(label)"
+              >删除</el-button>
             </template>
           </div>
-
-          <el-button
-            v-if="canEdit"
-            text
-            type="danger"
-            :loading="saving === label.id"
-            @click="remove(label)"
-          >删除</el-button>
         </article>
 
         <div v-if="!loading && !labels.length" class="label-empty">
@@ -270,8 +325,8 @@ onMounted(load)
 }
 
 .label-create {
-  display: grid;
-  grid-template-columns: 44px minmax(240px, 480px) auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 11px;
   align-items: center;
   padding: 14px 18px;
@@ -279,12 +334,29 @@ onMounted(load)
   border-bottom: 1px solid var(--vdw-rule);
 }
 
+.create-field {
+  display: flex;
+  flex: 0 1 350px;
+  gap: 8px;
+  align-items: center;
+}
+
+.create-field > span {
+  flex: none;
+  color: var(--vdw-muted);
+  font-size: 13px;
+}
+
+.create-field--color {
+  flex-basis: 74px;
+}
+
 .label-row {
   display: grid;
-  grid-template-columns: 180px minmax(220px, 1fr) 110px 150px 72px;
+  grid-template-columns: 110px minmax(180px, 1fr) minmax(180px, 1fr) 100px 220px;
   gap: 18px;
   align-items: center;
-  min-width: 790px;
+  min-width: 860px;
   min-height: 57px;
   padding: 9px 18px;
   border-bottom: 1px solid #e6eaf0;
@@ -302,12 +374,7 @@ onMounted(load)
   background: #f8fafc;
 }
 
-.label-row--readonly {
-  grid-template-columns: 180px minmax(220px, 1fr) 110px 150px;
-}
-
-.color-cell,
-.order-cell {
+.action-cell {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -322,34 +389,18 @@ onMounted(load)
   cursor: pointer;
 }
 
-.color-swatch {
-  width: 24px;
-  height: 24px;
-  border: 1px solid rgb(23 33 43 / 14%);
-}
-
-.color-cell code,
-.order-cell code {
+.mapping-order {
   color: var(--vdw-muted);
   font: 12px var(--vdw-mono);
 }
 
-.order-cell .el-button {
+.action-cell .el-button {
   margin: 0;
   padding-inline: 5px;
 }
 
-.label-state {
-  width: fit-content;
-  padding: 3px 8px;
+.description-text {
   color: var(--vdw-muted);
-  font-size: 12px;
-  border: 1px solid var(--vdw-rule);
-}
-
-.label-state[data-enabled='true'] {
-  color: #0f6c59;
-  border-color: #78cdb6;
 }
 
 .label-empty {
@@ -366,11 +417,11 @@ onMounted(load)
 
 @media (max-width: 620px) {
   .label-create {
-    grid-template-columns: 40px minmax(180px, 1fr);
+    align-items: stretch;
   }
 
-  .label-create .el-button {
-    grid-column: 1 / -1;
+  .create-field {
+    flex-basis: 100%;
   }
 }
 </style>
