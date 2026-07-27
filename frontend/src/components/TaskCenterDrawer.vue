@@ -27,6 +27,8 @@ const typeLabels = {
   copy_video: '本地复制',
   download_video: '远程下载',
   extract_frames: '采样抽帧',
+  import_model: '模型入库',
+  auto_annotate: '自动标注',
 } as const
 const statusLabels = {
   queued: '排队中',
@@ -131,7 +133,7 @@ onUnmounted(stopPolling)
             @click="cancel(task)"
           >取消</el-button>
           <el-button
-            v-if="task.status === 'failed' || task.status === 'canceled'"
+            v-if="(task.status === 'failed' || task.status === 'canceled') && task.type !== 'import_model' && task.type !== 'auto_annotate'"
             :data-test="`retry-${task.id}`"
             text
             type="primary"

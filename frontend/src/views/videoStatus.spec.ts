@@ -96,6 +96,18 @@ describe('videoStatusInfo', () => {
         },
       }),
     ).toBe('抽帧已取消')
+    expect(
+      videoStatusInfo({
+        ...video,
+        latest_task: { ...task, type: 'auto_annotate', status: 'queued' },
+      }),
+    ).toBe('等待自动标注')
+    expect(
+      videoStatusInfo({
+        ...video,
+        latest_task: { ...task, type: 'auto_annotate', status: 'succeeded' },
+      }),
+    ).toBe('自动标注完成')
   })
 
   it('ignores stale failed tasks and reports resource state', () => {

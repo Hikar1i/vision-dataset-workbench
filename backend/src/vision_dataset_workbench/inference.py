@@ -54,6 +54,7 @@ class InferenceRunner:
     def __init__(self):
         self._cache: dict[str, Any] = {}
         self._lock = threading.RLock()
+        self._model_locks: dict[str, threading.Lock] = {}
 
     def predict(
         self,
@@ -64,15 +65,18 @@ class InferenceRunner:
         confidence: float,
         iou: float,
     ) -> list[Detection]:
-        if model.kind == "yolo":
-            return self._predict_yolo(
-                model, model_path, image_path, categories, confidence, iou
-            )
-        if model.kind == "grounding_dino":
-            return self._predict_grounding_dino(
-                model, model_path, image_path, categories, confidence, iou
-            )
-        raise InferenceUnavailable("unsupported inference model kind")
+        with self._lock:
+            model_lock = self._model_locks.setdefault(model.id, threading.Lock())
+        with model_lock:
+            if model.kind == "yolo":
+                return self._predict_yolo(
+                    model, model_path, image_path, categories, confidence, iou
+                )
+            if model.kind == "grounding_dino":
+                return self._predict_grounding_dino(
+                    model, model_path, image_path, categories, confidence, iou
+                )
+            raise InferenceUnavailable("unsupported inference model kind")
 
     def _predict_yolo(
         self,

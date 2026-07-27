@@ -7,7 +7,16 @@ import {
   type FilesystemItem,
 } from '../api/media'
 
-const props = defineProps<{ modelValue: string }>()
+const props = withDefaults(defineProps<{
+  modelValue: string
+  kind?: 'video' | 'model'
+  allowDirectorySelection?: boolean
+  allowCreate?: boolean
+}>(), {
+  kind: 'video',
+  allowDirectorySelection: true,
+  allowCreate: true,
+})
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const current = ref('.')
 const displayPath = ref('~')
@@ -35,7 +44,7 @@ async function load(path: string, requestedPage = 1) {
   loading.value = true
   error.value = ''
   try {
-    const result = await listFilesystem(path, requestedPage)
+    const result = await listFilesystem(path, requestedPage, props.kind)
     current.value = path
     displayPath.value = result.path
     parent.value = result.parent
@@ -99,7 +108,7 @@ onMounted(() => load('.'))
         :data-test="`entry-${item.path}`"
         @click="choose(item)"
       >
-        <span class="entry-type">{{ item.type === 'directory' ? 'DIR' : 'VIDEO' }}</span>
+        <span class="entry-type">{{ item.type === 'directory' ? 'DIR' : kind === 'model' ? 'MODEL' : 'VIDEO' }}</span>
         <strong>{{ item.name }}</strong>
         <span>{{ item.type === 'directory' ? '打开' : '选择' }}</span>
       </button>
@@ -117,10 +126,10 @@ onMounted(() => load('.'))
     <footer>
       <span>当前位置：{{ displayPath }}</span>
       <div>
-        <el-button data-test="select-directory" @click="emit('update:modelValue', current)">
+        <el-button v-if="allowDirectorySelection" data-test="select-directory" @click="emit('update:modelValue', current)">
           选择当前目录
         </el-button>
-        <el-button data-test="new-directory" @click="creating = true">新建目录</el-button>
+        <el-button v-if="allowCreate" data-test="new-directory" @click="creating = true">新建目录</el-button>
       </div>
     </footer>
 

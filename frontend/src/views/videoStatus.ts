@@ -1,7 +1,11 @@
 import type { ProjectTask, Video } from '../api/media'
 
-const taskName = (task: ProjectTask) =>
-  task.type === 'extract_frames' ? '抽帧' : '导入'
+const taskName = (task: ProjectTask) => {
+  if (task.type === 'extract_frames') return '抽帧'
+  if (task.type === 'auto_annotate') return '自动标注'
+  if (task.type === 'import_model') return '模型入库'
+  return '导入'
+}
 
 const timestamp = (value: string | undefined) => Date.parse(value || '') || 0
 
@@ -9,6 +13,7 @@ export function videoStatusInfo(video: Video): string {
   const task = video.latest_task
   if (task?.status === 'queued') return `等待${taskName(task)}`
   if (task?.status === 'running') return `${taskName(task)}中 · ${task.progress}%`
+  if (task?.type === 'auto_annotate' && task.status === 'succeeded') return '自动标注完成'
 
   const resourceUpdated = Math.max(
     timestamp(video.updated_at),

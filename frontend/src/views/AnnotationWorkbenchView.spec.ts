@@ -14,6 +14,12 @@ const mocks = vi.hoisted(() => ({
   setFramesEnabled: vi.fn(),
   getFrameAnnotations: vi.fn(),
   replaceFrameAnnotations: vi.fn(),
+  getCurrentUser: vi.fn(),
+  getCapabilities: vi.fn(),
+  listInferenceModels: vi.fn(),
+  runFrameAutoAnnotation: vi.fn(),
+  createBatchAutoAnnotation: vi.fn(),
+  registerInferenceModel: vi.fn(),
 }))
 
 vi.mock('vue-router', () => ({
@@ -21,6 +27,8 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push: mocks.routerPush, replace: mocks.routerReplace }),
 }))
 vi.mock('../api/projects', () => ({ getProject: mocks.getProject }))
+vi.mock('../api/auth', () => ({ getCurrentUser: mocks.getCurrentUser }))
+vi.mock('../api/capabilities', () => ({ getCapabilities: mocks.getCapabilities }))
 vi.mock('../api/labels', () => ({ listLabels: mocks.listLabels }))
 vi.mock('../api/media', () => ({
   listVideos: mocks.listVideos,
@@ -31,6 +39,12 @@ vi.mock('../api/media', () => ({
 vi.mock('../api/annotations', () => ({
   getFrameAnnotations: mocks.getFrameAnnotations,
   replaceFrameAnnotations: mocks.replaceFrameAnnotations,
+}))
+vi.mock('../api/models', () => ({
+  listInferenceModels: mocks.listInferenceModels,
+  runFrameAutoAnnotation: mocks.runFrameAutoAnnotation,
+  createBatchAutoAnnotation: mocks.createBatchAutoAnnotation,
+  registerInferenceModel: mocks.registerInferenceModel,
 }))
 
 const CanvasStub = defineComponent({
@@ -89,6 +103,21 @@ beforeEach(() => {
   document.body.innerHTML = '<div id="focus-header-tools"></div>'
   for (const value of Object.values(mocks)) value.mockReset()
   mocks.getProject.mockResolvedValue(project)
+  mocks.getCurrentUser.mockResolvedValue({
+    id: 'editor-id', username: 'editor', status: 'active', is_system_admin: false,
+  })
+  mocks.getCapabilities.mockResolvedValue({
+    gpu: { available: true, reason: null, devices: [] },
+    pytorch_cuda: { available: true, reason: null },
+    onnx_cuda: { available: false, reason: 'unused' },
+    features: {
+      manual_annotation: { available: true, reason: null },
+      yolo_auto_annotation: { available: true, reason: null },
+      grounding_dino_auto_annotation: { available: true, reason: null },
+      model_training: { available: true, reason: null },
+    },
+  })
+  mocks.listInferenceModels.mockResolvedValue([])
   mocks.listVideos.mockResolvedValue({ items: [video], page: 1, page_size: 999, total: 1 })
   mocks.listLabels.mockResolvedValue([
     { id: 'label-id', name: 'helmet', description_zh: '安全帽', color: '#16866f', sort_order: 0, enabled: true, version: 1, created_at: '', updated_at: '' },
@@ -137,14 +166,61 @@ describe('AnnotationWorkbenchView', () => {
     await flushPromises()
     expect(mocks.replaceFrameAnnotations).toHaveBeenCalledTimes(2)
     expect(mocks.routerPush).toHaveBeenCalledWith('/projects/project-id/videos')
+    wrapper.unmount()
   })
 
   it('redirects viewers instead of opening annotation controls', async () => {
     mocks.getProject.mockResolvedValueOnce({ ...project, role: 'viewer' })
-    mount(AnnotationWorkbenchView, { global: { stubs: { AnnotationCanvas: CanvasStub } } })
+    const wrapper = mount(AnnotationWorkbenchView, { global: { stubs: { AnnotationCanvas: CanvasStub } } })
     await flushPromises()
 
     expect(mocks.routerReplace).toHaveBeenCalledWith('/projects/project-id/videos')
     expect(mocks.getFrameAnnotations).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('adds single inference to the draft and queues batch inference after saving', async () => {
+    const model = {
+      id: 'model-id', name: 'YOLO', kind: 'yolo', status: 'ready',
+      source_name: 'model.pt', error: null, created_at: '', updated_at: '',
+    }
+    mocks.listInferenceModels.mockResolvedValueOnce([model])
+    mocks.runFrameAutoAnnotation.mockResolvedValue({
+      items: [{
+        id: 'auto-box', label_id: 'label-id', label_name: 'helmet',
+        x_min: 10, y_min: 20, x_max: 110, y_max: 220,
+        source: 'model', confidence: 0.9,
+      }],
+      created_labels: [],
+    })
+    mocks.createBatchAutoAnnotation.mockResolvedValue({
+      id: 'auto-task', project_id: 'project-id', video_id: 'video-id',
+      type: 'auto_annotate', status: 'queued', progress: 0, error: null,
+      result: null, cancel_requested: false, attempts: 0, retry_of_id: null,
+      created_at: '', started_at: null, finished_at: null, updated_at: '',
+    })
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ServerVideoPicker: true,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="run-single-auto"]').trigger('click')
+    await flushPromises()
+    expect(mocks.runFrameAutoAnnotation).toHaveBeenCalledTimes(1)
+    await wrapper.get('[data-test="run-batch-auto"]').trigger('click')
+    await flushPromises()
+    expect(mocks.replaceFrameAnnotations).toHaveBeenCalledTimes(1)
+    expect(mocks.createBatchAutoAnnotation).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
   })
 })

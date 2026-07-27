@@ -9,6 +9,8 @@ import {
   type FrameAnnotation,
   type FrameAnnotationSet,
 } from '../api/annotations'
+import { getCurrentUser, type CurrentUser } from '../api/auth'
+import { getCapabilities, type SystemCapabilities } from '../api/capabilities'
 import { listLabels, type ProjectLabel } from '../api/labels'
 import {
   frameImageUrl,
@@ -17,10 +19,20 @@ import {
   setFramesEnabled,
   type Frame,
   type SamplingSummary,
+  type ProjectTask,
   type Video,
 } from '../api/media'
+import {
+  createBatchAutoAnnotation,
+  listInferenceModels,
+  registerInferenceModel,
+  runFrameAutoAnnotation,
+  type AutoAnnotationConfig,
+  type InferenceModel,
+} from '../api/models'
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
+import ServerVideoPicker from '../components/ServerVideoPicker.vue'
 import { type BoxBounds, type Point } from './annotationGeometry'
 import { createAnnotationHistory } from './annotationHistory'
 
@@ -36,6 +48,9 @@ const workbenchRoot = ref<HTMLElement | null>(null)
 const video = ref<Video | null>(null)
 const frames = ref<Frame[]>([])
 const labels = ref<ProjectLabel[]>([])
+const inferenceModels = ref<InferenceModel[]>([])
+const capabilities = ref<SystemCapabilities | null>(null)
+const currentUser = ref<CurrentUser | null>(null)
 const sampling = ref<SamplingSummary | null>(null)
 const currentIndex = ref(0)
 const annotations = ref<FrameAnnotation[]>([])
@@ -55,6 +70,13 @@ const overwrite = ref(false)
 const gridOpen = ref(false)
 const shortcutsOpen = ref(false)
 const statsOpen = ref(false)
+const registerOpen = ref(false)
+const registering = ref(false)
+const registerName = ref('')
+const registerKind = ref<InferenceModel['kind']>('yolo')
+const registerPath = ref('')
+const inferenceRunning = ref(false)
+const activeAutoTask = ref<ProjectTask | null>(null)
 const pendingBounds = ref<BoxBounds | null>(null)
 const pendingAnchor = ref<Point>({ x: 24, y: 24 })
 const lastLabelId = ref('')
@@ -67,6 +89,7 @@ const cache = new Map<string, FrameAnnotationSet>()
 let history = createAnnotationHistory([])
 let spaceHeld = false
 let modeBeforeSpace: CanvasMode = 'select'
+let taskTimer: ReturnType<typeof setInterval> | undefined
 
 const currentFrame = computed(() => frames.value[currentIndex.value] ?? null)
 const imageUrl = computed(() =>
@@ -80,6 +103,31 @@ const frameFileName = computed(() => {
   return `${String(sequence).padStart(6, '0')}.${extension}`
 })
 const enabledLabels = computed(() => labels.value.filter((label) => label.enabled))
+const readyModels = computed(() => inferenceModels.value.filter((model) => {
+  if (model.status !== 'ready') return false
+  const feature = model.kind === 'yolo'
+    ? capabilities.value?.features.yolo_auto_annotation
+    : capabilities.value?.features.grounding_dino_auto_annotation
+  return feature?.available === true
+}))
+const selectedModel = computed(() =>
+  inferenceModels.value.find((model) => model.id === autoModel.value) ?? null,
+)
+const batchActive = computed(() =>
+  activeAutoTask.value?.type === 'auto_annotate'
+  && ['queued', 'running'].includes(activeAutoTask.value.status),
+)
+const autoUnavailableReason = computed(() => {
+  if (readyModels.value.length) return ''
+  return capabilities.value?.features.yolo_auto_annotation.reason
+    ?? capabilities.value?.features.grounding_dino_auto_annotation.reason
+    ?? '没有可用的已入库模型'
+})
+const autoUnavailableText = computed(() => {
+  const yolo = capabilities.value?.features.yolo_auto_annotation.available
+  const dino = capabilities.value?.features.grounding_dino_auto_annotation.available
+  return yolo === false && dino === false ? 'GPU功能不可用' : '暂无可用模型'
+})
 const groupedObjects = computed(() => labels.value
   .map((label) => ({
     label,
@@ -110,6 +158,7 @@ function syncHistoryState() {
 }
 
 function pushDraft(items: FrameAnnotation[]) {
+  if (batchActive.value) return
   annotations.value = clone(items)
   history.push(items)
   dirty.value = true
@@ -193,6 +242,110 @@ async function saveCurrent() {
     return false
   } finally {
     saving.value = false
+  }
+}
+
+function autoConfig(): AutoAnnotationConfig | null {
+  if (!selectedModel.value) {
+    ElMessage.warning('请先选择可用模型。')
+    return null
+  }
+  const categories = autoCategories.value.includes('__all__')
+    ? []
+    : [...new Set(autoCategories.value.map((item) => item.trim().toLowerCase()).filter(Boolean))]
+  return {
+    model_id: selectedModel.value.id,
+    categories,
+    confidence: confidence.value,
+    iou: iou.value,
+  }
+}
+
+async function runSingleAutoAnnotation() {
+  const frame = currentFrame.value
+  const config = autoConfig()
+  if (!frame || !config || batchActive.value) return
+  inferenceRunning.value = true
+  try {
+    const result = await runFrameAutoAnnotation(
+      projectId, videoId, frame.id, config,
+    )
+    if (result.created_labels.length) {
+      labels.value = [...labels.value, ...result.created_labels]
+        .sort((left, right) => left.sort_order - right.sort_order)
+    }
+    const inferred = result.items.map(({ label_name: _labelName, ...item }) => item)
+    pushDraft(overwrite.value ? inferred : [...annotations.value, ...inferred])
+    ElMessage.success(`单张自动标注完成，识别 ${inferred.length} 个对象。`)
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '单张自动标注失败')
+  } finally {
+    inferenceRunning.value = false
+  }
+}
+
+async function runBatchAutoAnnotation() {
+  const config = autoConfig()
+  if (!config || batchActive.value || !await saveCurrent()) return
+  inferenceRunning.value = true
+  try {
+    activeAutoTask.value = await createBatchAutoAnnotation(
+      projectId, videoId, config, overwrite.value,
+    )
+    ElMessage.success('批量自动标注任务已创建。')
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '批量自动标注任务创建失败')
+  } finally {
+    inferenceRunning.value = false
+  }
+}
+
+async function submitModelRegistration() {
+  if (!registerName.value.trim() || !registerPath.value) return
+  registering.value = true
+  try {
+    const registered = await registerInferenceModel(
+      projectId,
+      registerName.value,
+      registerKind.value,
+      registerPath.value,
+    )
+    inferenceModels.value = [registered.model, ...inferenceModels.value]
+    registerOpen.value = false
+    registerName.value = ''
+    registerPath.value = ''
+    ElMessage.success('模型入库任务已创建，可在任务中心查看进度。')
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '模型登记失败')
+  } finally {
+    registering.value = false
+  }
+}
+
+async function refreshAutoTask() {
+  if (!video.value) return
+  if (!batchActive.value && !inferenceModels.value.some((model) => model.status === 'copying')) return
+  try {
+    const page = await listVideos(projectId, 1, 999)
+    const refreshed = page.items.find((item) => item.id === videoId)
+    if (!refreshed) return
+    const wasActive = batchActive.value
+    video.value = refreshed
+    activeAutoTask.value = refreshed.latest_task?.type === 'auto_annotate'
+      ? refreshed.latest_task
+      : null
+    if (wasActive && !batchActive.value) {
+      cache.clear()
+      labels.value = await listLabels(projectId)
+      await loadFrame(currentIndex.value)
+      window.dispatchEvent(new CustomEvent('vdm:tasks-settled'))
+    }
+    if (inferenceModels.value.some((model) => model.status === 'copying')) {
+      inferenceModels.value = await listInferenceModels()
+      if (!autoModel.value) autoModel.value = readyModels.value[0]?.id ?? ''
+    }
+  } catch {
+    // The task center remains the authoritative error surface for polling failures.
   }
 }
 
@@ -291,6 +444,7 @@ function handleKeyDown(event: KeyboardEvent) {
     return
   }
   if (isInputTarget(event.target) || event.repeat || pendingBounds.value) return
+  if (batchActive.value && ['r', 'delete', 'z'].includes(event.key.toLowerCase())) return
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault()
     event.shiftKey ? redo() : undo()
@@ -331,10 +485,13 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [project, videos, projectLabels] = await Promise.all([
+    const [project, videos, projectLabels, models, detectedCapabilities, user] = await Promise.all([
       getProject(projectId),
       listVideos(projectId, 1, 999),
       listLabels(projectId),
+      listInferenceModels(),
+      getCapabilities(),
+      getCurrentUser(),
     ])
     if (project.role === 'viewer') {
       ElMessage.warning('只读成员不能进入在线标注。')
@@ -344,6 +501,18 @@ async function load() {
     video.value = videos.items.find((item) => item.id === videoId) ?? null
     if (!video.value) throw new Error('视频不存在或不可访问')
     labels.value = projectLabels
+    inferenceModels.value = models
+    capabilities.value = detectedCapabilities
+    currentUser.value = user
+    activeAutoTask.value = video.value.latest_task?.type === 'auto_annotate'
+      ? video.value.latest_task
+      : null
+    autoModel.value = models.find((model) => {
+      if (model.status !== 'ready') return false
+      return model.kind === 'yolo'
+        ? detectedCapabilities.features.yolo_auto_annotation.available
+        : detectedCapabilities.features.grounding_dino_auto_annotation.available
+    })?.id ?? ''
     lastLabelId.value = projectLabels.find((label) => label.enabled)?.id ?? ''
     await loadAllFrames()
     if (!frames.value.length) throw new Error('该视频尚无采样帧')
@@ -359,12 +528,14 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeyDown)
   window.addEventListener('keyup', handleKeyUp)
   window.addEventListener('beforeunload', handleBeforeUnload)
+  taskTimer = setInterval(refreshAutoTask, 1500)
   void load()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeyDown)
   window.removeEventListener('keyup', handleKeyUp)
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  if (taskTimer) clearInterval(taskTimer)
 })
 </script>
 
@@ -376,7 +547,7 @@ onBeforeUnmount(() => {
         <span data-test="frame-counter">{{ frames.length ? currentIndex + 1 : 0 }} / {{ frames.length }}</span>
       </div>
       <div class="focus-actions">
-        <span class="save-state" :data-state="dirty ? 'dirty' : 'saved'">{{ saveText }}</span>
+        <span class="save-state" :data-state="dirty ? 'dirty' : 'saved'">{{ batchActive ? `自动标注 ${activeAutoTask?.progress ?? 0}%` : saveText }}</span>
         <button type="button" data-test="close-annotation" title="保存并关闭" @click="closeWorkbench">关闭</button>
       </div>
     </div>
@@ -385,7 +556,21 @@ onBeforeUnmount(() => {
   <main ref="workbenchRoot" class="annotation-workbench" data-test="annotation-workbench">
     <section class="auto-bar" aria-label="自动标注控制">
       <div class="auto-controls">
-        <el-select v-model="autoModel" class="model-select" placeholder="选择模型" disabled />
+        <el-select
+          v-model="autoModel"
+          class="model-select"
+          placeholder="选择模型"
+          :disabled="batchActive || inferenceRunning || !readyModels.length"
+        >
+          <el-option v-for="model in readyModels" :key="model.id" :label="model.name" :value="model.id" />
+        </el-select>
+        <button
+          v-if="currentUser?.is_system_admin"
+          type="button"
+          :disabled="batchActive"
+          title="登记本地推理模型"
+          @click="registerOpen = true"
+        >＋模型</button>
         <el-select
           v-model="autoCategories"
           class="category-select"
@@ -395,21 +580,22 @@ onBeforeUnmount(() => {
           default-first-option
           collapse-tags
           placeholder="类别"
-          disabled
+          :disabled="batchActive || inferenceRunning || !autoModel"
         >
           <el-option label="All / 全类别" value="__all__" />
           <el-option v-for="label in enabledLabels" :key="label.id" :label="label.name" :value="label.name" />
         </el-select>
-        <label>置信度 <el-input-number v-model="confidence" :min="0" :max="1" :step="0.05" :precision="2" disabled /></label>
-        <label>IoU <el-input-number v-model="iou" :min="0" :max="1" :step="0.05" :precision="2" disabled /></label>
-        <button type="button" disabled title="模型登记完成后启用">单张运行</button>
-        <button type="button" disabled title="模型登记完成后启用">批量运行</button>
+        <label>置信度 <el-input-number v-model="confidence" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
+        <label>IoU <el-input-number v-model="iou" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
+        <button data-test="run-single-auto" type="button" :disabled="batchActive || inferenceRunning || !autoModel" @click="runSingleAutoAnnotation">单张运行</button>
+        <button data-test="run-batch-auto" type="button" :disabled="batchActive || inferenceRunning || !autoModel" @click="runBatchAutoAnnotation">批量运行</button>
+        <span v-if="autoUnavailableReason" class="auto-warning" :title="autoUnavailableReason">{{ autoUnavailableText }}</span>
       </div>
       <div class="frame-controls">
-        <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" :disabled="!currentFrame" @change="toggleFrameEnabled" /></label>
+        <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" :disabled="!currentFrame || batchActive" @change="toggleFrameEnabled" /></label>
         <button type="button" @click="statsOpen = true">标注统计</button>
         <label>标签覆盖 <el-switch v-model="overwrite" disabled /></label>
-        <label>十字线 <el-switch v-model="crosshair" /></label>
+        <label>十字线 <el-switch v-model="crosshair" :disabled="batchActive" /></label>
       </div>
     </section>
 
@@ -417,11 +603,11 @@ onBeforeUnmount(() => {
       <button :class="{ active: mode === 'pan' }" type="button" title="拖拽（按住 Space）" @click="mode = 'pan'">✥</button>
       <button data-test="previous-frame" type="button" title="上一张（A）" :disabled="currentIndex === 0" @click="switchFrame(currentIndex - 1)">A</button>
       <button data-test="next-frame" type="button" title="下一张（D）" :disabled="currentIndex >= frames.length - 1" @click="switchFrame(currentIndex + 1)">D</button>
-      <button :class="{ active: mode === 'draw' }" type="button" title="新建矩形框（R）" @click="mode = 'draw'">R</button>
+      <button :class="{ active: mode === 'draw' }" type="button" title="新建矩形框（R）" :disabled="batchActive" @click="mode = 'draw'">R</button>
       <button type="button" title="隐藏/显示全部标注框" @click="toggleAllBoxes">◉</button>
-      <button type="button" title="清空所有标注框" :disabled="!annotations.length" @click="clearAll">⌫</button>
-      <button type="button" title="撤销（Ctrl+Z）" :disabled="!history.canUndo()" @click="undo">↶</button>
-      <button type="button" title="重做（Ctrl+Shift+Z）" :disabled="!history.canRedo()" @click="redo">↷</button>
+      <button type="button" title="清空所有标注框" :disabled="batchActive || !annotations.length" @click="clearAll">⌫</button>
+      <button type="button" title="撤销（Ctrl+Z）" :disabled="batchActive || !history.canUndo()" @click="undo">↶</button>
+      <button type="button" title="重做（Ctrl+Shift+Z）" :disabled="batchActive || !history.canRedo()" @click="redo">↷</button>
       <span class="tool-separator" />
       <button type="button" title="展示全图" @click="canvasRef?.resetView()">▣</button>
       <button type="button" title="缩小" @click="canvasRef?.zoomBy(0.9)">−</button>
@@ -443,6 +629,7 @@ onBeforeUnmount(() => {
         :mode="mode"
         :crosshair="crosshair"
         :hidden-label-ids="hiddenLabelIds"
+        :readonly="batchActive"
         @change="pushDraft"
         @select="selectedId = $event"
         @request-category="requestCategory"
@@ -465,6 +652,7 @@ onBeforeUnmount(() => {
         <button type="button" @click="cancelCategory">取消</button>
       </div>
       <div v-if="loadingFrame" class="panel-overlay">正在载入采样帧…</div>
+      <div v-else-if="batchActive" class="panel-overlay panel-overlay--passive">批量自动标注运行中 · 当前帧只读</div>
     </section>
 
     <aside class="info-panel">
@@ -555,6 +743,28 @@ onBeforeUnmount(() => {
   <el-dialog v-model="statsOpen" title="当前视频标注统计" width="520px" append-to-body>
     <div class="stats-summary"><strong>{{ frames.length }}</strong><span>采样帧</span><strong>{{ enabledFrameCount }}</strong><span>启用帧</span><strong>{{ boxCount }}</strong><span>当前帧标注框</span></div>
   </el-dialog>
+  <el-dialog v-model="registerOpen" title="登记推理模型" width="min(760px, calc(100vw - 32px))" append-to-body>
+    <div class="model-registration-form">
+      <label><span>模型名称</span><el-input v-model="registerName" maxlength="128" placeholder="例如：安全帽 YOLO26 v1" /></label>
+      <label><span>模型类型</span>
+        <el-radio-group v-model="registerKind">
+          <el-radio-button value="yolo">YOLO</el-radio-button>
+          <el-radio-button value="grounding_dino">GroundingDINO</el-radio-button>
+        </el-radio-group>
+      </label>
+      <p>{{ registerKind === 'yolo' ? '选择 .pt 或 .onnx 模型文件。' : '选择包含 Transformers 本地模型配置与权重的目录。' }}</p>
+      <ServerVideoPicker
+        v-model="registerPath"
+        kind="model"
+        :allow-directory-selection="registerKind === 'grounding_dino'"
+        :allow-create="false"
+      />
+    </div>
+    <template #footer>
+      <el-button @click="registerOpen = false">取消</el-button>
+      <el-button type="primary" :loading="registering" :disabled="!registerName.trim() || !registerPath" @click="submitModelRegistration">创建入库任务</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <style scoped>
@@ -603,6 +813,7 @@ onBeforeUnmount(() => {
 .auto-controls :deep(.el-input-number) { width: 92px; }
 .auto-bar button { height: 30px; padding: 0 10px; color: #dce5eb; background: #263641; border: 1px solid #41515d; }
 .auto-bar button:disabled { color: #6f7d87; cursor: not-allowed; }
+.auto-warning { width: 84px; overflow: hidden; color: #d7a85b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
 .tool-rail { display: flex; grid-row: 2 / 4; flex-direction: column; align-items: center; gap: 5px; padding: 8px 0; overflow-y: auto; background: #1a252e; border-right: 1px solid #33414c; }
 .tool-rail button { display: grid; place-items: center; flex: 0 0 34px; width: 38px; padding: 0; color: #b9c6cf; font: 700 13px var(--vdw-mono); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; transition: background 150ms ease, border-color 150ms ease, color 150ms ease; }
@@ -618,6 +829,7 @@ onBeforeUnmount(() => {
 .category-picker select { min-width: 140px; height: 29px; }
 .category-picker button { align-self: end; height: 29px; }
 .panel-overlay { position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; color: #afbdc6; background: rgb(12 18 23 / 62%); }
+.panel-overlay--passive { pointer-events: none; background: rgb(12 18 23 / 22%); }
 
 .info-panel { display: grid; grid-column: 3; grid-row: 2; grid-template-rows: auto minmax(0, 1fr) 168px; min-height: 0; background: #f6f8f9; border-left: 1px solid #33414c; color: #24313a; }
 .image-info,
@@ -682,6 +894,10 @@ onBeforeUnmount(() => {
 .stats-summary { display: grid; grid-template-columns: repeat(3, auto); align-items: baseline; gap: 8px 15px; }
 .stats-summary strong { color: var(--vdw-teal); font: 700 24px var(--vdw-mono); }
 .stats-summary span { color: #687482; }
+.model-registration-form { display: grid; gap: 14px; }
+.model-registration-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 12px; }
+.model-registration-form > label > span { color: #5f6c76; font-size: 13px; }
+.model-registration-form > p { margin: 0; color: #687482; font-size: 13px; }
 
 @media (max-width: 1180px) {
   .annotation-workbench { grid-template-columns: 54px minmax(0, 1fr) 250px; }

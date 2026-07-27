@@ -57,7 +57,7 @@ export type ProjectTask = {
   id: string
   project_id: string
   video_id: string | null
-  type: 'copy_video' | 'download_video' | 'extract_frames'
+  type: 'copy_video' | 'download_video' | 'extract_frames' | 'import_model' | 'auto_annotate'
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
   progress: number
   error: string | null
@@ -185,9 +185,13 @@ export const listGlobalTasks = (page = 1, pageSize = 50) =>
     })}`,
   )
 
-export const listFilesystem = (path = '.', page = 1) =>
+export const listFilesystem = (
+  path = '.',
+  page = 1,
+  kind: 'video' | 'model' = 'video',
+) =>
   json<FilesystemPage>(
-    `/api/v1/filesystem?${new URLSearchParams({ path, kind: 'video', page: String(page) })}`,
+    `/api/v1/filesystem?${new URLSearchParams({ path, kind, page: String(page) })}`,
   )
 
 export const createFilesystemDirectory = (parent: string, name: string) =>

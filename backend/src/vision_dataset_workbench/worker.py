@@ -260,7 +260,14 @@ class TaskWorker:
             staged.mkdir()
             self._copy_file_with_progress(task_id, source, copied_path, source.stat().st_size, 0)
         else:
-            files = [path for path in source.rglob("*") if path.is_file()]
+            files = [
+                path
+                for path in source.rglob("*")
+                if path.is_file()
+                and not path.is_symlink()
+                and path.resolve().is_relative_to(resolver.home)
+                and not path.resolve().is_relative_to(self.workspace)
+            ]
             total = sum(path.stat().st_size for path in files)
             copied = 0
             staged.mkdir()
