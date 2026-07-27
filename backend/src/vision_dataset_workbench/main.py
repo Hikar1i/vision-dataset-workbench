@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from .api.annotations import router as annotations_router
 from .api.auth import router as auth_router
 from .api.capabilities import router as capabilities_router
 from .api.filesystem import router as filesystem_router
@@ -12,6 +13,7 @@ from .api.setup import router as setup_router
 from .capabilities import SystemCapabilities, detect_capabilities
 from .config import RuntimeSettings
 from .services.auth import build_auth_service
+from .services.annotations import AnnotationService
 from .services.media import MediaService
 from .services.labels import LabelService
 from .services.projects import ProjectService
@@ -57,6 +59,11 @@ def create_app(
         if auth_service is not None and app.state.project_service is not None
         else None
     )
+    app.state.annotation_service = (
+        AnnotationService(auth_service.engine, app.state.project_service)
+        if auth_service is not None and app.state.project_service is not None
+        else None
+    )
     app.state.media_service = (
         MediaService(auth_service.engine, resolved_settings, workspace)
         if auth_service is not None and workspace is not None
@@ -76,6 +83,7 @@ def create_app(
     app.include_router(registrations_router)
     app.include_router(projects_router)
     app.include_router(labels_router)
+    app.include_router(annotations_router)
     app.include_router(global_task_router)
     app.include_router(media_router)
     app.include_router(sampling_router)
