@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.main import create_app
-from vision_dataset_workbench.models import Frame, SamplingPlan, User, Video
+from vision_dataset_workbench.models import Frame, SamplingPlan, Task, User, Video
 from vision_dataset_workbench.security.passwords import hash_password
 
 ORIGIN = {"Origin": "http://testserver"}
@@ -220,3 +220,28 @@ def test_annotation_write_requires_same_origin(tmp_path):
         annotation_url(project_id),
         json={"annotation_revision": 1, "items": []},
     ).status_code == 403
+
+
+def test_manual_save_is_blocked_while_batch_auto_annotation_is_active(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "creator")
+    project_id, _label_id = seed_annotation_context(app, owner)
+    with Session(app.state.auth_service.engine) as session:
+        session.add(
+            Task(
+                project_id=project_id,
+                submitted_by_id="creator-id",
+                video_id="video-id",
+                type="auto_annotate",
+                status="running",
+            )
+        )
+        session.commit()
+
+    response = owner.put(
+        annotation_url(project_id),
+        headers=ORIGIN,
+        json={"annotation_revision": 1, "items": []},
+    )
+
+    assert response.status_code == 409

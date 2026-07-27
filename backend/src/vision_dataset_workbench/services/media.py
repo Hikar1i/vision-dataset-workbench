@@ -439,11 +439,14 @@ class MediaService:
                 raise MediaNotFound("task not found")
             if previous.status not in {"failed", "canceled"} or previous.video_id is None:
                 raise MediaConflict("only failed or canceled tasks can be retried")
+            if previous.type not in {"copy_video", "download_video", "extract_frames"}:
+                raise MediaConflict("this task type must be started again from its feature page")
             video = database.get(Video, previous.video_id)
             if video is None:
                 raise MediaConflict("task video no longer exists")
-            video.status = "pending"
-            video.updated_at = now
+            if previous.type in {"copy_video", "download_video"}:
+                video.status = "pending"
+                video.updated_at = now
             task = Task(
                 id=str(uuid4()),
                 project_id=project_id,

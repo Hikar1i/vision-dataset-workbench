@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from ..models import User
 from ..services.auto_annotations import (
+    AutoAnnotationConflict,
     AutoAnnotationService,
     AutoAnnotationUnavailable,
 )
@@ -15,6 +16,7 @@ from ..services.sampling import SamplingNotFound
 from .annotations import AnnotationResponse
 from .auth import current_user, require_same_origin
 from .labels import LabelResponse, _label_response
+from .media import TaskResponse, _task_response
 
 router = APIRouter(prefix="/api/v1/projects/{project_id}", tags=["auto-annotations"])
 
@@ -24,6 +26,10 @@ class RunAutoAnnotationRequest(BaseModel):
     categories: list[str] = Field(max_length=64)
     confidence: float = Field(ge=0, le=1)
     iou: float = Field(ge=0, le=1)
+
+
+class RunBatchAutoAnnotationRequest(RunAutoAnnotationRequest):
+    overwrite: bool = False
 
 
 class DraftAnnotationResponse(AnnotationResponse):
@@ -49,6 +55,8 @@ def _raise_auto_error(exc: ValueError) -> NoReturn:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     if isinstance(exc, AutoAnnotationUnavailable):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if isinstance(exc, AutoAnnotationConflict):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
@@ -96,3 +104,40 @@ def run_frame_auto_annotation(
         ],
         created_labels=[_label_response(item) for item in result.created_labels],
     )
+
+
+@router.post(
+    "/videos/{video_id}/auto-annotations",
+    response_model=TaskResponse,
+    status_code=202,
+)
+def create_batch_auto_annotation(
+    project_id: str,
+    video_id: str,
+    payload: RunBatchAutoAnnotationRequest,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> TaskResponse:
+    require_same_origin(request)
+    try:
+        task = auto_annotation_service(request).create_batch(
+            user,
+            project_id,
+            video_id,
+            payload.model_id,
+            payload.categories,
+            payload.confidence,
+            payload.iou,
+            payload.overwrite,
+        )
+    except (
+        ProjectNotFound,
+        ProjectForbidden,
+        ModelNotFound,
+        InvalidModel,
+        InvalidLabel,
+        AutoAnnotationUnavailable,
+        AutoAnnotationConflict,
+    ) as exc:
+        _raise_auto_error(exc)
+    return _task_response(task)

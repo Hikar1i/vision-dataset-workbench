@@ -12,8 +12,10 @@ from vision_dataset_workbench.database import create_workspace_database, make_en
 from vision_dataset_workbench.media import MediaMetadata
 from vision_dataset_workbench.models import (
     Frame,
+    FrameAnnotation,
     InferenceModel,
     Project,
+    ProjectLabel,
     SamplingPlan,
     Task,
     User,
@@ -23,7 +25,7 @@ from vision_dataset_workbench.security.passwords import hash_password
 from vision_dataset_workbench.worker import TaskWorker, download_command
 
 
-def make_worker(tmp_path, *, probe=None, popen=None):
+def make_worker(tmp_path, *, probe=None, popen=None, inference_runner=None):
     home = tmp_path / "home"
     workspace = home / ".vision-dataset-workbench"
     (workspace / "projects" / "project-id").mkdir(parents=True)
@@ -51,6 +53,7 @@ def make_worker(tmp_path, *, probe=None, popen=None):
         probe=probe
         or (lambda path: MediaMetadata(1, 320, 240, 25, 25, path.stat().st_size)),
         **({"popen": popen} if popen else {}),
+        **({"inference_runner": inference_runner} if inference_runner else {}),
     )
     return worker, engine, home, workspace
 
@@ -127,7 +130,7 @@ def test_copy_task_publishes_metadata_and_hash(tmp_path):
     with Session(engine) as session:
         task = session.get(Task, "copy-task")
         video = session.get(Video, "video-copy-task")
-        assert task is not None and task.status == "succeeded"
+        assert task is not None and task.status == "succeeded", task.error if task else None
         assert task.progress == 100
         assert video is not None and video.status == "ready"
         assert video.content_sha256 == hashlib.sha256(b"video bytes").hexdigest()
@@ -174,6 +177,150 @@ def test_import_model_task_copies_into_managed_storage(tmp_path):
         assert model is not None and model.status == "ready"
         assert model.storage_path == "models/model-id/detector.pt"
         assert (workspace / model.storage_path).read_bytes() == b"weights"
+    engine.dispose()
+
+
+def test_auto_annotation_task_processes_only_starting_enabled_frames(tmp_path):
+    from vision_dataset_workbench.inference import Detection
+
+    class Runner:
+        def predict(self, *_args, **_kwargs):
+            return [Detection("dog", 10, 20, 110, 220, 0.9)]
+
+    worker, engine, _home, workspace = make_worker(
+        tmp_path, inference_runner=Runner()
+    )
+    model_path = workspace / "models" / "model-id" / "model.pt"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_bytes(b"weights")
+    frames_dir = workspace / "projects" / "project-id" / "frames" / "video-id"
+    frames_dir.mkdir(parents=True)
+    with Session(engine) as session:
+        session.add(
+            Video(
+                id="video-id",
+                project_id="project-id",
+                source_type="local",
+                title="video",
+                status="ready",
+                width=320,
+                height=240,
+                enabled=True,
+            )
+        )
+        session.add(
+            InferenceModel(
+                id="model-id",
+                name="detector",
+                kind="yolo",
+                status="ready",
+                storage_path="models/model-id/model.pt",
+                source_name="model.pt",
+                created_by_id="one-id",
+            )
+        )
+        session.add(
+            ProjectLabel(
+                id="helmet-label",
+                project_id="project-id",
+                name="helmet",
+                name_normalized="helmet",
+                color="#16866f",
+                sort_order=0,
+                enabled=True,
+            )
+        )
+        session.flush()
+        for sequence, enabled in ((1, True), (2, False)):
+            path = frames_dir / f"{sequence:06d}.jpg"
+            path.write_bytes(b"image")
+            session.add(
+                Frame(
+                    id=f"frame-{sequence}",
+                    video_id="video-id",
+                    generation=1,
+                    sequence=sequence,
+                    source_frame_index=sequence - 1,
+                    time_offset=0,
+                    file_path=path.relative_to(workspace).as_posix(),
+                    enabled=enabled,
+                )
+            )
+        session.flush()
+        session.add(
+            FrameAnnotation(
+                id="manual-box",
+                frame_id="frame-1",
+                label_id="helmet-label",
+                x_min=1,
+                y_min=2,
+                x_max=30,
+                y_max=40,
+                source="manual",
+            )
+        )
+        session.add(
+            Task(
+                id="auto-task",
+                project_id="project-id",
+                submitted_by_id="one-id",
+                video_id="video-id",
+                type="auto_annotate",
+                payload=json.dumps(
+                    {
+                        "model_id": "model-id",
+                        "categories": ["dog"],
+                        "confidence": 0.25,
+                        "iou": 0.45,
+                        "overwrite": False,
+                    }
+                ),
+            )
+        )
+        session.commit()
+
+    assert worker.claim_available()[0].id == "auto-task"
+    worker.execute_task("auto-task")
+
+    with Session(engine) as session:
+        task = session.get(Task, "auto-task")
+        first = session.get(Frame, "frame-1")
+        second = session.get(Frame, "frame-2")
+        first_boxes = session.query(FrameAnnotation).filter_by(frame_id="frame-1").all()
+        second_boxes = session.query(FrameAnnotation).filter_by(frame_id="frame-2").all()
+        assert task is not None and task.status == "succeeded", task.error if task else None
+        assert json.loads(task.result or "{}")["frames"] == 1
+        assert {item.source for item in first_boxes} == {"manual", "model"}
+        assert second_boxes == []
+        assert first is not None and first.enabled is True and first.annotation_revision == 2
+        assert second is not None and second.enabled is False and second.annotation_revision == 1
+
+        session.add(
+            Task(
+                id="auto-overwrite",
+                project_id="project-id",
+                submitted_by_id="one-id",
+                video_id="video-id",
+                type="auto_annotate",
+                payload=json.dumps(
+                    {
+                        "model_id": "model-id",
+                        "categories": ["dog"],
+                        "confidence": 0.25,
+                        "iou": 0.45,
+                        "overwrite": True,
+                    }
+                ),
+            )
+        )
+        session.commit()
+
+    assert worker.claim_available()[0].id == "auto-overwrite"
+    worker.execute_task("auto-overwrite")
+
+    with Session(engine) as session:
+        overwritten = session.query(FrameAnnotation).filter_by(frame_id="frame-1").all()
+        assert [item.source for item in overwritten] == ["model"]
     engine.dispose()
 
 

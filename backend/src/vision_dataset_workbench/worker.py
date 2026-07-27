@@ -16,15 +16,25 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from .config import RuntimeSettings
 from .database import make_engine
 from .media import MediaMetadata, MediaToolError, normalize_remote_url, probe_video, ytdlp_base_args
-from .models import Frame, InferenceModel, SamplingPlan, Task, Video
+from .inference import InferenceRunner, InferenceUnavailable
+from .models import (
+    Frame,
+    FrameAnnotation,
+    InferenceModel,
+    ProjectLabel,
+    SamplingPlan,
+    Task,
+    Video,
+)
 from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
+from .services.labels import automatic_label_color, normalize_label_name
 from .storage.browser import VIDEO_EXTENSIONS
 from .storage.locator import WorkspaceLocator, default_locator_path
 from .storage.paths import HomePathResolver, UnsafePathError
@@ -93,6 +103,7 @@ class TaskWorker:
         run=subprocess.run,
         now=_utc_now,
         worker_id: str | None = None,
+        inference_runner: InferenceRunner | None = None,
     ):
         self.engine = engine
         self.settings = settings
@@ -102,6 +113,7 @@ class TaskWorker:
         self._run = run
         self._now = now
         self.worker_id = worker_id or str(uuid4())
+        self._inference_runner = inference_runner or InferenceRunner()
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="vdw-task")
         self._futures: dict[str, Future[None]] = {}
@@ -175,6 +187,8 @@ class TaskWorker:
                 self._execute_extract(task_id, task_temp)
             elif task_type == "import_model":
                 self._execute_import_model(task_id, task_temp)
+            elif task_type == "auto_annotate":
+                self._execute_auto_annotate(task_id)
             else:
                 raise RuntimeError("unsupported task type")
         except TaskCanceled:
@@ -298,6 +312,180 @@ class TaskWorker:
                 if self._cancel_requested(task_id):
                     raise TaskCanceled("task canceled")
         return copied
+
+    def _execute_auto_annotate(self, task_id: str) -> None:
+        with self._session_factory() as database:
+            task = database.get(Task, task_id)
+            if task is None or task.status != "running" or task.video_id is None:
+                raise MediaToolError("active auto annotation task not found")
+            payload = json.loads(task.payload)
+            video = database.get(Video, task.video_id)
+            model = database.get(InferenceModel, str(payload.get("model_id") or ""))
+            if video is None or model is None or model.status != "ready" or not model.storage_path:
+                raise MediaToolError("auto annotation resources not ready")
+            frames = list(
+                database.scalars(
+                    select(Frame)
+                    .where(Frame.video_id == video.id, Frame.enabled.is_(True))
+                    .order_by(Frame.sequence)
+                )
+            )
+            if not frames:
+                raise MediaToolError("video has no enabled sampled frames")
+            if model.kind == "grounding_dino" and not payload.get("categories"):
+                payload["categories"] = list(
+                    database.scalars(
+                        select(ProjectLabel.name).where(
+                            ProjectLabel.project_id == video.project_id,
+                            ProjectLabel.enabled.is_(True),
+                        )
+                    )
+                )
+            database.expunge(video)
+            database.expunge(model)
+            for frame in frames:
+                database.expunge(frame)
+        model_path = self._managed_model_path(model)
+        total_annotations = 0
+        for index, frame in enumerate(frames, start=1):
+            if self._cancel_requested(task_id):
+                raise TaskCanceled("task canceled")
+            image_path = self._managed_frame_path(video, frame)
+            try:
+                detections = self._inference_runner.predict(
+                    model,
+                    model_path,
+                    image_path,
+                    list(payload.get("categories") or []),
+                    float(payload.get("confidence", 0.25)),
+                    float(payload.get("iou", 0.45)),
+                )
+            except InferenceUnavailable as exc:
+                raise MediaToolError(str(exc)) from exc
+            total_annotations += self._store_auto_detections(
+                video,
+                frame.id,
+                detections,
+                overwrite=bool(payload.get("overwrite", False)),
+            )
+            self._heartbeat(task_id, round(index * 100 / len(frames)))
+        now = self._now()
+        with self._session_factory() as database:
+            task = database.get(Task, task_id)
+            if task is None:
+                raise MediaToolError("auto annotation task disappeared")
+            task.status = "succeeded"
+            task.progress = 100
+            task.result = json.dumps(
+                {"outcome": "annotated", "frames": len(frames), "annotations": total_annotations}
+            )
+            task.error = None
+            task.finished_at = now
+            task.updated_at = now
+            task.lease_owner = None
+            task.lease_expires_at = None
+            database.commit()
+
+    def _managed_model_path(self, model: InferenceModel) -> Path:
+        try:
+            path = (self.workspace / str(model.storage_path)).resolve(strict=True)
+        except OSError as exc:
+            raise MediaToolError("model file not found") from exc
+        root = (self.workspace / "models" / model.id).resolve()
+        if not path.is_relative_to(root):
+            raise MediaToolError("model file not found")
+        return path
+
+    def _managed_frame_path(self, video: Video, frame: Frame) -> Path:
+        try:
+            path = (self.workspace / frame.file_path).resolve(strict=True)
+        except OSError as exc:
+            raise MediaToolError("frame file not found") from exc
+        root = (
+            self.workspace / "projects" / video.project_id / "frames" / video.id
+        ).resolve()
+        if not path.is_file() or not path.is_relative_to(root):
+            raise MediaToolError("frame file not found")
+        return path
+
+    def _store_auto_detections(
+        self,
+        video: Video,
+        frame_id: str,
+        detections,
+        *,
+        overwrite: bool,
+    ) -> int:
+        valid = []
+        for detection in detections:
+            name = normalize_label_name(detection.label)
+            bounds = {
+                "x_min": max(0, min(video.width, round(detection.x_min))),
+                "y_min": max(0, min(video.height, round(detection.y_min))),
+                "x_max": max(0, min(video.width, round(detection.x_max))),
+                "y_max": max(0, min(video.height, round(detection.y_max))),
+            }
+            if bounds["x_max"] - bounds["x_min"] >= 2 and bounds["y_max"] - bounds["y_min"] >= 2:
+                valid.append((detection, name, bounds))
+        if not valid and not overwrite:
+            return 0
+        now = self._now()
+        with self._session_factory() as database:
+            frame = database.get(Frame, frame_id)
+            if frame is None or frame.video_id != video.id:
+                raise MediaToolError("frame disappeared during auto annotation")
+            names = {item[1] for item in valid}
+            labels = {
+                item.name_normalized: item
+                for item in database.scalars(
+                    select(ProjectLabel).where(ProjectLabel.project_id == video.project_id)
+                )
+            }
+            last_order = database.scalar(
+                select(func.max(ProjectLabel.sort_order)).where(
+                    ProjectLabel.project_id == video.project_id
+                )
+            )
+            next_order = 0 if last_order is None else last_order + 1
+            for name in sorted(names - labels.keys()):
+                label = ProjectLabel(
+                    id=str(uuid4()),
+                    project_id=video.project_id,
+                    name=name,
+                    name_normalized=name,
+                    description_zh="",
+                    color=automatic_label_color(name),
+                    sort_order=next_order,
+                    enabled=True,
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                next_order += 1
+                database.add(label)
+                labels[name] = label
+            database.flush()
+            if overwrite:
+                database.execute(
+                    delete(FrameAnnotation).where(FrameAnnotation.frame_id == frame_id)
+                )
+            database.add_all(
+                [
+                    FrameAnnotation(
+                        id=str(uuid4()),
+                        frame_id=frame_id,
+                        label_id=labels[name].id,
+                        **bounds,
+                        source="model",
+                        confidence=max(0.0, min(1.0, detection.confidence)),
+                        created_at=now,
+                    )
+                    for detection, name, bounds in valid
+                ]
+            )
+            frame.annotation_revision += 1
+            database.commit()
+        return len(valid)
 
     def _execute_download(self, task_id: str, task_temp: Path) -> None:
         task, video, payload = self._load_task(task_id)

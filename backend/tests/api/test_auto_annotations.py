@@ -112,3 +112,25 @@ def test_single_inference_rejects_viewer_and_requires_same_origin(tmp_path):
 
     assert viewer.post(url(), headers=ORIGIN, json=payload).status_code == 403
     assert owner.post(url(), json=payload).status_code == 403
+
+
+def test_batch_inference_queues_one_video_task_and_rejects_viewer(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "owner")
+    viewer = client_for(app, "viewer")
+    payload = {
+        "model_id": "model-id",
+        "categories": ["helmet", "dog"],
+        "confidence": 0.25,
+        "iou": 0.45,
+        "overwrite": False,
+    }
+    batch_url = "/api/v1/projects/project-id/videos/video-id/auto-annotations"
+
+    response = owner.post(batch_url, headers=ORIGIN, json=payload)
+
+    assert response.status_code == 202
+    assert response.json()["type"] == "auto_annotate"
+    assert response.json()["video_id"] == "video-id"
+    assert viewer.post(batch_url, headers=ORIGIN, json=payload).status_code == 403
+    assert owner.post(batch_url, headers=ORIGIN, json=payload).status_code == 409

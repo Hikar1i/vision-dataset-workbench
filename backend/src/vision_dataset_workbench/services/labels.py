@@ -1,3 +1,4 @@
+import hashlib
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -34,6 +35,16 @@ class LabelChanges:
 
 _NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9 _-]{0,62}[a-z0-9])?$")
 _COLOR_PATTERN = re.compile(r"^#[0-9a-f]{6}$")
+_AUTOMATIC_COLORS = (
+    "#e85d4a",
+    "#2f80ed",
+    "#f2a900",
+    "#8e5ad7",
+    "#00a6a6",
+    "#d94f91",
+    "#6b9e2e",
+    "#e07a1f",
+)
 
 
 def _utc_now() -> datetime:
@@ -47,6 +58,11 @@ def normalize_label_name(value: str) -> str:
             "label name must use 1-64 lowercase letters, numbers, spaces, hyphens, or underscores"
         )
     return normalized
+
+
+def automatic_label_color(name: str) -> str:
+    index = hashlib.sha256(name.encode()).digest()[0] % len(_AUTOMATIC_COLORS)
+    return _AUTOMATIC_COLORS[index]
 
 
 def _label_color(value: str) -> str:

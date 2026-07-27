@@ -1,23 +1,35 @@
-import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
+from datetime import datetime, timezone
 from uuid import uuid4
 
+from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from ..capabilities import SystemCapabilities
 from ..config import RuntimeSettings
 from ..inference import Detection, InferenceRunner, InferenceUnavailable
-from ..models import ProjectLabel, User, Video
+from ..models import Frame, ProjectLabel, Task, User, Video
 from .annotations import AnnotationInput
-from .labels import LabelConflict, LabelService, normalize_label_name
+from .labels import (
+    LabelConflict,
+    LabelService,
+    automatic_label_color,
+    normalize_label_name,
+)
 from .models import ModelService
 from .projects import ProjectForbidden, ProjectService
 from .sampling import SamplingService
 
 
 class AutoAnnotationUnavailable(ValueError):
+    pass
+
+
+class AutoAnnotationConflict(ValueError):
     pass
 
 
@@ -31,18 +43,6 @@ class DraftAnnotation:
 class AutoAnnotationResult:
     items: list[DraftAnnotation]
     created_labels: list[ProjectLabel]
-
-
-_COLORS = (
-    "#e85d4a",
-    "#2f80ed",
-    "#f2a900",
-    "#8e5ad7",
-    "#00a6a6",
-    "#d94f91",
-    "#6b9e2e",
-    "#e07a1f",
-)
 
 
 class AutoAnnotationService:
@@ -134,6 +134,76 @@ class AutoAnnotationService:
             )
         return AutoAnnotationResult(items, created)
 
+    def create_batch(
+        self,
+        actor: User,
+        project_id: str,
+        video_id: str,
+        model_id: str,
+        categories: list[str],
+        confidence: float,
+        iou: float,
+        overwrite: bool,
+    ) -> Task:
+        if self.projects.get_project(actor, project_id).role == "viewer":
+            raise ProjectForbidden("project edit permission required")
+        model, _model_path = self.models.ready_model(model_id)
+        capability = (
+            self.capabilities.features.yolo_auto_annotation
+            if model.kind == "yolo"
+            else self.capabilities.features.grounding_dino_auto_annotation
+        )
+        if not capability.available:
+            raise AutoAnnotationUnavailable(capability.reason or "auto annotation unavailable")
+        prompts = list(dict.fromkeys(normalize_label_name(item) for item in categories))
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with self._session_factory() as database:
+            video = database.get(Video, video_id)
+            if video is None or video.project_id != project_id:
+                raise AutoAnnotationUnavailable("video not found")
+            enabled_frames = database.scalar(
+                select(func.count())
+                .select_from(Frame)
+                .where(Frame.video_id == video_id, Frame.enabled.is_(True))
+            ) or 0
+            if enabled_frames == 0:
+                raise AutoAnnotationConflict("video has no enabled sampled frames")
+            active = database.scalar(
+                select(Task.id).where(
+                    Task.video_id == video_id,
+                    Task.status.in_(("queued", "running")),
+                )
+            )
+            if active is not None:
+                raise AutoAnnotationConflict("video already has an active task")
+            task = Task(
+                id=str(uuid4()),
+                project_id=project_id,
+                submitted_by_id=actor.id,
+                video_id=video_id,
+                type="auto_annotate",
+                payload=json.dumps(
+                    {
+                        "model_id": model_id,
+                        "categories": prompts,
+                        "confidence": confidence,
+                        "iou": iou,
+                        "overwrite": overwrite,
+                    },
+                    ensure_ascii=False,
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            try:
+                database.add(task)
+                database.commit()
+            except IntegrityError as exc:
+                database.rollback()
+                raise AutoAnnotationConflict("video already has an active task") from exc
+            database.expunge(task)
+            return task
+
     def _ensure_labels(
         self,
         actor: User,
@@ -149,10 +219,9 @@ class AutoAnnotationService:
         for name in names:
             if name in existing:
                 continue
-            digest = hashlib.sha256(name.encode()).digest()[0]
             try:
                 label = self.labels.create_label(
-                    actor, project_id, name, "", _COLORS[digest % len(_COLORS)]
+                    actor, project_id, name, "", automatic_label_color(name)
                 )
             except LabelConflict:
                 label = next(
