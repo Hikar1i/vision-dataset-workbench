@@ -2,6 +2,7 @@
   <section class="focus-layout">
     <header class="focus-header">
       <strong data-test="focus-brand">VDM / FOCUS</strong>
+      <div id="focus-header-tools" class="focus-header-tools" />
     </header>
     <RouterView />
   </section>
@@ -23,6 +24,12 @@
   padding: 0 14px;
   background: var(--vdw-ink);
   border-bottom: 1px solid #33414c;
+}
+
+.focus-header-tools {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
 }
 
 .focus-header strong {

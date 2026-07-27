@@ -162,6 +162,7 @@ def test_viewer_reads_frame_image_and_editor_filters_with_revision(tmp_path):
     )
     assert page.status_code == 200
     assert page.json()["total"] == 2
+    assert page.json()["items"][0]["file_size"] == len(b"frame-1")
     assert viewer.get(
         "/api/v1/projects/project-id/videos/video-id/frames/frame-1/image"
     ).content == b"frame-1"

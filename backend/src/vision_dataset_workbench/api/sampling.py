@@ -68,6 +68,7 @@ class FrameResponse(BaseModel):
     source_frame_index: int
     time_offset: float
     enabled: bool
+    file_size: int
     created_at: str
 
 
@@ -98,13 +99,18 @@ def _utc_text(value: datetime) -> str:
     return f"{value.isoformat(timespec='seconds')}Z"
 
 
-def _frame_response(frame: Frame) -> FrameResponse:
+def _frame_response(frame: Frame, workspace) -> FrameResponse:
+    try:
+        file_size = (workspace / frame.file_path).stat().st_size
+    except OSError:
+        file_size = 0
     return FrameResponse(
         id=frame.id,
         sequence=frame.sequence,
         source_frame_index=frame.source_frame_index,
         time_offset=frame.time_offset,
         enabled=frame.enabled,
+        file_size=file_size,
         created_at=_utc_text(frame.created_at),
     )
 
@@ -220,7 +226,7 @@ def list_frames(
     except (ProjectNotFound, ProjectForbidden, SamplingNotFound) as exc:
         _raise_sampling_error(exc)
     return FramePageResponse(
-        items=[_frame_response(item) for item in items],
+        items=[_frame_response(item, request.app.state.workspace) for item in items],
         page=page,
         page_size=page_size,
         total=total,

@@ -14,13 +14,15 @@ export function fitImage(
   imageHeight: number,
   padding = 20,
 ): ImageTransform {
+  const safeImageWidth = Math.max(1, imageWidth)
+  const safeImageHeight = Math.max(1, imageHeight)
   const availableWidth = Math.max(1, stageWidth - padding * 2)
   const availableHeight = Math.max(1, stageHeight - padding * 2)
-  const scale = Math.min(availableWidth / imageWidth, availableHeight / imageHeight)
+  const scale = Math.min(availableWidth / safeImageWidth, availableHeight / safeImageHeight)
   return {
     scale,
-    x: (stageWidth - imageWidth * scale) / 2,
-    y: (stageHeight - imageHeight * scale) / 2,
+    x: (stageWidth - safeImageWidth * scale) / 2,
+    y: (stageHeight - safeImageHeight * scale) / 2,
   }
 }
 

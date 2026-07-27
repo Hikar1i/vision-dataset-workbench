@@ -141,6 +141,7 @@ export type Frame = {
   source_frame_index: number
   time_offset: number
   enabled: boolean
+  file_size: number
   created_at: string
 }
 export type FramePage = {
@@ -271,9 +272,10 @@ export const listFrames = (
   projectId: string,
   videoId: string,
   page = 1,
+  pageSize = 50,
   enabled?: boolean,
 ) => {
-  const query = new URLSearchParams({ page: String(page) })
+  const query = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
   if (enabled !== undefined) query.set('enabled', String(enabled))
   return json<FramePage>(`${projectPath(projectId)}/videos/${videoId}/frames?${query}`)
 }

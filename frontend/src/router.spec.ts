@@ -103,10 +103,17 @@ describe('setup routing', () => {
     const router = createAppRouter()
     await router.push('/projects/project-id/videos/video-id/annotation')
     await router.isReady()
-    const wrapper = mount(App, { global: { plugins: [router] } })
+    const wrapper = mount(App, {
+      attachTo: document.body,
+      global: {
+        plugins: [router],
+        stubs: { AnnotationWorkbenchView: true },
+      },
+    })
     await flushPromises()
 
     expect(wrapper.find('.focus-layout').exists()).toBe(true)
     expect(wrapper.find('.app-shell').exists()).toBe(false)
+    wrapper.unmount()
   })
 })

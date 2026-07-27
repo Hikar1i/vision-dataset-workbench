@@ -32,7 +32,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   change: [items: FrameAnnotation[]]
   select: [id: string | null]
-  'request-category': [bounds: BoxBounds]
+  'request-category': [bounds: BoxBounds, anchor: Point]
+  'view-change': [viewport: BoxBounds]
 }>()
 
 const container = ref<HTMLElement | null>(null)
@@ -151,7 +152,7 @@ function handlePointerUp() {
     props.imageHeight,
   )
   drawStart.value = drawCurrent.value = null
-  if (bounds) emit('request-category', bounds)
+  if (bounds) emit('request-category', bounds, pointer.value ?? { x: 24, y: 24 })
 }
 
 function handleWheel(event: Konva.KonvaEventObject<WheelEvent>) {
@@ -227,11 +228,28 @@ function resetView() {
   pan.value = { x: 0, y: 0 }
 }
 
+function emitViewport() {
+  const topLeft = stageToImage({ x: 0, y: 0 }, fit.value, zoom.value, pan.value)
+  const bottomRight = stageToImage(
+    { x: stageSize.value.width, y: stageSize.value.height },
+    fit.value,
+    zoom.value,
+    pan.value,
+  )
+  emit('view-change', {
+    x_min: Math.max(0, topLeft.x),
+    y_min: Math.max(0, topLeft.y),
+    x_max: Math.min(props.imageWidth, bottomRight.x),
+    y_max: Math.min(props.imageHeight, bottomRight.y),
+  })
+}
+
 watch(() => props.imageUrl, loadImage, { immediate: true })
 watch(() => [props.selectedId, props.annotations, props.hiddenLabelIds], syncTransformer, {
   deep: true,
 })
 watch(() => [props.imageWidth, props.imageHeight], resetView)
+watch([fit, zoom, pan, stageSize], emitViewport, { deep: true, immediate: true })
 
 onMounted(() => {
   updateStageSize()
