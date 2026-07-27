@@ -1,8 +1,12 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import ServerDirectoryPicker from './ServerDirectoryPicker.vue'
+
+afterEach(() => {
+  document.body.innerHTML = ''
+})
 
 describe('ServerDirectoryPicker', () => {
   it('lists directories and creates a new directory', async () => {
@@ -54,8 +58,9 @@ describe('ServerDirectoryPicker', () => {
     await wrapper.get('[data-path="datasets"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-test="new-directory"]').trigger('click')
-    await wrapper.get('[data-test="directory-name"]').setValue('new')
-    await wrapper.get('[data-test="create-directory"]').trigger('click')
+    const overlay = new DOMWrapper(document.body)
+    await overlay.get('[data-test="directory-name"]').setValue('new')
+    await overlay.get('[data-test="create-directory"]').trigger('click')
     await flushPromises()
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['datasets/new'])
   })

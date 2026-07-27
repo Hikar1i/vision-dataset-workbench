@@ -61,10 +61,10 @@ async function submit() {
 
 <template>
   <el-dialog
+    append-to-body
     :model-value="modelValue"
     title="配置采样方案"
     width="min(620px, calc(100vw - 32px))"
-    :teleported="false"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <p class="scope">将同一方案应用到 {{ videoIds.length }} 个视频；保存不会立即覆盖已有帧。</p>
@@ -109,9 +109,9 @@ async function submit() {
 
 <style scoped>
 .scope { margin-top: 0; color: #687482; }
-.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
-label { display: grid; gap: 6px; color: #4c5967; font-size: 13px; }
-input, select { box-sizing: border-box; width: 100%; min-height: 36px; padding: 7px 9px; border: 1px solid #cbd3dd; background: white; }
-.rejected { color: #c2413b; font-size: 12px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+label { display: grid; gap: 7px; color: #4c5967; font-size: 14px; }
+input, select { box-sizing: border-box; width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #cbd3dd; background: white; }
+.rejected { color: #c2413b; font-size: 13px; }
 @media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
 </style>

@@ -98,5 +98,5 @@ async function submit() {
 
 <style scoped>
 .account-card { margin: 16px auto; }
-.utility-heading h2 { margin: 14px 0 8px; font-size: 24px; }
+.utility-heading h2 { margin: 15px 0 9px; font-size: 26px; }
 </style>

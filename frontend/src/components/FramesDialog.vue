@@ -49,7 +49,7 @@ watch(() => props.modelValue, (open) => { if (open) void load(1) }, { immediate:
 </script>
 
 <template>
-  <el-dialog :model-value="modelValue" :title="`采样帧 / ${title}`" width="min(1100px, calc(100vw - 24px))" :teleported="false" @update:model-value="emit('update:modelValue', $event)">
+  <el-dialog append-to-body :model-value="modelValue" :title="`采样帧 / ${title}`" width="min(1210px, calc(100vw - 26px))" @update:model-value="emit('update:modelValue', $event)">
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <header class="toolbar">
       <span>{{ sampling?.enabled_frames ?? 0 }} / {{ sampling?.extracted_frames ?? total }} 帧启用</span>
@@ -71,9 +71,9 @@ watch(() => props.modelValue, (open) => { if (open) void load(1) }, { immediate:
 
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; color: #687482; }
-.frame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; min-height: 180px; }
+.frame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(187px, 1fr)); gap: 11px; min-height: 198px; }
 .frame-card { overflow: hidden; border: 1px solid #d8dee6; background: #f8fafc; }
 .frame-card[data-enabled='false'] { opacity: .48; }
 .frame-card img { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #17212b; }
-.frame-card span { display: flex; gap: 7px; padding: 8px; font: 11px ui-monospace, monospace; }
+.frame-card span { display: flex; gap: 8px; padding: 9px; font: 12px ui-monospace, monospace; }
 </style>

@@ -87,21 +87,21 @@ onMounted(() => load())
       </div>
 
       <el-table v-loading="loading" :data="users" row-key="id">
-        <el-table-column label="用户名" min-width="190">
+        <el-table-column label="用户名" min-width="209">
           <template #default="{ row }: { row: ManagedUser }">
             <strong>{{ row.username }}</strong>
             <span v-if="row.is_system_admin" class="admin-mark">系统管理员</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="120">
+        <el-table-column label="状态" width="132">
           <template #default="{ row }: { row: ManagedUser }">
             <el-tag :type="row.status === 'active' ? 'success' : 'info'" effect="plain">
               {{ statusLabels[row.status] }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" min-width="190" />
-        <el-table-column label="操作" min-width="220" align="right">
+        <el-table-column prop="created_at" label="创建时间" min-width="209" />
+        <el-table-column label="操作" min-width="242" align="right">
           <template #default="{ row }: { row: ManagedUser }">
             <template v-if="row.status === 'pending'">
               <el-button
@@ -164,7 +164,7 @@ onMounted(() => load())
 
 .users-panel {
   margin-top: 0;
-  padding: 24px;
+  padding: 26px;
   background: white;
   border: 1px solid #d8dee6;
 }
@@ -173,19 +173,19 @@ onMounted(() => load())
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 18px;
   margin-bottom: 20px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .table-tools .el-select {
-  width: 180px;
+  width: 198px;
 }
 
 .admin-mark {
   margin-left: 10px;
   color: #687482;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
 }
 
@@ -196,7 +196,7 @@ onMounted(() => load())
 
 @media (max-width: 680px) {
   .users-panel {
-    padding: 12px;
+    padding: 13px;
     overflow-x: auto;
   }
 }

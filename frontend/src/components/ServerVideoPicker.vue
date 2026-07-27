@@ -124,7 +124,7 @@ onMounted(() => load('.'))
       </div>
     </footer>
 
-    <el-dialog v-model="creating" title="新建目录" width="420px" :teleported="false">
+    <el-dialog v-model="creating" append-to-body title="新建目录" width="462px">
       <el-input
         v-model="directoryName"
         data-test="directory-name"
@@ -155,8 +155,8 @@ footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
+  gap: 18px;
+  padding: 13px 15px;
   background: #f8fafc;
 }
 
@@ -166,22 +166,22 @@ header {
 
 footer {
   color: #687482;
-  font-size: 12px;
+  font-size: 13px;
   border-top: 1px solid #d8dee6;
 }
 
 .entry-list {
-  min-height: 230px;
-  max-height: 320px;
+  min-height: 253px;
+  max-height: 352px;
   overflow: auto;
 }
 
 .entry {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 40px;
-  gap: 12px;
+  grid-template-columns: 62px minmax(0, 1fr) 44px;
+  gap: 13px;
   width: 100%;
-  padding: 11px 14px;
+  padding: 12px 15px;
   color: #17212b;
   text-align: left;
   background: white;
@@ -198,12 +198,12 @@ footer {
 .entry-type {
   color: #16866f;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .entry > span:last-child {
   color: #687482;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 @media (max-width: 620px) {

@@ -28,7 +28,10 @@ beforeEach(() => {
   localStorage.clear()
   vi.useFakeTimers()
 })
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  document.body.innerHTML = ''
+  vi.useRealTimers()
+})
 
 describe('TaskCenterDrawer', () => {
   it('marks terminal tasks unread and uses their project for retry', async () => {
@@ -51,16 +54,22 @@ describe('TaskCenterDrawer', () => {
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mount(TaskCenterDrawer, {
       props: { modelValue: false },
-      global: { plugins: [ElementPlus] },
+      global: {
+        plugins: [ElementPlus],
+        stubs: { teleport: false },
+      },
     })
     await flushPromises()
     expect(wrapper.emitted('unread')?.at(-1)).toEqual([true])
 
     await wrapper.setProps({ modelValue: true })
     await flushPromises()
-    expect(wrapper.text()).toContain('Smoke Dataset')
+    const drawer = document.body.querySelector('.el-drawer')
+    expect(drawer?.textContent).toContain('Smoke Dataset')
     expect(wrapper.emitted('unread')?.at(-1)).toEqual([false])
-    await wrapper.get('[data-test="retry-task-id"]').trigger('click')
+    const retryButton = document.body.querySelector('[data-test="retry-task-id"]')
+    expect(retryButton).not.toBeNull()
+    retryButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/projects/project-id/tasks/task-id/retry',

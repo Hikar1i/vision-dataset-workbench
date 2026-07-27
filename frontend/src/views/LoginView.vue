@@ -132,7 +132,7 @@ async function submit() {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  padding: clamp(32px, 5vw, 64px);
+  padding: clamp(35px, 5vw, 70px);
   overflow: hidden;
   color: #f6f9fc;
   background: var(--ink);
@@ -152,7 +152,7 @@ async function submit() {
 .section-code,
 .instance-readout {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.11em;
 }
 
@@ -162,14 +162,14 @@ async function submit() {
 }
 
 .mode-chip {
-  padding: 6px 8px;
+  padding: 7px 9px;
   color: #b8c3ce;
   border: 1px solid #3a4652;
 }
 
 .vision-frame {
   position: relative;
-  width: min(100%, 460px);
+  width: min(100%, 506px);
   aspect-ratio: 1.55;
   margin: clamp(56px, 10vh, 112px) 0 44px;
   border: 1px solid #3a4652;
@@ -182,8 +182,8 @@ async function submit() {
 .vision-frame::before,
 .vision-frame::after {
   position: absolute;
-  width: 32px;
-  height: 32px;
+  width: 35px;
+  height: 35px;
   content: '';
 }
 
@@ -223,7 +223,7 @@ async function submit() {
   top: 50%;
   left: 50%;
   display: block;
-  width: 26px;
+  width: 29px;
   height: 1px;
   content: '';
   background: var(--mint);
@@ -237,7 +237,7 @@ async function submit() {
 .instance-copy h1 {
   margin: 0;
   font-family: Bahnschrift, "Arial Narrow", "Noto Sans SC", sans-serif;
-  font-size: clamp(36px, 4vw, 58px);
+  font-size: clamp(40px, 4vw, 64px);
   font-stretch: condensed;
   font-weight: 600;
   line-height: 0.98;
@@ -245,16 +245,16 @@ async function submit() {
 }
 
 .instance-copy p {
-  max-width: 430px;
-  margin: 24px 0 0;
+  max-width: 473px;
+  margin: 26px 0 0;
   color: #aab6c2;
   line-height: 1.7;
 }
 
 .instance-readout {
-  gap: 28px;
+  gap: 31px;
   margin: auto 0 0;
-  padding-top: 48px;
+  padding-top: 53px;
   color: #7f8d9b;
   border-top: 1px solid #2d3945;
 }
@@ -271,18 +271,18 @@ async function submit() {
 .login-panel {
   display: grid;
   min-height: 100vh;
-  padding: 32px;
+  padding: 35px;
   place-items: center;
 }
 
 .login-box {
   display: grid;
-  gap: 28px;
-  width: min(440px, 100%);
+  gap: 31px;
+  width: min(484px, 100%);
 }
 
 .login-box header {
-  padding-bottom: 24px;
+  padding-bottom: 26px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -291,9 +291,9 @@ async function submit() {
 }
 
 .login-box h2 {
-  margin: 14px 0 8px;
+  margin: 15px 0 9px;
   color: var(--ink);
-  font-size: 30px;
+  font-size: 33px;
   letter-spacing: -0.035em;
 }
 
@@ -301,7 +301,7 @@ async function submit() {
 .login-box footer {
   margin: 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 form,
@@ -310,23 +310,23 @@ form :deep(.el-form) {
 }
 
 form {
-  gap: 8px;
+  gap: 9px;
 }
 
 form :deep(.el-form-item) {
-  margin-bottom: 22px;
+  margin-bottom: 24px;
 }
 
 form > .el-button {
   width: 100%;
-  min-height: 42px;
+  min-height: 46px;
 }
 
 .login-box footer {
   display: flex;
-  gap: 8px;
-  min-height: 24px;
-  padding-top: 20px;
+  gap: 9px;
+  min-height: 26px;
+  padding-top: 22px;
   border-top: 1px solid var(--line);
 }
 
@@ -347,7 +347,7 @@ form > .el-button {
 
   .instance-panel {
     min-height: auto;
-    padding: 24px;
+    padding: 26px;
   }
 
   .vision-frame,
@@ -357,14 +357,14 @@ form > .el-button {
   }
 
   .instance-copy h1 {
-    margin-top: 28px;
-    font-size: 30px;
+    margin-top: 31px;
+    font-size: 33px;
     line-height: 1.05;
   }
 
   .login-panel {
     min-height: auto;
-    padding: 40px 20px;
+    padding: 44px 22px;
   }
 }
 

@@ -229,14 +229,14 @@ onMounted(() => {
 <style scoped>
 .settings-shell {
   min-height: 100%;
-  padding: 16px;
+  padding: 18px;
   color: #17212b;
   background: #f4f7fa;
 }
 .section-code {
   color: #76dfc2;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.1em;
 }
 .panel .section-code {
@@ -246,19 +246,19 @@ onMounted(() => {
 .settings-grid {
   display: grid;
   grid-template-columns: minmax(300px, 0.8fr) minmax(460px, 1.2fr);
-  gap: 24px;
+  gap: 26px;
   margin-top: 0;
 }
 
 .panel {
-  padding: 26px;
+  padding: 29px;
   background: white;
   border: 1px solid #d8dee6;
 }
 
 .panel h2 {
   margin: 10px 0 24px;
-  font-size: 23px;
+  font-size: 25px;
   letter-spacing: -0.025em;
 }
 
@@ -268,7 +268,7 @@ onMounted(() => {
 
 .readonly-metadata {
   display: grid;
-  gap: 22px;
+  gap: 24px;
   margin: 0;
 }
 
@@ -279,7 +279,7 @@ onMounted(() => {
 
 .readonly-metadata dt {
   color: #687482;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .readonly-metadata dd {
@@ -295,15 +295,15 @@ onMounted(() => {
 
 .members-heading > span {
   color: #687482;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .member-form {
   display: grid;
   grid-template-columns: minmax(160px, 1fr) 120px auto;
-  gap: 10px;
+  gap: 11px;
   margin-bottom: 22px;
-  padding: 16px;
+  padding: 18px;
   background: #f4f7fa;
   border: 1px solid #d8dee6;
 }
@@ -311,21 +311,21 @@ onMounted(() => {
 .member-row {
   display: grid;
   grid-template-columns: minmax(150px, 1fr) 90px minmax(170px, auto);
-  gap: 16px;
+  gap: 18px;
   align-items: center;
-  min-height: 58px;
+  min-height: 64px;
   border-top: 1px solid #e6eaf0;
 }
 
 .member-row > div:first-child {
   display: flex;
-  gap: 10px;
+  gap: 11px;
   align-items: baseline;
 }
 
 .member-row > div:first-child span {
   color: #687482;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .member-actions {
@@ -338,7 +338,7 @@ onMounted(() => {
   padding: 4px 7px;
   color: #3f4c59;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   border: 1px solid #cbd3dd;
 }
 

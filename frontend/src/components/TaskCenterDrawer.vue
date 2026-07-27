@@ -107,8 +107,8 @@ onUnmounted(stopPolling)
   <el-drawer
     :model-value="modelValue"
     title="任务中心"
-    size="min(560px, 100vw)"
-    :teleported="false"
+    size="min(616px, 100vw)"
+    append-to-body
     @update:model-value="emit('update:modelValue', $event)"
   >
     <div v-loading="loading" class="task-center-list">
@@ -146,14 +146,14 @@ onUnmounted(stopPolling)
 </template>
 
 <style scoped>
-.task-center-list { display: grid; gap: 10px; }
-.task-center-row { padding: 14px; border: 1px solid var(--vdw-rule); }
+.task-center-list { display: grid; gap: 11px; }
+.task-center-row { padding: 15px; border: 1px solid var(--vdw-rule); }
 .task-center-row header,
 .task-center-row header > div,
 .task-center-row footer { display: flex; align-items: center; }
-.task-center-row header { justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.task-center-row header > div { gap: 8px; }
-.task-center-row header span { color: var(--vdw-muted); font-size: 12px; }
-.task-center-row p { color: #a33e39; font-size: 12px; }
+.task-center-row header { justify-content: space-between; gap: 13px; margin-bottom: 11px; }
+.task-center-row header > div { gap: 9px; }
+.task-center-row header span { color: var(--vdw-muted); font-size: 13px; }
+.task-center-row p { color: #a33e39; font-size: 13px; }
 .task-center-row footer { justify-content: flex-end; }
 </style>

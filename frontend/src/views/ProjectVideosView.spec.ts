@@ -1,6 +1,6 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectVideosView from './ProjectVideosView.vue'
 
@@ -43,6 +43,9 @@ const video = {
 }
 
 beforeEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  document.body.innerHTML = ''
+})
 
 function mountView(role: 'owner' | 'editor' | 'viewer' = 'viewer') {
   return mount(ProjectVideosView, {
@@ -83,7 +86,7 @@ describe('ProjectVideosView', () => {
 
     await wrapper.get('[data-test="play-video-id"]').trigger('click')
     await flushPromises()
-    expect(wrapper.get('video').attributes('src')).toBe(
+    expect(new DOMWrapper(document.body).get('video').attributes('src')).toBe(
       '/api/v1/projects/project-id/videos/video-id/content',
     )
   })

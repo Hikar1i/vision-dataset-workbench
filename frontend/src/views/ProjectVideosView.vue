@@ -336,10 +336,10 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
     </section>
 
     <el-dialog
+      append-to-body
       :model-value="playing !== null"
       :title="playing?.title"
       width="min(960px, calc(100vw - 32px))"
-      :teleported="false"
       @update:model-value="!$event && (playing = null)"
     >
       <video v-if="playing" controls preload="metadata" :src="videoContentUrl(projectId, playing.id)" />
@@ -379,32 +379,32 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .workspace {
   min-width: 0;
-  padding: 0 16px 24px;
+  padding: 0 18px 26px;
 }
 
 .workspace-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 56px;
+  height: 62px;
   border-bottom: 1px solid var(--vdw-rule);
 }
 
 .workspace-toolbar > div {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 11px;
 }
 
 .workspace-toolbar h1 {
   margin: 0;
-  font: 700 20px var(--vdw-title);
+  font: 700 22px var(--vdw-title);
   letter-spacing: -0.02em;
 }
 
 .workspace-toolbar span {
   color: var(--vdw-muted);
-  font: 12px var(--vdw-mono);
+  font: 13px var(--vdw-mono);
 }
 
 .workspace-toolbar :deep(.el-button) {
@@ -415,18 +415,18 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 .video-action-lane {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 13px;
   justify-content: flex-start;
-  height: 44px;
-  padding: 0 8px;
+  height: 48px;
+  padding: 0 9px;
   color: var(--vdw-muted);
-  font-size: 13px;
+  font-size: 14px;
   border-bottom: 1px solid var(--vdw-rule);
 }
 
 .video-action-lane > div {
   display: flex;
-  gap: 6px;
+  gap: 7px;
   margin-left: auto;
 }
 
@@ -436,7 +436,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 }
 
 .video-ledger {
-  margin-top: 8px;
+  margin-top: 9px;
   background: white;
   border: 1px solid var(--vdw-rule);
 }
@@ -447,17 +447,17 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .ledger-row {
   display: grid;
-  grid-template-columns: 30px 54px minmax(220px, 1.35fr) 72px 126px 98px 84px minmax(190px, 1fr) 224px;
-  gap: 8px;
+  grid-template-columns: 33px 59px minmax(242px, 1.35fr) 79px 139px 108px 92px minmax(209px, 1fr) 246px;
+  gap: 9px;
   align-items: center;
-  min-width: 1120px;
-  padding: 0 8px;
+  min-width: 1232px;
+  padding: 0 9px;
 }
 
 .ledger-head {
-  height: 29px;
+  height: 32px;
   color: var(--vdw-muted);
-  font-size: 10px;
+  font-size: 11px;
   background: #f5f7f9;
   border-bottom: 1px solid var(--vdw-rule);
 }
@@ -504,7 +504,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 }
 
 .selection-cell :deep(.el-checkbox) {
-  height: 20px;
+  height: 22px;
 }
 
 .enabled-cell :deep(.el-switch) {
@@ -513,7 +513,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .readonly-enabled {
   color: var(--vdw-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .readonly-enabled[data-enabled='false'] {
@@ -522,16 +522,16 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .media-identity {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 79px minmax(0, 1fr);
+  gap: 9px;
   align-items: center;
   min-width: 0;
 }
 
 .thumbnail {
   position: relative;
-  width: 72px;
-  height: 42px;
+  width: 79px;
+  height: 46px;
   overflow: hidden;
   background: linear-gradient(135deg, #1f2c38, #344556);
 }
@@ -548,7 +548,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   bottom: 2px;
   padding: 1px 2px;
   color: #c9fff0;
-  font: 7px var(--vdw-mono);
+  font: 9px var(--vdw-mono);
   background: rgb(13 23 32 / 72%);
 }
 
@@ -562,43 +562,43 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .media-identity strong {
   margin-bottom: 3px;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .media-identity p {
   margin: 0;
   color: var(--vdw-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .source-mark {
   width: fit-content;
   padding: 2px 4px;
   color: #315d78;
-  font: 9px var(--vdw-mono);
+  font: 11px var(--vdw-mono);
   border: 1px solid #a8bfcd;
 }
 
 .media-spec {
   display: grid;
   gap: 2px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .media-spec small {
   color: var(--vdw-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .frame-count {
-  font: 11px var(--vdw-mono);
+  font: 12px var(--vdw-mono);
 }
 
 .status-mark {
   width: fit-content;
   padding: 2px 5px;
   color: var(--vdw-muted);
-  font-size: 10px;
+  font-size: 11px;
   border: 1px solid #c8d0d7;
 }
 
@@ -615,7 +615,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 .status-info {
   overflow: hidden;
   color: #53616d;
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -632,7 +632,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   min-width: 0;
   color: #284c5f;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   background: #fff;
   border: 0;
   border-right: 1px solid #d7dde2;
@@ -662,41 +662,41 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 42px;
-  padding: 4px 8px 4px 12px;
+  min-height: 46px;
+  padding: 4px 9px 4px 13px;
   border-top: 1px solid var(--vdw-rule);
 }
 
 .ledger-footer label {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   color: var(--vdw-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ledger-footer select {
-  height: 26px;
-  padding: 0 22px 0 7px;
+  height: 29px;
+  padding: 0 24px 0 8px;
   color: var(--vdw-ink);
   background: white;
   border: 1px solid #bfc8d0;
 }
 
 .empty-state {
-  padding: 48px 24px;
+  padding: 53px 26px;
   text-align: center;
 }
 
 .empty-state h2 {
   margin: 0 0 7px;
-  font: 700 20px var(--vdw-title);
+  font: 700 22px var(--vdw-title);
 }
 
 .empty-state p {
   margin: 0 0 16px;
   color: var(--vdw-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 video {
@@ -723,11 +723,11 @@ video {
   .project-rail nav {
     display: flex;
     align-items: center;
-    padding: 8px;
+    padding: 9px;
   }
 
   .project-rail nav a {
-    padding: 8px 10px;
+    padding: 9px 11px;
     border-bottom: 2px solid transparent;
     border-left: 0;
   }
@@ -739,11 +739,11 @@ video {
   .project-capacity {
     grid-column: 1 / -1;
     margin-top: 0;
-    padding: 7px 14px;
+    padding: 8px 15px;
   }
 
   .workspace {
-    padding: 0 8px 16px;
+    padding: 0 9px 18px;
   }
 }
 </style>

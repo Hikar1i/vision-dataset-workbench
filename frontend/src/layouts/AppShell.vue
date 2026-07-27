@@ -26,6 +26,7 @@ const collapsed = ref(
 const mobileOpen = ref(false)
 const taskCenterOpen = ref(false)
 const taskCenterUnread = ref(false)
+type UserMenuCommand = 'account' | 'admin' | 'logout'
 
 const shortcuts = computed(() =>
   resolveProjectShortcuts(
@@ -65,6 +66,16 @@ async function signOut() {
   await router.replace('/login')
 }
 
+async function handleUserMenu(command: UserMenuCommand) {
+  if (command === 'account') {
+    await router.push('/account')
+  } else if (command === 'admin') {
+    await router.push('/admin/users')
+  } else {
+    await signOut()
+  }
+}
+
 function taskSettled() {
   window.dispatchEvent(new Event('vdm:tasks-settled'))
 }
@@ -92,12 +103,16 @@ onMounted(async () => {
       @click="mobileOpen = false"
     />
     <aside class="app-sidebar">
-      <RouterLink class="app-brand" data-test="brand" to="/projects">VDM</RouterLink>
+      <RouterLink class="app-brand" data-test="brand" to="/projects">
+        <span class="app-sidebar-icon">VDM</span>
+      </RouterLink>
       <nav class="app-nav" aria-label="主导航">
         <div class="app-nav-group">
           <RouterLink data-test="nav-projects" title="数据集项目" to="/projects">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5" /></svg>
-            <span>数据集项目</span>
+            <span class="app-sidebar-icon">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5" /></svg>
+            </span>
+            <span class="app-sidebar-label">数据集项目</span>
           </RouterLink>
           <button
             data-test="project-group-toggle"
@@ -108,14 +123,16 @@ onMounted(async () => {
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5" /></svg>
           </button>
         </div>
-        <div v-if="projectGroupOpen && !collapsed" class="app-nav-children">
-          <RouterLink
-            v-for="project in shortcuts"
-            :key="project.id"
-            data-test="recent-project"
-            :to="`/projects/${project.id}/videos`"
-          >{{ project.name }}</RouterLink>
-        </div>
+        <Transition name="sidebar-list">
+          <div v-if="projectGroupOpen && !collapsed" class="app-nav-children">
+            <RouterLink
+              v-for="project in shortcuts"
+              :key="project.id"
+              data-test="recent-project"
+              :to="`/projects/${project.id}/videos`"
+            >{{ project.name }}</RouterLink>
+          </div>
+        </Transition>
       </nav>
       <footer class="app-sidebar-footer">
         <RouterLink
@@ -124,12 +141,14 @@ onMounted(async () => {
           title="用户管理"
           to="/admin/users"
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM5 21a7 7 0 0 1 14 0" /></svg>
-          <span>用户管理</span>
+          <span class="app-sidebar-icon">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM5 21a7 7 0 0 1 14 0" /></svg>
+          </span>
+          <span class="app-sidebar-label">用户管理</span>
         </RouterLink>
         <div class="app-sidebar-user" :title="user?.username">
-          <b>{{ user?.username.slice(0, 1).toUpperCase() }}</b>
-          <span>{{ user?.username }}</span>
+          <span class="app-sidebar-icon"><b>{{ user?.username.slice(0, 1).toUpperCase() }}</b></span>
+          <span class="app-sidebar-label">{{ user?.username }}</span>
         </div>
       </footer>
     </aside>
@@ -145,16 +164,30 @@ onMounted(async () => {
         <button class="task-center-trigger" data-test="task-center" type="button" @click="taskCenterOpen = true">
           任务中心<span v-if="taskCenterUnread" class="notification-dot" aria-label="有已完成任务" />
         </button>
-        <details class="user-menu">
-          <summary>{{ user?.username }}</summary>
-          <RouterLink to="/account">账号设置</RouterLink>
-          <RouterLink v-if="user?.is_system_admin" to="/admin/users">系统管理</RouterLink>
-          <button type="button" @click="signOut">退出登录</button>
-        </details>
+        <el-dropdown
+          class="user-menu"
+          trigger="click"
+          placement="bottom-end"
+          @command="handleUserMenu"
+        >
+          <button class="user-menu-trigger" data-test="user-menu" type="button">
+            <span>{{ user?.username }}</span>
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5" /></svg>
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="account">账号设置</el-dropdown-item>
+              <el-dropdown-item v-if="user?.is_system_admin" command="admin">系统管理</el-dropdown-item>
+              <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </header>
       <main class="app-content">
         <RouterView v-slot="{ Component }">
-          <component :is="Component" @project-loaded="projectLoaded" />
+          <Transition name="page-fade" mode="out-in">
+            <component :is="Component" @project-loaded="projectLoaded" />
+          </Transition>
         </RouterView>
       </main>
     </section>

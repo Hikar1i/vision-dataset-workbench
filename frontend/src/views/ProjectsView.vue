@@ -153,7 +153,7 @@ onMounted(() => load())
 .section-code,
 .project-identity code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.1em;
 }
 
@@ -182,14 +182,14 @@ onMounted(() => load())
 .create-panel {
   display: grid;
   grid-template-columns: minmax(180px, 0.55fr) minmax(280px, 1fr);
-  gap: 40px;
-  padding: 28px;
+  gap: 44px;
+  padding: 31px;
 }
 
 .create-panel header {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 13px;
 }
 
 .create-panel form > .el-button {
@@ -199,21 +199,21 @@ onMounted(() => load())
 .index-row {
   display: grid;
   grid-template-columns: minmax(280px, 2fr) 100px 140px 130px 60px;
-  gap: 20px;
+  gap: 22px;
   align-items: center;
-  min-width: 780px;
+  min-width: 858px;
 }
 
 .index-header {
-  padding: 12px 20px;
+  padding: 13px 22px;
   color: #687482;
-  font-size: 12px;
+  font-size: 13px;
   background: #f8fafc;
   border-bottom: 1px solid #d8dee6;
 }
 
 .project-row {
-  padding: 18px 20px;
+  padding: 20px 22px;
   border-bottom: 1px solid #e6eaf0;
 }
 
@@ -224,7 +224,7 @@ onMounted(() => load())
 .project-identity {
   display: grid;
   grid-template-columns: 78px minmax(0, 1fr);
-  gap: 16px;
+  gap: 18px;
   align-items: center;
 }
 
@@ -239,17 +239,17 @@ onMounted(() => load())
 
 .project-identity p {
   overflow: hidden;
-  font-size: 13px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .role-mark {
   width: fit-content;
-  padding: 4px 7px;
+  padding: 4px 8px;
   color: #3f4c59;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   border: 1px solid #cbd3dd;
 }
 
@@ -261,17 +261,17 @@ onMounted(() => load())
 .project-row time,
 .project-row > span {
   color: #687482;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .empty-state {
-  padding: 72px 32px;
+  padding: 79px 35px;
   text-align: center;
 }
 
 .empty-state h2 {
   margin: 16px 0 8px;
-  font-size: 28px;
+  font-size: 31px;
 }
 
 .empty-state .el-button {
@@ -280,7 +280,7 @@ onMounted(() => load())
 
 .el-pagination {
   justify-content: flex-end;
-  padding: 20px;
+  padding: 22px;
   border-top: 1px solid #d8dee6;
 }
 

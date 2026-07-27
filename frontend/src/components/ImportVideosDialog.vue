@@ -90,10 +90,10 @@ watch(tab, () => {
 
 <template>
   <el-dialog
+    append-to-body
     :model-value="modelValue"
     title="导入视频"
     width="min(860px, calc(100vw - 32px))"
-    :teleported="false"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <el-tabs v-model="tab">
@@ -162,24 +162,24 @@ watch(tab, () => {
 
 <style scoped>
 .instruction {
-  margin: 0 0 14px;
+  margin: 0 0 15px;
   color: #687482;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .el-tab-pane > .el-button {
   width: 100%;
-  margin-top: 12px;
+  margin-top: 13px;
 }
 
 .remote-entry {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 10px;
+  gap: 11px;
 }
 
 .candidate-panel {
-  margin-top: 18px;
+  margin-top: 20px;
   border: 1px solid #d8dee6;
 }
 
@@ -187,28 +187,28 @@ watch(tab, () => {
 .candidate {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 13px;
 }
 
 .candidate-panel > header {
   justify-content: space-between;
-  padding: 11px 14px;
+  padding: 12px 15px;
   background: #f8fafc;
   border-bottom: 1px solid #d8dee6;
 }
 
 .candidate-panel > header span {
   color: #687482;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .el-checkbox-group {
-  max-height: 260px;
+  max-height: 286px;
   overflow: auto;
 }
 
 .candidate {
-  padding: 10px 14px;
+  padding: 11px 15px;
   border-bottom: 1px solid #edf0f4;
 }
 

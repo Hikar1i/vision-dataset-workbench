@@ -166,7 +166,7 @@ async function initialize() {
 .setup-context {
   display: flex;
   flex-direction: column;
-  padding: clamp(32px, 6vw, 72px);
+  padding: clamp(35px, 6vw, 79px);
   color: #f6f9fc;
   background: var(--ink);
 }
@@ -175,33 +175,33 @@ async function initialize() {
 .step-label,
 .path-preview span {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.1em;
 }
 
 .eyebrow {
-  margin: 0 0 56px;
+  margin: 0 0 62px;
   color: #76dfc2;
 }
 
 .setup-context h1 {
-  max-width: 360px;
+  max-width: 396px;
   margin: 0;
-  font-size: clamp(36px, 5vw, 64px);
+  font-size: clamp(40px, 5vw, 70px);
   line-height: 0.98;
   letter-spacing: -0.05em;
 }
 
 .context-copy {
-  max-width: 420px;
-  margin: 28px 0 48px;
+  max-width: 462px;
+  margin: 31px 0 53px;
   color: #b8c3ce;
   line-height: 1.7;
 }
 
 .steps {
   display: grid;
-  gap: 8px;
+  gap: 9px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -209,16 +209,16 @@ async function initialize() {
 
 .steps li {
   display: flex;
-  gap: 16px;
+  gap: 18px;
   align-items: center;
-  padding: 12px 0;
+  padding: 13px 0;
   color: #7f8d9b;
   border-bottom: 1px solid #2d3945;
 }
 
 .steps li span {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .steps li.active,
@@ -232,9 +232,9 @@ async function initialize() {
 
 .path-preview {
   display: grid;
-  gap: 10px;
+  gap: 11px;
   margin-top: auto;
-  padding-top: 48px;
+  padding-top: 53px;
 }
 
 .path-preview span {
@@ -247,16 +247,16 @@ async function initialize() {
 }
 
 .setup-panel {
-  width: min(920px, calc(100% - 48px));
+  width: min(1012px, calc(100% - 53px));
   margin: auto;
-  padding: clamp(32px, 6vw, 72px) 0;
+  padding: clamp(35px, 6vw, 79px) 0;
 }
 
 .setup-panel > header {
   display: grid;
-  gap: 8px;
-  margin-bottom: 48px;
-  padding-bottom: 20px;
+  gap: 9px;
+  margin-bottom: 53px;
+  padding-bottom: 22px;
   color: var(--ink);
   border-bottom: 1px solid var(--line);
 }
@@ -267,8 +267,8 @@ async function initialize() {
 
 .form-section {
   display: grid;
-  gap: 24px;
-  max-width: 560px;
+  gap: 26px;
+  max-width: 616px;
 }
 
 .form-section.wide {
@@ -278,7 +278,7 @@ async function initialize() {
 h2 {
   margin: 0 0 8px;
   color: var(--ink);
-  font-size: 24px;
+  font-size: 26px;
   letter-spacing: -0.02em;
 }
 
@@ -289,20 +289,20 @@ h2 {
 }
 
 .admin-heading {
-  margin-top: 20px;
+  margin-top: 22px;
 }
 
 .password-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 18px;
 }
 
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  padding-top: 20px;
+  gap: 13px;
+  padding-top: 22px;
   border-top: 1px solid var(--line);
 }
 
@@ -313,7 +313,7 @@ h2 {
 
   .setup-context {
     min-height: auto;
-    padding: 28px 24px;
+    padding: 31px 26px;
   }
 
   .eyebrow,
@@ -323,16 +323,16 @@ h2 {
   }
 
   .setup-context h1 {
-    font-size: 34px;
+    font-size: 37px;
   }
 
   .path-preview {
-    padding-top: 24px;
+    padding-top: 26px;
   }
 
   .setup-panel {
-    width: min(100% - 32px, 920px);
-    padding: 32px 0;
+    width: min(100% - 35px, 1012px);
+    padding: 35px 0;
   }
 
   .password-grid {

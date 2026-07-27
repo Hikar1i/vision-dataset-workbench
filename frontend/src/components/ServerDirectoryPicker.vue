@@ -77,7 +77,7 @@ onMounted(() => load(props.modelValue || '.'))
       </span>
     </header>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
-    <el-table :data="items" height="280">
+    <el-table :data="items" height="308">
       <el-table-column prop="name" label="目录">
         <template #default="scope">
           <el-button link :data-path="scope.row.path" @click="load(scope.row.path)">
@@ -98,7 +98,7 @@ onMounted(() => load(props.modelValue || '.'))
       <el-button data-test="new-directory" @click="creating = true">新建目录</el-button>
       <span>已选择：{{ displayPath }}</span>
     </footer>
-    <el-dialog v-model="creating" title="新建目录" width="420px" :teleported="false">
+    <el-dialog v-model="creating" append-to-body title="新建目录" width="462px">
       <el-input
         v-model="name"
         data-test="directory-name"
@@ -120,7 +120,7 @@ footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 18px;
   margin-block: 12px;
 }
 </style>

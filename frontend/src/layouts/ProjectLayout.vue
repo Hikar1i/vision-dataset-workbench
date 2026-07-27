@@ -47,12 +47,14 @@ watch(() => route.params.id, load, { immediate: true })
     <div v-if="loading" class="state-panel">正在加载项目…</div>
     <div v-else-if="error" class="state-panel state-panel--error">{{ error }}</div>
     <RouterView v-else-if="project" v-slot="{ Component }">
-      <component
-        :is="Component"
-        :key="project.id"
-        :project="project"
-        @project-updated="setProject"
-      />
+      <Transition name="page-fade" mode="out-in">
+        <component
+          :is="Component"
+          :key="String(route.name)"
+          :project="project"
+          @project-updated="setProject"
+        />
+      </Transition>
     </RouterView>
   </section>
 </template>
@@ -69,9 +71,9 @@ watch(() => route.params.id, load, { immediate: true })
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 18px;
   height: var(--vdm-project-context-height);
-  padding: 0 16px;
+  padding: 0 18px;
   background: white;
   border-bottom: 1px solid var(--vdw-rule);
 }
@@ -80,25 +82,25 @@ watch(() => route.params.id, load, { immediate: true })
 .project-context nav {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 13px;
   min-width: 0;
   white-space: nowrap;
 }
 
 .project-context-identity code {
   color: var(--vdw-teal);
-  font: 11px var(--vdw-mono);
+  font: 12px var(--vdw-mono);
 }
 
 .project-context-identity strong {
   overflow: hidden;
-  font-size: 14px;
+  font-size: 15px;
   text-overflow: ellipsis;
 }
 
 .project-context-identity span {
   color: var(--vdw-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .project-context nav {
@@ -109,7 +111,7 @@ watch(() => route.params.id, load, { immediate: true })
   display: grid;
   place-items: center;
   color: var(--vdw-muted);
-  font-size: 13px;
+  font-size: 14px;
   text-decoration: none;
   border-bottom: 2px solid transparent;
 }

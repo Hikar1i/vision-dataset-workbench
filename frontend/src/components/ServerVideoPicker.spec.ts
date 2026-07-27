@@ -1,10 +1,13 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ServerVideoPicker from './ServerVideoPicker.vue'
 
 beforeEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  document.body.innerHTML = ''
+})
 
 describe('ServerVideoPicker', () => {
   it('browses directories, selects video files and creates a directory', async () => {
@@ -44,8 +47,9 @@ describe('ServerVideoPicker', () => {
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['one.mp4'])
 
     await wrapper.get('[data-test="new-directory"]').trigger('click')
-    await wrapper.get('[data-test="directory-name"]').setValue('new')
-    await wrapper.get('[data-test="create-directory"]').trigger('click')
+    const overlay = new DOMWrapper(document.body)
+    await overlay.get('[data-test="directory-name"]').setValue('new')
+    await overlay.get('[data-test="create-directory"]').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/filesystem/directories',
