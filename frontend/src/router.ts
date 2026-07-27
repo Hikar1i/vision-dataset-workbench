@@ -3,9 +3,11 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { ApiError, getAuthStatus, getCurrentUser } from './api/auth'
 import { getSetupStatus } from './api/setup'
 import AppShell from './layouts/AppShell.vue'
+import FocusLayout from './layouts/FocusLayout.vue'
 import ProjectLayout from './layouts/ProjectLayout.vue'
 import LoginView from './views/LoginView.vue'
 import AccountView from './views/AccountView.vue'
+import AnnotationWorkbenchView from './views/AnnotationWorkbenchView.vue'
 import AdminUsersView from './views/AdminUsersView.vue'
 import ProjectsView from './views/ProjectsView.vue'
 import ProjectSettingsView from './views/ProjectSettingsView.vue'
@@ -67,6 +69,18 @@ export function createAppRouter() {
             path: 'admin/users',
             component: AdminUsersView,
             meta: { section: '系统管理', page: '用户管理' },
+          },
+        ],
+      },
+      {
+        path: '/projects/:id/videos/:videoId/annotation',
+        component: FocusLayout,
+        children: [
+          {
+            path: '',
+            name: 'video-annotation',
+            component: AnnotationWorkbenchView,
+            meta: { section: '数据集项目', page: '在线标注' },
           },
         ],
       },

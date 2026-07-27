@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { ApiError } from '../api/auth'
 import {
@@ -19,6 +20,7 @@ import SamplingDialog from '../components/SamplingDialog.vue'
 import { videoStatusInfo } from './videoStatus'
 
 const props = defineProps<{ project: Project }>()
+const router = useRouter()
 const projectId = props.project.id
 const videos = ref<Video[]>([])
 const page = ref(1)
@@ -127,6 +129,11 @@ function imported(batch: ImportBatch) {
 function configure(videoIds: string[]) {
   samplingVideoIds.value = videoIds
   samplingOpen.value = true
+}
+
+function openAnnotation(video: Video) {
+  if (!canEdit.value || !video.sampling?.extracted_frames) return
+  void router.push(`/projects/${projectId}/videos/${video.id}/annotation`)
 }
 
 function samplingSubmitted() {
@@ -298,11 +305,17 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
                 >抽帧</button>
                 <span v-else />
                 <button
+                  :data-test="`annotate-${video.id}`"
+                  type="button"
+                  :disabled="!canEdit || !video.sampling?.extracted_frames"
+                  @click="openAnnotation(video)"
+                >标注</button>
+                <button
                   :data-test="`frames-${video.id}`"
                   type="button"
                   :disabled="!video.sampling?.extracted_frames"
                   @click="frameVideo = video"
-                >帧</button>
+                >筛帧</button>
               </div>
             </article>
           </div>
@@ -447,10 +460,10 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .ledger-row {
   display: grid;
-  grid-template-columns: 33px 59px minmax(242px, 1.35fr) 79px 139px 108px 92px minmax(209px, 1fr) 246px;
+  grid-template-columns: 33px 59px minmax(242px, 1.35fr) 79px 139px 108px 92px minmax(209px, 1fr) 306px;
   gap: 9px;
   align-items: center;
-  min-width: 1232px;
+  min-width: 1292px;
   padding: 0 9px;
 }
 
@@ -622,7 +635,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .row-actions {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   height: var(--vdm-control-height);
   border: 1px solid #cbd3da;
 }

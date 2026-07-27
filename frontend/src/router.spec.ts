@@ -75,4 +75,38 @@ describe('setup routing', () => {
     await router.isReady()
     expect(router.currentRoute.value.path).toBe('/projects')
   })
+
+  it('renders annotation in the focus layout without the application sidebar', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => {
+        if (path.includes('/setup/')) {
+          return Promise.resolve({ ok: true, json: async () => ({ initialized: true }) })
+        }
+        if (path.includes('/auth/status')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ mode: 'multi', registration_enabled: false }),
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'editor-id',
+            username: 'editor',
+            status: 'active',
+            is_system_admin: false,
+          }),
+        })
+      }),
+    )
+    const router = createAppRouter()
+    await router.push('/projects/project-id/videos/video-id/annotation')
+    await router.isReady()
+    const wrapper = mount(App, { global: { plugins: [router] } })
+    await flushPromises()
+
+    expect(wrapper.find('.focus-layout').exists()).toBe(true)
+    expect(wrapper.find('.app-shell').exists()).toBe(false)
+  })
 })

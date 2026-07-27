@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectVideosView from './ProjectVideosView.vue'
 
+const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: routerPush }) }))
+
 const project = {
   id: 'project-id',
   name: '缺陷视频',
@@ -42,7 +45,10 @@ const video = {
   latest_task: null,
 }
 
-beforeEach(() => vi.restoreAllMocks())
+beforeEach(() => {
+  vi.restoreAllMocks()
+  routerPush.mockReset()
+})
 afterEach(() => {
   document.body.innerHTML = ''
 })
@@ -82,6 +88,8 @@ describe('ProjectVideosView', () => {
     expect(wrapper.find('[data-test="enabled-video-id"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="frames-video-id"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="frames-video-id"]').text()).toBe('筛帧')
+    expect(wrapper.get('[data-test="annotate-video-id"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-test="download-video-id"]').exists()).toBe(false)
 
     await wrapper.get('[data-test="play-video-id"]').trigger('click')
@@ -111,6 +119,10 @@ describe('ProjectVideosView', () => {
     expect(wrapper.find('[data-test="select-video-id"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="extract-video-id"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="annotate-video-id"]').attributes('disabled')).toBeUndefined()
+
+    await wrapper.get('[data-test="annotate-video-id"]').trigger('click')
+    expect(routerPush).toHaveBeenCalledWith('/projects/project-id/videos/video-id/annotation')
   })
 
   it('selects the current page and requests the explicit all page size', async () => {
@@ -191,7 +203,7 @@ describe('ProjectVideosView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('视频已停用，不参与标注与导出')
-    for (const action of ['play', 'configure', 'extract', 'frames']) {
+    for (const action of ['play', 'configure', 'extract', 'annotate', 'frames']) {
       expect(wrapper.get(`[data-test="${action}-video-id"]`).attributes('disabled')).toBeUndefined()
     }
   })
