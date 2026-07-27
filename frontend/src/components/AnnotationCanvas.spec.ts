@@ -1,0 +1,83 @@
+import { mount } from '@vue/test-utils'
+import { defineComponent } from 'vue'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+
+import type { FrameAnnotation } from '../api/annotations'
+import AnnotationCanvas from './AnnotationCanvas.vue'
+
+const VRectStub = defineComponent({
+  props: ['config'],
+  template: '<div class="rect-stub" />',
+})
+const SlotStub = defineComponent({ template: '<div><slot /></div>' })
+const stubs = {
+  'v-stage': SlotStub,
+  'v-layer': SlotStub,
+  'v-group': SlotStub,
+  'v-image': true,
+  'v-rect': VRectStub,
+  'v-transformer': true,
+  'v-line': true,
+}
+const annotations: FrameAnnotation[] = [
+  {
+    id: 'helmet-box',
+    label_id: 'helmet',
+    x_min: 10,
+    y_min: 20,
+    x_max: 110,
+    y_max: 220,
+    source: 'manual',
+    confidence: null,
+  },
+  {
+    id: 'person-box',
+    label_id: 'person',
+    x_min: 200,
+    y_min: 100,
+    x_max: 300,
+    y_max: 400,
+    source: 'manual',
+    confidence: null,
+  },
+]
+
+beforeAll(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+})
+
+describe('AnnotationCanvas', () => {
+  it('omits hidden categories and disables dragging when read only', () => {
+    const wrapper = mount(AnnotationCanvas, {
+      props: {
+        imageUrl: '/frame.jpg',
+        imageWidth: 1920,
+        imageHeight: 1080,
+        annotations,
+        labels: [
+          { id: 'helmet', name: 'helmet', color: '#16866f' },
+          { id: 'person', name: 'person', color: '#e85d4a' },
+        ],
+        selectedId: null,
+        mode: 'select',
+        readonly: true,
+        hiddenLabelIds: ['person'],
+      },
+      global: { stubs },
+    })
+
+    const boxes = wrapper.findAllComponents(VRectStub)
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0]!.props('config')).toMatchObject({
+      name: 'annotation-helmet-box',
+      draggable: false,
+      stroke: '#16866f',
+    })
+  })
+})
