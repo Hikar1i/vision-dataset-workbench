@@ -20,11 +20,13 @@ router = APIRouter(prefix="/api/v1/projects/{project_id}/labels", tags=["labels"
 
 class CreateLabelRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
+    description_zh: str = Field(default="", max_length=64)
     color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class UpdateLabelRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
+    description_zh: str | None = Field(default=None, max_length=64)
     color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
     enabled: bool | None = None
     version: int = Field(ge=1)
@@ -37,6 +39,7 @@ class ReorderLabelsRequest(BaseModel):
 class LabelResponse(BaseModel):
     id: str
     name: str
+    description_zh: str
     color: str
     sort_order: int
     enabled: bool
@@ -56,6 +59,7 @@ def _label_response(label: ProjectLabel) -> LabelResponse:
     return LabelResponse(
         id=label.id,
         name=label.name,
+        description_zh=label.description_zh,
         color=label.color,
         sort_order=label.sort_order,
         enabled=label.enabled,
@@ -98,7 +102,11 @@ def create_label(
     require_same_origin(request)
     try:
         label = label_service(request).create_label(
-            user, project_id, payload.name, payload.color
+            user,
+            project_id,
+            payload.name,
+            payload.description_zh,
+            payload.color,
         )
     except (InvalidLabel, LabelConflict, ProjectNotFound, ProjectForbidden) as exc:
         _raise_http_error(exc)
@@ -138,6 +146,7 @@ def update_label(
             label_id,
             LabelChanges(
                 name=payload.name,
+                description_zh=payload.description_zh,
                 color=payload.color,
                 enabled=payload.enabled,
             ),

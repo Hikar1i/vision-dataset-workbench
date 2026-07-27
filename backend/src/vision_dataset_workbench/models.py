@@ -111,6 +111,7 @@ class ProjectLabel(Base):
     )
     name: Mapped[str] = mapped_column(String(64))
     name_normalized: Mapped[str] = mapped_column(String(64))
+    description_zh: Mapped[str] = mapped_column(String(64), default="")
     color: Mapped[str] = mapped_column(String(7))
     sort_order: Mapped[int] = mapped_column(Integer)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)

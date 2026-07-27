@@ -471,3 +471,78 @@ def test_authentication_migration_backfills_existing_administrator(tmp_path, mon
         inspect(engine).get_table_names()
     )
     engine.dispose()
+
+
+def test_label_description_migration_backfills_existing_labels(tmp_path, monkeypatch):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    database_path.parent.mkdir(parents=True)
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    monkeypatch.setenv(
+        "VDW_DATABASE_URL", database_url(database_path).render_as_string(hide_password=False)
+    )
+    command.upgrade(config, "0007_labels")
+    engine = make_engine(database_path)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            INSERT INTO users
+                (id, username, username_normalized, password_hash, status,
+                 is_system_admin, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "owner-id",
+                "owner",
+                "owner",
+                "hash",
+                "active",
+                False,
+                "2026-07-27 00:00:00.000000",
+                "2026-07-27 00:00:00.000000",
+            ),
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO projects
+                (id, name, description, creator_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "project-id",
+                "project",
+                "",
+                "owner-id",
+                "2026-07-27 00:00:00.000000",
+                "2026-07-27 00:00:00.000000",
+            ),
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO labels
+                (id, project_id, name, name_normalized, color, sort_order,
+                 enabled, version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "label-id",
+                "project-id",
+                "helmet",
+                "helmet",
+                "#16866f",
+                0,
+                True,
+                1,
+                "2026-07-27 00:00:00.000000",
+                "2026-07-27 00:00:00.000000",
+            ),
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        label = session.get(ProjectLabel, "label-id")
+    assert label is not None
+    assert label.description_zh == ""
+    engine.dispose()

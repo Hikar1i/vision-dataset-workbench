@@ -62,11 +62,11 @@ def add_member(client, project_id, username, role):
     )
 
 
-def create_label(client, project_id, name, color="#16866f"):
+def create_label(client, project_id, name, color="#16866f", description_zh=""):
     return client.post(
         f"/api/v1/projects/{project_id}/labels",
         headers=ORIGIN,
-        json={"name": name, "color": color},
+        json={"name": name, "color": color, "description_zh": description_zh},
     )
 
 
@@ -80,10 +80,11 @@ def test_owner_and_editor_manage_labels_while_viewer_is_read_only(tmp_path):
     assert add_member(owner, project_id, "editor", "editor").status_code == 201
     assert add_member(owner, project_id, "viewer", "viewer").status_code == 201
 
-    helmet = create_label(owner, project_id, " Helmet ").json()
+    helmet = create_label(owner, project_id, " Helmet ", description_zh=" 安全帽 ").json()
     person = create_label(editor, project_id, "person", "#17212b").json()
 
     assert helmet["name"] == "helmet"
+    assert helmet["description_zh"] == "安全帽"
     assert [item["name"] for item in viewer.get(
         f"/api/v1/projects/{project_id}/labels"
     ).json()] == ["helmet", "person"]
@@ -98,6 +99,19 @@ def test_owner_and_editor_manage_labels_while_viewer_is_read_only(tmp_path):
     assert disabled.status_code == 200
     assert disabled.json()["enabled"] is False
     assert disabled.json()["version"] == 2
+
+    described = editor.patch(
+        f"/api/v1/projects/{project_id}/labels/{helmet['id']}",
+        headers=ORIGIN,
+        json={"description_zh": "防护头盔", "version": disabled.json()["version"]},
+    )
+    assert described.status_code == 200
+    assert described.json()["description_zh"] == "防护头盔"
+    assert viewer.patch(
+        f"/api/v1/projects/{project_id}/labels/{helmet['id']}",
+        headers=ORIGIN,
+        json={"description_zh": "禁止修改", "version": described.json()["version"]},
+    ).status_code == 403
 
     reordered = owner.put(
         f"/api/v1/projects/{project_id}/labels/order",
@@ -124,6 +138,9 @@ def test_label_validation_conflicts_and_order_membership(tmp_path):
     assert create_label(owner, project_id, "HELMET").status_code == 409
     assert create_label(owner, project_id, "安全帽").status_code == 422
     assert create_label(owner, project_id, "dog", "green").status_code == 422
+    assert create_label(
+        owner, project_id, "dog", description_zh="说明" * 33
+    ).status_code == 422
 
     changed = owner.patch(
         f"/api/v1/projects/{project_id}/labels/{helmet['id']}",

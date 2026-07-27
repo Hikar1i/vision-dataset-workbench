@@ -27,6 +27,7 @@ class InvalidLabel(ValueError):
 @dataclass(frozen=True)
 class LabelChanges:
     name: str | None = None
+    description_zh: str | None = None
     color: str | None = None
     enabled: bool | None = None
 
@@ -55,6 +56,13 @@ def _label_color(value: str) -> str:
     return normalized
 
 
+def _label_description_zh(value: str) -> str:
+    description = value.strip()
+    if len(description) > 64:
+        raise InvalidLabel("label Chinese description must not exceed 64 characters")
+    return description
+
+
 class LabelService:
     def __init__(self, engine: Engine, projects: ProjectService):
         self.projects = projects
@@ -72,10 +80,16 @@ class LabelService:
             )
 
     def create_label(
-        self, actor: User, project_id: str, name: str, color: str
+        self,
+        actor: User,
+        project_id: str,
+        name: str,
+        description_zh: str,
+        color: str,
     ) -> ProjectLabel:
         self._require_write(actor, project_id)
         clean_name = _label_name(name)
+        clean_description_zh = _label_description_zh(description_zh)
         clean_color = _label_color(color)
         now = _utc_now()
         with self._session_factory() as database:
@@ -89,6 +103,7 @@ class LabelService:
                 project_id=project_id,
                 name=clean_name,
                 name_normalized=clean_name,
+                description_zh=clean_description_zh,
                 color=clean_color,
                 sort_order=0 if last_order is None else last_order + 1,
                 enabled=True,
@@ -118,6 +133,8 @@ class LabelService:
         if changes.name is not None:
             clean_name = _label_name(changes.name)
             values.update(name=clean_name, name_normalized=clean_name)
+        if changes.description_zh is not None:
+            values["description_zh"] = _label_description_zh(changes.description_zh)
         if changes.color is not None:
             values["color"] = _label_color(changes.color)
         if changes.enabled is not None:
