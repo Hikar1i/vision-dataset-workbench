@@ -16,6 +16,7 @@ from vision_dataset_workbench.database import (
 from vision_dataset_workbench.models import (
     AuthSession,
     Frame,
+    FrameAnnotation,
     Project,
     ProjectLabel,
     ProjectMembership,
@@ -42,6 +43,7 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         "tasks",
         "sampling_plans",
         "frames",
+        "annotations",
     }.issubset(
         inspect(engine).get_table_names()
     )
@@ -545,4 +547,118 @@ def test_label_description_migration_backfills_existing_labels(tmp_path, monkeyp
         label = session.get(ProjectLabel, "label-id")
     assert label is not None
     assert label.description_zh == ""
+    engine.dispose()
+
+
+def test_annotation_migration_backfills_frames_and_cascades(tmp_path, monkeypatch):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    database_path.parent.mkdir(parents=True)
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    monkeypatch.setenv(
+        "VDW_DATABASE_URL", database_url(database_path).render_as_string(hide_password=False)
+    )
+    command.upgrade(config, "0008_label_description_zh")
+    engine = make_engine(database_path)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            INSERT INTO users
+                (id, username, username_normalized, password_hash, status,
+                 is_system_admin, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "owner-id", "owner", "owner", "hash", "active", False,
+                "2026-07-27 00:00:00.000000", "2026-07-27 00:00:00.000000",
+            ),
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO projects
+                (id, name, description, creator_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "project-id", "project", "", "owner-id",
+                "2026-07-27 00:00:00.000000", "2026-07-27 00:00:00.000000",
+            ),
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO videos
+                (id, project_id, source_type, title, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "video-id", "project-id", "local", "video", "ready",
+                "2026-07-27 00:00:00.000000", "2026-07-27 00:00:00.000000",
+            ),
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO frames
+                (id, video_id, generation, sequence, source_frame_index,
+                 time_offset, file_path, enabled, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "frame-id", "video-id", 1, 1, 0, 0,
+                "projects/project-id/frames/video-id/000001.jpg", True,
+                "2026-07-27 00:00:00.000000",
+            ),
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO labels
+                (id, project_id, name, name_normalized, description_zh, color,
+                 sort_order, enabled, version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "label-id", "project-id", "helmet", "helmet", "安全帽",
+                "#16866f", 0, True, 1,
+                "2026-07-27 00:00:00.000000", "2026-07-27 00:00:00.000000",
+            ),
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        frame = session.get(Frame, "frame-id")
+        assert frame is not None
+        assert frame.annotation_revision == 1
+        session.add(
+            FrameAnnotation(
+                id="annotation-id",
+                frame_id="frame-id",
+                label_id="label-id",
+                x_min=10,
+                y_min=20,
+                x_max=110,
+                y_max=220,
+                source="manual",
+            )
+        )
+        session.commit()
+        session.delete(frame)
+        session.commit()
+        assert session.get(FrameAnnotation, "annotation-id") is None
+
+    with Session(engine) as session:
+        session.add(
+            FrameAnnotation(
+                id="invalid-annotation",
+                frame_id="missing-frame",
+                label_id="label-id",
+                x_min=20,
+                y_min=20,
+                x_max=10,
+                y_max=30,
+                source="unknown",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
     engine.dispose()

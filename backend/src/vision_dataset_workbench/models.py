@@ -242,6 +242,37 @@ class Frame(Base):
     time_offset: Mapped[float] = mapped_column(Float)
     file_path: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    annotation_revision: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class FrameAnnotation(Base):
+    __tablename__ = "annotations"
+    __table_args__ = (
+        CheckConstraint(
+            "x_min >= 0 AND y_min >= 0 AND x_max > x_min AND y_max > y_min",
+            name="ck_annotations_bounds",
+        ),
+        CheckConstraint(
+            "source IN ('manual', 'model')", name="ck_annotations_source"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    frame_id: Mapped[str] = mapped_column(
+        ForeignKey("frames.id", ondelete="CASCADE"), index=True
+    )
+    label_id: Mapped[str] = mapped_column(
+        ForeignKey("labels.id", ondelete="RESTRICT"), index=True
+    )
+    x_min: Mapped[int] = mapped_column(Integer)
+    y_min: Mapped[int] = mapped_column(Integer)
+    x_max: Mapped[int] = mapped_column(Integer)
+    y_max: Mapped[int] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(String(16))
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
