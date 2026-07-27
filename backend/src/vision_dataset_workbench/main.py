@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from .api.auth import router as auth_router
 from .api.filesystem import router as filesystem_router
+from .api.labels import router as labels_router
 from .api.media import global_task_router, router as media_router
 from .api.projects import router as projects_router
 from .api.registrations import router as registrations_router
@@ -10,6 +11,7 @@ from .api.setup import router as setup_router
 from .config import RuntimeSettings
 from .services.auth import build_auth_service
 from .services.media import MediaService
+from .services.labels import LabelService
 from .services.projects import ProjectService
 from .services.sampling import SamplingService
 from .services.setup import SetupService
@@ -46,6 +48,11 @@ def create_app(
         if auth_service is not None and workspace is not None
         else None
     )
+    app.state.label_service = (
+        LabelService(auth_service.engine, app.state.project_service)
+        if auth_service is not None and app.state.project_service is not None
+        else None
+    )
     app.state.media_service = (
         MediaService(auth_service.engine, resolved_settings, workspace)
         if auth_service is not None and workspace is not None
@@ -63,6 +70,7 @@ def create_app(
     app.include_router(filesystem_router)
     app.include_router(registrations_router)
     app.include_router(projects_router)
+    app.include_router(labels_router)
     app.include_router(global_task_router)
     app.include_router(media_router)
     app.include_router(sampling_router)

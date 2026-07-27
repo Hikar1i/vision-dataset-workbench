@@ -17,6 +17,7 @@ from vision_dataset_workbench.models import (
     AuthSession,
     Frame,
     Project,
+    ProjectLabel,
     ProjectMembership,
     SamplingPlan,
     Task,
@@ -35,6 +36,7 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         "users",
         "sessions",
         "projects",
+        "labels",
         "project_memberships",
         "videos",
         "tasks",
@@ -131,6 +133,74 @@ def test_projects_allow_duplicate_names_and_memberships_are_unique(tmp_path):
         )
         with pytest.raises(IntegrityError):
             session.commit()
+    engine.dispose()
+
+
+def test_labels_are_unique_per_project_and_follow_project_lifecycle(tmp_path):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    create_workspace_database(database_path)
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        session.add(
+            User(
+                id="owner-id",
+                username="owner",
+                username_normalized="owner",
+                password_hash="hash",
+            )
+        )
+        session.flush()
+        session.add_all(
+            [
+                Project(id="project-1", name="one", creator_id="owner-id"),
+                Project(id="project-2", name="two", creator_id="owner-id"),
+            ]
+        )
+        session.flush()
+        session.add_all(
+            [
+                ProjectLabel(
+                    id="label-1",
+                    project_id="project-1",
+                    name="helmet",
+                    name_normalized="helmet",
+                    color="#16866f",
+                    sort_order=0,
+                ),
+                ProjectLabel(
+                    id="label-2",
+                    project_id="project-2",
+                    name="helmet",
+                    name_normalized="helmet",
+                    color="#17212b",
+                    sort_order=0,
+                ),
+            ]
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            ProjectLabel(
+                project_id="project-1",
+                name="Helmet",
+                name_normalized="helmet",
+                color="#78d2b8",
+                sort_order=1,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+    with Session(engine) as session:
+        project = session.get(Project, "project-1")
+        assert project is not None
+        session.delete(project)
+        session.commit()
+        assert session.scalars(
+            select(ProjectLabel).where(ProjectLabel.project_id == "project-1")
+        ).all() == []
+        assert session.get(ProjectLabel, "label-2") is not None
     engine.dispose()
 
 

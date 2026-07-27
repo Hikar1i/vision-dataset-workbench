@@ -93,6 +93,36 @@ class ProjectMembership(Base):
     )
 
 
+class ProjectLabel(Base):
+    __tablename__ = "labels"
+    __table_args__ = (
+        Index(
+            "uq_labels_project_name",
+            "project_id",
+            "name_normalized",
+            unique=True,
+        ),
+        CheckConstraint("sort_order >= 0", name="ck_labels_sort_order"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(64))
+    name_normalized: Mapped[str] = mapped_column(String(64))
+    color: Mapped[str] = mapped_column(String(7))
+    sort_order: Mapped[int] = mapped_column(Integer)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class Video(Base):
     __tablename__ = "videos"
     __table_args__ = (
