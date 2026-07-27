@@ -1,6 +1,6 @@
 # API
 
-状态：`/api/v1` 初始化、认证、用户、项目、项目标签、运行能力、文件浏览、视频导入、任务、采样方案和帧接口已实现；标注记录和导出仍为批准设计。
+状态：`/api/v1` 初始化、认证、用户、项目、项目标签、运行能力、文件浏览、视频导入、任务、采样方案、帧、矩形标注、推理模型和自动标注接口已实现；导出仍为批准设计。
 
 ## 当前接口
 
@@ -33,7 +33,7 @@
 | `PATCH /api/v1/projects/{id}/labels/{label_id}` | owner/editor + 同源 | 按 `version` 修改名称、中文描述、颜色或启用状态 |
 | `PUT /api/v1/projects/{id}/labels/order` | owner/editor + 同源 | 原子提交项目全部标签 ID 的新顺序 |
 | `DELETE /api/v1/projects/{id}/labels/{label_id}` | owner/editor + 同源 | 删除未使用标签，返回 204 |
-| `GET /api/v1/filesystem` | Session | 按 `kind=directory/video` 浏览 `~` 内目录和视频 |
+| `GET /api/v1/filesystem` | Session | 按 `kind=directory/video/model` 浏览 `~` 内目录和受支持文件 |
 | `POST /api/v1/filesystem/directories` | Session + 同源 | 在 `~` 边界内新建目录 |
 | `GET /api/v1/projects/{id}/videos` | 项目成员 | 分页读取视频、采样摘要和各视频最新任务；`page_size` 最大 999 |
 | `PUT /api/v1/projects/{id}/videos/{video_id}/enabled` | owner/editor + 同源 | 按 `version` 修改视频整体启用状态 |
@@ -54,6 +54,12 @@
 | `GET /api/v1/projects/{id}/videos/{video_id}/frames` | 项目成员 | 分页读取帧；可用 `enabled=true/false` 过滤 |
 | `GET /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/image` | 项目成员 | 读取受管 JPG/PNG 帧图片 |
 | `PUT /api/v1/projects/{id}/videos/{video_id}/frames/enabled` | owner/editor + 同源 | 按帧 ID 或全部帧批量启停，校验 `frame_revision` |
+| `GET /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/annotations` | 项目成员 | 读取整帧矩形标注及 `annotation_revision` |
+| `PUT /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/annotations` | owner/editor + 同源 | 按修订号整体替换当前帧标注 |
+| `GET /api/v1/models` | Session | 返回工作区内推理模型及入库状态 |
+| `POST /api/v1/projects/{id}/models` | 系统管理员 + 项目访问 + 同源 | 登记 `~` 内 YOLO 文件或 GroundingDINO 目录并创建入库任务 |
+| `POST /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/auto-annotations` | owner/editor + 同源 | 同步运行单张推理并返回未保存草稿 |
+| `POST /api/v1/projects/{id}/videos/{video_id}/auto-annotations` | owner/editor + 同源 | 创建批量自动标注任务，返回 202 |
 
 目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接，并从列表隐藏当前工作区。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户、项目和任务列表最大页大小 200，视频列表最大页大小 999，帧列表保持自身接口约束。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
 
@@ -79,16 +85,26 @@
 | 批量启停采样帧 | 是 | 是 | 否 |
 | 查看项目标签 | 是 | 是 | 是 |
 | 新增、修改、排序、启停和删除未使用标签 | 是 | 是 | 否 |
+| 读取已有矩形标注 | 是 | 是 | 是 |
+| 进入在线标注工作台并保存标注 | 是 | 是 | 否 |
+| 运行单张或批量自动标注 | 是 | 是 | 否 |
+| 登记全局推理模型 | 仅系统管理员 | 仅系统管理员 | 否 |
 
-viewer 已可查看、播放和下载原始视频，查看任务、采样方案和采样帧图片；不能添加或导入视频、启停视频整体、改变采样策略、重新采样或启停帧。标注和导出实现后仍需允许 viewer 查看标注框和下载已有导出产物，但不得标注、管理任务或创建新导出。
+viewer 已可查看、播放和下载原始视频，查看任务、采样方案、采样帧图片和标注数据；不能添加或导入视频、启停视频整体、改变采样策略、重新采样、启停帧或写入标注。为简化交互，视频列表的“标注”入口对 viewer 禁用；读取标注 API 保留，以支持后续只读展示。导出实现后仍需允许 viewer 下载已有产物，但不得创建新导出。
 
-标签名称由服务端转为小写并压缩空白，只允许英文字母、数字、空格、连字符和下划线；项目内不区分大小写唯一。`description_zh` 为最长 64 字符的可选显示说明，不作为 YOLO 类别或 DINO 提示词。批量排序请求必须恰好包含项目当前全部标签 ID，否则返回 422。标签重名和过期版本返回 409。内部标签身份使用 UUID，排序变化不修改未来标注关联。
+标签名称由服务端转为小写并压缩空白，只允许英文字母、数字、空格、连字符和下划线；项目内不区分大小写唯一。`description_zh` 为最长 64 字符的可选显示说明，不作为 YOLO 类别或 DINO 提示词。批量排序请求必须恰好包含项目当前全部标签 ID，否则返回 422。标签重名、过期版本以及删除已被标注引用的标签返回 409。内部标签身份使用 UUID，排序变化不修改标注关联。
 
-能力接口在后端进程启动时探测一次。`gpu` 返回设备序号、名称和总显存；`pytorch_cuda`、`onnx_cuda` 以及 `features.manual_annotation/yolo_auto_annotation/grounding_dino_auto_annotation/model_training` 分别返回 `available` 和可空 `reason`。探测失败只降级功能，不影响应用启动；模型文件是否已导入不属于该接口。
+能力接口在后端进程启动时探测一次。`gpu` 返回设备序号、名称和总显存；`pytorch_cuda`、`onnx_cuda` 以及 `features.manual_annotation/yolo_auto_annotation/grounding_dino_auto_annotation/model_training` 分别返回 `available` 和可空 `reason`。YOLO 能力要求 PyTorch CUDA 与 Ultralytics；GroundingDINO 能力要求 PyTorch CUDA 与 Transformers。探测失败只降级功能，不影响应用启动；具体模型是否已入库不属于该接口。
+
+矩形标注坐标使用原图像素整数，必须位于图片边界内，单帧最多 10000 项。客户端只在切换帧或关闭标注工作台时提交整帧草稿；`annotation_revision` 过期返回 409。浏览器意外刷新、崩溃或断电不会后台频繁保存，页面只通过 `beforeunload` 警告未保存修改。
+
+单张自动标注在 API 同步线程池运行，只返回可编辑草稿，不修改当前标注；同一模型的进程内推理使用互斥锁，避免并发复用模型对象。`categories` 接受项目英文标签或临时英文类别，`All` 表示使用模型可提供的全部类别；只有实际检出的缺失类别会加入项目标签。批量接口拒绝停用视频，并把 Worker 开始执行时启用的帧作为处理范围；`overwrite=false` 追加模型框，`overwrite=true` 覆盖整帧已有框，两种模式都不改变帧启停状态。批量任务活动期间该视频标注写接口返回 409，前端进入只读并轮询任务状态；失败或取消保留此前已成功提交的帧。
+
+模型入库只允许系统管理员发起。YOLO 接受模型文件，GroundingDINO 接受本地 Transformers 模型目录；Worker 复制到 `models/<model UUID>/` 后将状态置为 `ready`。`ready` 只表示受管副本已发布，权重格式与运行库兼容性在首次推理时最终验证。`import_model` 和 `auto_annotate` 任务不开放通用重试接口，用户需重新发起以确认参数和范围。
 
 全局任务接口按项目可见性过滤，按任务创建时间倒序返回。每项在普通任务字段之外包含 `project_id`、`project_name` 和 `can_manage`；viewer 的 `can_manage=false`。分页响应的 `latest_terminal_at` 在全部可见任务中计算，不受当前页限制，用于浏览器任务中心判断 succeeded、failed 或 canceled 任务是否未读。取消和重试仍使用项目级写接口，权限检查不在全局查询中复制。
 
-视频列表每项包含 `enabled`、可空 `sampling` 和可空 `latest_task`。采样摘要包含 `updated_at`，前端据此判断失败任务是否已被后续资源修改覆盖。各视频最新任务由服务端一次批量查询取得，列表请求不会逐视频查询。`PUT .../enabled` 请求体为 `{"enabled": false, "version": 2}`；版本过期返回 409，viewer 返回 403。视频停用只控制未来标注、自动标注和导出的参与资格，不禁止播放、采样配置、抽帧或帧管理。
+视频列表每项包含 `enabled`、可空 `sampling` 和可空 `latest_task`。采样摘要包含 `updated_at`，前端据此判断失败任务是否已被后续资源修改覆盖。各视频最新任务由服务端一次批量查询取得，列表请求不会逐视频查询。`PUT .../enabled` 请求体为 `{"enabled": false, "version": 2}`；版本过期返回 409，viewer 返回 403。视频停用只控制未来自动标注和导出的参与资格，不禁止播放、采样配置、抽帧、筛帧或手动标注。
 
 单个项目最多 999 个视频。批量导入容量不足时，剩余容量内条目进入 `accepted`，超出部分进入 `rejected` 并给出容量原因；前端按钮禁用不是最终约束，数据库触发器仍会拒绝并发产生的第 1000 条记录。
 

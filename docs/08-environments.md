@@ -1,6 +1,6 @@
 # 环境与启动
 
-状态：后端、前端、首次初始化、认证模式、GPU 能力检测，以及视频导入/抽帧 Worker 可在开发环境运行；正式部署启动器尚未实现。
+状态：后端、前端、首次初始化、认证模式、GPU 能力检测，以及视频导入、抽帧、模型入库和自动标注可在开发环境运行；正式部署启动器尚未实现。
 
 ## 当前可执行操作
 
@@ -16,10 +16,12 @@ GPU 服务器安装可选模型运行依赖：
 ```bash
 cd backend
 uv sync --python 3.12 --dev --extra gpu
-uv run python -c "import torch, onnxruntime as ort; print(torch.cuda.is_available()); print(ort.get_available_providers())"
+uv run python -c "import torch, onnxruntime as ort, transformers, ultralytics; print(torch.cuda.is_available()); print(ort.get_available_providers()); print(transformers.__version__, ultralytics.__version__)"
 ```
 
-当前锁定组合为 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8、ONNX Runtime GPU 1.26.x 和 Ultralytics 8.4.x。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)、[PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)和 [ONNX Runtime CUDA Provider](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)。
+当前锁定组合为 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8、ONNX Runtime GPU 1.26.x、Transformers 4.57.x 和 Ultralytics 8.4.x。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)、[PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)和 [ONNX Runtime CUDA Provider](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)。
+
+自动标注时 API 和 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理。管理员可登记 `.pt`/`.onnx` YOLO 文件或本地 GroundingDINO Transformers 模型目录；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理时验证。
 
 安装与启动前端：
 
@@ -126,7 +128,7 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 | Media | FFmpeg/ffprobe/yt-dlp 路径与限制 |
 | Web | 绑定地址、前端来源和 Cookie 安全属性 |
 | Auth | 运行模式、注册开关和 Session 生命周期 |
-| GPU | 已实现硬件/运行时能力检测；每 GPU 任务数和模型调度尚未实现 |
+| GPU | 已实现硬件/运行时能力检测、单模型进程内互斥和批量任务并发限制；设备选择、显存感知调度和尚未实现的训练调度后续补充 |
 
 本地示例配置只能包含无敏感默认值；真实密钥通过未提交文件或密钥管理服务注入。
 

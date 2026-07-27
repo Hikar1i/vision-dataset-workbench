@@ -1,10 +1,10 @@
 # 架构
 
-状态：总体设计已批准，初始化、认证、项目权限、视频导入、采样、抽帧、帧筛选、项目标签和 GPU 能力检测已实现。
+状态：总体设计已批准，初始化、认证、项目权限、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、模型入库和自动标注已实现。
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、七版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、GPU 能力探测和独立 Worker。标注记录、模型推理、训练和导出仍是目标设计。因此本页区分：
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型推理、GPU 能力探测和独立 Worker。训练和导出仍是目标设计。因此本页区分：
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -27,25 +27,32 @@ Vue setup/auth/admin/project/media pages
   │    └─ owner/editor writes + viewer reads
   ├─ /api/v1/capabilities → startup-cached capability probe
   │    ├─ nvidia-smi device inventory
-  │    └─ PyTorch CUDA / ONNX CUDA / Ultralytics readiness
+  │    └─ PyTorch CUDA / ONNX CUDA / Ultralytics / Transformers readiness
   ├─ /api/v1/filesystem → HomePathResolver
   ├─ /api/v1/projects/<id>/videos|imports|tasks → MediaService
        ├─ SQLite Video / Task state
        ├─ authenticated playback, Range and download
        └─ workspace/projects/<project UUID>
-  └─ /api/v1/projects/<id>/sampling-plans|extractions|frames → SamplingService
+  ├─ /api/v1/projects/<id>/sampling-plans|extractions|frames → SamplingService
        ├─ predictable sampling calculation + plan versioning
        ├─ stable Frame records + revision-protected filtering
        └─ authenticated frame image delivery
+  ├─ /api/v1/.../frames/<id>/annotations → AnnotationService
+  │    └─ original-pixel rectangles + annotation revision
+  └─ /api/v1/models|auto-annotations → ModelService / AutoAnnotationService
+       ├─ synchronous single-frame review draft
+       └─ persistent batch task creation
 
 Independent Python Worker
   ├─ SQLite lease / progress / cancel / retry
   ├─ local copy + SHA-256 + ffprobe + FFmpeg thumbnail
   ├─ yt-dlp HTTP(S) download + remote identity deduplication
-  └─ FFmpeg frame extraction + atomic generation replacement
+  ├─ FFmpeg frame extraction + atomic generation replacement
+  ├─ inference model copy + atomic publication
+  └─ per-frame batch auto annotation + progress/status publication
 ```
 
-API 请求只负责校验和映射，工作区创建、认证状态流转、项目授权、标签、媒体和采样命令由应用服务编排。视频导入与抽帧请求只创建持久任务并立即返回；复制、下载、媒体探测和抽帧在独立 Worker 中执行。帧文件先写任务临时目录，成功后按视频原子替换。审计表、标注记录、模型任务和导出尚未实现。
+API 请求负责校验、权限和应用服务编排。视频导入、抽帧、模型入库和批量自动标注只创建持久任务并立即返回；复制、下载、媒体探测、抽帧、模型复制和批量推理在独立 Worker 中执行。单张自动标注是为交互复核保留的例外：在 API 同步线程池中运行并只返回草稿，不直接改写标注。帧文件和模型先写任务临时目录，验证后原子发布。审计表、训练和导出尚未实现。
 
 ## 遗留架构基线
 
@@ -81,7 +88,7 @@ FastAPI Application
   ├─ 初始化、身份、注册审批与项目权限
   ├─ 请求校验与响应映射
   └─ 应用服务编排
-       ├─ Project / Video / Frame / AnnotationBatch / Export
+       ├─ Project / Video / Frame / Annotation / InferenceModel / Export
        ├─ SQLAlchemy services（当前）
        ├─ Storage Gateway
        └─ Task Gateway
@@ -91,7 +98,7 @@ FastAPI Application
 SQLite             Persistent Worker
                        ├─ yt-dlp
                        ├─ FFmpeg / ffprobe
-                       ├─ 标注批次物化/同步
+                       ├─ 模型入库与批量自动标注
                        └─ 数据集导出
               │
               ▼
@@ -101,7 +108,7 @@ SQLite             Persistent Worker
 ### 前端职责
 
 - 路由页面只组织用户流程，不直接实现业务算法。
-- 项目、媒体、帧、任务、标注批次和导出使用独立的功能模块。
+- 项目、媒体、帧、标注、模型、任务和导出使用独立的功能模块。
 - 服务端状态是任务与资源的事实来源；页面本地状态只保存交互状态和可丢弃缓存。
 - 批量操作提交服务端任务，不在浏览器中制造 O(视频数 × 帧数) 的请求瀑布。
 - UI 追求高信息密度、清晰层级和键鼠高效操作，具体设计系统在前端实现前确认。
@@ -135,7 +142,7 @@ SQLite             Persistent Worker
 
 复制或下载失败记录在 Task，视频保留为 `pending` 供重试；文件确实不可用时预留 `unavailable`。采样不再改变视频生命周期：每个视频最多一个 SamplingPlan；方案版本未应用为 `configured`，当前版本已抽出帧为 `sampled`。帧启停保存于稳定 Frame 记录，并用 `frame_revision` 防止并发覆盖。
 
-任务状态与业务状态分离。复制、下载和抽帧使用 queued、running、succeeded、failed、canceled；任务记录包含类型、提交者、资源范围、进度、尝试次数、错误、取消标记、租约和时间。标注同步和导出后续复用该状态模型。
+任务状态与业务状态分离。复制、下载、抽帧、模型入库和批量自动标注使用 queued、running、succeeded、failed、canceled；任务记录包含类型、提交者、资源范围、进度、尝试次数、错误、取消标记、租约和时间。批量自动标注要求视频启用，并按 Worker 开始执行时启用的帧集合逐帧提交；失败或取消时保留已成功帧。导出后续复用该状态模型。
 
 ## 一致性原则
 
@@ -156,19 +163,21 @@ SQLite             Persistent Worker
 - 项目媒体位于 `projects/<project UUID>/videos/`，缩略图位于 `projects/<project UUID>/thumbnails/`，采样帧位于 `projects/<project UUID>/frames/<video UUID>/`；执行中输出位于顶层 `tmp/<task UUID>/`，验证后原子发布。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
 - Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
-- Python 核心依赖不包含模型运行库；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、Ultralytics 和 ONNX Runtime GPU。
+- Python 核心依赖不包含模型运行库；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、Ultralytics、Transformers 和 ONNX Runtime GPU。
 - 只支持单机本地磁盘，不支持跨服务器 Worker 或网络文件系统上的 SQLite。
 
-当前及后续项目目录约定：
+当前及后续工作区目录约定：
 
 ```text
 projects/<project UUID>/
 ├─ videos/                         # 已实现：受管原始视频
 ├─ thumbnails/                     # 已实现：视频缩略图
 ├─ frames/<video UUID>/            # 已实现：当前一代规范采样帧
-├─ labels/<video UUID>/            # 计划：规范标签
-├─ annotation-batches/<batch UUID>/ # 计划：自动标注任务帧快照
+├─ labels/<video UUID>/            # 计划：导出前的规范标签文件；在线标注当前存入 SQLite
+├─ annotation-batches/<batch UUID>/ # 逻辑概念：当前批量任务直接按 Frame 记录处理，不物化固定分组目录
 └─ exports/<export UUID>/           # 计划：不可变数据集导出
+
+models/<model UUID>/                # 已实现：受管推理模型文件或 Transformers 目录
 ```
 
 遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应后续 `exports/<export UUID>/`；遗留 `groups/` 不作为普通数据目录照搬，而对应后续自动标注任务的帧快照/分片概念。新系统直接调用 YOLO、GroundingDINO 等模型并由任务调度器动态分片，不依赖 X-AnyLabeling 或固定分组目录。
@@ -176,7 +185,6 @@ projects/<project UUID>/
 ## 延期架构
 
 - 图片数据集能力在视频重构后实现，不直接移植遗留分支路由。
-- 在线标注下一阶段先实现手动矩形框和标注记录。
-- 自动标注直接调用 Ultralytics YOLO 和 GroundingDINO；X-AnyLabeling 只作为旧实现参考。
-- 内置自动标注由 Worker 动态切分 Frame，不依赖外部 AnnotationBatch 目录。
+- 在线标注已实现手动矩形框，以及 Ultralytics YOLO 和 Transformers GroundingDINO 自动标注；不依赖 X-AnyLabeling。
+- 批量自动标注由 Worker 按任务启动时的启用 Frame 集合处理，不依赖外部 AnnotationBatch 目录。
 - 不预建任意模型或训练脚本插件框架。

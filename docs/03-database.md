@@ -1,6 +1,6 @@
 # 数据库
 
-状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案和帧迁移已实现；标注记录和导出 schema 仍为批准设计。
+状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注和推理模型迁移已实现；导出 schema 仍为批准设计。
 
 ## 数据库选型
 
@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述并为已有标签回填空字符串。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述，`0009_annotations` 增加矩形标注和帧标注修订号，`0010_inference_models` 增加推理模型并扩展任务类型。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -73,7 +73,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | `enabled` | 是否允许新增该类别标注；停用不删除未来历史标注 |
 | `version` / 时间字段 | 乐观并发版本和创建、更新时间 |
 
-内部标注将关联标签 UUID，不持久化 YOLO 数字类别编号。当前标注记录表尚未实现，因此现阶段所有标签都属于“未被使用”并可删除；标注表落地时必须增加已引用标签拒删测试。
+内部标注关联标签 UUID，不持久化 YOLO 数字类别编号。已被任意矩形标注引用的标签受外键限制，删除接口返回 409；未使用标签仍可删除并自动压缩后续映射顺序。
 
 `videos` 表保存受管原始视频：
 
@@ -92,7 +92,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 
 本地重复内容和远程重复身份通过 SQLite partial unique index 约束。每个项目最多保存 999 条 Video：导入服务先检查剩余容量并返回逐项 accepted/rejected，SQLite `trg_videos_project_limit` 插入触发器处理多用户并发越过前置检查的竞争场景。复制/下载成功前视频保持 `pending`；Worker 验证文件与元数据后才写入受管路径并切换为 `ready`。
 
-视频 `enabled` 与媒体 `status` 相互独立。停用不删除文件、不取消任务，也不阻止播放、采样配置、抽帧或帧管理；后续标注与导出实现必须显式过滤 `enabled = true`。备注和遗留自由文本 `status_info` 不进入新 schema，状态信息由任务、视频和采样方案结构化字段推导。
+视频 `enabled` 与媒体 `status` 相互独立。停用不删除文件、不取消任务，也不阻止播放、采样配置、抽帧、筛帧或手动/单张自动标注；停用视频不能新建批量自动标注任务，Worker 只处理开始执行时启用的帧，后续导出也必须显式过滤 `enabled = true`。备注和遗留自由文本 `status_info` 不进入新 schema，状态信息由任务、视频和采样方案结构化字段推导。
 
 `sampling_plans` 每个视频最多一行：
 
@@ -117,16 +117,42 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | `source_frame_index` / `time_offset` | 原视频帧位置和秒偏移 |
 | `file_path` | 工作区内相对图片路径 |
 | `enabled` | 帧是否进入后续流程 |
+| `annotation_revision` | 当前整帧标注版本；整帧替换时用于乐观并发 |
 | `created_at` | 当前代次发布时间 |
 
 重采样先在任务临时目录生成并验证全部文件，再替换 `frames/<video UUID>/` 并在同一数据库事务中重建 Frame 记录。失败、取消或方案版本改变时保留上一代目录和记录。
 
-`tasks` 表当前承载 `copy_video`、`download_video` 和 `extract_frames`：
+`annotations` 表保存当前帧的轴对齐矩形框：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `frame_id` / `label_id` | 标注 UUID、帧和项目标签关系；删帧级联，删已引用标签受限 |
+| `x_min` / `y_min` / `x_max` / `y_max` | 原始图片像素整数坐标，满足非负且最大值大于最小值 |
+| `source` | `manual` 或 `model` |
+| `confidence` | 模型标注可空置信度；手工标注为空 |
+| `created_at` | 当前标注创建时间 |
+
+客户端按整帧读取和替换标注；请求必须携带当前 `annotation_revision`。服务端校验所有标签属于同一项目、矩形在图片边界内且 ID 不重复，成功后整体替换并递增修订号。
+
+`inference_models` 表保存全局受管推理模型：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `name` / `kind` | 模型 UUID、显示名及 `yolo` 或 `grounding_dino` 类型 |
+| `status` | `copying`、`ready` 或 `failed`；ready 表示入库完成，首次推理仍会验证运行兼容性 |
+| `storage_path` / `source_name` | 工作区内受管路径及不含绝对路径的来源显示名 |
+| `created_by_id` | 登记模型的系统管理员 |
+| `error` | 入库失败的安全错误信息 |
+| 时间字段 | 创建和更新时间 |
+
+模型属于工作区而非单个数据集项目；项目级标签与推理时选择的英文提示词决定结果如何映射到具体项目。
+
+`tasks` 表当前承载 `copy_video`、`download_video`、`extract_frames`、`import_model` 和 `auto_annotate`：
 
 | 字段 | 约束/含义 |
 | --- | --- |
 | `id` / `project_id` / `submitted_by_id` / `video_id` | 任务、项目、提交者和目标视频关系 |
-| `type` | `copy_video`、`download_video` 或 `extract_frames` |
+| `type` | 视频复制/下载、抽帧、模型入库或批量自动标注 |
 | `status` | `queued`、`running`、`succeeded`、`failed` 或 `canceled` |
 | `payload` / `result` | JSON 文本；分别保存执行输入和最终摘要 |
 | `progress` / `error` / `cancel_requested` | 0–100 进度、安全错误文本和协作取消标记 |
@@ -134,7 +160,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | `lease_owner` / `lease_expires_at` | Worker 租约；过期的 running 任务可重新排队 |
 | 时间字段 | 创建、开始、结束和更新时间 |
 
-同一视频只允许一个 queued/running 任务。重试创建新 Task 并复用原 Video，保留失败或取消记录用于追踪。
+同一视频只允许一个 queued/running 任务。视频复制、下载和抽帧可通过重试接口创建新 Task 并保留原记录；模型入库和批量自动标注不提供通用重试按钮，需由用户重新发起以明确当次模型参数和帧范围。批量自动标注逐帧独立提交，失败或取消不会回滚此前成功帧。
 
 初始化服务先在目标父目录创建同文件系统临时目录，执行迁移并写入管理员，成功后原子重命名为 `.vision-dataset-workbench`。定位文件写入失败时会删除未发布工作区，口令保持可重试。
 
