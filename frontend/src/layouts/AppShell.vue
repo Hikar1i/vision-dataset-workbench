@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { ElNotification } from 'element-plus'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 import { getCurrentUser, logout, type CurrentUser } from '../api/auth'
+import { getCapabilities } from '../api/capabilities'
 import { listProjects, type Project } from '../api/projects'
 import TaskCenterDrawer from '../components/TaskCenterDrawer.vue'
 import {
@@ -27,6 +29,7 @@ const mobileOpen = ref(false)
 const taskCenterOpen = ref(false)
 const taskCenterUnread = ref(false)
 type UserMenuCommand = 'account' | 'admin' | 'logout'
+const capabilityNoticeKey = 'vdm.gpu-capability-notice-shown'
 
 const shortcuts = computed(() =>
   resolveProjectShortcuts(
@@ -80,10 +83,32 @@ function taskSettled() {
   window.dispatchEvent(new Event('vdm:tasks-settled'))
 }
 
+async function showCapabilityWarning() {
+  if (sessionStorage.getItem(capabilityNoticeKey)) return
+  try {
+    const capabilities = await getCapabilities()
+    const reason = capabilities.gpu.reason
+      ?? capabilities.features.yolo_auto_annotation.reason
+      ?? capabilities.features.grounding_dino_auto_annotation.reason
+      ?? capabilities.features.model_training.reason
+    if (!reason) return
+    sessionStorage.setItem(capabilityNoticeKey, 'true')
+    ElNotification.warning({
+      title: '部分 GPU 功能未启用',
+      message: reason,
+      duration: 0,
+      position: 'top-right',
+    })
+  } catch {
+    // 能力提示不应阻止主界面加载。
+  }
+}
+
 onMounted(async () => {
   const [currentUser, projects] = await Promise.all([getCurrentUser(), listProjects(1, 5)])
   user.value = currentUser
   fallbackProjects.value = projects.items
+  await showCapabilityWarning()
 })
 </script>
 

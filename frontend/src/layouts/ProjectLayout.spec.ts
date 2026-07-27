@@ -22,6 +22,7 @@ it('loads project context and renders only implemented tabs', async () => {
         component: ProjectLayout,
         children: [
           { path: 'videos', component: { template: '<div>videos</div>' } },
+          { path: 'labels', component: { template: '<div>labels</div>' } },
           { path: 'settings', component: { template: '<div>settings</div>' } },
         ],
       },
@@ -37,6 +38,8 @@ it('loads project context and renders only implemented tabs', async () => {
   expect(wrapper.get('[data-test="project-tab-videos"]').attributes('href')).toBe(
     '/projects/project-1/videos',
   )
-  expect(wrapper.text()).not.toContain('标签管理')
+  expect(wrapper.get('[data-test="project-tab-labels"]').attributes('href')).toBe(
+    '/projects/project-1/labels',
+  )
   expect(wrapper.text()).not.toContain('数据集管理')
 })

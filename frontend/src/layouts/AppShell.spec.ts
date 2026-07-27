@@ -1,9 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElNotification } from 'element-plus'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { logout } from '../api/auth'
+import { getCapabilities } from '../api/capabilities'
 import AppShell from './AppShell.vue'
 
 vi.mock('../api/auth', () => ({
@@ -26,6 +27,21 @@ vi.mock('../api/projects', () => ({
     page_size: 5,
   }),
 }))
+vi.mock('../api/capabilities', () => ({
+  getCapabilities: vi.fn(),
+}))
+
+const readyCapabilities = {
+  gpu: { available: true, reason: null, devices: [] },
+  pytorch_cuda: { available: true, reason: null },
+  onnx_cuda: { available: true, reason: null },
+  features: {
+    manual_annotation: { available: true, reason: null },
+    yolo_auto_annotation: { available: true, reason: null },
+    grounding_dino_auto_annotation: { available: true, reason: null },
+    model_training: { available: true, reason: null },
+  },
+}
 
 async function mountShell() {
   const router = createRouter({
@@ -61,6 +77,8 @@ describe('AppShell', () => {
   beforeEach(() => {
     vi.mocked(logout).mockClear()
     localStorage.clear()
+    sessionStorage.clear()
+    vi.mocked(getCapabilities).mockResolvedValue(readyCapabilities)
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
   })
 
@@ -110,5 +128,31 @@ describe('AppShell', () => {
     await flushPromises()
     expect(logout).toHaveBeenCalledOnce()
     expect(router.currentRoute.value.path).toBe('/login')
+  })
+
+  it('shows an unavailable GPU warning only once per browser session', async () => {
+    vi.mocked(getCapabilities).mockResolvedValue({
+      ...readyCapabilities,
+      gpu: {
+        available: false,
+        reason: '未检测到可用 NVIDIA GPU',
+        devices: [],
+      },
+    })
+    const warning = vi.spyOn(ElNotification, 'warning')
+
+    const first = await mountShell()
+    expect(warning).toHaveBeenCalledOnce()
+    expect(warning).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '部分 GPU 功能未启用',
+        message: '未检测到可用 NVIDIA GPU',
+      }),
+    )
+    first.wrapper.unmount()
+
+    const second = await mountShell()
+    expect(warning).toHaveBeenCalledOnce()
+    second.wrapper.unmount()
   })
 })

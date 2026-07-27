@@ -41,6 +41,7 @@ watch(() => route.params.id, load, { immediate: true })
       </div>
       <nav aria-label="项目页面">
         <RouterLink data-test="project-tab-videos" :to="`/projects/${project.id}/videos`">原始数据</RouterLink>
+        <RouterLink data-test="project-tab-labels" :to="`/projects/${project.id}/labels`">标签管理</RouterLink>
         <RouterLink data-test="project-tab-settings" :to="`/projects/${project.id}/settings`">项目设置</RouterLink>
       </nav>
     </header>
