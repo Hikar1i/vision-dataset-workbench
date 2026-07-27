@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from .api.annotations import router as annotations_router
+from .api.auto_annotations import router as auto_annotations_router
 from .api.auth import router as auth_router
 from .api.capabilities import router as capabilities_router
 from .api.filesystem import router as filesystem_router
@@ -15,6 +16,7 @@ from .capabilities import SystemCapabilities, detect_capabilities
 from .config import RuntimeSettings
 from .services.auth import build_auth_service
 from .services.annotations import AnnotationService
+from .services.auto_annotations import AutoAnnotationService
 from .services.media import MediaService
 from .services.models import ModelService
 from .services.labels import LabelService
@@ -78,6 +80,23 @@ def create_app(
         and app.state.project_service is not None
         else None
     )
+    app.state.auto_annotation_service = (
+        AutoAnnotationService(
+            auth_service.engine,
+            resolved_settings,
+            workspace,
+            app.state.project_service,
+            app.state.model_service,
+            app.state.label_service,
+            app.state.capabilities,
+        )
+        if auth_service is not None
+        and workspace is not None
+        and app.state.project_service is not None
+        and app.state.model_service is not None
+        and app.state.label_service is not None
+        else None
+    )
     app.state.media_service = (
         MediaService(auth_service.engine, resolved_settings, workspace)
         if auth_service is not None and workspace is not None
@@ -98,6 +117,7 @@ def create_app(
     app.include_router(projects_router)
     app.include_router(labels_router)
     app.include_router(annotations_router)
+    app.include_router(auto_annotations_router)
     app.include_router(models_router)
     app.include_router(global_task_router)
     app.include_router(media_router)

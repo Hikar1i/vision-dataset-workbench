@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 from ..services.auth import build_auth_service
 from ..services.annotations import AnnotationService
+from ..services.auto_annotations import AutoAnnotationService
 from ..services.labels import LabelService
 from ..services.media import MediaService
 from ..services.models import ModelService
@@ -120,6 +121,15 @@ def initialize(
         request.app.state.settings,
         workspace,
         request.app.state.project_service,
+    )
+    request.app.state.auto_annotation_service = AutoAnnotationService(
+        request.app.state.auth_service.engine,
+        request.app.state.settings,
+        workspace,
+        request.app.state.project_service,
+        request.app.state.model_service,
+        request.app.state.label_service,
+        request.app.state.capabilities,
     )
     request.app.state.media_service = MediaService(
         request.app.state.auth_service.engine,

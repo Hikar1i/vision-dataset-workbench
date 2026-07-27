@@ -40,7 +40,7 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _label_name(value: str) -> str:
+def normalize_label_name(value: str) -> str:
     normalized = " ".join(value.strip().lower().split())
     if not _NAME_PATTERN.fullmatch(normalized):
         raise InvalidLabel(
@@ -88,7 +88,7 @@ class LabelService:
         color: str,
     ) -> ProjectLabel:
         self._require_write(actor, project_id)
-        clean_name = _label_name(name)
+        clean_name = normalize_label_name(name)
         clean_description_zh = _label_description_zh(description_zh)
         clean_color = _label_color(color)
         now = _utc_now()
@@ -131,7 +131,7 @@ class LabelService:
         self._require_write(actor, project_id)
         values: dict[str, object] = {}
         if changes.name is not None:
-            clean_name = _label_name(changes.name)
+            clean_name = normalize_label_name(changes.name)
             values.update(name=clean_name, name_normalized=clean_name)
         if changes.description_zh is not None:
             values["description_zh"] = _label_description_zh(changes.description_zh)

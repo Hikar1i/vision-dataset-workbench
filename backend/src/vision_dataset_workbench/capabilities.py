@@ -117,6 +117,15 @@ def _detect_ultralytics(find_module: Callable[[str], object | None]) -> Capabili
     return CapabilityStatus(False, "未安装 Ultralytics 运行依赖")
 
 
+def _detect_transformers(find_module: Callable[[str], object | None]) -> CapabilityStatus:
+    try:
+        if find_module("transformers") is not None:
+            return CapabilityStatus(True)
+    except Exception:
+        return CapabilityStatus(False, "Transformers 依赖检测失败")
+    return CapabilityStatus(False, "未安装 Transformers 运行依赖")
+
+
 def detect_capabilities(
     *,
     run_command: Callable[[list[str]], str] = _run_nvidia_smi,
@@ -127,7 +136,9 @@ def detect_capabilities(
     pytorch_cuda = _detect_pytorch(load_module)
     onnx_cuda = _detect_onnx(load_module)
     ultralytics = _detect_ultralytics(find_module)
+    transformers = _detect_transformers(find_module)
     yolo = pytorch_cuda if not pytorch_cuda.available else ultralytics
+    grounding_dino = pytorch_cuda if not pytorch_cuda.available else transformers
     return SystemCapabilities(
         gpu=gpu,
         pytorch_cuda=pytorch_cuda,
@@ -135,7 +146,7 @@ def detect_capabilities(
         features=FeatureCapabilities(
             manual_annotation=CapabilityStatus(True),
             yolo_auto_annotation=yolo,
-            grounding_dino_auto_annotation=onnx_cuda,
+            grounding_dino_auto_annotation=grounding_dino,
             model_training=pytorch_cuda,
         ),
     )

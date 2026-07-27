@@ -16,6 +16,7 @@ gpu = [
   "onnxruntime-gpu>=1.26,<1.27",
   "torch==2.9.1",
   "torchvision==0.24.1",
+  "transformers>=4.57,<5",
   "ultralytics>=8.4.83,<9",
 ]
 
