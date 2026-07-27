@@ -1,12 +1,13 @@
 # API
 
-状态：`/api/v1` 初始化、认证、用户、项目、文件浏览、视频导入、任务、采样方案和帧接口已实现；标注和导出仍为批准设计。
+状态：`/api/v1` 初始化、认证、用户、项目、项目标签、运行能力、文件浏览、视频导入、任务、采样方案和帧接口已实现；标注记录和导出仍为批准设计。
 
 ## 当前接口
 
 | 方法与路径 | 认证 | 用途 |
 | --- | --- | --- |
 | `GET /api/v1/health` | 无 | 进程存活检查，返回 `{"status":"ok"}` |
+| `GET /api/v1/capabilities` | Session | 返回缓存的 GPU、PyTorch CUDA、ONNX CUDA 与功能能力 |
 | `GET /api/v1/setup/status` | 无 | 返回工作区是否已初始化 |
 | `GET /api/v1/setup/directories` | `X-Setup-Token` | 分页浏览启动用户 `~` 内目录 |
 | `POST /api/v1/setup/directories` | `X-Setup-Token` | 在受控父目录中新建目录 |
@@ -27,6 +28,11 @@
 | `POST /api/v1/projects/{id}/members` | owner + 同源 | 按用户名添加已有有效账号 |
 | `PATCH /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 在 editor/viewer 间切换角色 |
 | `DELETE /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 移除 editor/viewer，返回 204 |
+| `GET /api/v1/projects/{id}/labels` | 项目成员 | 按顺序返回项目全部标签，不分页 |
+| `POST /api/v1/projects/{id}/labels` | owner/editor + 同源 | 新增英文类别和颜色 |
+| `PATCH /api/v1/projects/{id}/labels/{label_id}` | owner/editor + 同源 | 按 `version` 修改名称、颜色或启用状态 |
+| `PUT /api/v1/projects/{id}/labels/order` | owner/editor + 同源 | 原子提交项目全部标签 ID 的新顺序 |
+| `DELETE /api/v1/projects/{id}/labels/{label_id}` | owner/editor + 同源 | 删除未使用标签，返回 204 |
 | `GET /api/v1/filesystem` | Session | 按 `kind=directory/video` 浏览 `~` 内目录和视频 |
 | `POST /api/v1/filesystem/directories` | Session + 同源 | 在 `~` 边界内新建目录 |
 | `GET /api/v1/projects/{id}/videos` | 项目成员 | 分页读取视频、采样摘要和各视频最新任务；`page_size` 最大 999 |
@@ -71,8 +77,14 @@
 | 查看和下载采样帧 | 是 | 是 | 是 |
 | 配置采样方案、创建抽帧任务 | 是 | 是 | 否 |
 | 批量启停采样帧 | 是 | 是 | 否 |
+| 查看项目标签 | 是 | 是 | 是 |
+| 新增、修改、排序、启停和删除未使用标签 | 是 | 是 | 否 |
 
 viewer 已可查看、播放和下载原始视频，查看任务、采样方案和采样帧图片；不能添加或导入视频、启停视频整体、改变采样策略、重新采样或启停帧。标注和导出实现后仍需允许 viewer 查看标注框和下载已有导出产物，但不得标注、管理任务或创建新导出。
+
+标签名称由服务端转为小写并压缩空白，只允许英文字母、数字、空格、连字符和下划线；项目内不区分大小写唯一。批量排序请求必须恰好包含项目当前全部标签 ID，否则返回 422。标签重名和过期版本返回 409。内部标签身份使用 UUID，排序变化不修改未来标注关联。
+
+能力接口在后端进程启动时探测一次。`gpu` 返回设备序号、名称和总显存；`pytorch_cuda`、`onnx_cuda` 以及 `features.manual_annotation/yolo_auto_annotation/grounding_dino_auto_annotation/model_training` 分别返回 `available` 和可空 `reason`。探测失败只降级功能，不影响应用启动；模型文件是否已导入不属于该接口。
 
 全局任务接口按项目可见性过滤，按任务创建时间倒序返回。每项在普通任务字段之外包含 `project_id`、`project_name` 和 `can_manage`；viewer 的 `can_manage=false`。分页响应的 `latest_terminal_at` 在全部可见任务中计算，不受当前页限制，用于浏览器任务中心判断 succeeded、failed 或 canceled 任务是否未读。取消和重试仍使用项目级写接口，权限检查不在全局查询中复制。
 

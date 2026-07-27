@@ -1,6 +1,6 @@
 # 数据库
 
-状态：工作区 SQLite、账号/会话、项目/成员、视频、任务、采样方案和帧迁移已实现；标注和导出 schema 仍为批准设计。
+状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案和帧迁移已实现；标注记录和导出 schema 仍为批准设计。
 
 ## 数据库选型
 
@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -60,6 +60,19 @@ SQLite 不保留时区偏移，当前认证表按 naive UTC 持久化，API 输�
 | `created_at` | 加入项目时间 |
 
 owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过成员接口转移、降级或移除。创建项目时同步创建空的 `projects/<project UUID>/` 目录；`videos/` 和 `thumbnails/` 由 Worker 首次发布对应文件时创建。当前尚无项目删除流程。
+
+`labels` 表保存项目级目标检测类别：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `project_id` | 标签 UUID 及所属项目；项目删除时级联删除 |
+| `name` / `name_normalized` | 1–64 位规范英文类别；项目内不区分大小写唯一 |
+| `color` | 六位十六进制标注框颜色 |
+| `sort_order` | 非负排序；导出 YOLO 时据此生成从 0 开始的类别编号 |
+| `enabled` | 是否允许新增该类别标注；停用不删除未来历史标注 |
+| `version` / 时间字段 | 乐观并发版本和创建、更新时间 |
+
+内部标注将关联标签 UUID，不持久化 YOLO 数字类别编号。当前标注记录表尚未实现，因此现阶段所有标签都属于“未被使用”并可删除；标注表落地时必须增加已引用标签拒删测试。
 
 `videos` 表保存受管原始视频：
 
@@ -181,6 +194,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | User / Session | 内置账号和服务端浏览器会话 |
 | Registration State | User 的 pending、active、rejected、disabled 状态 |
 | Project Membership | owner、editor、viewer 项目权限 |
+| Project Label | 英文类别名、颜色、顺序、启用状态和稳定 UUID |
 | Video Asset | 来源、稳定身份、媒体元数据、业务状态、启用状态 |
 | Frame Asset | 稳定帧身份、视频关系、序号/时间、文件引用、启用状态 |
 | Sampling Plan | 模式、输入参数、计算结果和版本 |
@@ -199,6 +213,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 - 任务领取需要支持原子竞争、租约过期和重试计数。
 - 媒体文件只在数据库保存受控存储根下的相对引用，不保存客户端提交的任意服务端绝对路径。
 - 帧启停绑定稳定 Frame 记录，不继续用目录位置位图作为唯一事实来源。
+- 标注关联项目标签 UUID；YOLO 数字类别编号只在导出时按当前排序生成。
 - AnnotationBatch 保存帧 ID 与标签基线；其物化目录不是事实来源。
 - Export 保存不可变帧与标签清单，不受后续项目修改影响。
 - 时间统一保存为带时区的 UTC 时间，API 输出采用 ISO 8601。

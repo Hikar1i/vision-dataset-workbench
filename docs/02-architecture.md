@@ -1,10 +1,10 @@
 # 架构
 
-状态：总体设计已批准，初始化、认证、项目权限、视频导入、采样、抽帧和帧筛选主链路已实现。
+状态：总体设计已批准，初始化、认证、项目权限、视频导入、采样、抽帧、帧筛选、项目标签和 GPU 能力检测已实现。
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、五版 SQLite 迁移、安全路径组件、媒体与帧资源和独立 Worker。标注批次、导出和 GPU 能力仍是目标设计。因此本页区分：
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、七版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、GPU 能力探测和独立 Worker。标注记录、模型推理、训练和导出仍是目标设计。因此本页区分：
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -22,6 +22,12 @@ Vue setup/auth/admin/project/media pages
   ├─ /api/v1/projects + members → ProjectService
   │    ├─ private project visibility + role checks
   │    └─ optimistic version updates
+  ├─ /api/v1/projects/<id>/labels → LabelService
+  │    ├─ project-scoped English classes + stable UUID
+  │    └─ owner/editor writes + viewer reads
+  ├─ /api/v1/capabilities → startup-cached capability probe
+  │    ├─ nvidia-smi device inventory
+  │    └─ PyTorch CUDA / ONNX CUDA / Ultralytics readiness
   ├─ /api/v1/filesystem → HomePathResolver
   ├─ /api/v1/projects/<id>/videos|imports|tasks → MediaService
        ├─ SQLite Video / Task state
@@ -39,7 +45,7 @@ Independent Python Worker
   └─ FFmpeg frame extraction + atomic generation replacement
 ```
 
-API 请求只负责校验和映射，工作区创建、认证状态流转、项目授权、媒体和采样命令由应用服务编排。视频导入与抽帧请求只创建持久任务并立即返回；复制、下载、媒体探测和抽帧在独立 Worker 中执行。帧文件先写任务临时目录，成功后按视频原子替换。审计表、标注批次和导出尚未实现。
+API 请求只负责校验和映射，工作区创建、认证状态流转、项目授权、标签、媒体和采样命令由应用服务编排。视频导入与抽帧请求只创建持久任务并立即返回；复制、下载、媒体探测和抽帧在独立 Worker 中执行。帧文件先写任务临时目录，成功后按视频原子替换。审计表、标注记录、模型任务和导出尚未实现。
 
 ## 遗留架构基线
 
@@ -150,6 +156,7 @@ SQLite             Persistent Worker
 - 项目媒体位于 `projects/<project UUID>/videos/`，缩略图位于 `projects/<project UUID>/thumbnails/`，采样帧位于 `projects/<project UUID>/frames/<video UUID>/`；执行中输出位于顶层 `tmp/<task UUID>/`，验证后原子发布。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
 - Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
+- Python 核心依赖不包含模型运行库；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、Ultralytics 和 ONNX Runtime GPU。
 - 只支持单机本地磁盘，不支持跨服务器 Worker 或网络文件系统上的 SQLite。
 
 当前及后续项目目录约定：
@@ -160,16 +167,16 @@ projects/<project UUID>/
 ├─ thumbnails/                     # 已实现：视频缩略图
 ├─ frames/<video UUID>/            # 已实现：当前一代规范采样帧
 ├─ labels/<video UUID>/            # 计划：规范标签
-├─ annotation-batches/<batch UUID>/ # 计划：外部并行标注批次
+├─ annotation-batches/<batch UUID>/ # 计划：自动标注任务帧快照
 └─ exports/<export UUID>/           # 计划：不可变数据集导出
 ```
 
-遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应后续 `exports/<export UUID>/`；遗留 `groups/` 不作为普通数据目录照搬，而对应后续 `annotation-batches/<batch UUID>/`。后者保留将采样帧分片、并行启动多个 X-AnyLabeling/DINO 实例的用途；内置自动标注直接由任务调度器分片，不依赖该物化目录。
+遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应后续 `exports/<export UUID>/`；遗留 `groups/` 不作为普通数据目录照搬，而对应后续自动标注任务的帧快照/分片概念。新系统直接调用 YOLO、GroundingDINO 等模型并由任务调度器动态分片，不依赖 X-AnyLabeling 或固定分组目录。
 
 ## 延期架构
 
 - 图片数据集能力在视频重构后实现，不直接移植遗留分支路由。
-- 在线标注另行设计。
-- 自动标注和可视化训练首批只支持 Ultralytics YOLO 检测模型。
+- 在线标注下一阶段先实现手动矩形框和标注记录。
+- 自动标注直接调用 Ultralytics YOLO 和 GroundingDINO；X-AnyLabeling 只作为旧实现参考。
 - 内置自动标注由 Worker 动态切分 Frame，不依赖外部 AnnotationBatch 目录。
 - 不预建任意模型或训练脚本插件框架。

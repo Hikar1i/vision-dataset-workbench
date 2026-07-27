@@ -17,7 +17,7 @@
 - Linux 原生使用两个 systemd 服务管理 API 与 Worker。
 - Windows 本地使用一个启动器管理两个子进程。
 - Docker Compose 使用 API 和 Worker 服务，共享本机工作区挂载。
-- Docker 基础配置不要求 GPU；可选 GPU 配置只向 Worker 暴露设备。
+- Docker 基础配置不要求 GPU；可选 GPU 配置需要为 API 和 GPU Worker 安装 `gpu` extra，并向两者暴露同一设备视图，确保界面能力检测与实际任务一致。
 
 当前可按[环境与启动](08-environments.md)运行 API、前端和 Worker，但尚无受进程管理器监管的正式部署产物。不应将 Vite 开发服务器或 Uvicorn `--reload` 用作长期部署。
 

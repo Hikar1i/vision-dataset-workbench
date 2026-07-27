@@ -1,6 +1,6 @@
 # 环境与启动
 
-状态：后端、前端、首次初始化、认证模式，以及视频导入/抽帧 Worker 可在开发环境运行；正式部署启动器尚未实现。
+状态：后端、前端、首次初始化、认证模式、GPU 能力检测，以及视频导入/抽帧 Worker 可在开发环境运行；正式部署启动器尚未实现。
 
 ## 当前可执行操作
 
@@ -10,6 +10,16 @@
 cd backend && uv sync --python 3.12 --dev
 cd backend && uv run uvicorn vision_dataset_workbench.main:app --app-dir src --reload --port 38000
 ```
+
+GPU 服务器安装可选模型运行依赖：
+
+```bash
+cd backend
+uv sync --python 3.12 --dev --extra gpu
+uv run python -c "import torch, onnxruntime as ort; print(torch.cuda.is_available()); print(ort.get_available_providers())"
+```
+
+当前锁定组合为 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8、ONNX Runtime GPU 1.26.x 和 Ultralytics 8.4.x。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)、[PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)和 [ONNX Runtime CUDA Provider](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)。
 
 安装与启动前端：
 
@@ -54,7 +64,7 @@ cd frontend && npm run build
 - Linux 或 Windows 上的前端、FastAPI、Worker 和 SQLite。
 - 默认工作区为用户选择位置下的 `.vision-dataset-workbench`。
 - 支持使用假下载适配器和短测试视频，无需访问真实平台即可开发主流程。
-- 未检测到 GPU 时正常启动并禁用自动标注和训练。
+- 已实现启动时一次性 GPU/运行时探测；未检测到 GPU 时正常启动并禁用自动标注和训练。
 
 ### Test
 
@@ -116,7 +126,7 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 | Media | FFmpeg/ffprobe/yt-dlp 路径与限制 |
 | Web | 绑定地址、前端来源和 Cookie 安全属性 |
 | Auth | 运行模式、注册开关和 Session 生命周期 |
-| GPU | 能力检测、每 GPU 任务数和模型依赖 |
+| GPU | 已实现硬件/运行时能力检测；每 GPU 任务数和模型调度尚未实现 |
 
 本地示例配置只能包含无敏感默认值；真实密钥通过未提交文件或密钥管理服务注入。
 
