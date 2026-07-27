@@ -5,6 +5,7 @@ from ..services.auth import build_auth_service
 from ..services.annotations import AnnotationService
 from ..services.labels import LabelService
 from ..services.media import MediaService
+from ..services.models import ModelService
 from ..services.projects import ProjectService
 from ..services.sampling import SamplingService
 from ..services.setup import SetupConflict, SetupService
@@ -112,6 +113,12 @@ def initialize(
     )
     request.app.state.annotation_service = AnnotationService(
         request.app.state.auth_service.engine,
+        request.app.state.project_service,
+    )
+    request.app.state.model_service = ModelService(
+        request.app.state.auth_service.engine,
+        request.app.state.settings,
+        workspace,
         request.app.state.project_service,
     )
     request.app.state.media_service = MediaService(

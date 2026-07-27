@@ -18,6 +18,8 @@ def make_client(tmp_path):
     (home / "clips").mkdir()
     (home / "one.MP4").write_bytes(b"video")
     (home / "notes.txt").write_text("not video")
+    (home / "detector.pt").write_bytes(b"model")
+    (home / ".hidden-models").mkdir()
     create_workspace_database(workspace / "db" / "workbench.sqlite3")
     engine = make_engine(workspace / "db" / "workbench.sqlite3")
     with Session(engine) as session:
@@ -91,3 +93,15 @@ def test_browser_rejects_escapes_and_creates_directory(tmp_path):
     assert created.status_code == 201
     assert created.json() == {"path": "new", "display_path": "~/new"}
     assert (home / "new").is_dir()
+
+
+def test_model_browser_includes_model_files_and_hides_dot_directories(tmp_path):
+    client, _home, _workspace = make_client(tmp_path)
+    assert login(client).status_code == 200
+
+    response = client.get("/api/v1/filesystem", params={"path": ".", "kind": "model"})
+
+    assert response.status_code == 200
+    names = [item["name"] for item in response.json()["items"]]
+    assert "detector.pt" in names
+    assert ".hidden-models" not in names

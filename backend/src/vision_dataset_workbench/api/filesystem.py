@@ -21,7 +21,7 @@ def list_entries(
     request: Request,
     _user: Annotated[User, Depends(current_user)],
     path: str = ".",
-    kind: Literal["directory", "video"] = "video",
+    kind: Literal["directory", "video", "model"] = "video",
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> dict[str, object]:
@@ -34,6 +34,7 @@ def list_entries(
             page_size=page_size,
             hidden_root=request.app.state.workspace,
             include_video_files=kind == "video",
+            include_model_files=kind == "model",
         )
     except (OSError, UnsafePathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

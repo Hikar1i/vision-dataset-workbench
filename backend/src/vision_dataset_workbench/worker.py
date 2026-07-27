@@ -23,13 +23,19 @@ from sqlalchemy.orm import sessionmaker
 from .config import RuntimeSettings
 from .database import make_engine
 from .media import MediaMetadata, MediaToolError, normalize_remote_url, probe_video, ytdlp_base_args
-from .models import Frame, SamplingPlan, Task, Video
+from .models import Frame, InferenceModel, SamplingPlan, Task, Video
 from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
 from .storage.browser import VIDEO_EXTENSIONS
 from .storage.locator import WorkspaceLocator, default_locator_path
 from .storage.paths import HomePathResolver, UnsafePathError
 
-LIMITS = {"copy_video": 2, "download_video": 2, "extract_frames": 2}
+LIMITS = {
+    "copy_video": 2,
+    "download_video": 2,
+    "extract_frames": 2,
+    "import_model": 1,
+    "auto_annotate": 2,
+}
 LEASE_SECONDS = 30
 COPY_CHUNK_SIZE = 1024 * 1024
 
@@ -167,6 +173,8 @@ class TaskWorker:
                 self._execute_download(task_id, task_temp)
             elif task_type == "extract_frames":
                 self._execute_extract(task_id, task_temp)
+            elif task_type == "import_model":
+                self._execute_import_model(task_id, task_temp)
             else:
                 raise RuntimeError("unsupported task type")
         except TaskCanceled:
@@ -217,6 +225,79 @@ class TaskWorker:
             thumbnail=thumbnail,
             content_sha256=content_hash,
         )
+
+    def _execute_import_model(self, task_id: str, task_temp: Path) -> None:
+        with self._session_factory() as database:
+            task = database.get(Task, task_id)
+            if task is None or task.status != "running":
+                raise MediaToolError("active model import task not found")
+            payload = json.loads(task.payload)
+            model = database.get(InferenceModel, str(payload.get("model_id") or ""))
+            if model is None or model.status != "copying":
+                raise MediaToolError("model import target not found")
+            model_id = model.id
+        resolver = HomePathResolver(self.settings.home)
+        source = resolver.resolve_existing(str(payload.get("source_path") or ""))
+        if source == self.workspace or source.is_relative_to(self.workspace):
+            raise UnsafePathError("managed workspace is not an import source")
+        staged = task_temp / "model"
+        copied_path = staged / source.name if source.is_file() else staged
+        if source.is_file():
+            staged.mkdir()
+            self._copy_file_with_progress(task_id, source, copied_path, source.stat().st_size, 0)
+        else:
+            files = [path for path in source.rglob("*") if path.is_file()]
+            total = sum(path.stat().st_size for path in files)
+            copied = 0
+            staged.mkdir()
+            for path in files:
+                destination = staged / path.relative_to(source)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                copied = self._copy_file_with_progress(
+                    task_id, path, destination, total, copied
+                )
+        target = self.workspace / "models" / model_id
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            raise MediaToolError("model storage target already exists")
+        os.replace(staged, target)
+        relative = target / source.name if source.is_file() else target
+        now = self._now()
+        with self._session_factory() as database:
+            model = database.get(InferenceModel, model_id)
+            task = database.get(Task, task_id)
+            if model is None or task is None:
+                raise MediaToolError("model import resources disappeared")
+            model.status = "ready"
+            model.storage_path = relative.relative_to(self.workspace).as_posix()
+            model.error = None
+            model.updated_at = now
+            task.status = "succeeded"
+            task.progress = 100
+            task.result = json.dumps({"outcome": "imported", "model_id": model_id})
+            task.error = None
+            task.finished_at = now
+            task.updated_at = now
+            task.lease_owner = None
+            task.lease_expires_at = None
+            database.commit()
+
+    def _copy_file_with_progress(
+        self,
+        task_id: str,
+        source: Path,
+        destination: Path,
+        total: int,
+        copied: int,
+    ) -> int:
+        with source.open("rb") as reader, destination.open("xb") as writer:
+            while chunk := reader.read(COPY_CHUNK_SIZE):
+                writer.write(chunk)
+                copied += len(chunk)
+                self._heartbeat(task_id, min(99, round(copied * 100 / total)) if total else 99)
+                if self._cancel_requested(task_id):
+                    raise TaskCanceled("task canceled")
+        return copied
 
     def _execute_download(self, task_id: str, task_temp: Path) -> None:
         task, video, payload = self._load_task(task_id)
@@ -664,6 +745,7 @@ class TaskWorker:
             task.updated_at = now
             task.lease_owner = None
             task.lease_expires_at = None
+            self._fail_imported_model(database, task, "model import canceled")
             database.commit()
 
     def _safe_error(self, exc: Exception) -> str:
@@ -683,7 +765,19 @@ class TaskWorker:
             task.updated_at = now
             task.lease_owner = None
             task.lease_expires_at = None
+            self._fail_imported_model(database, task, task.error)
             database.commit()
+
+    @staticmethod
+    def _fail_imported_model(database, task: Task, error: str) -> None:
+        if task.type != "import_model":
+            return
+        model_id = str(json.loads(task.payload).get("model_id") or "")
+        model = database.get(InferenceModel, model_id)
+        if model is not None:
+            model.status = "failed"
+            model.error = error
+            model.updated_at = task.updated_at
 
     def _remove_task_temp(self, path: Path) -> None:
         expected_parent = (self.workspace / "tmp").resolve()

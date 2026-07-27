@@ -10,7 +10,15 @@ from sqlalchemy.orm import Session
 from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.media import MediaMetadata
-from vision_dataset_workbench.models import Frame, Project, SamplingPlan, Task, User, Video
+from vision_dataset_workbench.models import (
+    Frame,
+    InferenceModel,
+    Project,
+    SamplingPlan,
+    Task,
+    User,
+    Video,
+)
 from vision_dataset_workbench.security.passwords import hash_password
 from vision_dataset_workbench.worker import TaskWorker, download_command
 
@@ -126,6 +134,46 @@ def test_copy_task_publishes_metadata_and_hash(tmp_path):
         assert video.file_path == "projects/project-id/videos/video-copy-task.mkv"
         assert (workspace / video.file_path).read_bytes() == b"video bytes"
         assert video.width == 320
+    engine.dispose()
+
+
+def test_import_model_task_copies_into_managed_storage(tmp_path):
+    worker, engine, home, workspace = make_worker(tmp_path)
+    source = home / "models" / "detector.pt"
+    source.parent.mkdir()
+    source.write_bytes(b"weights")
+    with Session(engine) as session:
+        session.add(
+            InferenceModel(
+                id="model-id",
+                name="detector",
+                kind="yolo",
+                status="copying",
+                source_name="detector.pt",
+                created_by_id="one-id",
+            )
+        )
+        session.add(
+            Task(
+                id="import-model",
+                project_id="project-id",
+                submitted_by_id="one-id",
+                type="import_model",
+                payload=json.dumps({"model_id": "model-id", "source_path": "models/detector.pt"}),
+            )
+        )
+        session.commit()
+
+    assert worker.claim_available()[0].id == "import-model"
+    worker.execute_task("import-model")
+
+    with Session(engine) as session:
+        task = session.get(Task, "import-model")
+        model = session.get(InferenceModel, "model-id")
+        assert task is not None and task.status == "succeeded"
+        assert model is not None and model.status == "ready"
+        assert model.storage_path == "models/model-id/detector.pt"
+        assert (workspace / model.storage_path).read_bytes() == b"weights"
     engine.dispose()
 
 

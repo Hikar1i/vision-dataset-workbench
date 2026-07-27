@@ -14,6 +14,7 @@ VIDEO_EXTENSIONS = {
     ".webm",
     ".wmv",
 }
+MODEL_EXTENSIONS = {".pt", ".onnx"}
 
 
 def list_home_entries(
@@ -24,6 +25,7 @@ def list_home_entries(
     page_size: int,
     hidden_root: Path | None = None,
     include_video_files: bool = False,
+    include_model_files: bool = False,
 ) -> dict[str, object]:
     directory = resolver.resolve_existing(relative)
     hidden = hidden_root.resolve() if hidden_root is not None else None
@@ -32,6 +34,8 @@ def list_home_entries(
 
     children: list[tuple[Path, str]] = []
     for item in directory.iterdir():
+        if item.name.startswith("."):
+            continue
         try:
             resolved = item.resolve(strict=True)
         except OSError:
@@ -43,6 +47,8 @@ def list_home_entries(
         if item.is_dir():
             children.append((item, "directory"))
         elif include_video_files and item.is_file() and item.suffix.lower() in VIDEO_EXTENSIONS:
+            children.append((item, "file"))
+        elif include_model_files and item.is_file() and item.suffix.lower() in MODEL_EXTENSIONS:
             children.append((item, "file"))
 
     children.sort(key=lambda entry: (entry[1] == "file", entry[0].name.casefold()))
