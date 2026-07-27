@@ -223,4 +223,31 @@ describe('AnnotationWorkbenchView', () => {
     expect(mocks.createBatchAutoAnnotation).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
+
+  it('disables batch inference for a disabled video', async () => {
+    mocks.listVideos.mockResolvedValueOnce({
+      items: [{ ...video, enabled: false }], page: 1, page_size: 999, total: 1,
+    })
+    mocks.listInferenceModels.mockResolvedValueOnce([{
+      id: 'model-id', name: 'YOLO', kind: 'yolo', status: 'ready',
+      source_name: 'model.pt', error: null, created_at: '', updated_at: '',
+    }])
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="run-batch-auto"]').attributes('disabled')).toBeDefined()
+    expect(mocks.createBatchAutoAnnotation).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 })

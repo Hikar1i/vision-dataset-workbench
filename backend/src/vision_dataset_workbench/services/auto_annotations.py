@@ -161,6 +161,8 @@ class AutoAnnotationService:
             video = database.get(Video, video_id)
             if video is None or video.project_id != project_id:
                 raise AutoAnnotationUnavailable("video not found")
+            if not video.enabled:
+                raise AutoAnnotationConflict("video is disabled")
             enabled_frames = database.scalar(
                 select(func.count())
                 .select_from(Frame)

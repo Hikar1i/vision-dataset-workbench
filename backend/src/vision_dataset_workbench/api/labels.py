@@ -173,5 +173,5 @@ def delete_label(
     require_same_origin(request)
     try:
         label_service(request).delete_label(user, project_id, label_id)
-    except (LabelNotFound, ProjectNotFound, ProjectForbidden) as exc:
+    except (LabelNotFound, LabelConflict, ProjectNotFound, ProjectForbidden) as exc:
         _raise_http_error(exc)

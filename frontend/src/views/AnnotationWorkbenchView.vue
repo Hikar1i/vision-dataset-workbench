@@ -286,6 +286,10 @@ async function runSingleAutoAnnotation() {
 
 async function runBatchAutoAnnotation() {
   const config = autoConfig()
+  if (video.value && !video.value.enabled) {
+    ElMessage.warning('该视频已停用，请先在视频资料库启用后再运行批量自动标注。')
+    return
+  }
   if (!config || batchActive.value || !await saveCurrent()) return
   inferenceRunning.value = true
   try {
@@ -588,7 +592,7 @@ onBeforeUnmount(() => {
         <label>置信度 <el-input-number v-model="confidence" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
         <label>IoU <el-input-number v-model="iou" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
         <button data-test="run-single-auto" type="button" :disabled="batchActive || inferenceRunning || !autoModel" @click="runSingleAutoAnnotation">单张运行</button>
-        <button data-test="run-batch-auto" type="button" :disabled="batchActive || inferenceRunning || !autoModel" @click="runBatchAutoAnnotation">批量运行</button>
+        <button data-test="run-batch-auto" type="button" :disabled="batchActive || inferenceRunning || !autoModel || video?.enabled === false" @click="runBatchAutoAnnotation">批量运行</button>
         <span v-if="autoUnavailableReason" class="auto-warning" :title="autoUnavailableReason">{{ autoUnavailableText }}</span>
       </div>
       <div class="frame-controls">

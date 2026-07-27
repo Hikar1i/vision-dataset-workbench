@@ -221,7 +221,12 @@ class LabelService:
             )
             if label is None:
                 raise LabelNotFound("label not found")
-            database.delete(label)
+            try:
+                database.delete(label)
+                database.flush()
+            except IntegrityError as exc:
+                database.rollback()
+                raise LabelConflict("label is used by annotations") from exc
             remaining = list(
                 database.scalars(
                     select(ProjectLabel)

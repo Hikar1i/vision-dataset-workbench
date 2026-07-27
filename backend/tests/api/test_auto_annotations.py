@@ -103,6 +103,31 @@ def test_single_inference_returns_draft_and_creates_only_detected_missing_labels
     with Session(app.state.auth_service.engine) as session:
         assert session.query(ProjectLabel).filter_by(project_id="project-id").count() == 2
 
+    saved = owner.put(
+        "/api/v1/projects/project-id/videos/video-id/frames/frame-id/annotations",
+        headers=ORIGIN,
+        json={
+            "annotation_revision": 1,
+            "items": [
+                {
+                    "id": body["items"][0]["id"],
+                    "label_id": body["items"][0]["label_id"],
+                    "x_min": 10,
+                    "y_min": 20,
+                    "x_max": 110,
+                    "y_max": 220,
+                    "source": "model",
+                    "confidence": 0.91,
+                }
+            ],
+        },
+    )
+    assert saved.status_code == 200
+    assert owner.delete(
+        f"/api/v1/projects/project-id/labels/{body['items'][0]['label_id']}",
+        headers=ORIGIN,
+    ).status_code == 409
+
 
 def test_single_inference_rejects_viewer_and_requires_same_origin(tmp_path):
     app = make_app(tmp_path)
@@ -127,6 +152,18 @@ def test_batch_inference_queues_one_video_task_and_rejects_viewer(tmp_path):
     }
     batch_url = "/api/v1/projects/project-id/videos/video-id/auto-annotations"
 
+    disabled = owner.put(
+        "/api/v1/projects/project-id/videos/video-id/enabled",
+        headers=ORIGIN,
+        json={"enabled": False, "version": 1},
+    )
+    assert disabled.status_code == 200
+    assert owner.post(batch_url, headers=ORIGIN, json=payload).status_code == 409
+    assert owner.put(
+        "/api/v1/projects/project-id/videos/video-id/enabled",
+        headers=ORIGIN,
+        json={"enabled": True, "version": 2},
+    ).status_code == 200
     response = owner.post(batch_url, headers=ORIGIN, json=payload)
 
     assert response.status_code == 202
