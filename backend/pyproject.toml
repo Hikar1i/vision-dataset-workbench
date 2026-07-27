@@ -11,6 +11,14 @@ dependencies = [
   "yt-dlp>=2026.3.17",
 ]
 
+[project.optional-dependencies]
+gpu = [
+  "onnxruntime-gpu>=1.26,<1.27",
+  "torch==2.9.1",
+  "torchvision==0.24.1",
+  "ultralytics>=8.4.83,<9",
+]
+
 [dependency-groups]
 dev = [
   "httpx>=0.28,<1",
@@ -33,3 +41,12 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128", extra = "gpu" }]
+torchvision = [{ index = "pytorch-cu128", extra = "gpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

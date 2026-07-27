@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from .api.auth import router as auth_router
+from .api.capabilities import router as capabilities_router
 from .api.filesystem import router as filesystem_router
 from .api.labels import router as labels_router
 from .api.media import global_task_router, router as media_router
@@ -8,6 +9,7 @@ from .api.projects import router as projects_router
 from .api.registrations import router as registrations_router
 from .api.sampling import router as sampling_router
 from .api.setup import router as setup_router
+from .capabilities import SystemCapabilities, detect_capabilities
 from .config import RuntimeSettings
 from .services.auth import build_auth_service
 from .services.media import MediaService
@@ -23,6 +25,7 @@ def create_app(
     settings: RuntimeSettings | None = None,
     setup_token: SetupToken | None = None,
     locator: WorkspaceLocator | None = None,
+    capabilities: SystemCapabilities | None = None,
 ) -> FastAPI:
     resolved_settings = settings or RuntimeSettings.from_env()
     resolved_locator = locator or WorkspaceLocator(default_locator_path(resolved_settings.home))
@@ -37,6 +40,7 @@ def create_app(
     token = setup_token or SetupToken.create()
 
     app = FastAPI(title="Vision Dataset Workbench", version="0.1.0")
+    app.state.capabilities = capabilities or detect_capabilities()
     app.state.settings = resolved_settings
     app.state.workspace = workspace
     auth_service = (
@@ -67,6 +71,7 @@ def create_app(
     app.state.setup_service = SetupService(resolved_settings.home, resolved_locator, token)
     app.include_router(setup_router)
     app.include_router(auth_router)
+    app.include_router(capabilities_router)
     app.include_router(filesystem_router)
     app.include_router(registrations_router)
     app.include_router(projects_router)
