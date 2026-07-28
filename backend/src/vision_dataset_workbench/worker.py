@@ -476,6 +476,16 @@ class TaskWorker:
                 database.execute(
                     delete(FrameAnnotation).where(FrameAnnotation.frame_id == frame_id)
                 )
+                first_annotation_order = 0
+            else:
+                last_annotation_order = database.scalar(
+                    select(func.max(FrameAnnotation.sort_order)).where(
+                        FrameAnnotation.frame_id == frame_id
+                    )
+                )
+                first_annotation_order = (
+                    0 if last_annotation_order is None else last_annotation_order + 1
+                )
             database.add_all(
                 [
                     FrameAnnotation(
@@ -485,9 +495,10 @@ class TaskWorker:
                         **bounds,
                         source="model",
                         confidence=max(0.0, min(1.0, detection.confidence)),
+                        sort_order=first_annotation_order + offset,
                         created_at=now,
                     )
-                    for detection, name, bounds in valid
+                    for offset, (detection, name, bounds) in enumerate(valid)
                 ]
             )
             frame.annotation_revision += 1

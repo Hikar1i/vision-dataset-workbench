@@ -623,6 +623,24 @@ def test_annotation_migration_backfills_frames_and_cascades(tmp_path, monkeypatc
             ),
         )
     engine.dispose()
+    command.upgrade(config, "0010_inference_models")
+
+    engine = make_engine(database_path)
+    with engine.begin() as connection:
+        for annotation_id in ("annotation-b", "annotation-a"):
+            connection.exec_driver_sql(
+                """
+                INSERT INTO annotations
+                    (id, frame_id, label_id, x_min, y_min, x_max, y_max,
+                     source, confidence, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    annotation_id, "frame-id", "label-id", 10, 20, 110, 220,
+                    "manual", None, "2026-07-27 00:00:00.000000",
+                ),
+            )
+    engine.dispose()
     command.upgrade(config, "head")
 
     engine = make_engine(database_path)
@@ -630,6 +648,11 @@ def test_annotation_migration_backfills_frames_and_cascades(tmp_path, monkeypatc
         frame = session.get(Frame, "frame-id")
         assert frame is not None
         assert frame.annotation_revision == 1
+        legacy = session.query(FrameAnnotation).order_by(FrameAnnotation.sort_order).all()
+        assert [(item.id, item.sort_order) for item in legacy] == [
+            ("annotation-a", 0),
+            ("annotation-b", 1),
+        ]
         session.add(
             FrameAnnotation(
                 id="annotation-id",

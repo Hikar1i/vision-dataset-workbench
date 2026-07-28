@@ -258,6 +258,7 @@ class FrameAnnotation(Base):
         CheckConstraint(
             "source IN ('manual', 'model')", name="ck_annotations_source"
         ),
+        CheckConstraint("sort_order >= 0", name="ck_annotations_sort_order"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -273,6 +274,7 @@ class FrameAnnotation(Base):
     y_max: Mapped[int] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(String(16))
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

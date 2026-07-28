@@ -106,9 +106,10 @@ class AnnotationService:
                         y_max=item.y_max,
                         source=item.source,
                         confidence=item.confidence,
+                        sort_order=sort_order,
                         created_at=now,
                     )
-                    for item in items
+                    for sort_order, item in enumerate(items)
                 ]
             )
             database.commit()
@@ -136,9 +137,8 @@ class AnnotationService:
         return list(
             database.scalars(
                 select(FrameAnnotation)
-                .join(ProjectLabel, ProjectLabel.id == FrameAnnotation.label_id)
                 .where(FrameAnnotation.frame_id == frame_id)
-                .order_by(ProjectLabel.sort_order, FrameAnnotation.id)
+                .order_by(FrameAnnotation.sort_order, FrameAnnotation.id)
             )
         )
 

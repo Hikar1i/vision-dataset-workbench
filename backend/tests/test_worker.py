@@ -286,11 +286,20 @@ def test_auto_annotation_task_processes_only_starting_enabled_frames(tmp_path):
         task = session.get(Task, "auto-task")
         first = session.get(Frame, "frame-1")
         second = session.get(Frame, "frame-2")
-        first_boxes = session.query(FrameAnnotation).filter_by(frame_id="frame-1").all()
+        first_boxes = (
+            session.query(FrameAnnotation)
+            .filter_by(frame_id="frame-1")
+            .order_by(FrameAnnotation.sort_order)
+            .all()
+        )
         second_boxes = session.query(FrameAnnotation).filter_by(frame_id="frame-2").all()
         assert task is not None and task.status == "succeeded", task.error if task else None
         assert json.loads(task.result or "{}")["frames"] == 1
         assert {item.source for item in first_boxes} == {"manual", "model"}
+        assert [(item.source, item.sort_order) for item in first_boxes] == [
+            ("manual", 0),
+            ("model", 1),
+        ]
         assert second_boxes == []
         assert first is not None and first.enabled is True and first.annotation_revision == 2
         assert second is not None and second.enabled is False and second.annotation_revision == 1
@@ -321,6 +330,7 @@ def test_auto_annotation_task_processes_only_starting_enabled_frames(tmp_path):
     with Session(engine) as session:
         overwritten = session.query(FrameAnnotation).filter_by(frame_id="frame-1").all()
         assert [item.source for item in overwritten] == ["model"]
+        assert overwritten[0].sort_order == 0
     engine.dispose()
 
 

@@ -166,6 +166,35 @@ def test_editor_replaces_and_clears_a_whole_frame(tmp_path):
     assert cleared.json()["items"] == []
 
 
+def test_annotation_order_follows_the_put_array(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "creator")
+    editor = client_for(app, "editor")
+    project_id, first_label_id = seed_annotation_context(app, owner)
+    second_label_id = owner.post(
+        f"/api/v1/projects/{project_id}/labels",
+        headers=ORIGIN,
+        json={"name": "person", "description_zh": "人员", "color": "#e85d4a"},
+    ).json()["id"]
+    url = annotation_url(project_id)
+    items = [
+        box(second_label_id, annotation_id="box-b"),
+        box(first_label_id, annotation_id="box-a"),
+    ]
+
+    saved = editor.put(
+        url,
+        headers=ORIGIN,
+        json={"annotation_revision": 1, "items": items},
+    )
+
+    assert [item["id"] for item in saved.json()["items"]] == ["box-b", "box-a"]
+    assert [item["id"] for item in editor.get(url).json()["items"]] == [
+        "box-b",
+        "box-a",
+    ]
+
+
 def test_viewer_reads_but_cannot_write_and_outsider_cannot_read(tmp_path):
     app = make_app(tmp_path)
     owner = client_for(app, "creator")
