@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from ..config import RuntimeSettings
-from ..models import Frame, SamplingPlan, Task, User, Video
+from ..models import Frame, FrameAnnotation, SamplingPlan, Task, User, Video
 from ..sampling import SamplingInput, calculate_sampling
 from .projects import ProjectForbidden, ProjectService
 
@@ -346,7 +346,38 @@ class SamplingService:
             if not path.is_file() or not path.is_relative_to(root):
                 raise SamplingNotFound("frame file not found")
             database.expunge(frame)
-            return frame, path
+        return frame, path
+
+    def frame_annotation_previews(
+        self,
+        actor: User,
+        project_id: str,
+        video_id: str,
+        frame_ids: list[str],
+    ) -> dict[str, list[FrameAnnotation]]:
+        self._project_role(actor, project_id)
+        if not frame_ids:
+            return {}
+        with self._session_factory() as database:
+            self._video(database, project_id, video_id)
+            items = database.scalars(
+                select(FrameAnnotation)
+                .join(Frame, Frame.id == FrameAnnotation.frame_id)
+                .where(
+                    Frame.video_id == video_id,
+                    FrameAnnotation.frame_id.in_(frame_ids),
+                )
+                .order_by(
+                    FrameAnnotation.frame_id,
+                    FrameAnnotation.sort_order,
+                    FrameAnnotation.id,
+                )
+            ).all()
+            result: dict[str, list[FrameAnnotation]] = {}
+            for item in items:
+                result.setdefault(item.frame_id, []).append(item)
+                database.expunge(item)
+            return result
 
     def set_frames_enabled(
         self,

@@ -7,7 +7,9 @@ from vision_dataset_workbench.database import create_workspace_database, make_en
 from vision_dataset_workbench.main import create_app
 from vision_dataset_workbench.models import (
     Frame,
+    FrameAnnotation,
     Project,
+    ProjectLabel,
     ProjectMembership,
     SamplingPlan,
     User,
@@ -155,6 +157,30 @@ def test_viewer_reads_frame_image_and_editor_filters_with_revision(tmp_path):
                     file_path=path.relative_to(app.state.workspace).as_posix(),
                 )
             )
+        session.add(
+            ProjectLabel(
+                id="label-id",
+                project_id="project-id",
+                name="helmet",
+                name_normalized="helmet",
+                color="#16866f",
+                sort_order=0,
+            )
+        )
+        session.flush()
+        session.add(
+            FrameAnnotation(
+                id="annotation-id",
+                frame_id="frame-1",
+                label_id="label-id",
+                x_min=10,
+                y_min=20,
+                x_max=110,
+                y_max=220,
+                source="manual",
+                sort_order=0,
+            )
+        )
         session.commit()
 
     page = viewer.get(
@@ -163,6 +189,23 @@ def test_viewer_reads_frame_image_and_editor_filters_with_revision(tmp_path):
     assert page.status_code == 200
     assert page.json()["total"] == 2
     assert page.json()["items"][0]["file_size"] == len(b"frame-1")
+    assert "annotations" not in page.json()["items"][0]
+    preview = viewer.get(
+        "/api/v1/projects/project-id/videos/video-id/frames"
+        "?page=1&page_size=2&include_annotations=true"
+    )
+    assert preview.status_code == 200
+    assert preview.json()["items"][0]["annotations"] == [
+        {
+            "id": "annotation-id",
+            "label_id": "label-id",
+            "x_min": 10,
+            "y_min": 20,
+            "x_max": 110,
+            "y_max": 220,
+        }
+    ]
+    assert preview.json()["items"][1]["annotations"] == []
     assert viewer.get(
         "/api/v1/projects/project-id/videos/video-id/frames/frame-1/image"
     ).content == b"frame-1"

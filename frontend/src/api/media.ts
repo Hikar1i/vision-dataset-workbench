@@ -1,4 +1,5 @@
 import { json } from './auth'
+import type { FrameAnnotation } from './annotations'
 
 export type Video = {
   id: string
@@ -143,7 +144,12 @@ export type Frame = {
   enabled: boolean
   file_size: number
   created_at: string
+  annotations?: FramePreviewAnnotation[]
 }
+export type FramePreviewAnnotation = Pick<
+  FrameAnnotation,
+  'id' | 'label_id' | 'x_min' | 'y_min' | 'x_max' | 'y_max'
+>
 export type FramePage = {
   items: Frame[]
   page: number
@@ -278,9 +284,11 @@ export const listFrames = (
   page = 1,
   pageSize = 50,
   enabled?: boolean,
+  includeAnnotations = false,
 ) => {
   const query = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
   if (enabled !== undefined) query.set('enabled', String(enabled))
+  if (includeAnnotations) query.set('include_annotations', 'true')
   return json<FramePage>(`${projectPath(projectId)}/videos/${videoId}/frames?${query}`)
 }
 

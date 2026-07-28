@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from ..models import Frame, SamplingPlan, User
+from ..models import Frame, FrameAnnotation, SamplingPlan, User
 from ..sampling import InvalidSampling, SamplingInput
 from ..services.projects import ProjectForbidden, ProjectNotFound
 from ..services.sampling import (
@@ -70,6 +70,16 @@ class FrameResponse(BaseModel):
     enabled: bool
     file_size: int
     created_at: str
+    annotations: list["FramePreviewAnnotationResponse"] | None = None
+
+
+class FramePreviewAnnotationResponse(BaseModel):
+    id: str
+    label_id: str
+    x_min: int
+    y_min: int
+    x_max: int
+    y_max: int
 
 
 class FramePageResponse(BaseModel):
@@ -99,7 +109,11 @@ def _utc_text(value: datetime) -> str:
     return f"{value.isoformat(timespec='seconds')}Z"
 
 
-def _frame_response(frame: Frame, workspace) -> FrameResponse:
+def _frame_response(
+    frame: Frame,
+    workspace,
+    annotations: list[FrameAnnotation] | None = None,
+) -> FrameResponse:
     try:
         file_size = (workspace / frame.file_path).stat().st_size
     except OSError:
@@ -112,6 +126,21 @@ def _frame_response(frame: Frame, workspace) -> FrameResponse:
         enabled=frame.enabled,
         file_size=file_size,
         created_at=_utc_text(frame.created_at),
+        annotations=(
+            [
+                FramePreviewAnnotationResponse(
+                    id=item.id,
+                    label_id=item.label_id,
+                    x_min=item.x_min,
+                    y_min=item.y_min,
+                    x_max=item.x_max,
+                    y_max=item.y_max,
+                )
+                for item in annotations
+            ]
+            if annotations is not None
+            else None
+        ),
     )
 
 
@@ -204,7 +233,11 @@ def get_sampling_plan(
     return _plan_response(plan)
 
 
-@router.get("/videos/{video_id}/frames", response_model=FramePageResponse)
+@router.get(
+    "/videos/{video_id}/frames",
+    response_model=FramePageResponse,
+    response_model_exclude_none=True,
+)
 def list_frames(
     project_id: str,
     video_id: str,
@@ -213,6 +246,7 @@ def list_frames(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     enabled: bool | None = None,
+    include_annotations: bool = False,
 ) -> FramePageResponse:
     try:
         items, total, plan = sampling_service(request).list_frames(
@@ -225,8 +259,25 @@ def list_frames(
         )
     except (ProjectNotFound, ProjectForbidden, SamplingNotFound) as exc:
         _raise_sampling_error(exc)
+    previews = (
+        sampling_service(request).frame_annotation_previews(
+            user,
+            project_id,
+            video_id,
+            [item.id for item in items],
+        )
+        if include_annotations
+        else {}
+    )
     return FramePageResponse(
-        items=[_frame_response(item, request.app.state.workspace) for item in items],
+        items=[
+            _frame_response(
+                item,
+                request.app.state.workspace,
+                previews.get(item.id, []) if include_annotations else None,
+            )
+            for item in items
+        ],
         page=page,
         page_size=page_size,
         total=total,
