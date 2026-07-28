@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -20,6 +20,12 @@ const mocks = vi.hoisted(() => ({
   runFrameAutoAnnotation: vi.fn(),
   createBatchAutoAnnotation: vi.fn(),
   registerInferenceModel: vi.fn(),
+  confirmBatch: vi.fn(),
+}))
+
+vi.mock('element-plus', async (importOriginal) => ({
+  ...await importOriginal<typeof import('element-plus')>(),
+  ElMessageBox: { confirm: mocks.confirmBatch },
 }))
 
 vi.mock('vue-router', () => ({
@@ -103,6 +109,7 @@ beforeEach(() => {
   document.body.innerHTML = '<div id="focus-header-tools"></div>'
   localStorage.clear()
   for (const value of Object.values(mocks)) value.mockReset()
+  mocks.confirmBatch.mockResolvedValue('confirm')
   mocks.getProject.mockResolvedValue(project)
   mocks.getCurrentUser.mockResolvedValue({
     id: 'editor-id', username: 'editor', status: 'active', is_system_admin: false,
@@ -254,13 +261,87 @@ describe('AnnotationWorkbenchView', () => {
     })
     await flushPromises()
 
+    expect(wrapper.get('[data-test="overwrite-switch"]').attributes('disabled')).toBe('false')
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
     expect(mocks.runFrameAutoAnnotation).toHaveBeenCalledTimes(1)
     await wrapper.get('[data-test="run-batch-auto"]').trigger('click')
     await flushPromises()
+    expect(mocks.confirmBatch).toHaveBeenCalledWith(
+      expect.stringContaining('2 个启用采样帧'),
+      '确认批量自动标注',
+      expect.objectContaining({ confirmButtonText: '确认运行' }),
+    )
     expect(mocks.replaceFrameAnnotations).toHaveBeenCalledTimes(1)
     expect(mocks.createBatchAutoAnnotation).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('shows a blocking save overlay while a dirty frame is switching', async () => {
+    let finishSave: ((value: unknown) => void) | undefined
+    mocks.replaceFrameAnnotations.mockImplementationOnce(
+      (_project: string, _video: string, value: { frame_id: string; annotation_revision: number; items: unknown[] }) =>
+        new Promise((resolve) => {
+          finishSave = () => resolve({ ...value, annotation_revision: value.annotation_revision + 1 })
+        }),
+    )
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="canvas-change"]').trigger('click')
+    await wrapper.get('[data-test="next-frame"]').trigger('click')
+    expect(wrapper.get('[data-test="save-overlay"]').text()).toContain('保存并切换采样帧')
+
+    finishSave?.({})
+    await flushPromises()
+    expect(wrapper.find('[data-test="save-overlay"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps All mutually exclusive with explicit auto-annotation categories', async () => {
+    mocks.listInferenceModels.mockResolvedValueOnce([{
+      id: 'model-id', name: 'YOLO', kind: 'yolo', status: 'ready',
+      source_name: 'model.pt', error: null, created_at: '', updated_at: '',
+    }])
+    mocks.runFrameAutoAnnotation.mockResolvedValue({ items: [], created_labels: [] })
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    ;(wrapper.getComponent('[data-test="auto-categories"]') as VueWrapper).vm.$emit(
+      'change', ['__all__', 'helmet'],
+    )
+    await wrapper.get('[data-test="run-single-auto"]').trigger('click')
+    await flushPromises()
+    expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3].categories).toEqual(['helmet'])
+
+    ;(wrapper.getComponent('[data-test="auto-categories"]') as VueWrapper).vm.$emit(
+      'change', ['helmet', '__all__'],
+    )
+    await wrapper.get('[data-test="run-single-auto"]').trigger('click')
+    await flushPromises()
+    expect(mocks.runFrameAutoAnnotation.mock.calls[1]?.[3].categories).toEqual([])
     wrapper.unmount()
   })
 

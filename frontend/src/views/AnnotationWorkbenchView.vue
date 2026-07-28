@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDownBold, ArrowUpBold, Delete as DeleteIcon, Hide, View } from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -45,6 +45,7 @@ import {
 
 type CanvasMode = 'select' | 'draw' | 'pan'
 type CanvasApi = { zoomBy: (factor: number) => void; resetView: () => void; zoomPercent: number }
+type SaveContext = 'switch' | 'close' | 'batch'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,6 +70,7 @@ const dirty = ref(false)
 const loading = ref(true)
 const loadingFrame = ref(false)
 const saving = ref(false)
+const saveContext = ref<SaveContext | null>(null)
 const error = ref('')
 const saveText = ref('已同步')
 const hiddenLabelIds = ref<string[]>([])
@@ -94,6 +96,7 @@ const reuseLabel = ref(storedPreference.reuse)
 const viewport = ref<BoxBounds | null>(null)
 const autoModel = ref('')
 const autoCategories = ref<string[]>(['__all__'])
+const categoryQuery = ref('')
 const confidence = ref(0.25)
 const iou = ref(0.45)
 const cache = new Map<string, FrameAnnotationSet>()
@@ -165,6 +168,15 @@ const annotationOrder = computed(() => new Map(
 const labelColors = computed(() => Object.fromEntries(
   labels.value.map((label) => [label.id, label.color]),
 ))
+const normalizedCategoryQuery = computed(() => categoryQuery.value.trim().toLowerCase())
+const visibleAutoLabels = computed(() => enabledLabels.value.filter(
+  (label) => !normalizedCategoryQuery.value || label.name.includes(normalizedCategoryQuery.value),
+))
+const newAutoCategory = computed(() => {
+  const name = normalizedCategoryQuery.value
+  if (!name || enabledLabels.value.some((label) => label.name === name)) return ''
+  return name
+})
 
 function clone(items: FrameAnnotation[]) {
   return items.map((item) => ({ ...item }))
@@ -252,10 +264,11 @@ function cancelCategory() {
   mode.value = 'select'
 }
 
-async function saveCurrent() {
+async function saveCurrent(context?: SaveContext) {
   const frame = currentFrame.value
   if (!frame || !dirty.value) return true
   saving.value = true
+  saveContext.value = context ?? null
   saveText.value = '保存中…'
   try {
     const saved = await replaceFrameAnnotations(projectId, videoId, {
@@ -276,7 +289,17 @@ async function saveCurrent() {
     return false
   } finally {
     saving.value = false
+    saveContext.value = null
   }
+}
+
+function setAutoCategories(values: string[]) {
+  const selectedAll = values.includes('__all__')
+  const hadAll = autoCategories.value.includes('__all__')
+  autoCategories.value = selectedAll && !hadAll
+    ? ['__all__']
+    : values.filter((value) => value !== '__all__')
+  categoryQuery.value = ''
 }
 
 function autoConfig(): AutoAnnotationConfig | null {
@@ -324,7 +347,24 @@ async function runBatchAutoAnnotation() {
     ElMessage.warning('该视频已停用，请先在视频资料库启用后再运行批量自动标注。')
     return
   }
-  if (!config || batchActive.value || !await saveCurrent()) return
+  if (!config || batchActive.value) return
+  const categoryText = config.categories.length ? config.categories.join(', ') : 'All / 全类别'
+  try {
+    await ElMessageBox.confirm(
+      `将使用「${selectedModel.value?.name ?? ''}」处理 ${enabledFrameCount.value} 个启用采样帧；类别：${categoryText}；${overwrite.value ? '覆盖已有标注' : '保留已有标注并追加结果'}。`,
+      '确认批量自动标注',
+      {
+        confirmButtonText: '确认运行',
+        cancelButtonText: '取消',
+        type: overwrite.value ? 'error' : 'warning',
+        customClass: 'batch-confirm-dialog',
+        modalClass: 'batch-confirm-mask',
+      },
+    )
+  } catch {
+    return
+  }
+  if (!await saveCurrent('batch')) return
   inferenceRunning.value = true
   try {
     activeAutoTask.value = await createBatchAutoAnnotation(
@@ -423,12 +463,12 @@ async function loadFrame(index: number) {
 
 async function switchFrame(index: number) {
   if (index === currentIndex.value || saving.value || loadingFrame.value) return
-  if (!await saveCurrent()) return
+  if (!await saveCurrent('switch')) return
   await loadFrame(index)
 }
 
 async function closeWorkbench() {
-  if (!await saveCurrent()) return
+  if (!await saveCurrent('close')) return
   await router.push(`/projects/${projectId}/videos`)
 }
 
@@ -612,6 +652,7 @@ watch(reuseLabel, (reuse) => {
       </div>
       <div class="focus-actions">
         <span class="save-state" :data-state="dirty ? 'dirty' : 'saved'">{{ batchActive ? `自动标注 ${activeAutoTask?.progress ?? 0}%` : saveText }}</span>
+        <button type="button" @click="statsOpen = true">标注统计</button>
         <button type="button" data-test="close-annotation" title="保存并关闭" @click="closeWorkbench">关闭</button>
       </div>
     </div>
@@ -636,21 +677,24 @@ watch(reuseLabel, (reuse) => {
           @click="registerOpen = true"
         >＋模型</button>
         <el-select
-          v-model="autoCategories"
+          :model-value="autoCategories"
           class="category-select"
+          data-test="auto-categories"
           multiple
           filterable
-          allow-create
-          default-first-option
           collapse-tags
           placeholder="类别"
           :disabled="batchActive || inferenceRunning || !autoModel"
+          :filter-method="(query: string) => { categoryQuery = query }"
+          @change="setAutoCategories"
         >
-          <el-option label="All / 全类别" value="__all__" />
-          <el-option v-for="label in enabledLabels" :key="label.id" :label="label.name" :value="label.name" />
+          <el-option v-if="newAutoCategory" :label="`新建类别：${newAutoCategory}`" :value="newAutoCategory" />
+          <el-option v-if="!normalizedCategoryQuery || 'all'.includes(normalizedCategoryQuery)" label="All / 全类别" value="__all__" />
+          <el-option v-for="label in visibleAutoLabels" :key="label.id" :label="label.name" :value="label.name" />
         </el-select>
-        <label>置信度 <el-input-number v-model="confidence" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
-        <label>IoU <el-input-number v-model="iou" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
+        <label>置信度 <el-input-number v-model="confidence" controls-position="right" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
+        <label>IoU <el-input-number v-model="iou" controls-position="right" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
+        <label>标签覆盖 <el-switch v-model="overwrite" data-test="overwrite-switch" :disabled="batchActive || inferenceRunning || !autoModel" /></label>
         <button data-test="run-single-auto" type="button" :disabled="batchActive || inferenceRunning || !autoModel" @click="runSingleAutoAnnotation">单张运行</button>
         <button data-test="run-batch-auto" type="button" :disabled="batchActive || inferenceRunning || !autoModel || video?.enabled === false" @click="runBatchAutoAnnotation">批量运行</button>
         <span v-if="autoUnavailableReason" class="auto-warning" :title="autoUnavailableReason">{{ autoUnavailableText }}</span>
@@ -658,8 +702,6 @@ watch(reuseLabel, (reuse) => {
       <div class="frame-controls">
         <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" :disabled="!currentFrame || batchActive" @change="toggleFrameEnabled" /></label>
         <label>标签沿用 <el-switch v-model="reuseLabel" :disabled="batchActive" /></label>
-        <button type="button" @click="statsOpen = true">标注统计</button>
-        <label>标签覆盖 <el-switch v-model="overwrite" disabled /></label>
         <label>十字线 <el-switch v-model="crosshair" :disabled="batchActive" /></label>
       </div>
     </section>
@@ -814,6 +856,10 @@ watch(reuseLabel, (reuse) => {
       <span>{{ error || '正在加载在线标注工作台…' }}</span>
       <button v-if="error" type="button" @click="closeWorkbench">返回原始数据</button>
     </div>
+    <div v-if="saving && saveContext" class="save-overlay" data-test="save-overlay">
+      <span class="save-spinner" />
+      <strong>{{ saveContext === 'close' ? '正在保存并关闭…' : saveContext === 'batch' ? '正在保存后启动任务…' : '正在保存并切换采样帧…' }}</strong>
+    </div>
     <div v-if="pendingBounds" class="category-scrim" data-test="category-scrim" />
     <div v-if="pendingBounds" class="category-picker" data-test="category-picker">
       <label>选择类别
@@ -905,8 +951,8 @@ watch(reuseLabel, (reuse) => {
 .auto-controls label,
 .frame-controls label { display: flex; align-items: center; gap: 5px; color: #aebbc4; font-size: 12px; }
 .model-select { width: 138px; }
-.category-select { width: 190px; }
-.auto-controls :deep(.el-input-number) { width: 92px; }
+.category-select { width: 340px; }
+.auto-controls :deep(.el-input-number) { width: 112px; }
 .auto-bar button { height: 30px; padding: 0 10px; color: #dce5eb; background: #263641; border: 1px solid #41515d; }
 .auto-bar button:disabled { color: #6f7d87; cursor: not-allowed; }
 .auto-warning { width: 84px; overflow: hidden; color: #d7a85b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -987,6 +1033,13 @@ watch(reuseLabel, (reuse) => {
 .workbench-state { position: absolute; inset: 50px 0 0 58px; z-index: 30; display: grid; place-content: center; gap: 12px; color: #aebbc4; background: #111820; text-align: center; }
 .workbench-state.error { color: #f0a39e; }
 .workbench-state button { justify-self: center; height: 32px; color: #dce6eb; background: #253640; border: 1px solid #455762; }
+.save-overlay { position: absolute; inset: 0; z-index: 60; display: grid; place-content: center; justify-items: center; gap: 12px; color: #eef5f7; background: rgb(5 9 12 / 68%); animation: save-overlay-in 160ms 100ms both; }
+.save-overlay strong { font-size: 14px; font-weight: 600; }
+.save-spinner { width: 30px; height: 30px; border: 3px solid rgb(255 255 255 / 22%); border-top-color: #78d2b8; border-radius: 50%; animation: save-spinner 700ms linear infinite; }
+:global(.batch-confirm-mask) { background: rgb(4 8 11 / 68%) !important; }
+:global(.batch-confirm-dialog) { border: 1px solid #9ba9b2; box-shadow: 0 20px 60px rgb(0 0 0 / 45%); }
+@keyframes save-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes save-spinner { to { transform: rotate(360deg); } }
 .shortcut-list { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 9px 15px; margin: 0; }
 .shortcut-list dt { font: 12px var(--vdw-mono); }
 .shortcut-list dd { margin: 0; color: #687482; }
@@ -1001,11 +1054,13 @@ watch(reuseLabel, (reuse) => {
 @media (max-width: 1180px) {
   .annotation-workbench { grid-template-columns: 54px minmax(0, 1fr) 250px; }
   .auto-controls label { display: none; }
-  .category-select { width: 160px; }
+  .category-select { width: 260px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .annotation-workbench *,
   .annotation-focus-tools * { scroll-behavior: auto !important; transition: none !important; }
+  .save-overlay,
+  .save-spinner { animation: none !important; }
 }
 </style>
