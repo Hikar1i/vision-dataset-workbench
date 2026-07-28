@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import { Delete as DeleteIcon, Hide, View } from '@element-plus/icons-vue'
+import { ArrowDownBold, ArrowUpBold, Delete as DeleteIcon, Hide, View } from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -33,6 +33,7 @@ import {
 } from '../api/models'
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
+import FrameAnnotationThumbnail from '../components/FrameAnnotationThumbnail.vue'
 import ServerVideoPicker from '../components/ServerVideoPicker.vue'
 import { type BoxBounds } from './annotationGeometry'
 import { createAnnotationHistory } from './annotationHistory'
@@ -76,6 +77,7 @@ const expandedLabelIds = ref<string[]>([])
 const crosshair = ref(false)
 const overwrite = ref(false)
 const gridOpen = ref(false)
+const filmstripVisible = ref(true)
 const shortcutsOpen = ref(false)
 const statsOpen = ref(false)
 const registerOpen = ref(false)
@@ -159,6 +161,9 @@ const enabledFrameCount = computed(() => frames.value.filter((frame) => frame.en
 const boxCount = computed(() => annotations.value.length)
 const annotationOrder = computed(() => new Map(
   annotations.value.map((item, index) => [item.id, index + 1]),
+))
+const labelColors = computed(() => Object.fromEntries(
+  labels.value.map((label) => [label.id, label.color]),
 ))
 
 function clone(items: FrameAnnotation[]) {
@@ -259,6 +264,7 @@ async function saveCurrent() {
       items: clone(annotations.value),
     })
     annotations.value = clone(saved.items)
+    frame.annotations = clone(saved.items)
     annotationRevision.value = saved.annotation_revision
     cache.set(frame.id, { ...saved, items: clone(saved.items) })
     dirty.value = false
@@ -513,13 +519,13 @@ function handleBeforeUnload(event: BeforeUnloadEvent) {
 }
 
 async function loadAllFrames() {
-  const first = await listFrames(projectId, videoId, 1, 200)
+  const first = await listFrames(projectId, videoId, 1, 200, undefined, true)
   sampling.value = first.sampling
   const pages = Math.ceil(first.total / first.page_size)
   const rest = pages > 1
     ? await Promise.all(
         Array.from({ length: pages - 1 }, (_, index) =>
-          listFrames(projectId, videoId, index + 2, first.page_size)),
+          listFrames(projectId, videoId, index + 2, first.page_size, undefined, true)),
       )
     : []
   frames.value = [first, ...rest].flatMap((page) => page.items)
@@ -611,7 +617,7 @@ watch(reuseLabel, (reuse) => {
     </div>
   </Teleport>
 
-  <main ref="workbenchRoot" class="annotation-workbench" data-test="annotation-workbench">
+  <main ref="workbenchRoot" class="annotation-workbench" :class="{ 'filmstrip-hidden': !filmstripVisible }" data-test="annotation-workbench">
     <section class="auto-bar" aria-label="自动标注控制">
       <div class="auto-controls">
         <el-select
@@ -752,7 +758,7 @@ watch(reuseLabel, (reuse) => {
       </section>
     </aside>
 
-    <section class="filmstrip">
+    <section v-if="filmstripVisible" class="filmstrip">
       <div class="filmstrip-scroll">
         <button
           v-for="(frame, index) in frames"
@@ -763,19 +769,43 @@ watch(reuseLabel, (reuse) => {
           :title="`第 ${frame.sequence} 帧`"
           @click="switchFrame(index)"
         >
-          <img loading="lazy" :src="frameImageUrl(projectId, videoId, frame.id)" alt="" />
-          <span>#{{ frame.sequence }}</span>
+          <FrameAnnotationThumbnail
+            :image-url="frameImageUrl(projectId, videoId, frame.id)"
+            :image-width="video?.width ?? 0"
+            :image-height="video?.height ?? 0"
+            :annotations="index === currentIndex ? annotations : (frame.annotations ?? [])"
+            :label-colors="labelColors"
+            :sequence="frame.sequence"
+            :current="index === currentIndex"
+            :disabled="!frame.enabled"
+          />
         </button>
       </div>
-      <button class="expand-grid" type="button" title="展开全部采样帧" @click="gridOpen = true">⌃</button>
+      <div class="filmstrip-actions">
+        <button type="button" title="展开全部采样帧" @click="gridOpen = true"><el-icon><ArrowUpBold /></el-icon></button>
+        <button type="button" title="隐藏采样帧序列" @click="filmstripVisible = false"><el-icon><ArrowDownBold /></el-icon></button>
+      </div>
     </section>
 
+    <button v-else class="restore-filmstrip" type="button" title="显示采样帧序列" @click="filmstripVisible = true">
+      <el-icon><ArrowUpBold /></el-icon><span>采样帧</span>
+    </button>
+
     <section v-if="gridOpen" class="frame-grid-overlay" aria-label="全部采样帧">
-      <header><strong>全部采样帧</strong><span>{{ enabledFrameCount }} / {{ frames.length }} 帧启用</span><button type="button" @click="gridOpen = false">关闭</button></header>
+      <header><strong>全部采样帧</strong><span>{{ enabledFrameCount }} / {{ frames.length }} 帧启用</span><button type="button" title="收起全部采样帧" @click="gridOpen = false"><el-icon><ArrowDownBold /></el-icon><span>收起</span></button></header>
       <div class="frame-grid">
         <button v-for="(frame, index) in frames" :key="frame.id" type="button" :class="{ current: index === currentIndex, disabled: !frame.enabled }" @click="switchFrame(index).then(() => { gridOpen = false })">
-          <img loading="lazy" :src="frameImageUrl(projectId, videoId, frame.id)" alt="" />
-          <span>#{{ frame.sequence }} · {{ frame.time_offset.toFixed(2) }}s</span>
+          <FrameAnnotationThumbnail
+            :image-url="frameImageUrl(projectId, videoId, frame.id)"
+            :image-width="video?.width ?? 0"
+            :image-height="video?.height ?? 0"
+            :annotations="index === currentIndex ? annotations : (frame.annotations ?? [])"
+            :label-colors="labelColors"
+            :sequence="frame.sequence"
+            :current="index === currentIndex"
+            :disabled="!frame.enabled"
+          />
+          <span class="frame-time">{{ frame.time_offset.toFixed(2) }}s</span>
         </button>
       </div>
     </section>
@@ -867,6 +897,7 @@ watch(reuseLabel, (reuse) => {
   color: #dce5eb;
   background: #111820;
 }
+.annotation-workbench.filmstrip-hidden { grid-template-rows: 50px minmax(0, 1fr) 0; }
 
 .auto-bar { grid-column: 1 / -1; gap: 14px; justify-content: space-between; min-width: 0; padding: 0 10px; overflow: hidden; background: #1d2933; border-bottom: 1px solid #33414c; }
 .auto-controls,
@@ -936,23 +967,22 @@ watch(reuseLabel, (reuse) => {
 
 .filmstrip { display: grid; grid-column: 2 / 4; grid-row: 3; grid-template-columns: minmax(0, 1fr) 38px; min-width: 0; min-height: 0; background: #18232c; border-top: 1px solid #33414c; }
 .filmstrip-scroll { display: flex; align-items: end; gap: 7px; min-width: 0; padding: 8px 8px 9px; overflow-x: auto; overflow-y: hidden; }
-.film-frame { position: relative; flex: 0 0 128px; height: 92px; overflow: hidden; padding: 0; background: #0e151b; border: 2px solid transparent; cursor: pointer; }
+.film-frame { position: relative; flex: 0 0 128px; overflow: hidden; padding: 0; background: #111820; border: 2px solid transparent; cursor: pointer; }
 .film-frame.current { border-color: #78d2b8; box-shadow: 0 0 0 1px #16866f; }
-.film-frame.disabled { opacity: .45; }
-.film-frame img { width: 100%; height: 100%; object-fit: cover; }
-.film-frame span { position: absolute; right: 3px; bottom: 3px; padding: 2px 4px; color: #eef4f6; font: 10px var(--vdw-mono); background: rgb(10 16 20 / 76%); }
-.expand-grid { color: #b8c5ce; background: #22303a; border: 0; border-left: 1px solid #34434e; cursor: pointer; }
+.filmstrip-actions { display: grid; grid-template-rows: 1fr 1fr; border-left: 1px solid #34434e; }
+.filmstrip-actions button { display: grid; place-items: center; padding: 0; color: #b8c5ce; background: #22303a; border: 0; cursor: pointer; }
+.filmstrip-actions button + button { border-top: 1px solid #34434e; }
+.restore-filmstrip { position: absolute; z-index: 12; bottom: 0; left: calc(50% + 29px); display: flex; align-items: center; gap: 5px; height: 25px; padding: 0 11px; color: #b8c5ce; background: #22303a; border: 1px solid #41515d; border-bottom: 0; border-radius: 4px 4px 0 0; cursor: pointer; transform: translateX(-50%); }
+.restore-filmstrip span { font-size: 11px; }
 
 .frame-grid-overlay { position: absolute; inset: 50px 0 0 58px; z-index: 20; display: grid; grid-template-rows: 48px minmax(0, 1fr); background: #152029; }
 .frame-grid-overlay > header { gap: 12px; padding: 0 14px; background: #1e2c36; border-bottom: 1px solid #3a4a56; }
 .frame-grid-overlay > header span { color: #91a0ab; font-size: 12px; }
-.frame-grid-overlay > header button { margin-left: auto; height: 30px; color: #dbe5eb; background: #283843; border: 1px solid #41515d; }
+.frame-grid-overlay > header button { display: flex; align-items: center; gap: 5px; margin-left: auto; height: 30px; color: #dbe5eb; background: #283843; border: 1px solid #41515d; }
 .frame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 9px; align-content: start; padding: 12px; overflow: auto; }
-.frame-grid button { overflow: hidden; padding: 0; color: #d7e0e6; text-align: left; background: #1f2b35; border: 2px solid transparent; }
+.frame-grid button { position: relative; overflow: hidden; padding: 0; color: #d7e0e6; text-align: left; background: #111820; border: 2px solid transparent; }
 .frame-grid button.current { border-color: #78d2b8; }
-.frame-grid button.disabled { opacity: .45; }
-.frame-grid img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
-.frame-grid span { display: block; padding: 6px; font: 11px var(--vdw-mono); }
+.frame-grid .frame-time { position: absolute; z-index: 2; top: 4px; right: 4px; padding: 2px 5px; font: 10px var(--vdw-mono); background: rgb(7 12 16 / 78%); }
 
 .workbench-state { position: absolute; inset: 50px 0 0 58px; z-index: 30; display: grid; place-content: center; gap: 12px; color: #aebbc4; background: #111820; text-align: center; }
 .workbench-state.error { color: #f0a39e; }
