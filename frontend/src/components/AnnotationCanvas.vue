@@ -27,6 +27,8 @@ const props = defineProps<{
   readonly?: boolean
   crosshair?: boolean
   hiddenLabelIds?: string[]
+  hiddenAnnotationIds?: string[]
+  pendingBounds?: BoxBounds | null
 }>()
 
 const emit = defineEmits<{
@@ -44,6 +46,7 @@ const image = ref<HTMLImageElement | null>(null)
 const zoom = ref(1)
 const pan = ref<Point>({ x: 0, y: 0 })
 const pointer = ref<Point | null>(null)
+const hoveredId = ref<string | null>(null)
 const drawStart = ref<Point | null>(null)
 const drawCurrent = ref<Point | null>(null)
 const panStart = ref<{ pointer: Point; pan: Point } | null>(null)
@@ -64,9 +67,15 @@ const groupConfig = computed(() => ({
   scaleY: fit.value.scale * zoom.value,
 }))
 const labelMap = computed(() => new Map(props.labels.map((label) => [label.id, label])))
+const annotationOrder = computed(() => new Map(
+  props.annotations.map((item, index) => [item.id, index + 1]),
+))
 const visibleAnnotations = computed(() => {
-  const hidden = new Set(props.hiddenLabelIds ?? [])
-  return props.annotations.filter((item) => !hidden.has(item.label_id))
+  const hiddenLabels = new Set(props.hiddenLabelIds ?? [])
+  const hiddenAnnotations = new Set(props.hiddenAnnotationIds ?? [])
+  return props.annotations.filter(
+    (item) => !hiddenLabels.has(item.label_id) && !hiddenAnnotations.has(item.id),
+  )
 })
 const preview = computed(() => {
   if (!drawStart.value || !drawCurrent.value) return null
@@ -83,6 +92,25 @@ const cursor = computed(() => {
   return 'default'
 })
 const zoomPercent = computed(() => Math.round(zoom.value * 100))
+
+function colorWithAlpha(color: string, alpha: number) {
+  const value = color.match(/^#([0-9a-f]{6})$/i)?.[1]
+  if (!value) return `rgb(255 202 58 / ${alpha})`
+  const channels = [0, 2, 4].map((offset) => Number.parseInt(value.slice(offset, offset + 2), 16))
+  return `rgb(${channels.join(' ')} / ${alpha})`
+}
+
+function contrastText(color: string) {
+  const value = color.match(/^#([0-9a-f]{6})$/i)?.[1]
+  if (!value) return '#111820'
+  const [red, green, blue] = [0, 2, 4]
+    .map((offset) => Number.parseInt(value.slice(offset, offset + 2), 16))
+  return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#111820' : '#ffffff'
+}
+
+function annotationTitle(item: FrameAnnotation) {
+  return `${labelMap.value.get(item.label_id)?.name ?? 'unknown'} #${annotationOrder.value.get(item.id)}`
+}
 
 function loadImage() {
   const next = new Image()
@@ -267,6 +295,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
     class="annotation-canvas"
     data-test="annotation-canvas"
     :style="{ cursor }"
+    @contextmenu.prevent
   >
     <v-stage
       ref="stageRef"
@@ -284,29 +313,71 @@ defineExpose({ zoomBy, resetView, zoomPercent })
       </v-layer>
       <v-layer>
         <v-group :config="groupConfig">
-          <v-rect
-            v-for="item in visibleAnnotations"
-            :key="item.id"
-            :config="{
-              name: `annotation-${item.id}`,
-              x: item.x_min,
-              y: item.y_min,
-              width: item.x_max - item.x_min,
-              height: item.y_max - item.y_min,
-              stroke: labelMap.get(item.label_id)?.color ?? '#ffca3a',
-              strokeWidth: item.id === selectedId ? 3 : 2,
-              strokeScaleEnabled: false,
-              draggable: mode === 'select' && !readonly,
-            }"
-            @mousedown="selectAnnotation($event, item.id)"
-            @dragend="handleDragEnd($event, item)"
-            @transformend="handleTransformEnd($event, item)"
-          />
+          <template v-for="item in visibleAnnotations" :key="item.id">
+            <v-rect
+              :config="{
+                name: `annotation-${item.id}`,
+                x: item.x_min,
+                y: item.y_min,
+                width: item.x_max - item.x_min,
+                height: item.y_max - item.y_min,
+                stroke: labelMap.get(item.label_id)?.color ?? '#ffca3a',
+                fill: colorWithAlpha(
+                  labelMap.get(item.label_id)?.color ?? '#ffca3a',
+                  item.id === selectedId || item.id === hoveredId ? 0.28 : 0.12,
+                ),
+                strokeWidth: item.id === selectedId ? 3 : 2,
+                strokeScaleEnabled: false,
+                draggable: mode === 'select' && !readonly,
+              }"
+              @mousedown="selectAnnotation($event, item.id)"
+              @mouseenter="hoveredId = item.id"
+              @mouseleave="hoveredId = hoveredId === item.id ? null : hoveredId"
+              @dragend="handleDragEnd($event, item)"
+              @transformend="handleTransformEnd($event, item)"
+            />
+            <v-group :config="{ x: item.x_min, y: item.y_min, listening: false }">
+              <v-rect
+                :config="{
+                  width: Math.max(54, annotationTitle(item).length * 7 + 10),
+                  height: 18,
+                  fill: labelMap.get(item.label_id)?.color ?? '#ffca3a',
+                  listening: false,
+                }"
+              />
+              <v-text
+                :config="{
+                  x: 5,
+                  y: 3,
+                  text: annotationTitle(item),
+                  fontSize: 11,
+                  fontStyle: 'bold',
+                  fill: contrastText(labelMap.get(item.label_id)?.color ?? '#ffca3a'),
+                  listening: false,
+                }"
+              />
+            </v-group>
+          </template>
           <v-rect
             v-if="preview"
             :config="{
               ...preview,
               stroke: '#78d2b8',
+              strokeWidth: 2,
+              dash: [8, 5],
+              strokeScaleEnabled: false,
+              listening: false,
+            }"
+          />
+          <v-rect
+            v-else-if="pendingBounds"
+            :config="{
+              x: pendingBounds.x_min,
+              y: pendingBounds.y_min,
+              width: pendingBounds.x_max - pendingBounds.x_min,
+              height: pendingBounds.y_max - pendingBounds.y_min,
+              stroke: '#78d2b8',
+              fill: 'rgb(120 210 184 / 12%)',
               strokeWidth: 2,
               dash: [8, 5],
               strokeScaleEnabled: false,

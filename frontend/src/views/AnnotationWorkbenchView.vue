@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
+import { Delete as DeleteIcon, Hide, View } from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -70,6 +71,7 @@ const saving = ref(false)
 const error = ref('')
 const saveText = ref('已同步')
 const hiddenLabelIds = ref<string[]>([])
+const hiddenAnnotationIds = ref<string[]>([])
 const expandedLabelIds = ref<string[]>([])
 const crosshair = ref(false)
 const overwrite = ref(false)
@@ -155,6 +157,9 @@ const minimapRect = computed(() => {
 })
 const enabledFrameCount = computed(() => frames.value.filter((frame) => frame.enabled).length)
 const boxCount = computed(() => annotations.value.length)
+const annotationOrder = computed(() => new Map(
+  annotations.value.map((item, index) => [item.id, index + 1]),
+))
 
 function clone(items: FrameAnnotation[]) {
   return items.map((item) => ({ ...item }))
@@ -190,8 +195,13 @@ function redo() {
 
 function deleteSelected() {
   if (!selectedId.value) return
-  pushDraft(annotations.value.filter((item) => item.id !== selectedId.value))
-  selectedId.value = null
+  deleteAnnotation(selectedId.value)
+}
+
+function deleteAnnotation(id: string) {
+  pushDraft(annotations.value.filter((item) => item.id !== id))
+  hiddenAnnotationIds.value = hiddenAnnotationIds.value.filter((item) => item !== id)
+  if (selectedId.value === id) selectedId.value = null
 }
 
 function clearAll() {
@@ -384,6 +394,7 @@ async function loadFrame(index: number) {
     annotationRevision.value = value.annotation_revision
     selectedId.value = null
     hiddenLabelIds.value = []
+    hiddenAnnotationIds.value = []
     pendingBounds.value = null
     history = createAnnotationHistory(value.items)
     dirty.value = false
@@ -436,6 +447,12 @@ function toggleLabelHidden(labelId: string) {
   hiddenLabelIds.value = hiddenLabelIds.value.includes(labelId)
     ? hiddenLabelIds.value.filter((id) => id !== labelId)
     : [...hiddenLabelIds.value, labelId]
+}
+
+function toggleAnnotationHidden(annotationId: string) {
+  hiddenAnnotationIds.value = hiddenAnnotationIds.value.includes(annotationId)
+    ? hiddenAnnotationIds.value.filter((id) => id !== annotationId)
+    : [...hiddenAnnotationIds.value, annotationId]
 }
 
 function toggleAllBoxes() {
@@ -671,6 +688,8 @@ watch(reuseLabel, (reuse) => {
         :mode="mode"
         :crosshair="crosshair"
         :hidden-label-ids="hiddenLabelIds"
+        :hidden-annotation-ids="hiddenAnnotationIds"
+        :pending-bounds="pendingBounds"
         :readonly="batchActive"
         @change="pushDraft"
         @select="selectedId = $event"
@@ -698,20 +717,29 @@ watch(reuseLabel, (reuse) => {
             <i :style="{ background: group.label.color }" />
             <button type="button" class="group-name" @click="toggleExpanded(group.label.id)">{{ group.label.name }}</button>
             <span>{{ group.items.length }}</span>
-            <button type="button" :title="hiddenLabelIds.includes(group.label.id) ? '显示类别' : '隐藏类别'" @click="toggleLabelHidden(group.label.id)">{{ hiddenLabelIds.includes(group.label.id) ? '○' : '●' }}</button>
+            <button type="button" :title="hiddenLabelIds.includes(group.label.id) ? '显示类别' : '隐藏类别'" @click="toggleLabelHidden(group.label.id)">
+              <el-icon><View v-if="hiddenLabelIds.includes(group.label.id)" /><Hide v-else /></el-icon>
+            </button>
             <button type="button" title="展开/收起" @click="toggleExpanded(group.label.id)">{{ expandedLabelIds.includes(group.label.id) ? '⌃' : '⌄' }}</button>
           </div>
           <div v-if="expandedLabelIds.includes(group.label.id)" class="box-list">
-            <button
-              v-for="(item, index) in group.items"
+            <div
+              v-for="item in group.items"
               :key="item.id"
-              type="button"
+              class="box-item"
               :class="{ selected: selectedId === item.id }"
-              @click="selectedId = item.id; mode = 'select'"
             >
-              <span>#{{ index + 1 }}</span>
-              <code>{{ item.x_min }},{{ item.y_min }} → {{ item.x_max }},{{ item.y_max }}</code>
-            </button>
+              <button type="button" class="box-select" @click="selectedId = item.id; mode = 'select'">
+                <span>#{{ annotationOrder.get(item.id) }}</span>
+                <code>{{ item.x_min }},{{ item.y_min }} → {{ item.x_max }},{{ item.y_max }}</code>
+              </button>
+              <button type="button" :title="hiddenAnnotationIds.includes(item.id) ? '显示标注框' : '隐藏标注框'" @click="toggleAnnotationHidden(item.id)">
+                <el-icon><View v-if="hiddenAnnotationIds.includes(item.id)" /><Hide v-else /></el-icon>
+              </button>
+              <button type="button" title="删除标注框" :disabled="batchActive" @click="deleteAnnotation(item.id)">
+                <el-icon><DeleteIcon /></el-icon>
+              </button>
+            </div>
           </div>
         </article>
       </section>
@@ -895,8 +923,11 @@ watch(reuseLabel, (reuse) => {
 .object-group-row .group-name { overflow: hidden; padding-left: 7px; font-weight: 650; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .object-group-row span { color: #70808b; font: 11px var(--vdw-mono); text-align: center; }
 .box-list { border-top: 1px solid #e0e5e9; }
-.box-list button { display: grid; grid-template-columns: 27px minmax(0, 1fr); width: 100%; min-height: 29px; align-items: center; padding: 0 7px; color: #5d6c76; text-align: left; background: #fafcfc; border: 0; border-bottom: 1px solid #edf0f2; cursor: pointer; }
-.box-list button.selected { color: #116d5b; background: #e2f2ed; }
+.box-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; min-height: 30px; background: #fafcfc; border-bottom: 1px solid #edf0f2; }
+.box-item.selected { color: #116d5b; background: #e2f2ed; }
+.box-item > button { display: grid; place-items: center; min-width: 0; padding: 0; color: inherit; background: transparent; border: 0; cursor: pointer; }
+.box-item > button:disabled { color: #a8b1b7; cursor: not-allowed; }
+.box-item .box-select { grid-template-columns: 27px minmax(0, 1fr); padding: 0 7px; text-align: left; }
 .box-list code { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .minimap { padding: 8px 10px 10px; border-top: 1px solid #d2dae0; }
 .minimap-image { position: relative; height: 122px; overflow: hidden; background: #17212b; }
