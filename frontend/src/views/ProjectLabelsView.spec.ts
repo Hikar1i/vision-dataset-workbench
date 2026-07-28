@@ -90,13 +90,18 @@ describe('ProjectLabelsView', () => {
     await flushPromises()
 
     expect(wrapper.findAll('.label-header > span').map((column) => column.text())).toEqual([
+      '映射顺序',
       '启用状态',
+      '颜色',
       '英文类别',
       '中文描述',
-      '映射顺序',
       '操作',
     ])
     expect(wrapper.get('[data-test="order-helmet-id"]').text()).toBe('0')
+    expect(wrapper.get('[data-test="color-helmet-id"]').text()).toBe('#16866f')
+    expect(
+      (wrapper.get('[data-test="color-helmet-id"] i').element as HTMLElement).style.background,
+    ).toBe('rgb(22, 134, 111)')
     expect(wrapper.get<HTMLInputElement>('[data-test="name-helmet-id"]').element.value).toBe('helmet')
     expect(wrapper.get<HTMLInputElement>('[data-test="description-helmet-id"]').element.value).toBe('安全帽')
     const color = wrapper.get<HTMLInputElement>('[data-test="new-label-color"]').element.value
@@ -168,6 +173,7 @@ describe('ProjectLabelsView', () => {
     await wrapper.get('[data-test="move-up-person-id"]').trigger('click')
     await flushPromises()
     expect(reorderLabels).toHaveBeenCalledWith('project-id', ['person-id', 'helmet-id'])
+    expect(wrapper.find('[data-test="move-up-person-id"] .el-icon').exists()).toBe(true)
   })
 
   it('renders viewer labels without write controls', async () => {

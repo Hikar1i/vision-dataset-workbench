@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Bottom, Top } from '@element-plus/icons-vue'
 
 import { ApiError } from '../api/auth'
 import {
@@ -237,7 +238,7 @@ onMounted(load)
           v-if="labels.length"
           class="label-row label-header"
         >
-          <span>启用状态</span><span>英文类别</span><span>中文描述</span><span>映射顺序</span><span>操作</span>
+          <span>映射顺序</span><span>启用状态</span><span>颜色</span><span>英文类别</span><span>中文描述</span><span>操作</span>
         </header>
 
         <article
@@ -245,6 +246,8 @@ onMounted(load)
           :key="label.id"
           class="label-row"
         >
+          <code class="mapping-order" :data-test="`order-${label.id}`">{{ label.sort_order }}</code>
+
           <el-switch
             :model-value="label.enabled"
             :data-test="`enabled-${label.id}`"
@@ -254,6 +257,11 @@ onMounted(load)
             :disabled="!canEdit || saving === label.id"
             @change="canEdit && change(label, { enabled: Boolean($event) })"
           />
+
+          <div class="label-color" :data-test="`color-${label.id}`">
+            <i :style="{ background: label.color }" />
+            <code>{{ label.color }}</code>
+          </div>
 
           <el-input
             v-if="canEdit"
@@ -275,8 +283,6 @@ onMounted(load)
           />
           <span v-else class="description-text">{{ label.description_zh || '—' }}</span>
 
-          <code class="mapping-order" :data-test="`order-${label.id}`">{{ label.sort_order }}</code>
-
           <div class="action-cell">
             <template v-if="canEdit">
               <el-button
@@ -285,14 +291,14 @@ onMounted(load)
                 aria-label="上移"
                 :disabled="index === 0 || Boolean(saving)"
                 @click="move(index, -1)"
-              >↑</el-button>
+              ><el-icon><Top /></el-icon></el-button>
               <el-button
                 :data-test="`move-down-${label.id}`"
                 text
                 aria-label="下移"
                 :disabled="index === labels.length - 1 || Boolean(saving)"
                 @click="move(index, 1)"
-              >↓</el-button>
+              ><el-icon><Bottom /></el-icon></el-button>
               <el-button
                 text
                 type="danger"
@@ -353,10 +359,10 @@ onMounted(load)
 
 .label-row {
   display: grid;
-  grid-template-columns: 110px minmax(180px, 1fr) minmax(180px, 1fr) 100px 220px;
+  grid-template-columns: 80px 110px 120px minmax(180px, 1fr) minmax(180px, 1fr) 210px;
   gap: 18px;
   align-items: center;
-  min-width: 860px;
+  min-width: 1040px;
   min-height: 57px;
   padding: 9px 18px;
   border-bottom: 1px solid #e6eaf0;
@@ -392,6 +398,28 @@ onMounted(load)
 .mapping-order {
   color: var(--vdw-muted);
   font: 12px var(--vdw-mono);
+}
+
+.label-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.label-color i {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgb(23 33 43 / 18%);
+  border-radius: 3px;
+}
+
+.label-color code {
+  overflow: hidden;
+  color: var(--vdw-muted);
+  font: 11px var(--vdw-mono);
+  text-overflow: ellipsis;
 }
 
 .action-cell .el-button {
