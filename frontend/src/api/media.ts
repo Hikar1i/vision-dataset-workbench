@@ -157,6 +157,8 @@ export type FramePage = {
   total: number
   sampling: SamplingSummary
 }
+export type FrameEnabledChange = { frame_id: string; enabled: boolean }
+export type FrameAnnotationSummary = { annotated_frame_ids: string[] }
 
 const projectPath = (projectId: string) => `/api/v1/projects/${projectId}`
 
@@ -295,19 +297,22 @@ export const listFrames = (
 export const setFramesEnabled = (
   projectId: string,
   videoId: string,
-  enabled: boolean,
-  frameIds: string[] | null,
+  changes: FrameEnabledChange[],
   frameRevision: number,
 ) =>
   json<SamplingSummary>(`${projectPath(projectId)}/videos/${videoId}/frames/enabled`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      enabled,
-      frame_ids: frameIds,
+      changes,
       frame_revision: frameRevision,
     }),
   })
+
+export const getFrameAnnotationSummary = (projectId: string, videoId: string) =>
+  json<FrameAnnotationSummary>(
+    `${projectPath(projectId)}/videos/${videoId}/frames/annotation-summary`,
+  )
 
 export const frameImageUrl = (projectId: string, videoId: string, frameId: string) =>
   `${projectPath(projectId)}/videos/${videoId}/frames/${frameId}/image`

@@ -275,7 +275,7 @@ describe('AnnotationWorkbenchView', () => {
     await flushPromises()
 
     expect(mocks.setFramesEnabled).toHaveBeenCalledWith(
-      'project-id', 'video-id', false, ['frame-1'], 1,
+      'project-id', 'video-id', [{ frame_id: 'frame-1', enabled: false }], 1,
     )
     expect(wrapper.get('[data-test="reuse-label-switch"]').attributes('modelvalue')).toBe('true')
     expect(wrapper.get('[data-test="crosshair-switch"]').attributes('modelvalue')).toBe('false')

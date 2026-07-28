@@ -486,8 +486,7 @@ async function toggleFrameEnabled(value: boolean | string | number) {
     sampling.value = await setFramesEnabled(
       projectId,
       videoId,
-      Boolean(value),
-      [frame.id],
+      [{ frame_id: frame.id, enabled: Boolean(value) }],
       sampling.value.frame_revision,
     )
     frame.enabled = Boolean(value)
