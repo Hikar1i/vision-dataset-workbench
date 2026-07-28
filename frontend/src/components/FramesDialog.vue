@@ -1,79 +1,669 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  ArrowLeftBold,
+  ArrowRightBold,
+  Close,
+  Hide,
+  Refresh,
+  View,
+  ZoomIn,
+  ZoomOut,
+} from '@element-plus/icons-vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import { frameImageUrl, listFrames, setFramesEnabled, type Frame, type SamplingSummary } from '../api/media'
+import { getFrameAnnotations, type FrameAnnotation } from '../api/annotations'
+import { listLabels, type ProjectLabel } from '../api/labels'
+import {
+  frameImageUrl,
+  getFrameAnnotationSummary,
+  listFrames,
+  setFramesEnabled,
+  type Frame,
+  type SamplingSummary,
+} from '../api/media'
+import {
+  applyEnabledPattern,
+  diffEnabledStates,
+  selectFrameRange,
+  type EnabledState,
+} from './frameFilter'
 
-const props = defineProps<{ modelValue: boolean; projectId: string; videoId: string; title: string; canEdit: boolean }>()
+type PageSize = 50 | 100 | 200 | 'all'
+
+const props = defineProps<{
+  modelValue: boolean
+  projectId: string
+  videoId: string
+  title: string
+  canEdit: boolean
+  imageWidth: number
+  imageHeight: number
+}>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; updated: [] }>()
+
 const frames = ref<Frame[]>([])
 const sampling = ref<SamplingSummary | null>(null)
+const labels = ref<ProjectLabel[]>([])
+const annotatedIds = ref(new Set<string>())
+const baseline = ref<EnabledState>({})
+const draft = ref<EnabledState>({})
 const page = ref(1)
-const pageSize = ref(50)
-const total = ref(0)
-const selected = ref<string[]>([])
+const pageSize = ref<PageSize>(100)
+const selected = ref(new Set<string>())
+const selectionAnchor = ref<string | null>(null)
+const rangeMode = ref(false)
 const loading = ref(false)
-const changing = ref(false)
+const saving = ref(false)
+const analyzing = ref(false)
 const error = ref('')
 
-async function load(nextPage = page.value) {
-  if (!props.modelValue || !props.videoId) return
+const patternOpen = ref(false)
+const patternLength = ref(2)
+const pattern = ref<boolean[]>([true, true])
+
+const previewIndex = ref<number | null>(null)
+const previewLoading = ref(false)
+const previewZoom = ref(1)
+const boxesVisible = ref(true)
+const annotationCache = ref<Record<string, FrameAnnotation[]>>({})
+
+const orderedIds = computed(() => frames.value.map((frame) => frame.id))
+const changes = computed(() => diffEnabledStates(orderedIds.value, baseline.value, draft.value))
+const enabledCount = computed(() => frames.value.filter((frame) => draft.value[frame.id]).length)
+const disabledCount = computed(() => frames.value.length - enabledCount.value)
+const annotatedEnabledCount = computed(() => frames.value.filter(
+  (frame) => annotatedIds.value.has(frame.id) && draft.value[frame.id],
+).length)
+const annotatedDisabledCount = computed(() => annotatedIds.value.size - annotatedEnabledCount.value)
+const totalPages = computed(() => pageSize.value === 'all'
+  ? 1
+  : Math.max(1, Math.ceil(frames.value.length / pageSize.value)))
+const visibleFrames = computed(() => {
+  if (pageSize.value === 'all') return frames.value
+  const start = (page.value - 1) * pageSize.value
+  return frames.value.slice(start, start + pageSize.value)
+})
+const previewFrame = computed(() => previewIndex.value === null ? null : frames.value[previewIndex.value])
+const previewAnnotations = computed(() => previewFrame.value
+  ? (annotationCache.value[previewFrame.value.id] ?? [])
+  : [])
+const labelColors = computed(() => Object.fromEntries(labels.value.map((label) => [label.id, label.color])))
+const previewFileName = computed(() => previewFrame.value ? frameFileName(previewFrame.value) : '')
+
+watch(patternLength, (length) => {
+  const next = pattern.value.slice(0, length)
+  while (next.length < length) next.push(true)
+  pattern.value = next
+})
+watch(pageSize, () => { page.value = 1 })
+watch(() => props.modelValue, (open) => {
+  if (open) void load()
+  else resetTransientState()
+}, { immediate: true })
+
+async function load() {
+  if (!props.videoId) return
   loading.value = true
   error.value = ''
   try {
-    const result = await listFrames(props.projectId, props.videoId, nextPage)
-    frames.value = result.items
-    sampling.value = result.sampling
-    page.value = result.page
-    pageSize.value = result.page_size
-    total.value = result.total
-    selected.value = []
+    const [first, summary, projectLabels] = await Promise.all([
+      listFrames(props.projectId, props.videoId, 1, 200),
+      getFrameAnnotationSummary(props.projectId, props.videoId),
+      listLabels(props.projectId),
+    ])
+    const pageCount = Math.ceil(first.total / first.page_size)
+    const rest = pageCount > 1
+      ? await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) =>
+          listFrames(props.projectId, props.videoId, index + 2, first.page_size)))
+      : []
+    frames.value = [first, ...rest].flatMap((item) => item.items)
+    sampling.value = first.sampling
+    labels.value = projectLabels
+    annotatedIds.value = new Set(summary.annotated_frame_ids)
+    baseline.value = Object.fromEntries(frames.value.map((frame) => [frame.id, frame.enabled]))
+    draft.value = { ...baseline.value }
+    page.value = 1
+    selected.value = new Set()
+    selectionAnchor.value = null
+    rangeMode.value = false
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '采样帧加载失败'
-  } finally { loading.value = false }
+  } finally {
+    loading.value = false
+  }
 }
 
-async function change(enabled: boolean, all = false) {
-  if (!sampling.value) return
-  changing.value = true
+function resetTransientState() {
+  previewIndex.value = null
+  previewZoom.value = 1
+  boxesVisible.value = true
+  patternOpen.value = false
+  rangeMode.value = false
+  selected.value = new Set()
+  selectionAnchor.value = null
+  annotationCache.value = {}
+}
+
+function frameFileName(frame: Frame) {
+  return `frame_${String(frame.sequence).padStart(6, '0')}.${sampling.value?.output_format ?? 'jpg'}`
+}
+
+function formatTime(seconds: number) {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const remaining = (seconds % 60).toFixed(3).padStart(6, '0')
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${remaining}`
+}
+
+function formatFileSize(bytes: number) {
+  return bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    : `${(bytes / 1024).toFixed(1)} KB`
+}
+
+function toggleDraft(frameId: string) {
+  if (!props.canEdit) return
+  draft.value = { ...draft.value, [frameId]: !draft.value[frameId] }
+}
+
+function enterRangeMode() {
+  rangeMode.value = true
+  selected.value = new Set()
+  selectionAnchor.value = null
+}
+
+function exitRangeMode() {
+  rangeMode.value = false
+  selected.value = new Set()
+  selectionAnchor.value = null
+}
+
+function clearSelection() {
+  selected.value = new Set()
+  selectionAnchor.value = null
+}
+
+function selectFrame(frameId: string, event: MouseEvent) {
+  if (event.shiftKey && selectionAnchor.value) {
+    selected.value = selectFrameRange(
+      orderedIds.value,
+      selected.value,
+      selectionAnchor.value,
+      frameId,
+    )
+    return
+  }
+  const next = new Set(selected.value)
+  next.has(frameId) ? next.delete(frameId) : next.add(frameId)
+  selected.value = next
+  selectionAnchor.value = frameId
+}
+
+function handleThumbnail(frame: Frame, event: MouseEvent) {
+  if (rangeMode.value) selectFrame(frame.id, event)
+  else void openPreview(frames.value.findIndex((item) => item.id === frame.id))
+}
+
+function setSelectedEnabled(enabled: boolean) {
+  if (!selected.value.size) return
+  draft.value = Object.fromEntries(frames.value.map((frame) => [
+    frame.id,
+    selected.value.has(frame.id) ? enabled : draft.value[frame.id],
+  ]))
+}
+
+function togglePattern(index: number) {
+  pattern.value = pattern.value.map((enabled, itemIndex) => itemIndex === index ? !enabled : enabled)
+}
+
+function applyPattern() {
+  if (rangeMode.value && !selected.value.size) {
+    ElMessage.warning('请先选择采样帧。')
+    return
+  }
+  draft.value = applyEnabledPattern(
+    orderedIds.value,
+    draft.value,
+    pattern.value,
+    rangeMode.value ? selected.value : undefined,
+  )
+  patternOpen.value = false
+  ElMessage.success('启停模板已应用到前端草稿。')
+}
+
+async function enableByAnnotation() {
+  analyzing.value = true
   error.value = ''
   try {
-    sampling.value = await setFramesEnabled(props.projectId, props.videoId, enabled, all ? null : selected.value, sampling.value.frame_revision)
-    await load()
-    emit('updated')
+    const summary = await getFrameAnnotationSummary(props.projectId, props.videoId)
+    await ElMessageBox.confirm(
+      '包含至少一个标注框的采样帧将启用，无标注框的采样帧将停用。该操作会覆盖当前前端草稿，是否继续？',
+      '按标注启停',
+      { type: 'warning', confirmButtonText: '确认覆盖', cancelButtonText: '取消', customClass: 'frame-filter-confirm' },
+    )
+    annotatedIds.value = new Set(summary.annotated_frame_ids)
+    draft.value = Object.fromEntries(frames.value.map((frame) => [
+      frame.id,
+      annotatedIds.value.has(frame.id),
+    ]))
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '帧筛选保存失败'
-  } finally { changing.value = false }
+    if (reason !== 'cancel' && reason !== 'close') {
+      error.value = reason instanceof Error ? reason.message : '按标注启停失败'
+    }
+  } finally {
+    analyzing.value = false
+  }
 }
 
-watch(() => props.modelValue, (open) => { if (open) void load(1) }, { immediate: true })
+async function saveChanges() {
+  if (!sampling.value || !changes.value.length) return
+  saving.value = true
+  error.value = ''
+  try {
+    sampling.value = await setFramesEnabled(
+      props.projectId,
+      props.videoId,
+      changes.value,
+      sampling.value.frame_revision,
+    )
+    baseline.value = { ...draft.value }
+    frames.value = frames.value.map((frame) => ({ ...frame, enabled: draft.value[frame.id] }))
+    emit('updated')
+    ElMessage.success('采样帧启停状态已保存。')
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '采样帧启停状态保存失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function requestClose() {
+  if (props.canEdit && changes.value.length) {
+    try {
+      await ElMessageBox.confirm(
+        `还有 ${changes.value.length} 个采样帧的启停状态未保存，确定放弃这些修改吗？`,
+        '放弃未保存修改',
+        { type: 'warning', confirmButtonText: '放弃修改', cancelButtonText: '继续筛帧' },
+      )
+    } catch {
+      return
+    }
+  }
+  emit('update:modelValue', false)
+}
+
+async function loadPreviewAnnotations(frame: Frame) {
+  if (annotationCache.value[frame.id]) return
+  previewLoading.value = true
+  try {
+    const result = await getFrameAnnotations(props.projectId, props.videoId, frame.id)
+    annotationCache.value = { ...annotationCache.value, [frame.id]: result.items }
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '标注信息加载失败'
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function openPreview(index: number) {
+  if (index < 0 || index >= frames.value.length) return
+  previewIndex.value = index
+  previewZoom.value = 1
+  boxesVisible.value = true
+  await loadPreviewAnnotations(frames.value[index])
+}
+
+async function movePreview(offset: number) {
+  if (previewIndex.value === null) return
+  const next = previewIndex.value + offset
+  if (next < 0 || next >= frames.value.length) return
+  await openPreview(next)
+}
+
+function closePreview() {
+  previewIndex.value = null
+  previewZoom.value = 1
+}
+
+function zoomPreview(delta: number) {
+  previewZoom.value = Math.min(5, Math.max(0.2, Number((previewZoom.value + delta).toFixed(2))))
+}
+
+function handlePreviewWheel(event: WheelEvent) {
+  if (!event.ctrlKey || previewIndex.value === null) return
+  event.preventDefault()
+  zoomPreview(event.deltaY < 0 ? 0.1 : -0.1)
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  const element = target instanceof HTMLElement ? target : null
+  return Boolean(element?.closest('input, textarea, select, [contenteditable="true"], .el-input'))
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (!props.modelValue || previewIndex.value === null || isEditableTarget(event.target)) return
+  const key = event.key.toLowerCase()
+  if (key === 'escape') closePreview()
+  else if (key === 'a') void movePreview(-1)
+  else if (key === 'd') void movePreview(1)
+  else if (key === 'r') previewZoom.value = 1
+  else if (key === 'h') boxesVisible.value = !boxesVisible.value
+  else if (key === 's' && props.canEdit && previewFrame.value) toggleDraft(previewFrame.value.id)
+  else return
+  event.preventDefault()
+}
+
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!changes.value.length) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('beforeunload', handleBeforeUnload)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 </script>
 
 <template>
-  <el-dialog append-to-body :model-value="modelValue" :title="`采样帧 / ${title}`" width="min(1210px, calc(100vw - 26px))" @update:model-value="emit('update:modelValue', $event)">
-    <el-alert v-if="error" :title="error" type="error" :closable="false" />
-    <header class="toolbar">
-      <span>{{ sampling?.enabled_frames ?? 0 }} / {{ sampling?.extracted_frames ?? total }} 帧启用</span>
-      <div v-if="canEdit">
-        <el-button data-test="disable-selected" :disabled="!selected.length" :loading="changing" @click="change(false)">停用所选</el-button>
-        <el-button data-test="enable-selected" :disabled="!selected.length" :loading="changing" @click="change(true)">启用所选</el-button>
-        <el-button data-test="restore-all" text type="primary" :loading="changing" @click="change(true, true)">恢复全部</el-button>
+  <el-dialog
+    append-to-body
+    class="frames-workbench-dialog"
+    fullscreen
+    :model-value="modelValue"
+    :show-close="false"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
+  >
+    <template #header>
+      <header class="focus-header">
+        <div class="focus-title">
+          <span>筛帧</span>
+          <strong :title="title">{{ title }}</strong>
+          <code>{{ frames.length ? `FRAME 1–${frames.length}` : 'FRAME —' }}</code>
+        </div>
+        <button type="button" title="关闭筛帧工作台" aria-label="关闭筛帧工作台" @click="requestClose">
+          <el-icon><Close /></el-icon>
+        </button>
+      </header>
+    </template>
+
+    <main class="frames-workbench" :class="{ 'range-mode': rangeMode }">
+      <section class="frames-toolbar">
+        <div class="toolbar-left">
+          <label>每页
+            <el-select v-model="pageSize" class="page-size-select">
+              <el-option label="50" :value="50" />
+              <el-option label="100" :value="100" />
+              <el-option label="200" :value="200" />
+              <el-option label="全部" value="all" />
+            </el-select>
+          </label>
+          <template v-if="canEdit">
+            <el-button v-if="!rangeMode" data-test="enter-range" @click="enterRangeMode">范围多选</el-button>
+            <template v-else>
+              <el-button @click="exitRangeMode">退出多选</el-button>
+              <el-button :disabled="!selected.size" @click="clearSelection">取消选中</el-button>
+              <el-button type="success" plain :disabled="!selected.size" @click="setSelectedEnabled(true)">批量启用</el-button>
+              <el-button type="danger" plain :disabled="!selected.size" @click="setSelectedEnabled(false)">批量停用</el-button>
+            </template>
+            <el-button @click="patternOpen = true">启停模板</el-button>
+            <el-button v-if="!rangeMode" type="danger" plain :loading="analyzing" @click="enableByAnnotation">按标注启停</el-button>
+          </template>
+        </div>
+        <div v-if="canEdit" class="toolbar-right">
+          <span v-if="changes.length">{{ changes.length }} 项待保存</span>
+          <el-button data-test="save-changes" type="primary" :loading="saving" :disabled="!changes.length" @click="saveChanges">保存更改</el-button>
+        </div>
+      </section>
+
+      <section class="frames-stats" aria-label="采样帧统计">
+        <span class="stats-group-label">帧状态</span>
+        <div data-test="total-count"><span>采样帧</span><strong>{{ frames.length }}</strong></div>
+        <div><span>启用</span><strong class="enabled-text">{{ enabledCount }}</strong></div>
+        <div><span>停用</span><strong class="disabled-text">{{ disabledCount }}</strong></div>
+        <span class="stats-group-label annotation-label">标注覆盖</span>
+        <div data-test="annotated-count"><span>包含标注</span><strong>{{ annotatedIds.size }}</strong></div>
+        <div data-test="annotated-enabled-count"><span>标注帧启用</span><strong class="enabled-text">{{ annotatedEnabledCount }}</strong></div>
+        <div data-test="annotated-disabled-count"><span>标注帧停用</span><strong class="disabled-text">{{ annotatedDisabledCount }}</strong></div>
+        <div v-if="rangeMode"><span>已选</span><strong>{{ selected.size }}</strong></div>
+        <div v-if="canEdit" data-test="pending-count"><span>待保存</span><strong class="pending-text">{{ changes.length }}</strong></div>
+      </section>
+
+      <section v-loading="loading" class="frames-grid-shell">
+        <el-alert v-if="error" class="frames-error" :title="error" type="error" show-icon @close="error = ''" />
+        <div v-if="!loading && !frames.length" class="empty-state">该视频尚无采样帧</div>
+        <div class="frames-grid">
+          <article
+            v-for="frame in visibleFrames"
+            :key="frame.id"
+            data-test="frame-card"
+            class="frame-card"
+            :class="{ disabled: !draft[frame.id], selected: selected.has(frame.id) }"
+          >
+            <button
+              type="button"
+              class="frame-thumb"
+              :aria-pressed="rangeMode ? selected.has(frame.id) : undefined"
+              :title="rangeMode ? `选择第 ${frame.sequence} 帧` : `查看第 ${frame.sequence} 帧大图`"
+              @click="handleThumbnail(frame, $event)"
+            >
+              <img loading="lazy" :src="frameImageUrl(projectId, videoId, frame.id)" :alt="`第 ${frame.sequence} 帧`" />
+              <span v-if="rangeMode" class="selection-box"><span v-if="selected.has(frame.id)">✓</span></span>
+              <span class="frame-sequence">#{{ frame.sequence }}</span>
+              <span class="frame-time">{{ formatTime(frame.time_offset) }}</span>
+              <span v-if="!draft[frame.id]" class="disabled-mask" />
+              <span v-if="!draft[frame.id]" class="disabled-badge">已停用</span>
+            </button>
+            <footer>
+              <span :title="frameFileName(frame)">{{ frameFileName(frame) }}</span>
+              <button
+                v-if="canEdit"
+                :data-test="`toggle-${frame.id}`"
+                type="button"
+                :class="draft[frame.id] ? 'disable-button' : 'enable-button'"
+                @click="toggleDraft(frame.id)"
+              >{{ draft[frame.id] ? '停用' : '启用' }}</button>
+            </footer>
+          </article>
+        </div>
+      </section>
+
+      <footer class="frames-pagination">
+        <el-pagination
+          v-if="pageSize !== 'all' && totalPages > 1"
+          v-model:current-page="page"
+          background
+          layout="prev, pager, next"
+          :page-size="pageSize"
+          :total="frames.length"
+        />
+        <span>{{ pageSize === 'all' ? `全部 ${frames.length} 帧` : `第 ${page} / ${totalPages} 页 · 共 ${frames.length} 帧` }}</span>
+      </footer>
+    </main>
+
+    <el-dialog v-model="patternOpen" append-to-body width="520px" title="启停模板" class="frame-pattern-dialog">
+      <div class="pattern-form">
+        <label><span>模板长度</span><el-input-number v-model="patternLength" :min="2" :max="8" /></label>
+        <div class="pattern-row">
+          <span>启停序列</span>
+          <div>
+            <button
+              v-for="(_, index) in pattern"
+              :key="index"
+              type="button"
+              :class="pattern[index] ? 'pattern-enabled' : 'pattern-disabled'"
+              @click="togglePattern(index)"
+            >{{ pattern[index] ? '启用' : '停用' }}</button>
+          </div>
+        </div>
+        <el-alert title="仅修改前端状态，需点击“保存更改”才会写入数据库。" type="warning" :closable="false" show-icon />
       </div>
-    </header>
-    <section v-loading="loading" class="frame-grid">
-      <label v-for="frame in frames" :key="frame.id" class="frame-card" :data-enabled="frame.enabled">
-        <img loading="lazy" :src="frameImageUrl(projectId, videoId, frame.id)" :alt="`第 ${frame.sequence} 帧`" />
-        <span><input v-if="canEdit" v-model="selected" type="checkbox" :value="frame.id" />#{{ frame.sequence }} · {{ frame.time_offset.toFixed(2) }}s</span>
-      </label>
-    </section>
-    <el-pagination v-if="total > pageSize" layout="prev, pager, next" :current-page="page" :page-size="pageSize" :total="total" @current-change="load" />
+      <template #footer>
+        <el-button @click="patternOpen = false">取消</el-button>
+        <el-button type="primary" :disabled="rangeMode && !selected.size" @click="applyPattern">
+          {{ rangeMode ? `应用到选中的 ${selected.size} 帧` : `应用到全部 ${frames.length} 帧` }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <Transition name="preview-fade">
+      <section v-if="previewFrame" data-test="frame-preview" class="frame-preview" @wheel="handlePreviewWheel">
+        <header>
+          <div class="preview-info">
+            <strong>#{{ previewFrame.sequence }} · {{ previewFileName }}</strong>
+            <span>{{ formatTime(previewFrame.time_offset) }}</span>
+            <span>{{ imageWidth }} × {{ imageHeight }}</span>
+            <span>{{ formatFileSize(previewFrame.file_size) }}</span>
+            <b :class="draft[previewFrame.id] ? 'enabled-status' : 'disabled-status'">{{ draft[previewFrame.id] ? '已启用' : '已停用' }}</b>
+          </div>
+          <button type="button" title="关闭大图预览" aria-label="关闭大图预览" @click="closePreview"><el-icon><Close /></el-icon></button>
+        </header>
+        <div class="preview-stage">
+          <svg
+            data-test="preview-image"
+            class="preview-image"
+            :class="{ 'boxes-hidden': !boxesVisible }"
+            :style="{ transform: `scale(${previewZoom})` }"
+            :viewBox="`0 0 ${Math.max(1, imageWidth)} ${Math.max(1, imageHeight)}`"
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            :aria-label="`第 ${previewFrame.sequence} 帧大图`"
+          >
+            <image :href="frameImageUrl(projectId, videoId, previewFrame.id)" :width="Math.max(1, imageWidth)" :height="Math.max(1, imageHeight)" />
+            <g v-if="boxesVisible">
+              <rect
+                v-for="item in previewAnnotations"
+                :key="item.id"
+                :x="item.x_min"
+                :y="item.y_min"
+                :width="Math.max(1, item.x_max - item.x_min)"
+                :height="Math.max(1, item.y_max - item.y_min)"
+                :stroke="labelColors[item.label_id] ?? '#ffca3a'"
+                vector-effect="non-scaling-stroke"
+              />
+            </g>
+          </svg>
+          <div v-if="previewLoading" class="preview-loading">正在加载标注信息…</div>
+        </div>
+        <footer>
+          <el-button v-if="canEdit" data-test="preview-toggle-enabled" :type="draft[previewFrame.id] ? 'danger' : 'success'" @click="toggleDraft(previewFrame.id)">{{ draft[previewFrame.id] ? '停用采样帧' : '启用采样帧' }} · S</el-button>
+          <el-button :disabled="previewIndex === 0" @click="movePreview(-1)"><el-icon><ArrowLeftBold /></el-icon>上一张 · A</el-button>
+          <el-button :disabled="previewIndex === frames.length - 1" @click="movePreview(1)">下一张 · D<el-icon><ArrowRightBold /></el-icon></el-button>
+          <el-button title="缩小" @click="zoomPreview(-0.1)"><el-icon><ZoomOut /></el-icon></el-button>
+          <span>{{ Math.round(previewZoom * 100) }}%</span>
+          <el-button title="放大" @click="zoomPreview(0.1)"><el-icon><ZoomIn /></el-icon></el-button>
+          <el-button @click="previewZoom = 1"><el-icon><Refresh /></el-icon>重置 · R</el-button>
+          <el-button @click="boxesVisible = !boxesVisible"><el-icon><Hide v-if="boxesVisible" /><View v-else /></el-icon>{{ boxesVisible ? '隐藏标注框' : '显示标注框' }} · H</el-button>
+        </footer>
+      </section>
+    </Transition>
   </el-dialog>
 </template>
 
 <style scoped>
-.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; color: #687482; }
-.frame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(187px, 1fr)); gap: 11px; min-height: 198px; }
-.frame-card { overflow: hidden; border: 1px solid #d8dee6; background: #f8fafc; }
-.frame-card[data-enabled='false'] { opacity: .48; }
-.frame-card img { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #17212b; }
-.frame-card span { display: flex; gap: 8px; padding: 9px; font: 12px ui-monospace, monospace; }
+.focus-header,
+.focus-title,
+.frames-toolbar,
+.toolbar-left,
+.toolbar-right,
+.frames-stats,
+.frame-card footer,
+.frame-preview > header,
+.preview-info,
+.frame-preview > footer { display: flex; align-items: center; }
+
+.focus-header { justify-content: space-between; height: 52px; padding: 0 14px 0 20px; color: #dce5eb; background: #17212b; border-bottom: 1px solid #3a4a56; }
+.focus-title { gap: 12px; min-width: 0; }
+.focus-title > span { color: #78d2b8; font: 700 12px var(--vdw-mono); letter-spacing: .11em; }
+.focus-title strong { max-width: 58vw; overflow: hidden; font: 650 16px var(--vdw-title); text-overflow: ellipsis; white-space: nowrap; }
+.focus-title code { color: #92a2ae; font: 12px var(--vdw-mono); }
+.focus-header > button,
+.frame-preview > header > button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; color: #d3dde3; background: #263641; border: 1px solid #41515d; border-radius: 3px; cursor: pointer; }
+
+.frames-workbench { display: grid; grid-template-rows: 54px 42px minmax(0, 1fr) 47px; height: calc(100dvh - 52px); overflow: hidden; color: #dce5eb; background: #111820; }
+.frames-toolbar { justify-content: space-between; gap: 16px; min-width: 0; padding: 0 14px; background: #1d2933; border-bottom: 1px solid #33414c; }
+.toolbar-left,
+.toolbar-right { gap: 8px; min-width: 0; white-space: nowrap; }
+.toolbar-left { overflow-x: auto; scrollbar-width: none; }
+.toolbar-left::-webkit-scrollbar { display: none; }
+.toolbar-left label { display: flex; align-items: center; gap: 7px; color: #aebbc4; font-size: 12px; }
+.page-size-select { width: 92px; }
+.toolbar-right span { color: #f3c76d; font: 12px var(--vdw-mono); }
+
+.frames-stats { min-width: 0; overflow-x: auto; padding: 0 14px; white-space: nowrap; background: #18232c; border-bottom: 1px solid #2e3d47; scrollbar-width: none; }
+.frames-stats::-webkit-scrollbar { display: none; }
+.frames-stats > div { display: flex; align-items: baseline; gap: 6px; height: 100%; padding: 0 13px; border-right: 1px solid #2f3e49; }
+.frames-stats > div span { color: #8e9da8; font-size: 11px; }
+.frames-stats strong { font: 700 14px var(--vdw-mono); }
+.stats-group-label { color: #63737f; font: 10px var(--vdw-mono); letter-spacing: .08em; }
+.annotation-label { margin-left: 14px; padding-left: 14px; border-left: 1px solid #53616b; }
+.enabled-text { color: #78d2b8; }.disabled-text { color: #ff8a8a; }.pending-text { color: #f3c76d; }
+
+.frames-grid-shell { position: relative; min-height: 0; overflow: auto; padding: 12px 14px 18px; scrollbar-color: #16866f #0b1117; scrollbar-width: thin; }
+.frames-grid-shell::-webkit-scrollbar { width: 10px; }.frames-grid-shell::-webkit-scrollbar-track { background: #0b1117; }.frames-grid-shell::-webkit-scrollbar-thumb { background: #16866f; border: 2px solid #0b1117; border-radius: 6px; }
+.frames-error { position: sticky; z-index: 8; top: 0; margin-bottom: 10px; }
+.frames-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(208px, 1fr)); gap: 10px; align-content: start; }
+.frame-card { min-width: 0; overflow: hidden; background: #1b252e; border: 1px solid #34434e; border-radius: 3px; transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
+.frame-card:hover { border-color: #567063; box-shadow: 0 6px 18px rgb(0 0 0 / 24%); transform: translateY(-1px); }
+.frame-card.selected { border-color: #78d2b8; box-shadow: 0 0 0 1px #16866f; }
+.frame-thumb { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; padding: 0; color: inherit; background: #111820; border: 0; cursor: pointer; }
+.frame-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.frame-sequence,
+.frame-time,
+.selection-box,
+.disabled-badge { position: absolute; z-index: 4; padding: 3px 6px; font: 10px var(--vdw-mono); border-radius: 2px; }
+.frame-sequence { top: 6px; left: 6px; background: rgb(4 9 12 / 78%); }.frame-time { top: 6px; right: 6px; background: rgb(4 9 12 / 78%); }
+.selection-box { top: 6px; left: 6px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; color: white; background: #17212b; border: 1px solid #7b8a94; }
+.selected .selection-box { background: #16866f; border-color: #78d2b8; }.range-mode .frame-sequence { left: 34px; }
+.disabled-mask { position: absolute; inset: 0; z-index: 2; background: rgb(3 7 10 / 58%); }.disabled-badge { bottom: 6px; left: 6px; color: white; background: #c83f49; }
+.frame-card footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; min-height: 43px; padding: 6px 7px 6px 10px; border-top: 1px solid #34434e; }
+.frame-card footer > span { overflow: hidden; color: #c6d1d8; font: 11px var(--vdw-mono); text-overflow: ellipsis; white-space: nowrap; }
+.frame-card footer button { min-width: 52px; height: 29px; padding: 0 10px; color: white; border-radius: 3px; cursor: pointer; }
+.disable-button { background: #6a3034; border: 1px solid #95464d; }.enable-button { background: #245a4c; border: 1px solid #397a68; }
+.empty-state { display: grid; min-height: 240px; place-items: center; color: #8797a2; }
+.range-mode { user-select: none; }
+
+.frames-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; background: #17212b; border-top: 1px solid #33414c; }
+.frames-pagination > span { color: #8797a2; font: 11px var(--vdw-mono); }
+
+.pattern-form { display: grid; gap: 18px; }.pattern-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; }.pattern-form label > span,
+.pattern-row > span { color: #687482; font-size: 13px; }.pattern-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; }.pattern-row > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.pattern-row button { min-width: 54px; height: 32px; color: white; border-radius: 3px; cursor: pointer; }.pattern-enabled { background: #16866f; border: 1px solid #0f705d; }.pattern-disabled { background: #c83f49; border: 1px solid #a9343d; }
+
+.frame-preview { position: fixed; inset: 0; z-index: 3100; display: grid; grid-template-rows: 54px minmax(0, 1fr) 62px; color: #dce5eb; background: rgb(2 6 9 / 95%); }
+.frame-preview > header { justify-content: space-between; gap: 18px; padding: 0 18px; background: rgb(23 33 43 / 94%); border-bottom: 1px solid #40505c; }
+.preview-info { gap: 14px; min-width: 0; }.preview-info strong { overflow: hidden; font: 650 15px var(--vdw-title); text-overflow: ellipsis; white-space: nowrap; }.preview-info span { color: #99a9b4; font: 12px var(--vdw-mono); white-space: nowrap; }.preview-info b { padding: 3px 7px; font-size: 11px; border-radius: 2px; white-space: nowrap; }.enabled-status { color: #dff8ef; background: #245a4c; }.disabled-status { color: white; background: #c83f49; }
+.preview-stage { position: relative; display: grid; place-items: center; min-height: 0; overflow: hidden; }.preview-image { display: block; width: min(82vw, calc((100vh - 150px) * 1.7778)); max-height: calc(100vh - 150px); background: #111820; box-shadow: 0 12px 40px black; transition: transform 120ms ease; }.preview-image rect { fill: rgb(255 255 255 / 4%); stroke-width: 2px; }.preview-image.boxes-hidden rect { display: none; }.preview-loading { position: absolute; padding: 8px 12px; color: #c9d4da; background: rgb(14 22 28 / 82%); }
+.frame-preview > footer { justify-content: center; gap: 8px; padding: 0 14px; overflow-x: auto; white-space: nowrap; background: rgb(23 33 43 / 94%); border-top: 1px solid #40505c; }.frame-preview > footer > span { color: #9eafb9; font: 12px var(--vdw-mono); }
+.preview-fade-enter-active,
+.preview-fade-leave-active { transition: opacity 180ms ease; }.preview-fade-enter-from,
+.preview-fade-leave-to { opacity: 0; }
+
+@media (max-width: 1100px) {
+  .frames-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .frames-stats > div { padding: 0 9px; }
+  .preview-info span:nth-of-type(2),
+  .preview-info span:nth-of-type(3) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame-card,
+  .preview-image,
+  .preview-fade-enter-active,
+  .preview-fade-leave-active { transition: none; }
+}
+</style>
+
+<style>
+.frames-workbench-dialog { margin: 0 !important; padding: 0 !important; background: #111820 !important; }
+.frames-workbench-dialog > .el-dialog__header { height: 52px; padding: 0 !important; margin: 0 !important; }
+.frames-workbench-dialog > .el-dialog__body { height: calc(100dvh - 52px); padding: 0 !important; overflow: hidden; }
+.frame-filter-confirm { border: 1px solid #9ba9b2; box-shadow: 0 20px 60px rgb(0 0 0 / 45%); }
+.frame-pattern-dialog { border: 1px solid #9ba9b2; }
 </style>

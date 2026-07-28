@@ -377,6 +377,8 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
       :video-id="frameVideo?.id || ''"
       :title="frameVideo?.title || ''"
       :can-edit="canEdit"
+      :image-width="frameVideo?.width || 0"
+      :image-height="frameVideo?.height || 0"
       @update:model-value="!$event && (frameVideo = null)"
       @updated="load()"
     />
