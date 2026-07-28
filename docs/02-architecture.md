@@ -4,7 +4,7 @@
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型推理、GPU 能力探测和独立 Worker。训练和导出仍是目标设计。因此本页区分：
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十一版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型推理、GPU 能力探测和独立 Worker。训练和导出仍是目标设计。因此本页区分：
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -38,7 +38,7 @@ Vue setup/auth/admin/project/media pages
        ├─ stable Frame records + revision-protected filtering
        └─ authenticated frame image delivery
   ├─ /api/v1/.../frames/<id>/annotations → AnnotationService
-  │    └─ original-pixel rectangles + annotation revision
+  │    └─ original-pixel rectangles + stable display order + annotation revision
   └─ /api/v1/models|auto-annotations → ModelService / AutoAnnotationService
        ├─ synchronous single-frame review draft
        └─ persistent batch task creation

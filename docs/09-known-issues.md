@@ -99,7 +99,7 @@
 - 已实现稳定 Frame 记录、分页图片读取、批量启停和 `frame_revision` 乐观并发；viewer 可读帧但不可修改。
 - 已实现抽帧临时输出、原子代次替换和失败保留旧帧；使用 `-vsync vfr` 兼容服务器上的较旧 FFmpeg。
 - 已实现项目级英文标签、稳定 UUID、颜色、排序、启停和 owner/editor/viewer 权限；已引用标签由外键和 409 接口响应阻止删除。
-- 已实现原图坐标矩形标注、整帧修订冲突、Konva 编辑画布、切帧/关闭保存、快捷键、对象列表和缩略图导航；viewer 标注入口禁用且后端拒写。
+- 已实现原图坐标矩形标注、稳定框顺序、整帧修订冲突、Konva 编辑画布、切帧/关闭保存反馈、快捷键、对象级显隐/删除、4:3 缩略图标注预览和帧轨道折叠；viewer 标注入口禁用且后端拒写。
 - 已实现管理员模型入库、YOLO/Transformers GroundingDINO 运行适配器、单张复核草稿和批量自动标注任务；批量运行期间视频状态提示并锁定标注写入。
 - 已实现无异常外抛的 GPU 能力检测和 uv `gpu` extra；RTX A4000、Quadro RTX 4000、PyTorch CUDA 12.8、ONNX CUDA Provider 与 Ultralytics 导入此前已实测通过，Transformers 依赖已锁定但实际 DINO 权重仍待冒烟。
 - 当前 SQLite 运行库不满足安全 WAL 版本条件时自动使用 rollback journal。

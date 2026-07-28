@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述，`0009_annotations` 增加矩形标注和帧标注修订号，`0010_inference_models` 增加推理模型并扩展任务类型。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述，`0009_annotations` 增加矩形标注和帧标注修订号，`0010_inference_models` 增加推理模型并扩展任务类型，`0011_annotation_order` 为标注增加稳定显示顺序并按原创建顺序回填。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -130,9 +130,10 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | `x_min` / `y_min` / `x_max` / `y_max` | 原始图片像素整数坐标，满足非负且最大值大于最小值 |
 | `source` | `manual` 或 `model` |
 | `confidence` | 模型标注可空置信度；手工标注为空 |
+| `sort_order` | 帧内从 0 开始的稳定显示和图层顺序；后创建的框位于更高图层 |
 | `created_at` | 当前标注创建时间 |
 
-客户端按整帧读取和替换标注；请求必须携带当前 `annotation_revision`。服务端校验所有标签属于同一项目、矩形在图片边界内且 ID 不重复，成功后整体替换并递增修订号。
+客户端按整帧读取和替换标注；请求必须携带当前 `annotation_revision`。服务端校验所有标签属于同一项目、矩形在图片边界内且 ID 不重复，按请求数组顺序重建 `sort_order`，成功后整体替换并递增修订号。
 
 `inference_models` 表保存全局受管推理模型：
 
