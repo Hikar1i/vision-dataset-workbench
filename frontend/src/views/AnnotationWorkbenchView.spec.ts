@@ -163,6 +163,7 @@ describe('AnnotationWorkbenchView', () => {
     await flushPromises()
 
     expect(document.querySelector('[data-test="frame-counter"]')?.textContent).toContain('1 / 2')
+    expect(wrapper.get('[data-test="crosshair-switch"]').attributes('modelvalue')).toBe('true')
     expect(wrapper.find('.image-info dl').exists()).toBe(true)
     expect(wrapper.get('.minimap-svg').attributes('viewBox')).toBe('0 0 1920 1080')
     await wrapper.get('[data-test="view-change"]').trigger('click')
@@ -202,6 +203,11 @@ describe('AnnotationWorkbenchView', () => {
     })
     await flushPromises()
 
+    expect(wrapper.findAll('[data-test="stats-row"]').map((row) => row.text())).toEqual([
+      '采样帧2',
+      '启用帧2',
+      '当前帧标注框0',
+    ])
     await wrapper.get('[data-test="request-category"]').trigger('click')
     expect(wrapper.find('[data-test="category-scrim"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(true)

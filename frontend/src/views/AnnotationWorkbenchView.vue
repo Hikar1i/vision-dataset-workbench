@@ -90,7 +90,7 @@ const saveText = ref('已同步')
 const hiddenLabelIds = ref<string[]>([])
 const hiddenAnnotationIds = ref<string[]>([])
 const expandedLabelIds = ref<string[]>([])
-const crosshair = ref(false)
+const crosshair = ref(true)
 const overwrite = ref(false)
 const gridOpen = ref(false)
 const filmstripVisible = ref(true)
@@ -711,7 +711,7 @@ watch(reuseLabel, (reuse) => {
       <div class="frame-controls">
         <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" :disabled="!currentFrame || batchActive" @change="toggleFrameEnabled" /></label>
         <label>标签沿用 <el-switch v-model="reuseLabel" :disabled="batchActive" /></label>
-        <label>十字线 <el-switch v-model="crosshair" :disabled="batchActive" /></label>
+        <label>十字线 <el-switch v-model="crosshair" data-test="crosshair-switch" :disabled="batchActive" /></label>
       </div>
     </section>
 
@@ -942,7 +942,11 @@ watch(reuseLabel, (reuse) => {
     </dl>
   </el-dialog>
   <el-dialog v-model="statsOpen" title="当前视频标注统计" width="520px" append-to-body>
-    <div class="stats-summary"><strong>{{ frames.length }}</strong><span>采样帧</span><strong>{{ enabledFrameCount }}</strong><span>启用帧</span><strong>{{ boxCount }}</strong><span>当前帧标注框</span></div>
+    <dl class="stats-summary">
+      <div data-test="stats-row"><dt>采样帧</dt><dd>{{ frames.length }}</dd></div>
+      <div data-test="stats-row"><dt>启用帧</dt><dd>{{ enabledFrameCount }}</dd></div>
+      <div data-test="stats-row"><dt>当前帧标注框</dt><dd>{{ boxCount }}</dd></div>
+    </dl>
   </el-dialog>
   <el-dialog v-model="registerOpen" title="登记推理模型" width="min(760px, calc(100vw - 32px))" append-to-body>
     <div class="model-registration-form">
@@ -1007,12 +1011,12 @@ watch(reuseLabel, (reuse) => {
 
 .auto-bar { grid-column: 1 / -1; gap: 14px; justify-content: space-between; min-width: 0; padding: 0 10px; overflow: hidden; background: #1d2933; border-bottom: 1px solid #33414c; }
 .auto-controls,
-.frame-controls { gap: 7px; min-width: 0; white-space: nowrap; }
+.frame-controls { gap: 10px; min-width: 0; white-space: nowrap; }
 .auto-controls label,
 .frame-controls label { display: flex; align-items: center; gap: 5px; color: #aebbc4; font-size: 12px; }
 .model-select { width: 250px; }
 .category-select { width: 340px; }
-.auto-controls :deep(.el-input-number) { width: 112px; }
+.auto-controls :deep(.el-input-number) { width: 100px; }
 .auto-bar button { height: 30px; padding: 0 10px; color: #dce5eb; background: #263641; border: 1px solid #41515d; }
 .auto-bar button:disabled { color: #6f7d87; cursor: not-allowed; }
 .auto-warning { width: 84px; overflow: hidden; color: #d7a85b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1050,7 +1054,7 @@ watch(reuseLabel, (reuse) => {
 .minimap header strong { font-size: 13px; }
 .image-info header span,
 .object-list header span,
-.minimap header span { color: #74818b; font: 11px var(--vdw-mono); }
+.minimap header span { color: #74818b; font: 13px var(--vdw-mono); }
 .image-info dl { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 5px 8px; margin: 5px 0 0; font-size: 12px; }
 .image-info dt { color: #7a8790; }
 .image-info dd { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1058,12 +1062,12 @@ watch(reuseLabel, (reuse) => {
 .object-list::-webkit-scrollbar { display: none; }
 .empty-copy { margin: 20px 0; color: #84919a; font-size: 12px; text-align: center; }
 .object-group { margin-top: 5px; border: 1px solid #d4dce1; background: white; }
-.object-group-row { display: grid; grid-template-columns: 11px minmax(0, 1fr) 38px 36px 36px; align-items: center; min-height: 42px; padding: 0 5px 0 8px; }
-.object-group-row i { width: 10px; height: 10px; border-radius: 50%; }
+.object-group-row { display: grid; grid-template-columns: 15px minmax(0, 1fr) 36px 36px 36px; align-items: center; min-height: 45px; padding: 0 5px 0 8px; }
+.object-group-row i { width: 15px; height: 15px; border-radius: 50%; }
 .object-group-row button { display: grid; place-items: center; height: 34px; padding: 0; color: #4c5b65; background: transparent; border: 0; cursor: pointer; }
-.object-group-row button:not(.group-name) { font-size: 18px; }
+.object-group-row button:not(.group-name) { font-size: 15px; }
 .object-group-row .group-name { display: block; overflow: hidden; width: 100%; padding-left: 7px; font-weight: 650; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.object-group-row span { color: #70808b; font: 13px var(--vdw-mono); text-align: center; }
+.object-group-row span { color: #70808b; font: 14px var(--vdw-mono); text-align: center; }
 .box-list { border-top: 1px solid #e0e5e9; }
 .box-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; min-height: 30px; background: #fafcfc; border-bottom: 1px solid #edf0f2; }
 .box-item.selected { color: #116d5b; background: #e2f2ed; }
@@ -1112,9 +1116,11 @@ watch(reuseLabel, (reuse) => {
 .shortcut-list { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 9px 15px; margin: 0; }
 .shortcut-list dt { font: 12px var(--vdw-mono); }
 .shortcut-list dd { margin: 0; color: #687482; }
-.stats-summary { display: grid; grid-template-columns: repeat(3, auto); align-items: baseline; gap: 8px 15px; }
-.stats-summary strong { color: var(--vdw-teal); font: 700 24px var(--vdw-mono); }
-.stats-summary span { color: #687482; }
+.stats-summary { display: grid; gap: 0; margin: 0; }
+.stats-summary > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 20px; min-height: 46px; padding: 9px 4px; border-bottom: 1px solid #e1e6e9; }
+.stats-summary > div:last-child { border-bottom: 0; }
+.stats-summary dt { color: #687482; }
+.stats-summary dd { margin: 0; color: var(--vdw-teal); font: 700 20px var(--vdw-mono); }
 .model-registration-form { display: grid; gap: 14px; }
 .model-registration-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 12px; }
 .model-registration-form > label > span { color: #5f6c76; font-size: 13px; }

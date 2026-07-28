@@ -117,7 +117,7 @@ describe('AnnotationCanvas', () => {
       'helmet #1',
       'person #2',
     ])
-    expect(labels.every((item) => item.props('config').fontSize === 28)).toBe(true)
+    expect(labels.every((item) => item.props('config').fontSize === 17)).toBe(true)
     expect(boxes.some((item) => item.props('config').dash?.length)).toBe(true)
 
     const event = new Event('contextmenu', { cancelable: true })
