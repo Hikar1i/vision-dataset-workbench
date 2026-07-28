@@ -543,15 +543,21 @@ function handleKeyDown(event: KeyboardEvent) {
     return
   }
   if (isInputTarget(event.target) || event.repeat || pendingBounds.value) return
-  if (batchActive.value && ['r', 'delete', 'z'].includes(event.key.toLowerCase())) return
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+  const key = event.key.toLowerCase()
+  if (batchActive.value && ['r', 'delete', 'z', 's', 'y', 'l', 'p'].includes(key)) return
+  if ((event.ctrlKey || event.metaKey) && key === 'z') {
     event.preventDefault()
     event.shiftKey ? redo() : undo()
     return
   }
-  if (event.key.toLowerCase() === 'a') void switchFrame(currentIndex.value - 1)
-  else if (event.key.toLowerCase() === 'd') void switchFrame(currentIndex.value + 1)
-  else if (event.key.toLowerCase() === 'r') mode.value = 'draw'
+  if (key === 'a') void switchFrame(currentIndex.value - 1)
+  else if (key === 'd') void switchFrame(currentIndex.value + 1)
+  else if (key === 'r') mode.value = 'draw'
+  else if (key === 's' && currentFrame.value) void toggleFrameEnabled(!currentFrame.value.enabled)
+  else if (key === 'y') reuseLabel.value = !reuseLabel.value
+  else if (key === 'l') crosshair.value = !crosshair.value
+  else if (key === 'h') toggleAllBoxes()
+  else if (key === 'p' && !inferenceRunning.value && autoModel.value) void runSingleAutoAnnotation()
   else if (event.key === 'Delete') deleteSelected()
 }
 
@@ -709,14 +715,14 @@ watch(reuseLabel, (reuse) => {
         <span v-if="autoUnavailableReason" class="auto-warning" :title="autoUnavailableReason">{{ autoUnavailableText }}</span>
       </div>
       <div class="frame-controls">
-        <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" :disabled="!currentFrame || batchActive" @change="toggleFrameEnabled" /></label>
-        <label>标签沿用 <el-switch v-model="reuseLabel" :disabled="batchActive" /></label>
+        <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" data-test="frame-enabled-switch" :disabled="!currentFrame || batchActive" @change="toggleFrameEnabled" /></label>
+        <label>标签沿用 <el-switch v-model="reuseLabel" data-test="reuse-label-switch" :disabled="batchActive" /></label>
         <label>十字线 <el-switch v-model="crosshair" data-test="crosshair-switch" :disabled="batchActive" /></label>
       </div>
     </section>
 
     <aside class="tool-rail" aria-label="标注工具">
-      <button :class="{ active: mode === 'pan' }" type="button" title="拖拽（按住 Space）" @click="mode = 'pan'">
+      <button data-test="pan-tool" :class="{ active: mode === 'pan' }" type="button" title="拖拽（按住 Space）" @click="mode = mode === 'pan' ? 'select' : 'pan'">
         <el-icon><Rank /></el-icon>
       </button>
       <button data-test="previous-frame" type="button" title="上一张（A）" :disabled="currentIndex === 0" @click="switchFrame(currentIndex - 1)">
@@ -934,11 +940,14 @@ watch(reuseLabel, (reuse) => {
   </main>
 
   <el-dialog v-model="shortcutsOpen" title="快捷键操作指南" width="460px" append-to-body>
-    <dl class="shortcut-list">
+    <dl class="shortcut-list" data-test="shortcut-list">
       <dt>A / D</dt><dd>上一张 / 下一张</dd><dt>R</dt><dd>新建矩形框</dd>
       <dt>Space</dt><dd>按住进入拖拽模式</dd><dt>Ctrl + 滚轮</dt><dd>缩放图像</dd>
       <dt>Ctrl + Z</dt><dd>撤销</dd><dt>Ctrl + Shift + Z</dt><dd>重做</dd>
       <dt>Delete</dt><dd>删除选中标注框</dd>
+      <dt>S</dt><dd>启用 / 停用当前帧</dd><dt>Y</dt><dd>开启 / 关闭标签沿用</dd>
+      <dt>L</dt><dd>开启 / 关闭十字线</dd><dt>H</dt><dd>显示 / 隐藏全部标注框</dd>
+      <dt>P</dt><dd>单张运行模型自动标注</dd>
     </dl>
   </el-dialog>
   <el-dialog v-model="statsOpen" title="当前视频标注统计" width="520px" append-to-body>

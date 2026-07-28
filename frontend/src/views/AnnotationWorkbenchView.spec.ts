@@ -131,7 +131,11 @@ beforeEach(() => {
     { id: 'label-id', name: 'helmet', description_zh: '安全帽', color: '#16866f', sort_order: 0, enabled: true, version: 1, created_at: '', updated_at: '' },
   ])
   mocks.listFrames.mockResolvedValue({
-    items: frames, page: 1, page_size: 200, total: 2, sampling: video.sampling,
+    items: structuredClone(frames),
+    page: 1,
+    page_size: 200,
+    total: 2,
+    sampling: structuredClone(video.sampling),
   })
   mocks.getFrameAnnotations.mockImplementation(
     (_project: string, _video: string, frameId: string) =>
@@ -208,6 +212,9 @@ describe('AnnotationWorkbenchView', () => {
       '启用帧2',
       '当前帧标注框0',
     ])
+    expect(
+      wrapper.get('[data-test="shortcut-list"]').findAll('dt').map((item) => item.text()),
+    ).toEqual(expect.arrayContaining(['S', 'Y', 'L', 'H', 'P']))
     await wrapper.get('[data-test="request-category"]').trigger('click')
     expect(wrapper.find('[data-test="category-scrim"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(true)
@@ -220,6 +227,60 @@ describe('AnnotationWorkbenchView', () => {
     await wrapper.get('[data-test="next-frame"]').trigger('click')
     await flushPromises()
     expect(mocks.replaceFrameAnnotations.mock.calls[0]?.[2].items).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('exits clicked pan mode and handles annotation shortcuts', async () => {
+    mocks.listInferenceModels.mockResolvedValueOnce([{
+      id: 'model-id', name: 'YOLO', kind: 'yolo', status: 'ready',
+      source_name: 'model.pt', error: null, created_at: '', updated_at: '',
+    }])
+    mocks.getFrameAnnotations.mockResolvedValue({
+      frame_id: 'frame-1',
+      annotation_revision: 1,
+      items: [{
+        id: 'box-id', label_id: 'label-id', x_min: 1, y_min: 2, x_max: 30, y_max: 40,
+        source: 'manual', confidence: null,
+      }],
+    })
+    mocks.setFramesEnabled.mockResolvedValue({
+      ...video.sampling, enabled_frames: 1, frame_revision: 2,
+    })
+    mocks.runFrameAutoAnnotation.mockResolvedValue({ items: [], created_labels: [] })
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const panTool = wrapper.get('[data-test="pan-tool"]')
+    await panTool.trigger('click')
+    expect(panTool.classes()).toContain('active')
+    await panTool.trigger('click')
+    expect(panTool.classes()).not.toContain('active')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y' }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'h' }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }))
+    await flushPromises()
+
+    expect(mocks.setFramesEnabled).toHaveBeenCalledWith(
+      'project-id', 'video-id', false, ['frame-1'], 1,
+    )
+    expect(wrapper.get('[data-test="reuse-label-switch"]').attributes('modelvalue')).toBe('true')
+    expect(wrapper.get('[data-test="crosshair-switch"]').attributes('modelvalue')).toBe('false')
+    expect(wrapper.get('[data-test="toggle-all-boxes"]').attributes('title')).toBe('显示全部标注框')
+    expect(mocks.runFrameAutoAnnotation).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 
