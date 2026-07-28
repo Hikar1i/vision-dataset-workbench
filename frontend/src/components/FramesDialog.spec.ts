@@ -121,4 +121,26 @@ describe('FramesDialog', () => {
     expect(fetch.mock.calls.some((call) => call[1]?.method === 'PUT')).toBe(false)
     wrapper.unmount()
   })
+
+  it('renders category boxes and keeps a minimap in sync while zooming and dragging', async () => {
+    const { wrapper } = mountDialog(true)
+    await flushPromises()
+    await wrapper.get('[data-test="frame-card"] .frame-thumb').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="frame-preview"]').text()).toContain('helmet')
+    expect(wrapper.find('[data-test="preview-minimap"]').exists()).toBe(true)
+
+    const image = wrapper.get('[data-test="preview-image"]')
+    const initialTransform = image.attributes('style')
+    await wrapper.get('[data-test="preview-zoom-in"]').trigger('click')
+    const stage = wrapper.get('[data-test="preview-stage"]')
+    stage.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 100 }))
+    stage.element.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 130, clientY: 120 }))
+    stage.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 130, clientY: 120 }))
+    await wrapper.vm.$nextTick()
+
+    expect(image.attributes('style')).not.toBe(initialTransform)
+    expect(stage.classes()).toContain('pannable')
+  })
 })
