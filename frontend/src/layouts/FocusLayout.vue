@@ -1,7 +1,7 @@
 <template>
   <section class="focus-layout">
     <header class="focus-header">
-      <strong data-test="focus-brand">VDM / FOCUS</strong>
+      <strong data-test="focus-brand">VDM / ANNOTATION</strong>
       <div id="focus-header-tools" class="focus-header-tools" />
     </header>
     <RouterView />

@@ -22,12 +22,14 @@ import {
   type Frame,
   type SamplingSummary,
 } from '../api/media'
+import FrameAnnotationThumbnail from './FrameAnnotationThumbnail.vue'
 import {
   applyEnabledPattern,
   diffEnabledStates,
   selectFrameRange,
   type EnabledState,
 } from './frameFilter'
+import { formatFrameTimestamp } from './framePresentation'
 import {
   fitImage,
   stageToImage,
@@ -77,6 +79,7 @@ const previewStage = ref<HTMLElement | null>(null)
 const previewStageSize = ref({ width: 1, height: 1 })
 const previewDrag = ref<{ pointer: Point; pan: Point; pointerId: number } | null>(null)
 const boxesVisible = ref(true)
+const showThumbnailAnnotations = ref(true)
 const annotationCache = ref<Record<string, FrameAnnotation[]>>({})
 let previewObserver: ResizeObserver | null = null
 
@@ -157,14 +160,14 @@ async function load() {
   error.value = ''
   try {
     const [first, summary, projectLabels] = await Promise.all([
-      listFrames(props.projectId, props.videoId, 1, 200),
+      listFrames(props.projectId, props.videoId, 1, 200, undefined, true),
       getFrameAnnotationSummary(props.projectId, props.videoId),
       listLabels(props.projectId),
     ])
     const pageCount = Math.ceil(first.total / first.page_size)
     const rest = pageCount > 1
       ? await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) =>
-          listFrames(props.projectId, props.videoId, index + 2, first.page_size)))
+          listFrames(props.projectId, props.videoId, index + 2, first.page_size, undefined, true)))
       : []
     frames.value = [first, ...rest].flatMap((item) => item.items)
     sampling.value = first.sampling
@@ -198,13 +201,6 @@ function frameFileName(frame: Frame) {
   return `frame_${String(frame.sequence).padStart(6, '0')}.${sampling.value?.output_format ?? 'jpg'}`
 }
 
-function formatTime(seconds: number) {
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const remaining = (seconds % 60).toFixed(3).padStart(6, '0')
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${remaining}`
-}
-
 function formatFileSize(bytes: number) {
   return bytes >= 1024 * 1024
     ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -230,12 +226,19 @@ function contrastText(color: string) {
   return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#111820' : '#ffffff'
 }
 
-function annotationLabelSize(item: FrameAnnotation) {
+function annotationTitle(item: FrameAnnotation, index: number) {
+  const base = `${annotationLabel(item)} #${index + 1}`
+  return item.source === 'model' && item.confidence !== null
+    ? `${base} · ${item.confidence.toFixed(2)}`
+    : base
+}
+
+function annotationLabelSize(item: FrameAnnotation, index: number) {
   const fontSize = Math.max(24, props.imageWidth / 68)
   return {
     fontSize,
     height: fontSize * 1.45,
-    width: Math.max(fontSize * 3.2, (annotationLabel(item).length + 1) * fontSize * 0.62),
+    width: Math.max(fontSize * 3.2, (annotationTitle(item, index).length + 1) * fontSize * 0.62),
   }
 }
 
@@ -555,7 +558,7 @@ onBeforeUnmount(() => {
     <template #header>
       <header class="focus-header">
         <div class="focus-title">
-          <span>筛帧</span>
+          <span data-test="frames-brand">VDM / FRAMES</span>
           <strong :title="title">{{ title }}</strong>
           <code>{{ frames.length ? `FRAME 1–${frames.length}` : 'FRAME —' }}</code>
         </div>
@@ -575,6 +578,9 @@ onBeforeUnmount(() => {
               <el-option label="200" :value="200" />
               <el-option label="全部" value="all" />
             </el-select>
+          </label>
+          <label>缩略图标注
+            <el-switch v-model="showThumbnailAnnotations" data-test="thumbnail-annotations-switch" />
           </label>
           <template v-if="canEdit">
             <el-button v-if="!rangeMode" data-test="enter-range" @click="enterRangeMode">范围多选</el-button>
@@ -632,12 +638,17 @@ onBeforeUnmount(() => {
               :title="rangeMode ? `选择第 ${frame.sequence} 帧` : `查看第 ${frame.sequence} 帧大图`"
               @click="handleThumbnail(frame, $event)"
             >
-              <img loading="lazy" :src="frameImageUrl(projectId, videoId, frame.id)" :alt="`第 ${frame.sequence} 帧`" />
+              <FrameAnnotationThumbnail
+                :image-url="frameImageUrl(projectId, videoId, frame.id)"
+                :image-width="imageWidth"
+                :image-height="imageHeight"
+                :annotations="showThumbnailAnnotations ? (frame.annotations ?? []) : []"
+                :label-colors="labelColors"
+                :sequence="frame.sequence"
+                :time-offset="frame.time_offset"
+                :disabled="!draft[frame.id]"
+              />
               <span v-if="rangeMode" class="selection-box"><span v-if="selected.has(frame.id)">✓</span></span>
-              <span class="frame-sequence">#{{ frame.sequence }}</span>
-              <span class="frame-time">{{ formatTime(frame.time_offset) }}</span>
-              <span v-if="!draft[frame.id]" class="disabled-mask" />
-              <span v-if="!draft[frame.id]" class="disabled-badge">已停用</span>
             </button>
             <footer>
               <span :title="frameFileName(frame)">{{ frameFileName(frame) }}</span>
@@ -696,7 +707,7 @@ onBeforeUnmount(() => {
         <header>
           <div class="preview-info">
             <strong>#{{ previewFrame.sequence }} · {{ previewFileName }}</strong>
-            <span>{{ formatTime(previewFrame.time_offset) }}</span>
+            <span>{{ formatFrameTimestamp(previewFrame.time_offset) }}</span>
             <span>{{ imageWidth }} × {{ imageHeight }}</span>
             <span>{{ formatFileSize(previewFrame.file_size) }}</span>
             <b :class="draft[previewFrame.id] ? 'enabled-status' : 'disabled-status'">{{ draft[previewFrame.id] ? '已启用' : '已停用' }}</b>
@@ -725,7 +736,7 @@ onBeforeUnmount(() => {
           >
             <image :href="frameImageUrl(projectId, videoId, previewFrame.id)" :width="Math.max(1, imageWidth)" :height="Math.max(1, imageHeight)" />
             <g v-if="boxesVisible" class="annotation-layer">
-              <g v-for="item in previewAnnotations" :key="item.id">
+              <g v-for="(item, index) in previewAnnotations" :key="item.id">
                 <rect
                   class="preview-annotation-box"
                   :x="item.x_min"
@@ -736,20 +747,20 @@ onBeforeUnmount(() => {
                   :fill="colorWithAlpha(labelColors[item.label_id] ?? '#ffca3a', 0.12)"
                   vector-effect="non-scaling-stroke"
                 />
-                <g :transform="`translate(${item.x_min} ${item.y_min})`">
+                <g :transform="`translate(${item.x_min} ${item.y_min - annotationLabelSize(item, index).height})`">
                   <rect
                     class="preview-label-background"
-                    :width="annotationLabelSize(item).width"
-                    :height="annotationLabelSize(item).height"
+                    :width="annotationLabelSize(item, index).width"
+                    :height="annotationLabelSize(item, index).height"
                     :fill="labelColors[item.label_id] ?? '#ffca3a'"
                   />
                   <text
-                    :x="annotationLabelSize(item).fontSize * 0.34"
-                    :y="annotationLabelSize(item).fontSize"
-                    :font-size="annotationLabelSize(item).fontSize"
+                    :x="annotationLabelSize(item, index).fontSize * 0.34"
+                    :y="annotationLabelSize(item, index).fontSize"
+                    :font-size="annotationLabelSize(item, index).fontSize"
                     font-weight="700"
                     :fill="contrastText(labelColors[item.label_id] ?? '#ffca3a')"
-                  >{{ annotationLabel(item) }}</text>
+                  >{{ annotationTitle(item, index) }}</text>
                 </g>
               </g>
             </g>
@@ -801,9 +812,9 @@ onBeforeUnmount(() => {
 .preview-info,
 .frame-preview > footer { display: flex; align-items: center; }
 
-.focus-header { justify-content: space-between; height: 52px; padding: 0 14px 0 20px; color: #dce5eb; background: #17212b; border-bottom: 1px solid #3a4a56; }
+.focus-header { justify-content: space-between; height: 52px; padding: 0 14px; color: #dce5eb; background: #17212b; border-bottom: 1px solid #3a4a56; }
 .focus-title { gap: 12px; min-width: 0; }
-.focus-title > span { color: #78d2b8; font: 700 12px var(--vdw-mono); letter-spacing: .11em; }
+.focus-title > span { color: var(--vdw-mint); font: 700 13px var(--vdw-mono); letter-spacing: .12em; }
 .focus-title strong { max-width: 58vw; overflow: hidden; font: 650 16px var(--vdw-title); text-overflow: ellipsis; white-space: nowrap; }
 .focus-title code { color: #92a2ae; font: 12px var(--vdw-mono); }
 .focus-header > button,
@@ -840,19 +851,12 @@ onBeforeUnmount(() => {
 .frames-grid-shell::-webkit-scrollbar { width: 10px; }.frames-grid-shell::-webkit-scrollbar-track { background: #0b1117; }.frames-grid-shell::-webkit-scrollbar-thumb { background: #16866f; border: 2px solid #0b1117; border-radius: 6px; }
 .frames-error { position: sticky; z-index: 8; top: 0; margin-bottom: 10px; }
 .frames-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(166px, 1fr)); gap: 9px; align-content: start; }
-.frame-card { min-width: 0; overflow: hidden; background: #1b252e; border: 1px solid #34434e; border-radius: 3px; transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
-.frame-card:hover { border-color: #567063; box-shadow: 0 6px 18px rgb(0 0 0 / 24%); transform: translateY(-1px); }
+.frame-card { min-width: 0; overflow: hidden; background: #1b252e; border: 1px solid #34434e; border-radius: 3px; transition: border-color 150ms ease, box-shadow 150ms ease; }
+.frame-card:hover { border-color: #567063; box-shadow: 0 6px 18px rgb(0 0 0 / 24%); }
 .frame-card.selected { border-color: #78d2b8; box-shadow: 0 0 0 1px #16866f; }
 .frame-thumb { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; padding: 0; color: inherit; background: #111820; border: 0; cursor: pointer; }
-.frame-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.frame-sequence,
-.frame-time,
-.selection-box,
-.disabled-badge { position: absolute; z-index: 4; padding: 3px 6px; font: 10px var(--vdw-mono); border-radius: 2px; }
-.frame-sequence { right: 6px; bottom: 6px; background: rgb(4 9 12 / 78%); }.frame-time { top: 6px; right: 6px; background: rgb(4 9 12 / 78%); }
-.selection-box { top: 6px; left: 6px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; color: white; background: #17212b; border: 1px solid #7b8a94; }
+.selection-box { position: absolute; z-index: 4; top: 6px; left: 6px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; color: white; font: 10px var(--vdw-mono); background: #17212b; border: 1px solid #7b8a94; border-radius: 2px; }
 .selected .selection-box { background: #16866f; border-color: #78d2b8; }
-.disabled-mask { position: absolute; inset: 0; z-index: 2; background: rgb(3 7 10 / 58%); }.disabled-badge { bottom: 6px; left: 6px; color: white; background: #c83f49; }
 .frame-card footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; min-height: 52px; padding: 6px 7px 6px 10px; border-top: 1px solid #34434e; }
 .frame-card footer > span { display: -webkit-box; overflow: hidden; color: #c6d1d8; font: 11px/15px var(--vdw-mono); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .frame-card footer button { min-width: 52px; height: 29px; padding: 0 10px; color: white; border-radius: 3px; cursor: pointer; }
@@ -878,7 +882,7 @@ onBeforeUnmount(() => {
 .preview-stage { position: relative; min-height: 0; overflow: hidden; background: rgb(2 6 9 / 22%); cursor: default; touch-action: none; }
 .preview-stage.pannable { cursor: grab; }
 .preview-stage.dragging { cursor: grabbing; }
-.preview-image { position: absolute; top: 0; left: 0; display: block; max-width: none; max-height: none; background: rgb(17 24 32 / 55%); box-shadow: 0 12px 40px rgb(0 0 0 / 70%); transform-origin: 0 0; transition: transform 120ms ease; will-change: transform; }
+.preview-image { position: absolute; top: 0; left: 0; display: block; max-width: none; max-height: none; overflow: visible; background: rgb(17 24 32 / 55%); box-shadow: 0 12px 40px rgb(0 0 0 / 70%); transform-origin: 0 0; transition: transform 120ms ease; will-change: transform; }
 .preview-stage.dragging .preview-image { transition: none; }
 .preview-annotation-box { stroke-width: 3px; }
 .preview-label-background { stroke: none; }
@@ -896,6 +900,13 @@ onBeforeUnmount(() => {
 .preview-fade-enter-active,
 .preview-fade-leave-active { transition: opacity 180ms ease; }.preview-fade-enter-from,
 .preview-fade-leave-to { opacity: 0; }
+
+@media (hover: hover) {
+  .frames-workbench :deep(.el-button:not(.is-disabled):not(.is-text):not(.is-link):hover),
+  .frames-workbench :deep(.el-button:not(.is-disabled):not(.is-text):not(.is-link):active),
+  .frame-preview :deep(.el-button:not(.is-disabled):not(.is-text):not(.is-link):hover),
+  .frame-preview :deep(.el-button:not(.is-disabled):not(.is-text):not(.is-link):active) { transform: none; }
+}
 
 @media (max-width: 1100px) {
   .frames-grid { grid-template-columns: repeat(auto-fill, minmax(154px, 1fr)); }

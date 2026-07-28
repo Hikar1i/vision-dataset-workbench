@@ -666,7 +666,7 @@ watch(reuseLabel, (reuse) => {
       </div>
       <div class="focus-actions">
         <span class="save-state" :data-state="dirty ? 'dirty' : 'saved'">{{ batchActive ? `自动标注 ${activeAutoTask?.progress ?? 0}%` : saveText }}</span>
-        <button type="button" @click="statsOpen = true">标注统计</button>
+        <button data-test="stats-action" class="primary-action" type="button" @click="statsOpen = true">标注统计</button>
         <button type="button" data-test="close-annotation" title="保存并关闭" :disabled="saving" @click="closeWorkbench">关闭</button>
       </div>
     </div>
@@ -709,8 +709,8 @@ watch(reuseLabel, (reuse) => {
         <label>置信度 <el-input-number v-model="confidence" controls-position="right" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
         <label>IoU <el-input-number v-model="iou" controls-position="right" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
         <label>标签覆盖 <el-switch v-model="overwrite" data-test="overwrite-switch" :disabled="batchActive || inferenceRunning || !autoModel" /></label>
-        <button data-test="run-single-auto" type="button" :disabled="batchActive || inferenceRunning || !autoModel" @click="runSingleAutoAnnotation">单张运行</button>
-        <button data-test="run-batch-auto" type="button" :disabled="batchActive || inferenceRunning || !autoModel || video?.enabled === false" @click="runBatchAutoAnnotation">批量运行</button>
+        <button data-test="run-single-auto" class="primary-action" type="button" :disabled="batchActive || inferenceRunning || !autoModel" @click="runSingleAutoAnnotation">单张运行</button>
+        <button data-test="run-batch-auto" class="primary-action" type="button" :disabled="batchActive || inferenceRunning || !autoModel || video?.enabled === false" @click="runBatchAutoAnnotation">批量运行</button>
         <span v-if="autoUnavailableReason" class="auto-warning" :title="autoUnavailableReason">{{ autoUnavailableText }}</span>
       </div>
       <div class="frame-controls">
@@ -883,6 +883,7 @@ watch(reuseLabel, (reuse) => {
             :annotations="index === currentIndex ? annotations : (frame.annotations ?? [])"
             :label-colors="labelColors"
             :sequence="frame.sequence"
+            :time-offset="frame.time_offset"
             :current="index === currentIndex"
             :disabled="!frame.enabled"
           />
@@ -909,10 +910,10 @@ watch(reuseLabel, (reuse) => {
             :annotations="index === currentIndex ? annotations : (frame.annotations ?? [])"
             :label-colors="labelColors"
             :sequence="frame.sequence"
+            :time-offset="frame.time_offset"
             :current="index === currentIndex"
             :disabled="!frame.enabled"
           />
-          <span class="frame-time">{{ frame.time_offset.toFixed(2) }}s</span>
         </button>
       </div>
     </section>
@@ -1027,6 +1028,11 @@ watch(reuseLabel, (reuse) => {
 .auto-controls :deep(.el-input-number) { width: 100px; }
 .auto-bar button { height: 30px; padding: 0 10px; color: #dce5eb; background: #263641; border: 1px solid #41515d; }
 .auto-bar button:disabled { color: #6f7d87; cursor: not-allowed; }
+.auto-bar button.primary-action,
+.focus-actions button.primary-action { color: white; background: #16866f; border-color: #16866f; border-radius: 3px; }
+.auto-bar button.primary-action:hover:not(:disabled),
+.focus-actions button.primary-action:hover:not(:disabled) { background: #137762; border-color: #137762; }
+.auto-bar button.primary-action:disabled { color: #7f9d94; background: #28473f; border-color: #365c52; }
 .auto-warning { width: 84px; overflow: hidden; color: #d7a85b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
 .tool-rail { display: flex; grid-row: 2 / 4; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; overflow-y: auto; background: #1a252e; border-right: 1px solid #33414c; }
@@ -1109,7 +1115,6 @@ watch(reuseLabel, (reuse) => {
 .frame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 9px; align-content: start; padding: 12px; overflow: auto; }
 .frame-grid button { position: relative; overflow: hidden; padding: 0; color: #d7e0e6; text-align: left; background: #111820; border: 2px solid transparent; }
 .frame-grid button.current { border-color: #78d2b8; }
-.frame-grid .frame-time { position: absolute; z-index: 2; top: 4px; right: 4px; padding: 2px 5px; font: 10px var(--vdw-mono); background: rgb(7 12 16 / 78%); }
 
 .workbench-state { position: absolute; inset: 50px 0 0 58px; z-index: 30; display: grid; place-content: center; gap: 12px; color: #aebbc4; background: #111820; text-align: center; }
 .workbench-state.error { color: #f0a39e; }

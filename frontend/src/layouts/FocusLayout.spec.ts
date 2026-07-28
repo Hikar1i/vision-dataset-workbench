@@ -9,7 +9,7 @@ describe('FocusLayout', () => {
       global: { stubs: { RouterView: { template: '<main data-test="focus-content" />' } } },
     })
 
-    expect(wrapper.get('[data-test="focus-brand"]').text()).toBe('VDM / FOCUS')
+    expect(wrapper.get('[data-test="focus-brand"]').text()).toBe('VDM / ANNOTATION')
     expect(wrapper.find('[data-test="focus-content"]').exists()).toBe(true)
   })
 })

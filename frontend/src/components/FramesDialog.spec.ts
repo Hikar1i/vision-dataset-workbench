@@ -18,6 +18,9 @@ const frames = Array.from({ length: 205 }, (_, index) => ({
   enabled: index !== 1,
   file_size: 1024,
   created_at: '',
+  annotations: index === 0 ? [{
+    id: 'preview-box-1', label_id: 'label-id', x_min: 10, y_min: 20, x_max: 110, y_max: 220,
+  }] : [],
 }))
 
 const response = (value: unknown) => Promise.resolve({ ok: true, json: async () => value })
@@ -33,7 +36,7 @@ function fetchMock() {
       return response([{ id: 'label-id', name: 'helmet', description_zh: '安全帽', color: '#ffca3a', sort_order: 0, enabled: true, version: 1, created_at: '', updated_at: '' }])
     }
     if (url.endsWith('/annotations')) {
-      return response({ frame_id: 'frame-1', annotation_revision: 1, items: [{ id: 'box-1', label_id: 'label-id', x_min: 10, y_min: 20, x_max: 110, y_max: 220, source: 'manual', confidence: null }] })
+      return response({ frame_id: 'frame-1', annotation_revision: 1, items: [{ id: 'box-1', label_id: 'label-id', x_min: 10, y_min: 20, x_max: 110, y_max: 220, source: 'model', confidence: 0.91 }] })
     }
     const parsed = new URL(url, 'http://localhost')
     const page = Number(parsed.searchParams.get('page') ?? 1)
@@ -71,13 +74,26 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('FramesDialog', () => {
   it('loads all metadata but renders the default page of 100 frames', async () => {
-    const { wrapper } = mountDialog(true)
+    const { wrapper, fetch } = mountDialog(true)
     await flushPromises()
+    expect(wrapper.get('[data-test="frames-brand"]').text()).toBe('VDM / FRAMES')
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('include_annotations=true'))).toBe(true)
     expect(wrapper.findAll('[data-test="frame-card"]')).toHaveLength(100)
     expect(wrapper.get('[data-test="total-count"]').text()).toContain('205')
     expect(wrapper.get('[data-test="annotated-count"]').text()).toContain('3')
     expect(wrapper.get('[data-test="annotated-enabled-count"]').text()).toContain('2')
     expect(wrapper.get('[data-test="annotated-disabled-count"]').text()).toContain('1')
+  })
+
+  it('shows thumbnail annotations by default and hides them in memory', async () => {
+    const { wrapper } = mountDialog(true)
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="thumbnail-annotations-switch"]').classes()).toContain('is-checked')
+    expect(wrapper.findAll('[data-test="frame-card"] .annotation-preview rect')).toHaveLength(1)
+    await wrapper.get('[data-test="thumbnail-annotations-switch"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-test="frame-card"] .annotation-preview').exists()).toBe(false)
   })
 
   it('keeps viewer access read-only while allowing large-image inspection', async () => {
@@ -128,7 +144,7 @@ describe('FramesDialog', () => {
     await wrapper.get('[data-test="frame-card"] .frame-thumb').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-test="frame-preview"]').text()).toContain('helmet')
+    expect(wrapper.get('[data-test="frame-preview"]').text()).toContain('helmet #1 · 0.91')
     expect(wrapper.find('[data-test="preview-minimap"]').exists()).toBe(true)
 
     const image = wrapper.get('[data-test="preview-image"]')

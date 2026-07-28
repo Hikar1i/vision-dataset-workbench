@@ -109,7 +109,10 @@ function contrastText(color: string) {
 }
 
 function annotationTitle(item: FrameAnnotation) {
-  return `${labelMap.value.get(item.label_id)?.name ?? 'unknown'} #${annotationOrder.value.get(item.id)}`
+  const base = `${labelMap.value.get(item.label_id)?.name ?? 'unknown'} #${annotationOrder.value.get(item.id)}`
+  return item.source === 'model' && item.confidence !== null
+    ? `${base} · ${item.confidence.toFixed(2)}`
+    : base
 }
 
 function loadImage() {
@@ -341,7 +344,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
               @dragend="handleDragEnd($event, item)"
               @transformend="handleTransformEnd($event, item)"
             />
-            <v-group :config="{ x: item.x_min, y: item.y_min, listening: false }">
+            <v-group :config="{ x: item.x_min, y: item.y_min - 26, listening: false }">
               <v-rect
                 :config="{
                   width: Math.max(70, annotationTitle(item).length * 11 + 12),

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatFrameTimestamp } from './framePresentation'
+
 type PreviewAnnotation = {
   id: string
   label_id: string
@@ -15,6 +17,7 @@ defineProps<{
   annotations: PreviewAnnotation[]
   labelColors: Record<string, string>
   sequence: number
+  timeOffset: number
   current?: boolean
   disabled?: boolean
 }>()
@@ -24,7 +27,7 @@ defineProps<{
   <div class="frame-thumbnail" :class="{ current, disabled }">
     <img loading="lazy" :src="imageUrl" alt="" />
     <svg
-      v-if="imageWidth > 0 && imageHeight > 0"
+      v-if="annotations.length && imageWidth > 0 && imageHeight > 0"
       class="annotation-preview"
       :viewBox="`0 0 ${imageWidth} ${imageHeight}`"
       preserveAspectRatio="xMidYMid meet"
@@ -41,8 +44,9 @@ defineProps<{
         vector-effect="non-scaling-stroke"
       />
     </svg>
+    <span class="timestamp">{{ formatFrameTimestamp(timeOffset) }}</span>
     <span class="sequence">#{{ sequence }}</span>
-    <span v-if="disabled" class="disabled-badge">已停用</span>
+    <span class="frame-status" :class="disabled ? 'is-disabled' : 'is-enabled'">{{ disabled ? '已停用' : '已启用' }}</span>
   </div>
 </template>
 
@@ -75,16 +79,19 @@ defineProps<{
   pointer-events: none;
 }
 
+.timestamp,
 .sequence,
-.disabled-badge {
+.frame-status {
   position: absolute;
   z-index: 1;
-  bottom: 4px;
   padding: 2px 5px;
   color: #f3f7f8;
   font: 10px var(--vdw-mono);
 }
 
-.sequence { right: 4px; background: rgb(7 12 16 / 78%); }
-.disabled-badge { left: 4px; background: #c83f49; }
+.timestamp { top: 4px; right: 4px; background: rgb(7 12 16 / 78%); }
+.sequence { right: 4px; bottom: 4px; background: rgb(7 12 16 / 78%); }
+.frame-status { bottom: 4px; left: 4px; }
+.frame-status.is-enabled { background: #16866f; }
+.frame-status.is-disabled { background: #c83f49; }
 </style>

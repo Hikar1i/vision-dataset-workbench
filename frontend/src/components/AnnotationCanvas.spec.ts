@@ -14,10 +14,14 @@ const VTextStub = defineComponent({
   template: '<span class="text-stub">{{ config.text }}</span>',
 })
 const SlotStub = defineComponent({ template: '<div><slot /></div>' })
+const VGroupStub = defineComponent({
+  props: ['config'],
+  template: '<div class="group-stub"><slot /></div>',
+})
 const stubs = {
   'v-stage': SlotStub,
   'v-layer': SlotStub,
-  'v-group': SlotStub,
+  'v-group': VGroupStub,
   'v-image': true,
   'v-rect': VRectStub,
   'v-text': VTextStub,
@@ -42,8 +46,8 @@ const annotations: FrameAnnotation[] = [
     y_min: 100,
     x_max: 300,
     y_max: 400,
-    source: 'manual',
-    confidence: null,
+    source: 'model',
+    confidence: 0.9,
   },
 ]
 
@@ -115,9 +119,13 @@ describe('AnnotationCanvas', () => {
     const labels = wrapper.findAllComponents(VTextStub)
     expect(labels.map((item) => item.text())).toEqual([
       'helmet #1',
-      'person #2',
+      'person #2 · 0.90',
     ])
     expect(labels.every((item) => item.props('config').fontSize === 17)).toBe(true)
+    const labelGroups = wrapper.findAllComponents(VGroupStub).filter(
+      (item) => item.props('config')?.listening === false && item.props('config')?.x !== undefined,
+    )
+    expect(labelGroups.map((item) => item.props('config').y)).toEqual([-6, 74])
     expect(boxes.some((item) => item.props('config').dash?.length)).toBe(true)
 
     const event = new Event('contextmenu', { cancelable: true })

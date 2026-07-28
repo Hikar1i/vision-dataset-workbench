@@ -338,6 +338,9 @@ describe('AnnotationWorkbenchView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-test="overwrite-switch"]').attributes('disabled')).toBe('false')
+    expect(document.querySelector('[data-test="stats-action"]')?.classList).toContain('primary-action')
+    expect(wrapper.get('[data-test="run-single-auto"]').classes()).toContain('primary-action')
+    expect(wrapper.get('[data-test="run-batch-auto"]').classes()).toContain('primary-action')
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
     expect(mocks.runFrameAutoAnnotation).toHaveBeenCalledTimes(1)
