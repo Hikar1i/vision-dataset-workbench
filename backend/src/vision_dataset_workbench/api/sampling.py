@@ -3,7 +3,7 @@ from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..models import Frame, FrameAnnotation, SamplingPlan, User
 from ..sampling import InvalidSampling, SamplingInput
@@ -90,10 +90,27 @@ class FramePageResponse(BaseModel):
     sampling: SamplingSummaryResponse
 
 
-class SetFramesEnabledRequest(BaseModel):
+class FrameEnabledChangeRequest(BaseModel):
+    frame_id: str = Field(min_length=1, max_length=36)
     enabled: bool
-    frame_ids: list[str] | None = Field(default=None, min_length=1, max_length=999)
+
+
+class SetFramesEnabledRequest(BaseModel):
+    changes: list[FrameEnabledChangeRequest] = Field(min_length=1)
     frame_revision: int = Field(ge=0)
+
+    @field_validator("changes")
+    @classmethod
+    def unique_frame_ids(
+        cls, changes: list[FrameEnabledChangeRequest]
+    ) -> list[FrameEnabledChangeRequest]:
+        if len({item.frame_id for item in changes}) != len(changes):
+            raise ValueError("frame ids must be unique")
+        return changes
+
+
+class FrameAnnotationSummaryResponse(BaseModel):
+    annotated_frame_ids: list[str]
 
 
 def sampling_service(request: Request) -> SamplingService:
@@ -285,6 +302,25 @@ def list_frames(
     )
 
 
+@router.get(
+    "/videos/{video_id}/frames/annotation-summary",
+    response_model=FrameAnnotationSummaryResponse,
+)
+def frame_annotation_summary(
+    project_id: str,
+    video_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> FrameAnnotationSummaryResponse:
+    try:
+        frame_ids = sampling_service(request).annotated_frame_ids(
+            user, project_id, video_id
+        )
+    except (ProjectNotFound, ProjectForbidden, SamplingNotFound) as exc:
+        _raise_sampling_error(exc)
+    return FrameAnnotationSummaryResponse(annotated_frame_ids=frame_ids)
+
+
 @router.get("/videos/{video_id}/frames/{frame_id}/image")
 def frame_image(
     project_id: str,
@@ -319,8 +355,7 @@ def set_frames_enabled(
             user,
             project_id,
             video_id,
-            payload.enabled,
-            payload.frame_ids,
+            {item.frame_id: item.enabled for item in payload.changes},
             revision=payload.frame_revision,
         )
     except (

@@ -212,7 +212,18 @@ def test_viewer_reads_frame_image_and_editor_filters_with_revision(tmp_path):
     assert outsider.get(
         "/api/v1/projects/project-id/videos/video-id/frames"
     ).status_code == 404
-    payload = {"enabled": False, "frame_ids": ["frame-1"], "frame_revision": 1}
+    summary = viewer.get(
+        "/api/v1/projects/project-id/videos/video-id/frames/annotation-summary"
+    )
+    assert summary.status_code == 200
+    assert summary.json() == {"annotated_frame_ids": ["frame-1"]}
+    payload = {
+        "changes": [
+            {"frame_id": "frame-1", "enabled": False},
+            {"frame_id": "frame-2", "enabled": True},
+        ],
+        "frame_revision": 1,
+    }
     assert viewer.put(
         "/api/v1/projects/project-id/videos/video-id/frames/enabled",
         headers=ORIGIN,
@@ -225,8 +236,23 @@ def test_viewer_reads_frame_image_and_editor_filters_with_revision(tmp_path):
     )
     assert changed.status_code == 200
     assert changed.json()["enabled_frames"] == 1
+    with Session(app.state.auth_service.engine) as session:
+        assert session.get(Frame, "frame-1").enabled is False
+        assert session.get(Frame, "frame-2").enabled is True
     assert editor.put(
         "/api/v1/projects/project-id/videos/video-id/frames/enabled",
         headers=ORIGIN,
         json=payload,
     ).status_code == 409
+    duplicate = {
+        "changes": [
+            {"frame_id": "frame-1", "enabled": True},
+            {"frame_id": "frame-1", "enabled": False},
+        ],
+        "frame_revision": 2,
+    }
+    assert editor.put(
+        "/api/v1/projects/project-id/videos/video-id/frames/enabled",
+        headers=ORIGIN,
+        json=duplicate,
+    ).status_code == 422

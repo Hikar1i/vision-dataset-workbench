@@ -379,13 +379,31 @@ class SamplingService:
                 database.expunge(item)
             return result
 
+    def annotated_frame_ids(
+        self,
+        actor: User,
+        project_id: str,
+        video_id: str,
+    ) -> list[str]:
+        self._project_role(actor, project_id)
+        with self._session_factory() as database:
+            self._video(database, project_id, video_id)
+            return list(
+                database.scalars(
+                    select(Frame.id)
+                    .join(FrameAnnotation, FrameAnnotation.frame_id == Frame.id)
+                    .where(Frame.video_id == video_id)
+                    .group_by(Frame.id, Frame.sequence)
+                    .order_by(Frame.sequence)
+                )
+            )
+
     def set_frames_enabled(
         self,
         actor: User,
         project_id: str,
         video_id: str,
-        enabled: bool,
-        frame_ids: list[str] | None,
+        changes: dict[str, bool],
         *,
         revision: int,
     ) -> SamplingPlan:
@@ -399,18 +417,29 @@ class SamplingService:
                 raise SamplingConflict("video has no sampled frames")
             if plan.frame_revision != revision:
                 raise SamplingConflict("frame revision conflict")
-            where = [Frame.video_id == video_id]
-            if frame_ids is not None:
-                unique_ids = set(frame_ids)
-                matched = database.scalar(
-                    select(func.count())
-                    .select_from(Frame)
-                    .where(Frame.video_id == video_id, Frame.id.in_(unique_ids))
-                ) or 0
-                if matched != len(unique_ids):
-                    raise SamplingNotFound("frame not found")
-                where.append(Frame.id.in_(unique_ids))
-            database.execute(update(Frame).where(*where).values(enabled=enabled))
+            frame_ids = set(changes)
+            matched = database.scalar(
+                select(func.count())
+                .select_from(Frame)
+                .where(Frame.video_id == video_id, Frame.id.in_(frame_ids))
+            ) or 0
+            if matched != len(frame_ids):
+                raise SamplingNotFound("frame not found")
+            for enabled in (True, False):
+                matching_ids = [
+                    frame_id
+                    for frame_id, value in changes.items()
+                    if value is enabled
+                ]
+                if matching_ids:
+                    database.execute(
+                        update(Frame)
+                        .where(
+                            Frame.video_id == video_id,
+                            Frame.id.in_(matching_ids),
+                        )
+                        .values(enabled=enabled)
+                    )
             plan.enabled_frames = database.scalar(
                 select(func.count())
                 .select_from(Frame)

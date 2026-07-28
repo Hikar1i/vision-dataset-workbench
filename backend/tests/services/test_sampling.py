@@ -7,7 +7,9 @@ from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.models import (
     Frame,
+    FrameAnnotation,
     Project,
+    ProjectLabel,
     ProjectMembership,
     SamplingPlan,
     User,
@@ -170,6 +172,30 @@ def test_viewer_reads_frames_and_editor_filters_with_revision(tmp_path):
                 for sequence in (1, 2)
             ]
         )
+        session.add(
+            ProjectLabel(
+                id="label-id",
+                project_id="project-id",
+                name="helmet",
+                name_normalized="helmet",
+                color="#16866f",
+                sort_order=0,
+            )
+        )
+        session.flush()
+        session.add(
+            FrameAnnotation(
+                id="annotation-id",
+                frame_id="frame-1",
+                label_id="label-id",
+                x_min=10,
+                y_min=20,
+                x_max=110,
+                y_max=220,
+                source="manual",
+                sort_order=0,
+            )
+        )
         session.commit()
 
     frames, total, plan = service.list_frames(
@@ -182,13 +208,15 @@ def test_viewer_reads_frames_and_editor_filters_with_revision(tmp_path):
     assert plan.frame_revision == 1
     assert frame.id == "frame-1"
     assert path.read_bytes() == b"frame-1"
+    assert service.annotated_frame_ids(
+        actors["viewer"], "project-id", "ready-id"
+    ) == ["frame-1"]
     with pytest.raises(ProjectForbidden):
         service.set_frames_enabled(
             actors["viewer"],
             "project-id",
             "ready-id",
-            False,
-            ["frame-1"],
+            {"frame-1": False},
             revision=1,
         )
 
@@ -196,8 +224,7 @@ def test_viewer_reads_frames_and_editor_filters_with_revision(tmp_path):
         actors["editor"],
         "project-id",
         "ready-id",
-        False,
-        ["frame-1"],
+        {"frame-1": False, "frame-2": True},
         revision=1,
     )
     assert changed.enabled_frames == 1
@@ -207,16 +234,14 @@ def test_viewer_reads_frames_and_editor_filters_with_revision(tmp_path):
             actors["editor"],
             "project-id",
             "ready-id",
-            True,
-            None,
+            {"frame-1": True},
             revision=1,
         )
     restored = service.set_frames_enabled(
         actors["editor"],
         "project-id",
         "ready-id",
-        True,
-        None,
+        {"frame-1": True, "frame-2": True},
         revision=2,
     )
     assert restored.enabled_frames == 2
