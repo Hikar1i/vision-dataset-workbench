@@ -1,6 +1,20 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDownBold, ArrowUpBold, Delete as DeleteIcon, Hide, View } from '@element-plus/icons-vue'
+import {
+  ArrowDownBold,
+  ArrowUpBold,
+  Back,
+  Delete as DeleteIcon,
+  DeleteFilled,
+  FullScreen,
+  Hide,
+  QuestionFilled,
+  Rank,
+  Right,
+  View,
+  ZoomIn,
+  ZoomOut,
+} from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -82,6 +96,7 @@ const gridOpen = ref(false)
 const filmstripVisible = ref(true)
 const shortcutsOpen = ref(false)
 const statsOpen = ref(false)
+const imageInfoExpanded = ref(true)
 const registerOpen = ref(false)
 const registering = ref(false)
 const registerName = ref('')
@@ -152,14 +167,6 @@ const allBoxesHidden = computed(() =>
   groupedObjects.value.length > 0
   && groupedObjects.value.every(({ label }) => hiddenLabelIds.value.includes(label.id)),
 )
-const minimapRect = computed(() => {
-  if (!viewport.value || !video.value?.width || !video.value.height) return null
-  const left = Math.max(0, Math.min(100, viewport.value.x_min / video.value.width * 100))
-  const top = Math.max(0, Math.min(100, viewport.value.y_min / video.value.height * 100))
-  const right = Math.max(left, Math.min(100, viewport.value.x_max / video.value.width * 100))
-  const bottom = Math.max(top, Math.min(100, viewport.value.y_max / video.value.height * 100))
-  return { left: `${left}%`, top: `${top}%`, width: `${right - left}%`, height: `${bottom - top}%` }
-})
 const enabledFrameCount = computed(() => frames.value.filter((frame) => frame.enabled).length)
 const boxCount = computed(() => annotations.value.length)
 const annotationOrder = computed(() => new Map(
@@ -709,20 +716,44 @@ watch(reuseLabel, (reuse) => {
     </section>
 
     <aside class="tool-rail" aria-label="标注工具">
-      <button :class="{ active: mode === 'pan' }" type="button" title="拖拽（按住 Space）" @click="mode = 'pan'">✥</button>
-      <button data-test="previous-frame" type="button" title="上一张（A）" :disabled="currentIndex === 0" @click="switchFrame(currentIndex - 1)">A</button>
-      <button data-test="next-frame" type="button" title="下一张（D）" :disabled="currentIndex >= frames.length - 1" @click="switchFrame(currentIndex + 1)">D</button>
-      <button :class="{ active: mode === 'draw' }" type="button" title="新建矩形框（R）" :disabled="batchActive" @click="mode = 'draw'">R</button>
-      <button type="button" title="隐藏/显示全部标注框" @click="toggleAllBoxes">◉</button>
-      <button type="button" title="清空所有标注框" :disabled="batchActive || !annotations.length" @click="clearAll">⌫</button>
-      <button type="button" title="撤销（Ctrl+Z）" :disabled="batchActive || !history.canUndo()" @click="undo">↶</button>
-      <button type="button" title="重做（Ctrl+Shift+Z）" :disabled="batchActive || !history.canRedo()" @click="redo">↷</button>
+      <button :class="{ active: mode === 'pan' }" type="button" title="拖拽（按住 Space）" @click="mode = 'pan'">
+        <el-icon><Rank /></el-icon>
+      </button>
+      <button data-test="previous-frame" type="button" title="上一张（A）" :disabled="currentIndex === 0" @click="switchFrame(currentIndex - 1)">
+        <el-icon><Back /></el-icon>
+      </button>
+      <button data-test="next-frame" type="button" title="下一张（D）" :disabled="currentIndex >= frames.length - 1" @click="switchFrame(currentIndex + 1)">
+        <el-icon><Right /></el-icon>
+      </button>
+      <button :class="{ active: mode === 'draw' }" type="button" title="新建矩形框（R）" :disabled="batchActive" @click="mode = 'draw'">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 18 18" width="1em" height="1em" aria-hidden="true" focusable="false" class=""><g clip-path="url(#rectangle_svg__a)"><path d="M17.196 4.598a.304.304 0 0 0 .304-.303V.804A.304.304 0 0 0 17.196.5h-3.49a.304.304 0 0 0-.304.304v1.062H4.598V.804A.304.304 0 0 0 4.295.5H.804A.304.304 0 0 0 .5.804v3.49c0 .168.137.304.304.304h1.062v8.804H.804a.304.304 0 0 0-.304.303v3.492c0 .166.137.303.304.303h3.49a.304.304 0 0 0 .304-.303v-1.063h8.804v1.063c0 .166.136.303.303.303h3.491a.304.304 0 0 0 .304-.303v-3.492a.304.304 0 0 0-.304-.303h-1.062V4.598zm-2.58-2.884h1.67v1.67h-1.67zM1.714 3.384v-1.67h1.67v1.67zm1.67 12.902h-1.67v-1.67h1.67zm12.902-1.67v1.67h-1.67v-1.67zm-1.518-1.214h-1.063a.304.304 0 0 0-.303.303v1.063H4.598v-1.063a.304.304 0 0 0-.303-.303H3.232V4.598h1.063a.304.304 0 0 0 .303-.303V3.232h8.804v1.063c0 .167.136.303.303.303h1.063z"></path></g><defs><clipPath id="rectangle_svg__a"><path fill="#fff" d="M0 0h18v18H0z"></path></clipPath></defs></svg>
+      </button>
+      <button data-test="toggle-all-boxes" type="button" :title="allBoxesHidden ? '显示全部标注框' : '隐藏全部标注框'" @click="toggleAllBoxes">
+        <el-icon><View v-if="allBoxesHidden" /><Hide v-else /></el-icon>
+      </button>
+      <button type="button" title="清空所有标注框" :disabled="batchActive || !annotations.length" @click="clearAll">
+        <el-icon><DeleteFilled /></el-icon>
+      </button>
+      <button type="button" title="撤销（Ctrl+Z）" :disabled="batchActive || !history.canUndo()" @click="undo">
+        <svg xmlns="http://www.w3.org/2000/svg" class="" viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false"><path d="M296.704 145.28 100.608 341.376l196.096 196.117 60.352-60.352L263.893 384h365.44a202.667 202.667 0 0 1 0 405.333H362.667v85.334h266.666c159.062 0 288-128.939 288-288s-128.938-288-288-288H264l93.035-93.056z"></path></svg>
+      </button>
+      <button type="button" title="重做（Ctrl+Shift+Z）" :disabled="batchActive || !history.canRedo()" @click="redo">
+        <svg xmlns="http://www.w3.org/2000/svg" class="" viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false"><path d="m727.296 145.28 196.096 196.096-196.096 196.117-60.352-60.352L760.107 384h-365.44a202.667 202.667 0 0 0 0 405.333h266.666v85.334H394.667c-159.062 0-288-128.939-288-288s128.938-288 288-288H760l-93.056-93.056z"></path></svg>
+      </button>
       <span class="tool-separator" />
-      <button type="button" title="展示全图" @click="canvasRef?.resetView()">▣</button>
-      <button type="button" title="缩小" @click="canvasRef?.zoomBy(0.9)">−</button>
+      <button type="button" title="展示全图" @click="canvasRef?.resetView()">
+        <el-icon><FullScreen /></el-icon>
+      </button>
+      <button type="button" title="缩小" @click="canvasRef?.zoomBy(0.9)">
+        <el-icon><ZoomOut /></el-icon>
+      </button>
       <output>{{ canvasRef?.zoomPercent ?? 100 }}%</output>
-      <button type="button" title="放大" @click="canvasRef?.zoomBy(1.1)">＋</button>
-      <button type="button" title="快捷键指南" @click="shortcutsOpen = true">?</button>
+      <button type="button" title="放大" @click="canvasRef?.zoomBy(1.1)">
+        <el-icon><ZoomIn /></el-icon>
+      </button>
+      <button type="button" title="快捷键指南" @click="shortcutsOpen = true">
+        <el-icon><QuestionFilled /></el-icon>
+      </button>
     </aside>
 
     <section class="canvas-panel">
@@ -752,8 +783,16 @@ watch(reuseLabel, (reuse) => {
 
     <aside class="info-panel">
       <section class="image-info">
-        <header><strong>图像信息</strong><span>#{{ currentFrame?.sequence ?? 0 }}</span></header>
-        <dl>
+        <header>
+          <strong>图像信息</strong>
+          <div class="info-heading-actions">
+            <span>#{{ currentFrame?.sequence ?? 0 }}</span>
+            <button data-test="image-info-toggle" type="button" :title="imageInfoExpanded ? '收起图像信息' : '展开图像信息'" @click="imageInfoExpanded = !imageInfoExpanded">
+              <el-icon><ArrowUpBold v-if="imageInfoExpanded" /><ArrowDownBold v-else /></el-icon>
+            </button>
+          </div>
+        </header>
+        <dl v-if="imageInfoExpanded">
           <dt>文件名</dt><dd :title="frameFileName">{{ frameFileName }}</dd>
           <dt>尺寸</dt><dd>{{ video?.width ?? 0 }} × {{ video?.height ?? 0 }}</dd>
           <dt>大小</dt><dd>{{ ((currentFrame?.file_size ?? 0) / 1024).toFixed(1) }} KB</dd>
@@ -770,7 +809,9 @@ watch(reuseLabel, (reuse) => {
             <button type="button" :title="hiddenLabelIds.includes(group.label.id) ? '显示类别' : '隐藏类别'" @click="toggleLabelHidden(group.label.id)">
               <el-icon><View v-if="hiddenLabelIds.includes(group.label.id)" /><Hide v-else /></el-icon>
             </button>
-            <button type="button" title="展开/收起" @click="toggleExpanded(group.label.id)">{{ expandedLabelIds.includes(group.label.id) ? '⌃' : '⌄' }}</button>
+            <button type="button" :title="expandedLabelIds.includes(group.label.id) ? '收起类别' : '展开类别'" @click="toggleExpanded(group.label.id)">
+              <el-icon><ArrowUpBold v-if="expandedLabelIds.includes(group.label.id)" /><ArrowDownBold v-else /></el-icon>
+            </button>
           </div>
           <div v-if="expandedLabelIds.includes(group.label.id)" class="box-list">
             <div
@@ -796,8 +837,25 @@ watch(reuseLabel, (reuse) => {
       <section class="minimap">
         <header><strong>缩略图</strong><span>{{ canvasRef?.zoomPercent ?? 100 }}%</span></header>
         <div class="minimap-image">
-          <img v-if="currentFrame" :src="imageUrl" alt="当前采样帧缩略图" />
-          <span v-if="minimapRect" class="viewport-box" :style="minimapRect" />
+          <svg
+            v-if="currentFrame && video"
+            class="minimap-svg"
+            :viewBox="`0 0 ${video.width} ${video.height}`"
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label="当前采样帧缩略图"
+          >
+            <image :href="imageUrl" :width="video.width" :height="video.height" />
+            <rect
+              v-if="viewport"
+              class="viewport-box"
+              :x="viewport.x_min"
+              :y="viewport.y_min"
+              :width="Math.max(0, viewport.x_max - viewport.x_min)"
+              :height="Math.max(0, viewport.y_max - viewport.y_min)"
+              vector-effect="non-scaling-stroke"
+            />
+          </svg>
         </div>
       </section>
     </aside>
@@ -929,7 +987,7 @@ watch(reuseLabel, (reuse) => {
 .focus-title { min-width: 0; gap: 12px; }
 .focus-title strong { max-width: 48vw; overflow: hidden; color: #edf3f6; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .focus-title span,
-.save-state { color: #92a2ae; font: 12px var(--vdw-mono); white-space: nowrap; }
+.save-state { color: #92a2ae; font: 14px var(--vdw-mono); white-space: nowrap; }
 .save-state[data-state='dirty'] { color: #f3c76d; }
 .focus-actions { gap: 12px; }
 .focus-actions button { height: 31px; padding: 0 13px; color: #e9f0f4; background: #24323d; border: 1px solid #40515e; cursor: pointer; }
@@ -952,15 +1010,15 @@ watch(reuseLabel, (reuse) => {
 .frame-controls { gap: 7px; min-width: 0; white-space: nowrap; }
 .auto-controls label,
 .frame-controls label { display: flex; align-items: center; gap: 5px; color: #aebbc4; font-size: 12px; }
-.model-select { width: 138px; }
+.model-select { width: 250px; }
 .category-select { width: 340px; }
 .auto-controls :deep(.el-input-number) { width: 112px; }
 .auto-bar button { height: 30px; padding: 0 10px; color: #dce5eb; background: #263641; border: 1px solid #41515d; }
 .auto-bar button:disabled { color: #6f7d87; cursor: not-allowed; }
 .auto-warning { width: 84px; overflow: hidden; color: #d7a85b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
-.tool-rail { display: flex; grid-row: 2 / 4; flex-direction: column; align-items: center; gap: 5px; padding: 8px 0; overflow-y: auto; background: #1a252e; border-right: 1px solid #33414c; }
-.tool-rail button { display: grid; place-items: center; flex: 0 0 34px; width: 38px; padding: 0; color: #b9c6cf; font: 700 13px var(--vdw-mono); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; transition: background 150ms ease, border-color 150ms ease, color 150ms ease; }
+.tool-rail { display: flex; grid-row: 2 / 4; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; overflow-y: auto; background: #1a252e; border-right: 1px solid #33414c; }
+.tool-rail button { display: grid; place-items: center; flex: 0 0 40px; width: 40px; padding: 0; color: #b9c6cf; font: 700 20px var(--vdw-mono); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; transition: background 150ms ease, border-color 150ms ease, color 150ms ease; }
 .tool-rail button:hover:not(:disabled),
 .tool-rail button.active { color: #9de0cc; background: #233740; border-color: #3d665d; }
 .tool-rail button:disabled { color: #52616c; cursor: not-allowed; }
@@ -976,14 +1034,17 @@ watch(reuseLabel, (reuse) => {
 .panel-overlay { position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; color: #afbdc6; background: rgb(12 18 23 / 62%); }
 .panel-overlay--passive { pointer-events: none; background: rgb(12 18 23 / 22%); }
 
-.info-panel { display: grid; grid-column: 3; grid-row: 2; grid-template-rows: auto minmax(0, 1fr) 168px; min-height: 0; background: #f6f8f9; border-left: 1px solid #33414c; color: #24313a; }
+.info-panel { display: grid; grid-column: 3; grid-row: 2; grid-template-rows: auto minmax(0, 1fr) 200px; min-height: 0; background: #f6f8f9; border-left: 1px solid #33414c; color: #24313a; }
 .image-info,
 .object-list,
 .minimap { min-width: 0; }
-.image-info { padding: 11px 12px; border-bottom: 1px solid #d2dae0; }
+.image-info { padding: 5px 10px 10px 10px; border-bottom: 1px solid #d2dae0; }
 .image-info header,
 .object-list > header,
 .minimap header { justify-content: space-between; height: 27px; }
+.info-heading-actions { display: flex; align-items: center; gap: 6px; }
+.info-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #5f6e78; background: transparent; border: 0; cursor: pointer; }
+.info-heading-actions button:hover { color: #16866f; background: #e4eeeb; }
 .image-info header strong,
 .object-list header strong,
 .minimap header strong { font-size: 13px; }
@@ -993,14 +1054,16 @@ watch(reuseLabel, (reuse) => {
 .image-info dl { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 5px 8px; margin: 5px 0 0; font-size: 12px; }
 .image-info dt { color: #7a8790; }
 .image-info dd { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.object-list { overflow-y: auto; padding: 8px 10px; }
+.object-list { overflow-y: auto; padding: 5px 10px; scrollbar-width: none; }
+.object-list::-webkit-scrollbar { display: none; }
 .empty-copy { margin: 20px 0; color: #84919a; font-size: 12px; text-align: center; }
 .object-group { margin-top: 5px; border: 1px solid #d4dce1; background: white; }
-.object-group-row { display: grid; grid-template-columns: 9px minmax(0, 1fr) 28px 27px 27px; align-items: center; min-height: 34px; padding: 0 5px 0 8px; }
-.object-group-row i { width: 8px; height: 8px; border-radius: 50%; }
-.object-group-row button { height: 26px; padding: 0; color: #4c5b65; background: transparent; border: 0; cursor: pointer; }
-.object-group-row .group-name { overflow: hidden; padding-left: 7px; font-weight: 650; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.object-group-row span { color: #70808b; font: 11px var(--vdw-mono); text-align: center; }
+.object-group-row { display: grid; grid-template-columns: 11px minmax(0, 1fr) 38px 36px 36px; align-items: center; min-height: 42px; padding: 0 5px 0 8px; }
+.object-group-row i { width: 10px; height: 10px; border-radius: 50%; }
+.object-group-row button { display: grid; place-items: center; height: 34px; padding: 0; color: #4c5b65; background: transparent; border: 0; cursor: pointer; }
+.object-group-row button:not(.group-name) { font-size: 18px; }
+.object-group-row .group-name { display: block; overflow: hidden; width: 100%; padding-left: 7px; font-weight: 650; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.object-group-row span { color: #70808b; font: 13px var(--vdw-mono); text-align: center; }
 .box-list { border-top: 1px solid #e0e5e9; }
 .box-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; min-height: 30px; background: #fafcfc; border-bottom: 1px solid #edf0f2; }
 .box-item.selected { color: #116d5b; background: #e2f2ed; }
@@ -1009,12 +1072,16 @@ watch(reuseLabel, (reuse) => {
 .box-item .box-select { grid-template-columns: 27px minmax(0, 1fr); padding: 0 7px; text-align: left; }
 .box-list code { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .minimap { padding: 8px 10px 10px; border-top: 1px solid #d2dae0; }
-.minimap-image { position: relative; height: 122px; overflow: hidden; background: #17212b; }
-.minimap-image img { width: 100%; height: 100%; object-fit: contain; }
-.viewport-box { position: absolute; border: 2px solid #78d2b8; background: rgb(120 210 184 / 8%); box-shadow: 0 0 0 1px rgb(23 33 43 / 45%); pointer-events: none; }
+.minimap-image { position: relative; height: 155px; overflow: hidden; background: #17212b; }
+.minimap-svg { display: block; width: 100%; height: 100%; }
+.viewport-box { fill: rgb(120 210 184 / 8%); stroke: #78d2b8; stroke-width: 2px; filter: drop-shadow(0 0 1px rgb(23 33 43 / 75%)); pointer-events: none; }
 
 .filmstrip { display: grid; grid-column: 2 / 4; grid-row: 3; grid-template-columns: minmax(0, 1fr) 38px; min-width: 0; min-height: 0; background: #18232c; border-top: 1px solid #33414c; }
-.filmstrip-scroll { display: flex; align-items: end; gap: 7px; min-width: 0; padding: 8px 8px 9px; overflow-x: auto; overflow-y: hidden; }
+.filmstrip-scroll { display: flex; align-items: end; gap: 7px; min-width: 0; padding: 8px 8px 9px; overflow-x: scroll; overflow-y: hidden; scrollbar-color: #16866f #111820; scrollbar-gutter: stable; scrollbar-width: thin; }
+.filmstrip-scroll::-webkit-scrollbar { height: 10px; }
+.filmstrip-scroll::-webkit-scrollbar-track { background: #111820; }
+.filmstrip-scroll::-webkit-scrollbar-thumb { background: #16866f; border: 2px solid #111820; border-radius: 5px; }
+.filmstrip-scroll::-webkit-scrollbar-thumb:hover { background: #78d2b8; }
 .film-frame { position: relative; flex: 0 0 128px; overflow: hidden; padding: 0; background: #111820; border: 2px solid transparent; cursor: pointer; }
 .film-frame.current { border-color: #78d2b8; box-shadow: 0 0 0 1px #16866f; }
 .filmstrip-actions { display: grid; grid-template-rows: 1fr 1fr; border-left: 1px solid #34434e; }

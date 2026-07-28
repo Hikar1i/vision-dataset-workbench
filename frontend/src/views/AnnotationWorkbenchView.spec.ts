@@ -54,8 +54,8 @@ vi.mock('../api/models', () => ({
 }))
 
 const CanvasStub = defineComponent({
-  emits: ['change', 'request-category'],
-  template: '<div><button data-test="canvas-change" @click="$emit(\'change\', [{ id: \'box-id\', label_id: \'label-id\', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: \'manual\', confidence: null }])">change</button><button data-test="request-category" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 50, y: 60 })">draw</button></div>',
+  emits: ['change', 'request-category', 'view-change'],
+  template: '<div><button data-test="canvas-change" @click="$emit(\'change\', [{ id: \'box-id\', label_id: \'label-id\', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: \'manual\', confidence: null }])">change</button><button data-test="request-category" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 50, y: 60 })">draw</button><button data-test="view-change" @click="$emit(\'view-change\', { x_min: 100, y_min: 200, x_max: 900, y_max: 700 })">view</button></div>',
 })
 
 const project = {
@@ -163,6 +163,15 @@ describe('AnnotationWorkbenchView', () => {
     await flushPromises()
 
     expect(document.querySelector('[data-test="frame-counter"]')?.textContent).toContain('1 / 2')
+    expect(wrapper.find('.image-info dl').exists()).toBe(true)
+    expect(wrapper.get('.minimap-svg').attributes('viewBox')).toBe('0 0 1920 1080')
+    await wrapper.get('[data-test="view-change"]').trigger('click')
+    expect(wrapper.get('.viewport-box').attributes()).toMatchObject({
+      x: '100', y: '200', width: '800', height: '500',
+    })
+    expect(wrapper.get('[data-test="toggle-all-boxes"]').attributes('title')).toBe('隐藏全部标注框')
+    await wrapper.get('[data-test="image-info-toggle"]').trigger('click')
+    expect(wrapper.find('.image-info dl').exists()).toBe(false)
     await wrapper.get('[data-test="canvas-change"]').trigger('click')
     await wrapper.get('[data-test="next-frame"]').trigger('click')
     await flushPromises()

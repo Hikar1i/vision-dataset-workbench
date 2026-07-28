@@ -344,18 +344,18 @@ defineExpose({ zoomBy, resetView, zoomPercent })
             <v-group :config="{ x: item.x_min, y: item.y_min, listening: false }">
               <v-rect
                 :config="{
-                  width: Math.max(54, annotationTitle(item).length * 7 + 10),
-                  height: 18,
+                  width: Math.max(100, annotationTitle(item).length * 17 + 16),
+                  height: 38,
                   fill: labelMap.get(item.label_id)?.color ?? '#ffca3a',
                   listening: false,
                 }"
               />
               <v-text
                 :config="{
-                  x: 5,
-                  y: 3,
+                  x: 8,
+                  y: 4,
                   text: annotationTitle(item),
-                  fontSize: 11,
+                  fontSize: 28,
                   fontStyle: 'bold',
                   fill: contrastText(labelMap.get(item.label_id)?.color ?? '#ffca3a'),
                   listening: false,

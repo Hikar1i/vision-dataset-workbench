@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import FrameAnnotationThumbnail from './FrameAnnotationThumbnail.vue'
 
 describe('FrameAnnotationThumbnail', () => {
-  it('keeps annotation coordinates aligned with a contained 4:3 image', () => {
+  it('keeps annotation coordinates aligned with a contained 16:9 image', () => {
     const wrapper = mount(FrameAnnotationThumbnail, {
       props: {
         imageUrl: '/frame.jpg',

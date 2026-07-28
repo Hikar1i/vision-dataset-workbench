@@ -112,10 +112,12 @@ describe('AnnotationCanvas', () => {
       fill: 'rgb(232 93 74 / 0.28)',
       strokeWidth: 3,
     })
-    expect(wrapper.findAllComponents(VTextStub).map((item) => item.text())).toEqual([
+    const labels = wrapper.findAllComponents(VTextStub)
+    expect(labels.map((item) => item.text())).toEqual([
       'helmet #1',
       'person #2',
     ])
+    expect(labels.every((item) => item.props('config').fontSize === 28)).toBe(true)
     expect(boxes.some((item) => item.props('config').dash?.length)).toBe(true)
 
     const event = new Event('contextmenu', { cancelable: true })
