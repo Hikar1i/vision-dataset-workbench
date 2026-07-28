@@ -496,9 +496,11 @@ function toggleLabelHidden(labelId: string) {
 }
 
 function toggleAnnotationHidden(annotationId: string) {
-  hiddenAnnotationIds.value = hiddenAnnotationIds.value.includes(annotationId)
-    ? hiddenAnnotationIds.value.filter((id) => id !== annotationId)
-    : [...hiddenAnnotationIds.value, annotationId]
+  const hiding = !hiddenAnnotationIds.value.includes(annotationId)
+  hiddenAnnotationIds.value = hiding
+    ? [...hiddenAnnotationIds.value, annotationId]
+    : hiddenAnnotationIds.value.filter((id) => id !== annotationId)
+  if (hiding && selectedId.value === annotationId) selectedId.value = null
 }
 
 function toggleAllBoxes() {
@@ -653,7 +655,7 @@ watch(reuseLabel, (reuse) => {
       <div class="focus-actions">
         <span class="save-state" :data-state="dirty ? 'dirty' : 'saved'">{{ batchActive ? `自动标注 ${activeAutoTask?.progress ?? 0}%` : saveText }}</span>
         <button type="button" @click="statsOpen = true">标注统计</button>
-        <button type="button" data-test="close-annotation" title="保存并关闭" @click="closeWorkbench">关闭</button>
+        <button type="button" data-test="close-annotation" title="保存并关闭" :disabled="saving" @click="closeWorkbench">关闭</button>
       </div>
     </div>
   </Teleport>
@@ -966,8 +968,8 @@ watch(reuseLabel, (reuse) => {
 .tool-separator { flex: 0 0 1px; width: 34px; margin: 2px 0; background: #34424d; }
 
 .canvas-panel { position: relative; grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
-.category-scrim { position: absolute; inset: 0; z-index: 40; background: rgb(4 8 11 / 52%); }
-.category-picker { position: absolute; z-index: 41; top: 50%; left: 50%; display: grid; grid-template-columns: minmax(170px, 1fr) auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: #f7fafb; border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(-50%, -50%); }
+.category-scrim { position: fixed; inset: 0; z-index: 3000; background: rgb(4 8 11 / 52%); }
+.category-picker { position: fixed; z-index: 3001; top: 50%; left: 50%; display: grid; grid-template-columns: minmax(170px, 1fr) auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: #f7fafb; border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(-50%, -50%); }
 .category-picker label { display: grid; gap: 3px; color: #51606b; font-size: 11px; }
 .category-picker select { min-width: 140px; height: 29px; }
 .category-picker button { align-self: end; height: 29px; }
@@ -1021,7 +1023,7 @@ watch(reuseLabel, (reuse) => {
 .restore-filmstrip { position: absolute; z-index: 12; bottom: 0; left: calc(50% + 29px); display: flex; align-items: center; gap: 5px; height: 25px; padding: 0 11px; color: #b8c5ce; background: #22303a; border: 1px solid #41515d; border-bottom: 0; border-radius: 4px 4px 0 0; cursor: pointer; transform: translateX(-50%); }
 .restore-filmstrip span { font-size: 11px; }
 
-.frame-grid-overlay { position: absolute; inset: 50px 0 0 58px; z-index: 20; display: grid; grid-template-rows: 48px minmax(0, 1fr); background: #152029; }
+.frame-grid-overlay { position: absolute; inset: 0; z-index: 20; display: grid; grid-template-rows: 48px minmax(0, 1fr); background: #152029; }
 .frame-grid-overlay > header { gap: 12px; padding: 0 14px; background: #1e2c36; border-bottom: 1px solid #3a4a56; }
 .frame-grid-overlay > header span { color: #91a0ab; font-size: 12px; }
 .frame-grid-overlay > header button { display: flex; align-items: center; gap: 5px; margin-left: auto; height: 30px; color: #dbe5eb; background: #283843; border: 1px solid #41515d; }
@@ -1033,7 +1035,7 @@ watch(reuseLabel, (reuse) => {
 .workbench-state { position: absolute; inset: 50px 0 0 58px; z-index: 30; display: grid; place-content: center; gap: 12px; color: #aebbc4; background: #111820; text-align: center; }
 .workbench-state.error { color: #f0a39e; }
 .workbench-state button { justify-self: center; height: 32px; color: #dce6eb; background: #253640; border: 1px solid #455762; }
-.save-overlay { position: absolute; inset: 0; z-index: 60; display: grid; place-content: center; justify-items: center; gap: 12px; color: #eef5f7; background: rgb(5 9 12 / 68%); animation: save-overlay-in 160ms 100ms both; }
+.save-overlay { position: fixed; inset: 0; z-index: 3100; display: grid; place-content: center; justify-items: center; gap: 12px; color: #eef5f7; background: rgb(5 9 12 / 68%); animation: save-overlay-in 160ms 100ms both; }
 .save-overlay strong { font-size: 14px; font-weight: 600; }
 .save-spinner { width: 30px; height: 30px; border: 3px solid rgb(255 255 255 / 22%); border-top-color: #78d2b8; border-radius: 50%; animation: save-spinner 700ms linear infinite; }
 :global(.batch-confirm-mask) { background: rgb(4 8 11 / 68%) !important; }

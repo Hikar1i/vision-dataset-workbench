@@ -273,7 +273,12 @@ function emitViewport() {
 }
 
 watch(() => props.imageUrl, loadImage, { immediate: true })
-watch(() => [props.selectedId, props.annotations, props.hiddenLabelIds], syncTransformer, {
+watch(() => [
+  props.selectedId,
+  props.annotations,
+  props.hiddenLabelIds,
+  props.hiddenAnnotationIds,
+], syncTransformer, {
   deep: true,
 })
 watch(() => [props.imageWidth, props.imageHeight], resetView)
