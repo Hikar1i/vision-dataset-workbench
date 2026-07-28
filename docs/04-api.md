@@ -52,8 +52,9 @@
 | `POST /api/v1/projects/{id}/extractions` | owner/editor + 同源 | 按当前方案批量创建抽帧任务，返回 202 |
 | `GET /api/v1/projects/{id}/videos/{video_id}/sampling-plan` | 项目成员 | 读取方案、预计/实际帧数、版本和帧修订号 |
 | `GET /api/v1/projects/{id}/videos/{video_id}/frames` | 项目成员 | 分页读取帧；可用 `enabled=true/false` 过滤，`include_annotations=true` 批量附带轻量标注预览 |
+| `GET /api/v1/projects/{id}/videos/{video_id}/frames/annotation-summary` | 项目成员 | 按帧序返回至少包含一个已保存标注框的帧 ID |
 | `GET /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/image` | 项目成员 | 读取受管 JPG/PNG 帧图片 |
-| `PUT /api/v1/projects/{id}/videos/{video_id}/frames/enabled` | owner/editor + 同源 | 按帧 ID 或全部帧批量启停，校验 `frame_revision` |
+| `PUT /api/v1/projects/{id}/videos/{video_id}/frames/enabled` | owner/editor + 同源 | 原子提交帧 ID 与启停状态的混合变更，校验 `frame_revision` |
 | `GET /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/annotations` | 项目成员 | 读取整帧矩形标注及 `annotation_revision` |
 | `PUT /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/annotations` | owner/editor + 同源 | 按修订号整体替换当前帧标注 |
 | `GET /api/v1/models` | Session | 返回工作区内推理模型及入库状态 |
@@ -97,6 +98,8 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 能力接口在后端进程启动时探测一次。`gpu` 返回设备序号、名称和总显存；`pytorch_cuda`、`onnx_cuda` 以及 `features.manual_annotation/yolo_auto_annotation/grounding_dino_auto_annotation/model_training` 分别返回 `available` 和可空 `reason`。YOLO 能力要求 PyTorch CUDA 与 Ultralytics；GroundingDINO 能力要求 PyTorch CUDA 与 Transformers。探测失败只降级功能，不影响应用启动；具体模型是否已入库不属于该接口。
 
 矩形标注坐标使用原图像素整数，必须位于图片边界内，单帧最多 10000 项；响应顺序同时是稳定对象编号和图层顺序。客户端只在切换帧、点击其他缩略图、启动批量任务或关闭标注工作台时提交整帧草稿；`annotation_revision` 过期返回 409。浏览器意外刷新、崩溃或断电不会后台频繁保存，页面只通过 `beforeunload` 警告未保存修改。帧列表默认不返回标注，标注工作台显式使用 `include_annotations=true` 一次加载缩略图所需的框坐标和标签 ID。
+
+筛帧工作台先在浏览器维护启停草稿，保存时只提交与打开页面时基准不同的帧。`PUT .../frames/enabled` 请求体为 `{"changes":[{"frame_id":"...","enabled":false}],"frame_revision":4}`；同一请求中的帧 ID 必须唯一且都属于目标视频，服务端在一个事务内更新全部状态并只递增一次帧修订号。版本过期返回 409且不进行部分写入。标注帧摘要只返回存在至少一个已保存标注框的帧 ID；前端用该集合结合当前启停草稿实时计算标注帧启用/停用统计和“按标注启停”结果。
 
 单张自动标注在 API 同步线程池运行，只返回可编辑草稿，不修改当前标注；同一模型的进程内推理使用互斥锁，避免并发复用模型对象。`categories` 接受项目英文标签或临时英文类别，`All` 表示使用模型可提供的全部类别；只有实际检出的缺失类别会加入项目标签。批量接口拒绝停用视频，并把 Worker 开始执行时启用的帧作为处理范围；`overwrite=false` 追加模型框，`overwrite=true` 覆盖整帧已有框，两种模式都不改变帧启停状态。批量任务活动期间该视频标注写接口返回 409，前端进入只读并轮询任务状态；失败或取消保留此前已成功提交的帧。
 
