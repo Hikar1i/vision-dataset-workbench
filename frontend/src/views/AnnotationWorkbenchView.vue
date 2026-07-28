@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -33,8 +33,13 @@ import {
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
 import ServerVideoPicker from '../components/ServerVideoPicker.vue'
-import { type BoxBounds, type Point } from './annotationGeometry'
+import { type BoxBounds } from './annotationGeometry'
 import { createAnnotationHistory } from './annotationHistory'
+import { createAnnotationId } from './annotationId'
+import {
+  loadAnnotationPreference,
+  saveAnnotationPreference,
+} from './annotationPreferences'
 
 type CanvasMode = 'select' | 'draw' | 'pan'
 type CanvasApi = { zoomBy: (factor: number) => void; resetView: () => void; zoomPercent: number }
@@ -43,6 +48,7 @@ const route = useRoute()
 const router = useRouter()
 const projectId = String(route.params.id)
 const videoId = String(route.params.videoId)
+const storedPreference = loadAnnotationPreference(projectId)
 const canvasRef = ref<CanvasApi | null>(null)
 const workbenchRoot = ref<HTMLElement | null>(null)
 const video = ref<Video | null>(null)
@@ -78,8 +84,9 @@ const registerPath = ref('')
 const inferenceRunning = ref(false)
 const activeAutoTask = ref<ProjectTask | null>(null)
 const pendingBounds = ref<BoxBounds | null>(null)
-const pendingAnchor = ref<Point>({ x: 24, y: 24 })
-const lastLabelId = ref('')
+const lastLabelId = ref(storedPreference.labelId)
+const lastUsedLabelId = ref(storedPreference.labelId)
+const reuseLabel = ref(storedPreference.reuse)
 const viewport = ref<BoxBounds | null>(null)
 const autoModel = ref('')
 const autoCategories = ref<string[]>(['__all__'])
@@ -193,25 +200,36 @@ function clearAll() {
   selectedId.value = null
 }
 
-function requestCategory(bounds: BoxBounds, anchor: Point) {
+function requestCategory(bounds: BoxBounds) {
+  const reusable = enabledLabels.value.some((label) => label.id === lastUsedLabelId.value)
+  if (reuseLabel.value && reusable) {
+    addManualBox(bounds, lastUsedLabelId.value)
+    return
+  }
   pendingBounds.value = bounds
-  pendingAnchor.value = anchor
   if (!lastLabelId.value) lastLabelId.value = enabledLabels.value[0]?.id ?? ''
 }
 
-function confirmCategory() {
-  if (!pendingBounds.value || !lastLabelId.value) return
+function addManualBox(bounds: BoxBounds, labelId: string) {
   const item: FrameAnnotation = {
-    id: crypto.randomUUID(),
-    label_id: lastLabelId.value,
-    ...pendingBounds.value,
+    id: createAnnotationId(),
+    label_id: labelId,
+    ...bounds,
     source: 'manual',
     confidence: null,
   }
   pushDraft([...annotations.value, item])
   selectedId.value = item.id
+  lastLabelId.value = labelId
+  lastUsedLabelId.value = labelId
+  saveAnnotationPreference(projectId, { reuse: reuseLabel.value, labelId })
   pendingBounds.value = null
   mode.value = 'select'
+}
+
+function confirmCategory() {
+  if (!pendingBounds.value || !lastLabelId.value) return
+  addManualBox(pendingBounds.value, lastLabelId.value)
 }
 
 function cancelCategory() {
@@ -447,6 +465,11 @@ function handleKeyDown(event: KeyboardEvent) {
     }
     return
   }
+  if (pendingBounds.value && event.key === 'Escape') {
+    event.preventDefault()
+    cancelCategory()
+    return
+  }
   if (isInputTarget(event.target) || event.repeat || pendingBounds.value) return
   if (batchActive.value && ['r', 'delete', 'z'].includes(event.key.toLowerCase())) return
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
@@ -517,7 +540,17 @@ async function load() {
         ? detectedCapabilities.features.yolo_auto_annotation.available
         : detectedCapabilities.features.grounding_dino_auto_annotation.available
     })?.id ?? ''
-    lastLabelId.value = projectLabels.find((label) => label.enabled)?.id ?? ''
+    const remembered = projectLabels.find(
+      (label) => label.enabled && label.id === lastUsedLabelId.value,
+    )
+    if (!remembered) lastUsedLabelId.value = ''
+    lastLabelId.value = remembered?.id
+      ?? projectLabels.find((label) => label.enabled)?.id
+      ?? ''
+    saveAnnotationPreference(projectId, {
+      reuse: reuseLabel.value,
+      labelId: lastUsedLabelId.value,
+    })
     await loadAllFrames()
     if (!frames.value.length) throw new Error('该视频尚无采样帧')
     await loadFrame(0)
@@ -540,6 +573,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('keyup', handleKeyUp)
   window.removeEventListener('beforeunload', handleBeforeUnload)
   if (taskTimer) clearInterval(taskTimer)
+})
+
+watch(reuseLabel, (reuse) => {
+  saveAnnotationPreference(projectId, { reuse, labelId: lastUsedLabelId.value })
 })
 </script>
 
@@ -597,6 +634,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="frame-controls">
         <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" :disabled="!currentFrame || batchActive" @change="toggleFrameEnabled" /></label>
+        <label>标签沿用 <el-switch v-model="reuseLabel" :disabled="batchActive" /></label>
         <button type="button" @click="statsOpen = true">标注统计</button>
         <label>标签覆盖 <el-switch v-model="overwrite" disabled /></label>
         <label>十字线 <el-switch v-model="crosshair" :disabled="batchActive" /></label>
@@ -639,22 +677,6 @@ onBeforeUnmount(() => {
         @request-category="requestCategory"
         @view-change="viewport = $event"
       />
-      <div
-        v-if="pendingBounds"
-        class="category-picker"
-        :style="{
-          left: `clamp(130px, ${pendingAnchor.x}px, calc(100% - 130px))`,
-          top: `clamp(8px, ${pendingAnchor.y}px, calc(100% - 82px))`,
-        }"
-      >
-        <label>选择类别
-          <select v-model="lastLabelId" autofocus>
-            <option v-for="label in enabledLabels" :key="label.id" :value="label.id">{{ label.name }}</option>
-          </select>
-        </label>
-        <button type="button" @click="confirmCategory">确认</button>
-        <button type="button" @click="cancelCategory">取消</button>
-      </div>
       <div v-if="loadingFrame" class="panel-overlay">正在载入采样帧…</div>
       <div v-else-if="batchActive" class="panel-overlay panel-overlay--passive">批量自动标注运行中 · 当前帧只读</div>
     </section>
@@ -733,6 +755,17 @@ onBeforeUnmount(() => {
     <div v-if="loading || error" class="workbench-state" :class="{ error: Boolean(error) }">
       <span>{{ error || '正在加载在线标注工作台…' }}</span>
       <button v-if="error" type="button" @click="closeWorkbench">返回原始数据</button>
+    </div>
+    <div v-if="pendingBounds" class="category-scrim" data-test="category-scrim" />
+    <div v-if="pendingBounds" class="category-picker" data-test="category-picker">
+      <label>选择类别
+        <select v-model="lastLabelId" autofocus>
+          <option v-if="!enabledLabels.length" value="">暂无启用类别</option>
+          <option v-for="label in enabledLabels" :key="label.id" :value="label.id">{{ label.name }}</option>
+        </select>
+      </label>
+      <button data-test="confirm-category" type="button" :disabled="!lastLabelId" @click="confirmCategory">确认</button>
+      <button data-test="cancel-category" type="button" @click="cancelCategory">取消</button>
     </div>
   </main>
 
@@ -828,7 +861,8 @@ onBeforeUnmount(() => {
 .tool-separator { flex: 0 0 1px; width: 34px; margin: 2px 0; background: #34424d; }
 
 .canvas-panel { position: relative; grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
-.category-picker { position: absolute; z-index: 8; display: grid; grid-template-columns: minmax(130px, 1fr) auto auto; gap: 6px; max-width: calc(100% - 12px); padding: 8px; background: #f7fafb; border: 1px solid #9fb0bb; box-shadow: 0 8px 24px rgb(0 0 0 / 28%); transform: translate(-50%, 10px); }
+.category-scrim { position: absolute; inset: 0; z-index: 40; background: rgb(4 8 11 / 52%); }
+.category-picker { position: absolute; z-index: 41; top: 50%; left: 50%; display: grid; grid-template-columns: minmax(170px, 1fr) auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: #f7fafb; border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(-50%, -50%); }
 .category-picker label { display: grid; gap: 3px; color: #51606b; font-size: 11px; }
 .category-picker select { min-width: 140px; height: 29px; }
 .category-picker button { align-self: end; height: 29px; }

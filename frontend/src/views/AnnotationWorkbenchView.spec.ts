@@ -48,8 +48,8 @@ vi.mock('../api/models', () => ({
 }))
 
 const CanvasStub = defineComponent({
-  emits: ['change'],
-  template: '<button data-test="canvas-change" @click="$emit(\'change\', [{ id: \'box-id\', label_id: \'label-id\', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: \'manual\', confidence: null }])">change</button>',
+  emits: ['change', 'request-category'],
+  template: '<div><button data-test="canvas-change" @click="$emit(\'change\', [{ id: \'box-id\', label_id: \'label-id\', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: \'manual\', confidence: null }])">change</button><button data-test="request-category" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 50, y: 60 })">draw</button></div>',
 })
 
 const project = {
@@ -101,6 +101,7 @@ const frames = [1, 2].map((sequence) => ({
 
 beforeEach(() => {
   document.body.innerHTML = '<div id="focus-header-tools"></div>'
+  localStorage.clear()
   for (const value of Object.values(mocks)) value.mockReset()
   mocks.getProject.mockResolvedValue(project)
   mocks.getCurrentUser.mockResolvedValue({
@@ -176,6 +177,45 @@ describe('AnnotationWorkbenchView', () => {
 
     expect(mocks.routerReplace).toHaveBeenCalledWith('/projects/project-id/videos')
     expect(mocks.getFrameAnnotations).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps a pending rectangle until category confirmation or Escape', async () => {
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="request-category"]').trigger('click')
+    expect(wrapper.find('[data-test="category-scrim"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(true)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(false)
+
+    await wrapper.get('[data-test="request-category"]').trigger('click')
+    await wrapper.get('[data-test="confirm-category"]').trigger('click')
+    await wrapper.get('[data-test="next-frame"]').trigger('click')
+    await flushPromises()
+    expect(mocks.replaceFrameAnnotations.mock.calls[0]?.[2].items).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('reuses the remembered project label without opening the picker', async () => {
+    localStorage.setItem(
+      'vdm:annotation-preference:project-id',
+      JSON.stringify({ reuse: true, labelId: 'label-id' }),
+    )
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="request-category"]').trigger('click')
+    expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(false)
+    await wrapper.get('[data-test="next-frame"]').trigger('click')
+    await flushPromises()
+    expect(mocks.replaceFrameAnnotations.mock.calls[0]?.[2].items).toHaveLength(1)
     wrapper.unmount()
   })
 
