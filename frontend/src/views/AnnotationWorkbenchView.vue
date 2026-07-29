@@ -905,8 +905,8 @@ watch(reuseLabel, (reuse) => {
 
     <section v-if="gridOpen" class="frame-grid-overlay" aria-label="全部采样帧">
       <header><strong>全部采样帧</strong><span>{{ enabledFrameCount }} / {{ frames.length }} 帧启用</span><button type="button" title="收起全部采样帧" @click="gridOpen = false"><el-icon><ArrowDownBold /></el-icon><span>收起</span></button></header>
-      <div class="frame-grid">
-        <button v-for="(frame, index) in frames" :key="frame.id" type="button" :class="{ current: index === currentIndex, disabled: !frame.enabled }" @click="switchFrame(index).then(() => { gridOpen = false })">
+      <div data-test="frame-grid" class="frame-grid">
+        <button v-for="(frame, index) in frames" :key="frame.id" data-test="frame-grid-card" type="button" class="frame-grid-card" :class="{ current: index === currentIndex, disabled: !frame.enabled }" @click="switchFrame(index).then(() => { gridOpen = false })">
           <FrameAnnotationThumbnail
             :image-url="frameImageUrl(projectId, videoId, frame.id)"
             :image-width="video?.width ?? 0"
@@ -1116,8 +1116,9 @@ watch(reuseLabel, (reuse) => {
 .frame-grid-overlay > header { gap: 12px; padding: 0 14px; background: #1e2c36; border-bottom: 1px solid #3a4a56; }
 .frame-grid-overlay > header span { color: #91a0ab; font-size: 12px; }
 .frame-grid-overlay > header button { display: flex; align-items: center; gap: 5px; margin-left: auto; height: 30px; color: #dbe5eb; background: #283843; border: 1px solid #41515d; }
-.frame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 9px; align-content: start; padding: 12px; overflow: auto; }
+.frame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); grid-auto-rows: max-content; gap: 9px; align-content: start; min-height: 0; padding: 12px; overflow: auto; }
 .frame-grid button { position: relative; overflow: hidden; padding: 0; color: #d7e0e6; text-align: left; background: #111820; border: 2px solid transparent; }
+.frame-grid-card { align-self: start; aspect-ratio: 16 / 9; }
 .frame-grid button.current { border-color: #78d2b8; }
 
 .workbench-state { position: absolute; inset: 50px 0 0 58px; z-index: 30; display: grid; place-content: center; gap: 12px; color: #aebbc4; background: #111820; text-align: center; }

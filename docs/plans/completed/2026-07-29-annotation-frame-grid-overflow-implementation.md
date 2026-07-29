@@ -18,7 +18,7 @@
 - Modify: `docs/05-code-style.md`
 - Move: `docs/plans/2026-07-29-annotation-frame-grid-overflow-implementation.md` → `docs/plans/completed/2026-07-29-annotation-frame-grid-overflow-implementation.md`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在现有工作台组件测试中打开全部采样帧，并锁定网格与卡片专用类：
 
@@ -28,12 +28,12 @@ expect(wrapper.get('[data-test="frame-grid"]').classes()).toContain('frame-grid'
 expect(wrapper.findAll('[data-test="frame-grid-card"]')).toHaveLength(2)
 ```
 
-- [ ] **Step 2: 验证测试失败**
+- [x] **Step 2: 验证测试失败**
 
 Run: `cd frontend && npm test -- --run src/views/AnnotationWorkbenchView.spec.ts`  
 Expected: FAIL，缺少 `frame-grid` 或 `frame-grid-card` 测试标记。
 
-- [ ] **Step 3: 实现最小 CSS 修复**
+- [x] **Step 3: 实现最小 CSS 修复**
 
 模板为网格和直接子按钮增加测试标记；CSS 使用现有滚动容器：
 
@@ -51,11 +51,11 @@ Expected: FAIL，缺少 `frame-grid` 或 `frame-grid-card` 测试标记。
 
 不改变帧数据加载、列宽、覆盖层标题、缩略图组件或点击切帧逻辑。
 
-- [ ] **Step 4: 更新规范**
+- [x] **Step 4: 更新规范**
 
 在 `docs/05-code-style.md` 的在线标注工作台规范中注明：全部帧网格卡片固定16:9，内容超出时纵向滚动，禁止压缩网格行。
 
-- [ ] **Step 5: 完整验证**
+- [x] **Step 5: 完整验证**
 
 Run: `cd frontend && npm test`  
 Expected: 全部 Vitest 测试 PASS。
@@ -66,11 +66,10 @@ Expected: TypeScript 与 Vite 构建成功；既有 chunk-size warning 可接受
 Run: `git diff --check`  
 Expected: 无空白错误。
 
-- [ ] **Step 6: 归档并提交**
+- [x] **Step 6: 归档并提交**
 
 ```bash
 mkdir -p docs/plans/completed
 git add frontend/src/views/AnnotationWorkbenchView.vue frontend/src/views/AnnotationWorkbenchView.spec.ts docs/05-code-style.md docs/plans
 git commit -m "fix: 修复全部采样帧网格压缩"
 ```
-

@@ -203,6 +203,28 @@ describe('AnnotationWorkbenchView', () => {
     wrapper.unmount()
   })
 
+  it('keeps every expanded frame on a dedicated grid card', async () => {
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ServerVideoPicker: true,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[title="展开全部采样帧"]').trigger('click')
+    expect(wrapper.get('[data-test="frame-grid"]').classes()).toContain('frame-grid')
+    expect(wrapper.findAll('[data-test="frame-grid-card"]')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
   it('keeps a pending rectangle until category confirmation or Escape', async () => {
     const wrapper = mount(AnnotationWorkbenchView, {
       global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
