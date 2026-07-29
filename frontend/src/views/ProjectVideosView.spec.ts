@@ -21,6 +21,7 @@ const project = {
 
 const video = {
   id: 'video-id',
+  short_code: '7K3M9Q2X',
   source_type: 'local',
   title: 'camera-01',
   source_name: 'camera-01.mp4',
@@ -81,6 +82,8 @@ describe('ProjectVideosView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('camera-01')
+    expect(wrapper.text()).toContain('7K3M9Q2X')
+    expect(wrapper.text()).not.toContain(video.id.slice(0, 8))
     expect(wrapper.text()).toContain('01:05')
     expect(wrapper.text()).toContain('48/50')
     expect(wrapper.text()).toContain('已筛选 · 48/50 帧启用')

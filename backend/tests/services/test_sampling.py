@@ -53,6 +53,7 @@ def make_service(tmp_path):
                 Video(
                     id="ready-id",
                     project_id="project-id",
+                    short_code="READY001",
                     source_type="local",
                     title="ready",
                     status="ready",
@@ -64,6 +65,7 @@ def make_service(tmp_path):
                 Video(
                     id="pending-id",
                     project_id="project-id",
+                    short_code="PEND0001",
                     source_type="local",
                     title="pending",
                     status="pending",
@@ -134,10 +136,12 @@ def test_editor_configures_batch_and_creates_persistent_extraction(tmp_path):
 
 def test_viewer_reads_frames_and_editor_filters_with_revision(tmp_path):
     service, engine, workspace, actors = make_service(tmp_path)
-    frames_dir = workspace / "projects/project-id/frames/ready-id"
+    frames_dir = workspace / "projects/project-id/frames/READY001"
     frames_dir.mkdir(parents=True)
     for sequence in (1, 2):
-        (frames_dir / f"{sequence:06d}.jpg").write_bytes(f"frame-{sequence}".encode())
+        (frames_dir / f"READY001_frame_{sequence:06d}.jpg").write_bytes(
+            f"frame-{sequence}".encode()
+        )
     with Session(engine) as session:
         session.add(
             SamplingPlan(
@@ -165,7 +169,7 @@ def test_viewer_reads_frames_and_editor_filters_with_revision(tmp_path):
                     sequence=sequence,
                     source_frame_index=(sequence - 1) * 30,
                     time_offset=(sequence - 1),
-                    file_path=(frames_dir / f"{sequence:06d}.jpg")
+                    file_path=(frames_dir / f"READY001_frame_{sequence:06d}.jpg")
                     .relative_to(workspace)
                     .as_posix(),
                 )

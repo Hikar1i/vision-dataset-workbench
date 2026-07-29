@@ -71,6 +71,7 @@ const project = {
 }
 const video = {
   id: 'video-id',
+  short_code: 'TESTV001',
   source_type: 'local',
   title: '园区监控',
   source_name: 'camera.mp4',
@@ -169,6 +170,7 @@ describe('AnnotationWorkbenchView', () => {
     expect(document.querySelector('[data-test="frame-counter"]')?.textContent).toContain('1 / 2')
     expect(wrapper.get('[data-test="crosshair-switch"]').attributes('modelvalue')).toBe('true')
     expect(wrapper.find('.image-info dl').exists()).toBe(true)
+    expect(wrapper.get('.image-info dl dd').text()).toBe('TESTV001_frame_000001.jpg')
     expect(wrapper.get('.minimap-svg').attributes('viewBox')).toBe('0 0 1920 1080')
     await wrapper.get('[data-test="view-change"]').trigger('click')
     expect(wrapper.get('.viewport-box').attributes()).toMatchObject({

@@ -41,6 +41,7 @@ const task: ProjectTask = {
 
 const video: Video = {
   id: 'video-id',
+  short_code: 'TESTV001',
   source_type: 'local',
   title: 'video',
   source_name: 'video.mp4',

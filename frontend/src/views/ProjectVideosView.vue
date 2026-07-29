@@ -262,7 +262,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
                     alt=""
                     @error="hideBrokenThumbnail"
                   />
-                  <code>{{ video.id.slice(0, 8) }}</code>
+                  <code>{{ video.short_code }}</code>
                 </div>
                 <div>
                   <strong :title="video.title">{{ video.title }}</strong>
@@ -375,6 +375,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
       :model-value="frameVideo !== null"
       :project-id="projectId"
       :video-id="frameVideo?.id || ''"
+      :short-code="frameVideo?.short_code || ''"
       :title="frameVideo?.title || ''"
       :can-edit="canEdit"
       :image-width="frameVideo?.width || 0"

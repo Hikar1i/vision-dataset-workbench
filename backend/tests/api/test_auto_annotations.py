@@ -46,11 +46,18 @@ def capabilities():
 def make_app(tmp_path):
     home = tmp_path / "home"
     workspace = home / ".vision-dataset-workbench"
-    (workspace / "projects" / "project-id" / "frames" / "video-id").mkdir(parents=True)
+    (workspace / "projects" / "project-id" / "frames" / "TESTV001").mkdir(parents=True)
     model_path = workspace / "models" / "model-id" / "model.pt"
     model_path.parent.mkdir(parents=True)
     model_path.write_bytes(b"weights")
-    frame_path = workspace / "projects" / "project-id" / "frames" / "video-id" / "000001.jpg"
+    frame_path = (
+        workspace
+        / "projects"
+        / "project-id"
+        / "frames"
+        / "TESTV001"
+        / "TESTV001_frame_000001.jpg"
+    )
     frame_path.write_bytes(b"image")
     create_workspace_database(workspace / "db" / "workbench.sqlite3")
     engine = make_engine(workspace / "db" / "workbench.sqlite3")
@@ -67,7 +74,7 @@ def make_app(tmp_path):
         session.add(Project(id="project-id", name="project", creator_id="owner-id"))
         session.add(ProjectMembership(project_id="project-id", user_id="viewer-id", role="viewer"))
         session.flush()
-        session.add(Video(id="video-id", project_id="project-id", source_type="local", title="video", status="ready", width=1920, height=1080))
+        session.add(Video(id="video-id", project_id="project-id", short_code="TESTV001", source_type="local", title="video", status="ready", width=1920, height=1080))
         session.add(InferenceModel(id="model-id", name="YOLO", kind="yolo", status="ready", storage_path="models/model-id/model.pt", source_name="model.pt", created_by_id="owner-id"))
         session.flush()
         session.add(SamplingPlan(id="plan-id", video_id="video-id", mode="target_frames", parameters="{}", output_format="jpg", output_quality=2, expected_frames=1, extracted_frames=1, enabled_frames=1))

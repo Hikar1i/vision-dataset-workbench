@@ -409,7 +409,11 @@ class TaskWorker:
         except OSError as exc:
             raise MediaToolError("frame file not found") from exc
         root = (
-            self.workspace / "projects" / video.project_id / "frames" / video.id
+            self.workspace
+            / "projects"
+            / video.project_id
+            / "frames"
+            / video.short_code
         ).resolve()
         if not path.is_file() or not path.is_relative_to(root):
             raise MediaToolError("frame file not found")
@@ -613,7 +617,9 @@ class TaskWorker:
             if extension == "jpg"
             else ["-compression_level", str(plan.output_quality)]
         )
-        output_pattern = staged_frames / f"%06d.{extension}"
+        output_pattern = staged_frames / (
+            f"{video.short_code}_frame_%06d.{extension}"
+        )
         command = [
             "ffmpeg",
             "-hide_banner",
@@ -707,7 +713,13 @@ class TaskWorker:
         staged_frames: Path,
         files: list[Path],
     ) -> None:
-        target = self.workspace / "projects" / video.project_id / "frames" / video.id
+        target = (
+            self.workspace
+            / "projects"
+            / video.project_id
+            / "frames"
+            / video.short_code
+        )
         target.parent.mkdir(parents=True, exist_ok=True)
         backup = staged_frames.parent / "previous-frames"
         with self._session_factory() as database:
@@ -854,12 +866,12 @@ class TaskWorker:
         videos_dir = self.workspace / "projects" / video.project_id / "videos"
         thumbnails_dir = self.workspace / "projects" / video.project_id / "thumbnails"
         videos_dir.mkdir(parents=True, exist_ok=True)
-        destination = videos_dir / f"{video.id}{source.suffix.lower()}"
+        destination = videos_dir / f"{video.short_code}{source.suffix.lower()}"
         os.replace(source, destination)
         thumbnail_destination = None
         if thumbnail is not None and thumbnail.is_file():
             thumbnails_dir.mkdir(parents=True, exist_ok=True)
-            thumbnail_destination = thumbnails_dir / f"{video.id}.jpg"
+            thumbnail_destination = thumbnails_dir / f"{video.short_code}_thumbnail.jpg"
             os.replace(thumbnail, thumbnail_destination)
 
         now = self._now()

@@ -49,6 +49,16 @@ cd frontend && npm test
 cd frontend && npm run build
 ```
 
+SQLite 版本与日志模式需在实际 API/Worker 使用的 uv 环境中核对：
+
+```bash
+cd backend
+uv run python -c "import sqlite3; print(sqlite3.sqlite_version)"
+uv run python -c "from vision_dataset_workbench.database import sqlite_supports_safe_wal; print(sqlite_supports_safe_wal())"
+```
+
+当前代码仅在 SQLite 3.51.3 及以上，或已确认修复的 3.44.6、3.50.7 上启用 WAL；其他版本自动使用 rollback journal。部署检查返回 `False` 时不得把实际日志模式记录为 WAL，也不应绕过该保护。
+
 遗留项目位于 `.ai-local/references/`，只用于阅读和验证，不是新项目的启动目录。
 
 ## 首次初始化与定位

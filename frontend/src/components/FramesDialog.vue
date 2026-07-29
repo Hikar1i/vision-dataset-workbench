@@ -29,7 +29,7 @@ import {
   selectFrameRange,
   type EnabledState,
 } from './frameFilter'
-import { formatFrameTimestamp } from './framePresentation'
+import { formatFrameFileName, formatFrameTimestamp } from './framePresentation'
 import {
   fitImage,
   stageToImage,
@@ -44,6 +44,7 @@ const props = defineProps<{
   modelValue: boolean
   projectId: string
   videoId: string
+  shortCode: string
   title: string
   canEdit: boolean
   imageWidth: number
@@ -198,7 +199,11 @@ function resetTransientState() {
 }
 
 function frameFileName(frame: Frame) {
-  return `frame_${String(frame.sequence).padStart(6, '0')}.${sampling.value?.output_format ?? 'jpg'}`
+  return formatFrameFileName(
+    props.shortCode,
+    frame.sequence,
+    sampling.value?.output_format ?? 'jpg',
+  )
 }
 
 function formatFileSize(bytes: number) {

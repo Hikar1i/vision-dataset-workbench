@@ -53,18 +53,19 @@ def make_app(tmp_path):
                 Video(
                     id="video-id",
                     project_id="project-id",
+                    short_code="TESTV001",
                     source_type="local",
                     title="ready",
                     status="ready",
                     duration=300,
                     fps=30,
                     total_frames=9000,
-                    file_path="projects/project-id/videos/video-id.mp4",
+                    file_path="projects/project-id/videos/TESTV001.mp4",
                 ),
             ]
         )
         session.commit()
-    (workspace / "projects/project-id/videos/video-id.mp4").write_bytes(b"video")
+    (workspace / "projects/project-id/videos/TESTV001.mp4").write_bytes(b"video")
     engine.dispose()
     return create_app(RuntimeSettings(home=home, workspace=workspace))
 
@@ -133,7 +134,7 @@ def test_viewer_reads_frame_image_and_editor_filters_with_revision(tmp_path):
     viewer = client_for(app, "viewer")
     outsider = client_for(app, "outsider")
     assert configure(editor).status_code == 200
-    frames_dir = app.state.workspace / "projects/project-id/frames/video-id"
+    frames_dir = app.state.workspace / "projects/project-id/frames/TESTV001"
     frames_dir.mkdir(parents=True)
     with Session(app.state.auth_service.engine) as session:
         plan = session.scalar(select(SamplingPlan))
@@ -144,7 +145,7 @@ def test_viewer_reads_frame_image_and_editor_filters_with_revision(tmp_path):
         plan.enabled_frames = 2
         plan.frame_revision = 1
         for sequence in (1, 2):
-            path = frames_dir / f"{sequence:06d}.jpg"
+            path = frames_dir / f"TESTV001_frame_{sequence:06d}.jpg"
             path.write_bytes(f"frame-{sequence}".encode())
             session.add(
                 Frame(

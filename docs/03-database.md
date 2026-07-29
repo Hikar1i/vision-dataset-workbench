@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述，`0009_annotations` 增加矩形标注和帧标注修订号，`0010_inference_models` 增加推理模型并扩展任务类型，`0011_annotation_order` 为标注增加稳定显示顺序并按原创建顺序回填。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述，`0009_annotations` 增加矩形标注和帧标注修订号，`0010_inference_models` 增加推理模型并扩展任务类型，`0011_annotation_order` 为标注增加稳定显示顺序，`0012_video_short_codes` 增加视频短码并精简 Frame 索引。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -80,6 +80,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | 字段 | 约束/含义 |
 | --- | --- |
 | `id` / `project_id` | 视频 UUID 及所属项目外键 |
+| `short_code` | 8 位项目内唯一不可变短码；使用 `0123456789ABCDEFGHJKMNPQRSTVWXYZ`，用于显示和受管文件命名 |
 | `source_type` | `local` 或 `remote` |
 | `title` / `source_name` / `source_url` | 显示标题、原文件名和规范化远程 URL |
 | `extractor` / `external_id` | yt-dlp 提取器与原始媒体 ID；项目内组合唯一 |
@@ -90,7 +91,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | `enabled` | 视频是否进入后续标注、自动标注和导出；默认启用 |
 | `version` / 时间字段 | 资源版本和创建、更新时间 |
 
-本地重复内容和远程重复身份通过 SQLite partial unique index 约束。每个项目最多保存 999 条 Video：导入服务先检查剩余容量并返回逐项 accepted/rejected，SQLite `trg_videos_project_limit` 插入触发器处理多用户并发越过前置检查的竞争场景。复制/下载成功前视频保持 `pending`；Worker 验证文件与元数据后才写入受管路径并切换为 `ready`。
+短码与视频 UUID 保存在同一条 Video 记录中；UUID 继续作为主键、外键和 API 路由身份。短码由服务端在创建导入任务时生成，数据库以 `(project_id, short_code)` 唯一索引和格式 CHECK 约束兜底，冲突只重试短码分配。本地重复内容和远程重复身份通过 SQLite partial unique index 约束。每个项目最多保存 999 条 Video：导入服务先检查剩余容量并返回逐项 accepted/rejected，SQLite `trg_videos_project_limit` 插入触发器处理多用户并发越过前置检查的竞争场景。复制/下载成功前视频保持 `pending`；Worker 验证文件与元数据后才写入受管路径并切换为 `ready`。
 
 视频 `enabled` 与媒体 `status` 相互独立。停用不删除文件、不取消任务，也不阻止播放、采样配置、抽帧、筛帧或手动/单张自动标注；停用视频不能新建批量自动标注任务，Worker 只处理开始执行时启用的帧，后续导出也必须显式过滤 `enabled = true`。备注和遗留自由文本 `status_info` 不进入新 schema，状态信息由任务、视频和采样方案结构化字段推导。
 
@@ -120,7 +121,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | `annotation_revision` | 当前整帧标注版本；整帧替换时用于乐观并发 |
 | `created_at` | 当前代次发布时间 |
 
-重采样先在任务临时目录生成并验证全部文件，再替换 `frames/<video UUID>/` 并在同一数据库事务中重建 Frame 记录。失败、取消或方案版本改变时保留上一代目录和记录。
+Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找；布尔 `enabled` 与单列 `video_id` 不再建立冗余索引。重采样先在任务临时目录生成并验证全部文件，再替换 `frames/<video short code>/` 并在同一数据库事务中重建 Frame 记录。帧文件名为 `<video short code>_frame_<六位序号>.<jpg|png>`，可在同一项目内平铺复制而不重名。失败、取消或方案版本改变时保留上一代目录和记录。
 
 `annotations` 表保存当前帧的轴对齐矩形框：
 

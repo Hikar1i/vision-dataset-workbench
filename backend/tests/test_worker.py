@@ -58,11 +58,21 @@ def make_worker(tmp_path, *, probe=None, popen=None, inference_runner=None):
     return worker, engine, home, workspace
 
 
-def add_task(engine, *, task_id, user_id, task_type="copy_video", payload=None):
+def add_task(
+    engine,
+    *,
+    task_id,
+    user_id,
+    task_type="copy_video",
+    payload=None,
+    short_code=None,
+):
     with Session(engine) as session:
         video = Video(
             id=f"video-{task_id}",
             project_id="project-id",
+            short_code=short_code
+            or hashlib.sha256(task_id.encode()).hexdigest()[:8].upper(),
             source_type="local" if task_type == "copy_video" else "remote",
             title=task_id,
         )
@@ -122,6 +132,7 @@ def test_copy_task_publishes_metadata_and_hash(tmp_path):
         task_id="copy-task",
         user_id="one-id",
         payload={"source_path": "clips/one.MKV"},
+        short_code="TESTV001",
     )
     assert worker.claim_available()[0].id == "copy-task"
 
@@ -134,7 +145,7 @@ def test_copy_task_publishes_metadata_and_hash(tmp_path):
         assert task.progress == 100
         assert video is not None and video.status == "ready"
         assert video.content_sha256 == hashlib.sha256(b"video bytes").hexdigest()
-        assert video.file_path == "projects/project-id/videos/video-copy-task.mkv"
+        assert video.file_path == "projects/project-id/videos/TESTV001.mkv"
         assert (workspace / video.file_path).read_bytes() == b"video bytes"
         assert video.width == 320
     engine.dispose()
@@ -193,13 +204,14 @@ def test_auto_annotation_task_processes_only_starting_enabled_frames(tmp_path):
     model_path = workspace / "models" / "model-id" / "model.pt"
     model_path.parent.mkdir(parents=True)
     model_path.write_bytes(b"weights")
-    frames_dir = workspace / "projects" / "project-id" / "frames" / "video-id"
+    frames_dir = workspace / "projects" / "project-id" / "frames" / "TESTV001"
     frames_dir.mkdir(parents=True)
     with Session(engine) as session:
         session.add(
             Video(
                 id="video-id",
                 project_id="project-id",
+                short_code="TESTV001",
                 source_type="local",
                 title="video",
                 status="ready",
@@ -232,7 +244,7 @@ def test_auto_annotation_task_processes_only_starting_enabled_frames(tmp_path):
         )
         session.flush()
         for sequence, enabled in ((1, True), (2, False)):
-            path = frames_dir / f"{sequence:06d}.jpg"
+            path = frames_dir / f"TESTV001_frame_{sequence:06d}.jpg"
             path.write_bytes(b"image")
             session.add(
                 Frame(
@@ -430,7 +442,7 @@ class FakeExtractionProcess:
 
 
 def add_extraction(engine, workspace, *, plan_version=1, output_format="jpg"):
-    video_path = workspace / "projects/project-id/videos/video-id.mp4"
+    video_path = workspace / "projects/project-id/videos/TESTV001.mp4"
     video_path.parent.mkdir(parents=True, exist_ok=True)
     video_path.write_bytes(b"video")
     with Session(engine) as session:
@@ -438,10 +450,11 @@ def add_extraction(engine, workspace, *, plan_version=1, output_format="jpg"):
             Video(
                 id="video-id",
                 project_id="project-id",
+                short_code="TESTV001",
                 source_type="local",
                 title="video",
                 status="ready",
-                file_path="projects/project-id/videos/video-id.mp4",
+                file_path="projects/project-id/videos/TESTV001.mp4",
                 duration=10,
                 fps=10,
                 total_frames=100,
@@ -495,6 +508,11 @@ def test_extract_task_publishes_stable_frames_and_plan_counts(tmp_path):
         assert plan.extracted_frames == plan.enabled_frames == 3
         assert plan.generation == plan.frame_revision == 1
         assert [frame.source_frame_index for frame in frames] == [0, 34, 67]
+        assert [Path(frame.file_path).name for frame in frames] == [
+            "TESTV001_frame_000001.jpg",
+            "TESTV001_frame_000002.jpg",
+            "TESTV001_frame_000003.jpg",
+        ]
         assert all((workspace / frame.file_path).is_file() for frame in frames)
     assert "-progress" in commands[0]
     assert "-threads" in commands[0]
@@ -508,9 +526,9 @@ def test_extract_rejects_changed_plan_and_preserves_existing_frames(tmp_path):
         tmp_path, popen=lambda command, **_kwargs: FakeExtractionProcess(command)
     )
     add_extraction(engine, workspace, plan_version=2)
-    old_dir = workspace / "projects/project-id/frames/video-id"
+    old_dir = workspace / "projects/project-id/frames/TESTV001"
     old_dir.mkdir(parents=True)
-    old_path = old_dir / "000001.jpg"
+    old_path = old_dir / "TESTV001_frame_000001.jpg"
     old_path.write_bytes(b"old")
     with Session(engine) as session:
         plan = session.get(SamplingPlan, "plan-id")
@@ -585,9 +603,9 @@ def test_resampling_replaces_previous_generation(tmp_path):
         assert not old_ids.intersection(frame.id for frame in frames)
         assert plan is not None and plan.generation == 2
         assert plan.applied_version == 2
-    target = workspace / "projects/project-id/frames/video-id"
+    target = workspace / "projects/project-id/frames/TESTV001"
     assert [path.name for path in sorted(target.iterdir())] == [
-        "000001.jpg",
-        "000002.jpg",
+        "TESTV001_frame_000001.jpg",
+        "TESTV001_frame_000002.jpg",
     ]
     engine.dispose()

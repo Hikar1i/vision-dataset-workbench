@@ -3,6 +3,7 @@ import type { FrameAnnotation } from './annotations'
 
 export type Video = {
   id: string
+  short_code: string
   source_type: 'local' | 'remote'
   title: string
   source_name: string | null

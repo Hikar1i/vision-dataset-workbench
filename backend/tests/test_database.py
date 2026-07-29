@@ -50,6 +50,14 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         inspect(engine).get_table_names()
     )
     assert AuthSession.__tablename__ == "sessions"
+    video_columns = {
+        column["name"]: column for column in inspect(engine).get_columns("videos")
+    }
+    assert video_columns["short_code"]["nullable"] is False
+    frame_indexes = {index["name"] for index in inspect(engine).get_indexes("frames")}
+    assert "uq_frames_video_sequence" in frame_indexes
+    assert "ix_frames_video_id" not in frame_indexes
+    assert "ix_frames_enabled" not in frame_indexes
     with engine.connect() as connection:
         journal_mode = connection.exec_driver_sql("PRAGMA journal_mode").scalar_one()
     assert journal_mode == ("wal" if sqlite_supports_safe_wal() else "delete")
@@ -81,6 +89,105 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         )
         with pytest.raises(IntegrityError):
             session.commit()
+    engine.dispose()
+
+
+def test_short_code_migration_backfills_per_project_and_keeps_video_limit_trigger(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "workbench.sqlite3"
+    monkeypatch.setenv(
+        "VDW_DATABASE_URL",
+        database_url(database_path).render_as_string(hide_password=False),
+    )
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    command.upgrade(config, "0011_annotation_order")
+    engine = make_engine(database_path)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO users "
+            "(id, username, username_normalized, password_hash, status, "
+            "is_system_admin, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "owner-id",
+                "owner",
+                "owner",
+                "hash",
+                "active",
+                False,
+                "2026-07-28 00:00:00",
+                "2026-07-28 00:00:00",
+            ),
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO projects "
+            "(id, name, description, creator_id, version, created_at, updated_at) "
+            "VALUES (?, ?, '', 'owner-id', 1, ?, ?)",
+            [
+                (
+                    "project-1",
+                    "one",
+                    "2026-07-28 00:00:00",
+                    "2026-07-28 00:00:00",
+                ),
+                (
+                    "project-2",
+                    "two",
+                    "2026-07-28 00:00:00",
+                    "2026-07-28 00:00:00",
+                ),
+            ],
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO videos "
+            "(id, project_id, source_type, title, status, enabled, version, "
+            "created_at, updated_at) "
+            "VALUES (?, ?, 'local', ?, 'ready', 1, 1, ?, ?)",
+            [
+                (
+                    "video-b",
+                    "project-1",
+                    "second",
+                    "2026-07-28 00:00:02",
+                    "2026-07-28 00:00:02",
+                ),
+                (
+                    "video-a",
+                    "project-1",
+                    "first",
+                    "2026-07-28 00:00:01",
+                    "2026-07-28 00:00:01",
+                ),
+                (
+                    "video-c",
+                    "project-2",
+                    "other",
+                    "2026-07-28 00:00:01",
+                    "2026-07-28 00:00:01",
+                ),
+            ],
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = make_engine(database_path)
+    with engine.connect() as connection:
+        rows = connection.exec_driver_sql(
+            "SELECT project_id, short_code FROM videos "
+            "ORDER BY project_id, short_code"
+        ).all()
+        trigger = connection.exec_driver_sql(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='trigger' AND name='trg_videos_project_limit'"
+        ).scalar_one()
+
+    assert rows == [
+        ("project-1", "00000001"),
+        ("project-1", "00000002"),
+        ("project-2", "00000001"),
+    ]
+    assert trigger == "trg_videos_project_limit"
     engine.dispose()
 
 

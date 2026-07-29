@@ -70,6 +70,7 @@ def seed_annotation_context(app, owner: TestClient):
             Video(
                 id="video-id",
                 project_id=project_id,
+                short_code="TESTV001",
                 source_type="local",
                 title="video",
                 status="ready",
@@ -99,7 +100,10 @@ def seed_annotation_context(app, owner: TestClient):
                 sequence=1,
                 source_frame_index=0,
                 time_offset=0,
-                file_path=f"projects/{project_id}/frames/video-id/000001.jpg",
+                file_path=(
+                    f"projects/{project_id}/frames/TESTV001/"
+                    "TESTV001_frame_000001.jpg"
+                ),
             )
         )
         session.commit()

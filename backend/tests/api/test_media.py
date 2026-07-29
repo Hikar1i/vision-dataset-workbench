@@ -13,7 +13,7 @@ PASSWORD = "correct horse battery staple"
 ORIGIN = {"Origin": "http://testserver"}
 
 
-def make_app(tmp_path):
+def make_app(tmp_path, *, short_code_factory=None):
     home = tmp_path / "home"
     workspace = home / ".vision-dataset-workbench"
     (workspace / "projects" / "project-id").mkdir(parents=True)
@@ -50,6 +50,7 @@ def make_app(tmp_path):
     engine.dispose()
     settings = RuntimeSettings(home=home, workspace=workspace)
     app = create_app(settings)
+    kwargs = {"short_code_factory": short_code_factory} if short_code_factory else {}
     app.state.media_service = MediaService(
         app.state.auth_service.engine,
         settings,
@@ -63,6 +64,7 @@ def make_app(tmp_path):
                 external_id="remote-id",
             )
         ],
+        **kwargs,
     )
     return app
 
@@ -100,10 +102,13 @@ def test_editor_imports_and_viewer_reads_but_cannot_write(tmp_path):
     assert preview.json()[0]["path"] == "clips/one.mp4"
     assert imported.status_code == 202
     assert len(imported.json()["accepted"]) == 1
+    short_code = imported.json()["accepted"][0]["video"]["short_code"]
+    assert len(short_code) == 8
     listed = viewer.get("/api/v1/projects/project-id/videos?page_size=999")
     assert listed.status_code == 200
     assert listed.json()["total"] == 1
     assert listed.json()["items"][0]["enabled"] is True
+    assert listed.json()["items"][0]["short_code"] == short_code
     assert listed.json()["items"][0]["latest_task"]["status"] == "queued"
     assert (
         viewer.get("/api/v1/projects/project-id/videos?page_size=1000").status_code
@@ -118,6 +123,39 @@ def test_editor_imports_and_viewer_reads_but_cannot_write(tmp_path):
         ).status_code
         == 403
     )
+
+
+def test_short_code_exhaustion_returns_503_for_local_and_remote_imports(tmp_path):
+    app = make_app(tmp_path, short_code_factory=lambda: "7K3M9Q2X")
+    with Session(app.state.auth_service.engine) as session:
+        session.add(
+            Video(
+                id="existing-video",
+                project_id="project-id",
+                short_code="7K3M9Q2X",
+                source_type="local",
+                title="existing",
+            )
+        )
+        session.commit()
+    owner = client_for(app, "owner")
+
+    local_response = owner.post(
+        "/api/v1/projects/project-id/imports/local",
+        headers=ORIGIN,
+        json={"paths": ["clips/one.mp4"]},
+    )
+    remote_response = owner.post(
+        "/api/v1/projects/project-id/imports/remote",
+        headers=ORIGIN,
+        json={"items": [{"title": "remote", "url": "https://example.test/video"}]},
+    )
+
+    for response in (local_response, remote_response):
+        assert response.status_code == 503
+        assert response.json()["detail"] == (
+            "video short code allocation temporarily unavailable"
+        )
 
 
 def test_global_tasks_include_project_context_and_permissions(tmp_path):
@@ -228,9 +266,14 @@ def test_members_stream_download_and_thumbnail_with_range(tmp_path):
         headers=ORIGIN,
         json={"paths": ["clips/one.mp4"]},
     ).json()
-    video_id = imported["accepted"][0]["video"]["id"]
-    video_path = app.state.workspace / f"projects/project-id/videos/{video_id}.mp4"
-    thumbnail_path = app.state.workspace / f"projects/project-id/thumbnails/{video_id}.jpg"
+    imported_video = imported["accepted"][0]["video"]
+    video_id = imported_video["id"]
+    short_code = imported_video["short_code"]
+    video_path = app.state.workspace / f"projects/project-id/videos/{short_code}.mp4"
+    thumbnail_path = (
+        app.state.workspace
+        / f"projects/project-id/thumbnails/{short_code}_thumbnail.jpg"
+    )
     video_path.parent.mkdir(parents=True, exist_ok=True)
     thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
     video_path.write_bytes(b"0123456789")

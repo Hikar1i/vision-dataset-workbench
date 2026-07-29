@@ -4,7 +4,7 @@
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十一版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型推理、GPU 能力探测和独立 Worker。训练和导出仍是目标设计。因此本页区分：
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十二版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型推理、GPU 能力探测和独立 Worker。训练和导出仍是目标设计。因此本页区分：
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -160,7 +160,7 @@ SQLite             Persistent Worker
 - 所有受管理数据位于 `<parent>/.vision-dataset-workbench/`。
 - 所有认证用户可浏览启动用户 `~`，导入后复制到工作区；API 不暴露绝对路径。
 - Worker 与 API 读取同一 SQLite 和工作区。复制、下载和抽帧各自全局并发 2、同类型每用户并发 1；每个 FFmpeg 抽帧进程限制 2 个线程，当前只部署一个调度 Worker。
-- 项目媒体位于 `projects/<project UUID>/videos/`，缩略图位于 `projects/<project UUID>/thumbnails/`，采样帧位于 `projects/<project UUID>/frames/<video UUID>/`；执行中输出位于顶层 `tmp/<task UUID>/`，验证后原子发布。
+- 项目媒体位于 `projects/<project UUID>/videos/<video short code>.<ext>`，缩略图位于 `projects/<project UUID>/thumbnails/<video short code>_thumbnail.jpg`，采样帧位于 `projects/<project UUID>/frames/<video short code>/<video short code>_frame_000001.<jpg|png>`；执行中输出位于顶层 `tmp/<task UUID>/`，验证后原子发布。短码在项目内唯一，帧文件可按原名平铺复制；每视频子目录仍是重采样原子替换边界。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
 - Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
 - Python 核心依赖不包含模型运行库；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、Ultralytics、Transformers 和 ONNX Runtime GPU。
@@ -170,9 +170,10 @@ SQLite             Persistent Worker
 
 ```text
 projects/<project UUID>/
-├─ videos/                         # 已实现：受管原始视频
-├─ thumbnails/                     # 已实现：视频缩略图
-├─ frames/<video UUID>/            # 已实现：当前一代规范采样帧
+├─ videos/<video short code>.<ext> # 已实现：受管原始视频
+├─ thumbnails/<video short code>_thumbnail.jpg
+├─ frames/<video short code>/      # 已实现：当前一代规范采样帧
+│  └─ <video short code>_frame_000001.<jpg|png>
 ├─ labels/<video UUID>/            # 计划：导出前的规范标签文件；在线标注当前存入 SQLite
 ├─ annotation-batches/<batch UUID>/ # 逻辑概念：当前批量任务直接按 Frame 记录处理，不物化固定分组目录
 └─ exports/<export UUID>/           # 计划：不可变数据集导出

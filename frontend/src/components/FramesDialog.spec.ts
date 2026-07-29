@@ -60,6 +60,7 @@ function mountDialog(canEdit: boolean, fetch = fetchMock()) {
         modelValue: true,
         projectId: 'project-id',
         videoId: 'video-id',
+        shortCode: 'G989C14B',
         title: 'factory.mp4',
         canEdit,
         imageWidth: 1920,
@@ -83,6 +84,8 @@ describe('FramesDialog', () => {
     expect(wrapper.get('[data-test="annotated-count"]').text()).toContain('3')
     expect(wrapper.get('[data-test="annotated-enabled-count"]').text()).toContain('2')
     expect(wrapper.get('[data-test="annotated-disabled-count"]').text()).toContain('1')
+    expect(wrapper.get('[data-test="frame-card"] footer span').text())
+      .toBe('G989C14B_frame_000001.jpg')
   })
 
   it('shows thumbnail annotations by default and hides them in memory', async () => {
@@ -104,6 +107,8 @@ describe('FramesDialog', () => {
     await wrapper.get('[data-test="frame-card"] .frame-thumb').trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-test="frame-preview"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="frame-preview"]').text())
+      .toContain('G989C14B_frame_000001.jpg')
     expect(wrapper.find('[data-test="preview-toggle-enabled"]').exists()).toBe(false)
   })
 

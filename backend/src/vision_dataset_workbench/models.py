@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -18,6 +19,17 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     pass
+
+
+VIDEO_SHORT_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+VIDEO_SHORT_CODE_LENGTH = 8
+
+
+def generate_video_short_code() -> str:
+    return "".join(
+        secrets.choice(VIDEO_SHORT_CODE_ALPHABET)
+        for _ in range(VIDEO_SHORT_CODE_LENGTH)
+    )
 
 
 class User(Base):
@@ -149,12 +161,24 @@ class Video(Base):
             unique=True,
             sqlite_where=text("extractor IS NOT NULL AND external_id IS NOT NULL"),
         ),
+        Index(
+            "uq_videos_project_short_code",
+            "project_id",
+            "short_code",
+            unique=True,
+        ),
+        CheckConstraint(
+            "length(short_code) = 8 AND "
+            "short_code NOT GLOB '*[^0123456789ABCDEFGHJKMNPQRSTVWXYZ]*'",
+            name="ck_videos_short_code",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     project_id: Mapped[str] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), index=True
     )
+    short_code: Mapped[str] = mapped_column(String(8), default=generate_video_short_code)
     source_type: Mapped[str] = mapped_column(String(16))
     title: Mapped[str] = mapped_column(String(512))
     source_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
@@ -234,14 +258,14 @@ class Frame(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     video_id: Mapped[str] = mapped_column(
-        ForeignKey("videos.id", ondelete="CASCADE"), index=True
+        ForeignKey("videos.id", ondelete="CASCADE")
     )
     generation: Mapped[int] = mapped_column(Integer)
     sequence: Mapped[int] = mapped_column(Integer)
     source_frame_index: Mapped[int] = mapped_column(Integer)
     time_offset: Mapped[float] = mapped_column(Float)
     file_path: Mapped[str] = mapped_column(Text)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     annotation_revision: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

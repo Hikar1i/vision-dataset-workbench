@@ -49,6 +49,7 @@ import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
 import FrameAnnotationThumbnail from '../components/FrameAnnotationThumbnail.vue'
 import ServerVideoPicker from '../components/ServerVideoPicker.vue'
+import { formatFrameFileName } from '../components/framePresentation'
 import { type BoxBounds } from './annotationGeometry'
 import { createAnnotationHistory } from './annotationHistory'
 import { createAnnotationId } from './annotationId'
@@ -127,9 +128,12 @@ const imageUrl = computed(() =>
     : '',
 )
 const frameFileName = computed(() => {
-  const sequence = currentFrame.value?.sequence ?? 0
-  const extension = sampling.value?.output_format ?? 'jpg'
-  return `${String(sequence).padStart(6, '0')}.${extension}`
+  if (!currentFrame.value || !video.value) return ''
+  return formatFrameFileName(
+    video.value.short_code,
+    currentFrame.value.sequence,
+    sampling.value?.output_format ?? 'jpg',
+  )
 })
 const enabledLabels = computed(() => labels.value.filter((label) => label.enabled))
 const readyModels = computed(() => inferenceModels.value.filter((model) => {

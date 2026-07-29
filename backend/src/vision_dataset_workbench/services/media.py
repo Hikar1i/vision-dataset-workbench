@@ -12,7 +12,14 @@ from sqlalchemy.orm import aliased, sessionmaker
 
 from ..config import RuntimeSettings
 from ..media import RemotePreview, normalize_remote_url, preview_remote
-from ..models import Project, ProjectMembership, Task, User, Video
+from ..models import (
+    Project,
+    ProjectMembership,
+    Task,
+    User,
+    Video,
+    generate_video_short_code,
+)
 from ..storage.browser import VIDEO_EXTENSIONS
 from ..storage.paths import HomePathResolver, UnsafePathError
 from .projects import ProjectForbidden, ProjectService
@@ -26,8 +33,16 @@ class MediaConflict(ValueError):
     pass
 
 
+class MediaUnavailable(RuntimeError):
+    pass
+
+
 PROJECT_VIDEO_LIMIT = 999
 PROJECT_VIDEO_LIMIT_MESSAGE = "项目视频数量已达上限（999）"
+SHORT_CODE_ATTEMPTS = 5
+SHORT_CODE_UNIQUE_ERROR = (
+    "UNIQUE constraint failed: videos.project_id, videos.short_code"
+)
 
 
 @dataclass(frozen=True)
@@ -75,11 +90,13 @@ class MediaService:
         workspace: Path,
         *,
         previewer: Callable[[str, RuntimeSettings], list[RemotePreview]] = preview_remote,
+        short_code_factory: Callable[[], str] = generate_video_short_code,
     ):
         self.engine = engine
         self.settings = settings
         self.workspace = workspace.resolve()
         self._previewer = previewer
+        self._short_code_factory = short_code_factory
         self._projects = ProjectService(engine, settings, workspace)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
@@ -205,46 +222,54 @@ class MediaService:
         source_url: str | None = None,
     ) -> AcceptedImport:
         now = _utc_now()
-        video = Video(
-            id=str(uuid4()),
-            project_id=project_id,
-            source_type=source_type,
-            title=title,
-            source_name=source_name,
-            source_url=source_url,
-            status="pending",
-            created_at=now,
-            updated_at=now,
-        )
-        task = Task(
-            id=str(uuid4()),
-            project_id=project_id,
-            submitted_by_id=actor.id,
-            video_id=video.id,
-            type=task_type,
-            status="queued",
-            payload=json.dumps(payload, ensure_ascii=False),
-            created_at=now,
-            updated_at=now,
-        )
-        try:
-            with self._session_factory() as database:
-                total = database.scalar(
-                    select(func.count())
-                    .select_from(Video)
-                    .where(Video.project_id == project_id)
-                )
-                if (total or 0) >= PROJECT_VIDEO_LIMIT:
-                    raise MediaConflict(PROJECT_VIDEO_LIMIT_MESSAGE)
-                database.add(video)
-                database.flush()
-                database.add(task)
-                database.commit()
-        except IntegrityError as exc:
-            if "project video limit reached" in str(exc.orig):
-                raise MediaConflict(PROJECT_VIDEO_LIMIT_MESSAGE) from exc
-            raise
-        return AcceptedImport(video, task)
+        video_id = str(uuid4())
+        task_id = str(uuid4())
+        for _ in range(SHORT_CODE_ATTEMPTS):
+            video = Video(
+                id=video_id,
+                project_id=project_id,
+                short_code=self._short_code_factory(),
+                source_type=source_type,
+                title=title,
+                source_name=source_name,
+                source_url=source_url,
+                status="pending",
+                created_at=now,
+                updated_at=now,
+            )
+            task = Task(
+                id=task_id,
+                project_id=project_id,
+                submitted_by_id=actor.id,
+                video_id=video.id,
+                type=task_type,
+                status="queued",
+                payload=json.dumps(payload, ensure_ascii=False),
+                created_at=now,
+                updated_at=now,
+            )
+            try:
+                with self._session_factory() as database:
+                    total = database.scalar(
+                        select(func.count())
+                        .select_from(Video)
+                        .where(Video.project_id == project_id)
+                    )
+                    if (total or 0) >= PROJECT_VIDEO_LIMIT:
+                        raise MediaConflict(PROJECT_VIDEO_LIMIT_MESSAGE)
+                    database.add(video)
+                    database.flush()
+                    database.add(task)
+                    database.commit()
+            except IntegrityError as exc:
+                message = str(exc.orig)
+                if "project video limit reached" in message:
+                    raise MediaConflict(PROJECT_VIDEO_LIMIT_MESSAGE) from exc
+                if SHORT_CODE_UNIQUE_ERROR in message:
+                    continue
+                raise
+            return AcceptedImport(video, task)
+        raise MediaUnavailable("video short code allocation temporarily unavailable")
 
     def list_videos(
         self, actor: User, project_id: str, *, page: int, page_size: int

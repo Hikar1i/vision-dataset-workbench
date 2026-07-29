@@ -332,7 +332,7 @@ class SamplingService:
     ) -> tuple[Frame, Path]:
         self._project_role(actor, project_id)
         with self._session_factory() as database:
-            self._video(database, project_id, video_id)
+            video = self._video(database, project_id, video_id)
             frame = database.get(Frame, frame_id)
             if frame is None or frame.video_id != video_id:
                 raise SamplingNotFound("frame not found")
@@ -341,7 +341,11 @@ class SamplingService:
             except OSError as exc:
                 raise SamplingNotFound("frame file not found") from exc
             root = (
-                self.workspace / "projects" / project_id / "frames" / video_id
+                self.workspace
+                / "projects"
+                / project_id
+                / "frames"
+                / video.short_code
             ).resolve()
             if not path.is_file() or not path.is_relative_to(root):
                 raise SamplingNotFound("frame file not found")

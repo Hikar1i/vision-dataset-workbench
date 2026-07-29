@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from vision_dataset_workbench.config import RuntimeSettings
@@ -12,11 +14,12 @@ from vision_dataset_workbench.services.media import (
     MediaConflict,
     MediaNotFound,
     MediaService,
+    MediaUnavailable,
 )
 from vision_dataset_workbench.services.projects import ProjectForbidden
 
 
-def make_service(tmp_path):
+def make_service(tmp_path, *, short_code_factory=None):
     home = tmp_path / "home"
     workspace = home / ".vision-dataset-workbench"
     (workspace / "projects" / "project-id").mkdir(parents=True)
@@ -73,7 +76,10 @@ def make_service(tmp_path):
         )
     ]
     settings = RuntimeSettings(home=home, workspace=workspace)
-    service = MediaService(engine, settings, workspace, previewer=lambda *_: previews)
+    kwargs = {"short_code_factory": short_code_factory} if short_code_factory else {}
+    service = MediaService(
+        engine, settings, workspace, previewer=lambda *_: previews, **kwargs
+    )
     return service, engine, actors
 
 
@@ -94,6 +100,59 @@ def test_local_preview_is_first_level_and_editor_imports(tmp_path):
     )
     assert total == 2
     assert {video.title for video in videos} == {"one", "two"}
+    engine.dispose()
+
+
+def test_import_assigns_short_code_and_retries_project_collision(tmp_path):
+    codes = iter(("7K3M9Q2X", "7K3M9Q2X", "8M4N0R3Y"))
+    service, engine, actors = make_service(
+        tmp_path, short_code_factory=lambda: next(codes)
+    )
+
+    first = service.import_local(
+        actors["owner"], "project-id", ["clips/one.mp4"]
+    ).accepted[0].video
+    second = service.import_local(
+        actors["owner"], "project-id", ["clips/two.MKV"]
+    ).accepted[0].video
+
+    assert first.short_code == "7K3M9Q2X"
+    assert second.short_code == "8M4N0R3Y"
+    assert first.id != second.id
+    engine.dispose()
+
+
+def test_import_fails_safely_after_five_short_code_collisions(tmp_path):
+    service, engine, actors = make_service(
+        tmp_path, short_code_factory=lambda: "7K3M9Q2X"
+    )
+    service.import_local(actors["owner"], "project-id", ["clips/one.mp4"])
+
+    with pytest.raises(MediaUnavailable, match="temporarily unavailable"):
+        service.import_local(actors["owner"], "project-id", ["clips/two.MKV"])
+
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(Video)) == 1
+        assert session.scalar(select(func.count()).select_from(Task)) == 1
+    engine.dispose()
+
+
+def test_import_does_not_retry_other_integrity_errors(tmp_path):
+    calls = 0
+
+    def invalid_code() -> str:
+        nonlocal calls
+        calls += 1
+        return "invalid!"
+
+    service, engine, actors = make_service(
+        tmp_path, short_code_factory=invalid_code
+    )
+
+    with pytest.raises(IntegrityError):
+        service.import_local(actors["owner"], "project-id", ["clips/one.mp4"])
+
+    assert calls == 1
     engine.dispose()
 
 

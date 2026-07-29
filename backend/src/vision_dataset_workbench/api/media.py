@@ -14,6 +14,7 @@ from ..services.media import (
     MediaConflict,
     MediaNotFound,
     MediaService,
+    MediaUnavailable,
 )
 from ..services.projects import ProjectForbidden, ProjectNotFound
 from ..services.sampling import SamplingSummary
@@ -99,6 +100,7 @@ class TaskResponse(BaseModel):
 
 class VideoResponse(BaseModel):
     id: str
+    short_code: str
     source_type: str
     title: str
     source_name: str | None
@@ -194,6 +196,7 @@ def _video_response(
 ) -> VideoResponse:
     return VideoResponse(
         id=video.id,
+        short_code=video.short_code,
         source_type=video.source_type,
         title=video.title,
         source_name=video.source_name,
@@ -283,6 +286,8 @@ def _raise_media_error(exc: Exception) -> NoReturn:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     if isinstance(exc, MediaConflict):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, MediaUnavailable):
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -422,7 +427,7 @@ def import_local(
     require_same_origin(request)
     try:
         batch = media_service(request).import_local(user, project_id, payload.paths)
-    except (ProjectNotFound, ProjectForbidden) as exc:
+    except (ProjectNotFound, ProjectForbidden, MediaUnavailable) as exc:
         _raise_media_error(exc)
     return _batch_response(batch)
 
@@ -460,7 +465,7 @@ def import_remote(
         batch = media_service(request).import_remote(
             user, project_id, [(item.title, item.url) for item in payload.items]
         )
-    except (ProjectNotFound, ProjectForbidden) as exc:
+    except (ProjectNotFound, ProjectForbidden, MediaUnavailable) as exc:
         _raise_media_error(exc)
     return _batch_response(batch)
 
