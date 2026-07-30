@@ -15,6 +15,7 @@ from vision_dataset_workbench.database import (
 )
 from vision_dataset_workbench.models import (
     AuthSession,
+    DatasetExport,
     Frame,
     FrameAnnotation,
     InferenceModel,
@@ -46,6 +47,7 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         "frames",
         "annotations",
         "inference_models",
+        "dataset_exports",
     }.issubset(
         inspect(engine).get_table_names()
     )
@@ -859,6 +861,62 @@ def test_inference_models_and_auto_annotation_task_constraints(tmp_path):
                 status="ready",
                 source_name="invalid.bin",
                 created_by_id="admin-id",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    engine.dispose()
+
+
+def test_dataset_export_schema_and_active_project_constraint(tmp_path):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    create_workspace_database(database_path)
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        session.add(
+            User(
+                id="owner-id",
+                username="owner",
+                username_normalized="owner",
+                password_hash="hash",
+            )
+        )
+        session.flush()
+        session.add(Project(id="project-id", name="project", creator_id="owner-id"))
+        session.flush()
+        task = Task(
+            id="export-task",
+            project_id="project-id",
+            submitted_by_id="owner-id",
+            type="export_dataset",
+        )
+        session.add(task)
+        session.flush()
+        session.add(
+            DatasetExport(
+                id="export-id",
+                project_id="project-id",
+                task_id=task.id,
+                created_by_id="owner-id",
+                name="dataset",
+                status="queued",
+                train_ratio=0.8,
+                label_snapshot="[]",
+                source_snapshot='{"videos": []}',
+            )
+        )
+        session.commit()
+
+        session.add(
+            DatasetExport(
+                id="second-export",
+                project_id="project-id",
+                created_by_id="owner-id",
+                name="dataset-2",
+                status="running",
+                train_ratio=0.8,
+                label_snapshot="[]",
+                source_snapshot='{"videos": []}',
             )
         )
         with pytest.raises(IntegrityError):

@@ -397,3 +397,72 @@ class Task(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class DatasetExport(Base):
+    __tablename__ = "dataset_exports"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'ready', 'failed', 'canceled')",
+            name="ck_dataset_exports_status",
+        ),
+        CheckConstraint(
+            "train_ratio >= 0 AND train_ratio <= 1",
+            name="ck_dataset_exports_train_ratio",
+        ),
+        CheckConstraint(
+            "actual_train_ratio IS NULL OR "
+            "(actual_train_ratio >= 0 AND actual_train_ratio <= 1)",
+            name="ck_dataset_exports_actual_train_ratio",
+        ),
+        CheckConstraint(
+            "total_frames >= 0 AND train_frames >= 0 AND val_frames >= 0",
+            name="ck_dataset_exports_frame_counts",
+        ),
+        Index(
+            "uq_dataset_exports_active_project",
+            "project_id",
+            unique=True,
+            sqlite_where=text("status IN ('queued', 'running')"),
+        ),
+        Index(
+            "ix_dataset_exports_project_created",
+            "project_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), unique=True, nullable=True
+    )
+    created_by_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(16), default="queued")
+    train_ratio: Mapped[float] = mapped_column(Float)
+    actual_train_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_frames: Mapped[int] = mapped_column(Integer, default=0)
+    train_frames: Mapped[int] = mapped_column(Integer, default=0)
+    val_frames: Mapped[int] = mapped_column(Integer, default=0)
+    label_snapshot: Mapped[str] = mapped_column(Text, default="[]")
+    source_snapshot: Mapped[str] = mapped_column(Text, default="{}")
+    manifest: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
