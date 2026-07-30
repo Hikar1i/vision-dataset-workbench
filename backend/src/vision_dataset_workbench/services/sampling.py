@@ -13,6 +13,7 @@ from ..config import RuntimeSettings
 from ..models import Frame, FrameAnnotation, SamplingPlan, Task, User, Video
 from ..sampling import SamplingInput, calculate_sampling
 from .projects import ProjectForbidden, ProjectService
+from .dataset_exports import video_has_active_export
 
 
 class SamplingNotFound(ValueError):
@@ -204,6 +205,11 @@ class SamplingService:
             try:
                 with self._session_factory() as database:
                     video = self._video(database, project_id, video_id)
+                    if video_has_active_export(database, project_id, video_id):
+                        raise SamplingConflict(
+                            "video is frozen by an active dataset export",
+                            "active_export",
+                        )
                     if video.status != "ready":
                         raise SamplingConflict("video is not ready", "video_not_ready")
                     if self._active_task(database, video_id):
@@ -294,6 +300,11 @@ class SamplingService:
             try:
                 with self._session_factory() as database:
                     video = self._video(database, project_id, video_id)
+                    if video_has_active_export(database, project_id, video_id):
+                        raise SamplingConflict(
+                            "video is frozen by an active dataset export",
+                            "active_export",
+                        )
                     if video.status != "ready":
                         raise SamplingConflict("video is not ready", "video_not_ready")
                     if self._active_task(database, video_id):
@@ -523,6 +534,11 @@ class SamplingService:
         self._require_editor(actor, project_id)
         with self._session_factory() as database:
             self._video(database, project_id, video_id)
+            if video_has_active_export(database, project_id, video_id):
+                raise SamplingConflict(
+                    "video is frozen by an active dataset export",
+                    "active_export",
+                )
             plan = database.scalar(
                 select(SamplingPlan).where(SamplingPlan.video_id == video_id)
             )

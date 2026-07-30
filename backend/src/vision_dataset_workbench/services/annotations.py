@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from ..models import Frame, FrameAnnotation, ProjectLabel, Task, User, Video
 from .projects import ProjectForbidden, ProjectService
+from .dataset_exports import video_has_active_export
 
 
 class AnnotationNotFound(ValueError):
@@ -71,6 +72,10 @@ class AnnotationService:
             raise ProjectForbidden("project edit permission required")
         with self._session_factory() as database:
             frame, video = self._context(database, project_id, video_id, frame_id)
+            if video_has_active_export(database, project_id, video_id):
+                raise AnnotationConflict(
+                    "annotation changes are locked by an active dataset export"
+                )
             active_task = database.scalar(
                 select(Task.id).where(
                     Task.video_id == video_id,

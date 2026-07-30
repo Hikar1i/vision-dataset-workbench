@@ -7,7 +7,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from ..dataset_export import safe_export_name
 from ..models import DatasetExport, Frame, ProjectLabel, SamplingPlan, Task, User, Video
@@ -36,6 +36,23 @@ class ExportLabelInput:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def video_has_active_export(
+    database: Session, project_id: str, video_id: str
+) -> bool:
+    snapshot = database.scalar(
+        select(DatasetExport.source_snapshot).where(
+            DatasetExport.project_id == project_id,
+            DatasetExport.status.in_(("queued", "running")),
+        )
+    )
+    if snapshot is None:
+        return False
+    return video_id in {
+        str(item["video_id"])
+        for item in json.loads(snapshot).get("videos", [])
+    }
 
 
 class DatasetExportService:

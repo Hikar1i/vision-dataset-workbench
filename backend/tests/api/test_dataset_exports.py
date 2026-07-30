@@ -228,3 +228,65 @@ def test_export_requires_enabled_frames_and_same_origin(tmp_path):
         headers=ORIGIN,
         json=export_payload(),
     ).status_code == 409
+
+
+def test_active_export_freezes_participating_video_writes_until_terminal(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "owner")
+    created = owner.post(
+        "/api/v1/projects/project-id/dataset-exports",
+        headers=ORIGIN,
+        json=export_payload(),
+    ).json()
+
+    assert owner.get(
+        "/api/v1/projects/project-id/videos/video-id/sampling-plan"
+    ).status_code == 200
+    assert owner.put(
+        "/api/v1/projects/project-id/videos/video-id/enabled",
+        headers=ORIGIN,
+        json={"enabled": False, "version": 1},
+    ).status_code == 409
+    assert owner.put(
+        "/api/v1/projects/project-id/videos/video-id/frames/enabled",
+        headers=ORIGIN,
+        json={
+            "changes": [{"frame_id": "frame-id", "enabled": False}],
+            "frame_revision": 1,
+        },
+    ).status_code == 409
+    configured = owner.post(
+        "/api/v1/projects/project-id/sampling-plans",
+        headers=ORIGIN,
+        json={
+            "video_ids": ["video-id"],
+            "mode": "target_frames",
+            "parameters": {"minimum": 10, "maximum": 100},
+            "overwrite_level": "sampled",
+        },
+    ).json()
+    assert configured["rejected"][0]["code"] == "active_export"
+    extracted = owner.post(
+        "/api/v1/projects/project-id/extractions",
+        headers=ORIGIN,
+        json={"video_ids": ["video-id"], "overwrite_level": "destructive"},
+    ).json()
+    assert extracted["rejected"][0]["code"] == "active_export"
+    assert owner.put(
+        "/api/v1/projects/project-id/videos/video-id/frames/frame-id/annotations",
+        headers=ORIGIN,
+        json={"annotation_revision": 1, "items": []},
+    ).status_code == 409
+
+    with Session(app.state.auth_service.engine) as session:
+        record = session.get(DatasetExport, created["id"])
+        record.status = "canceled"
+        task = session.get(Task, record.task_id)
+        task.status = "canceled"
+        session.commit()
+
+    assert owner.put(
+        "/api/v1/projects/project-id/videos/video-id/enabled",
+        headers=ORIGIN,
+        json={"enabled": False, "version": 1},
+    ).status_code == 200

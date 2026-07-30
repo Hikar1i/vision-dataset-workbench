@@ -23,6 +23,7 @@ from ..models import (
 from ..storage.browser import VIDEO_EXTENSIONS
 from ..storage.paths import HomePathResolver, UnsafePathError
 from .projects import ProjectForbidden, ProjectService
+from .dataset_exports import video_has_active_export
 
 
 class MediaNotFound(ValueError):
@@ -301,6 +302,8 @@ class MediaService:
             video = database.get(Video, video_id)
             if video is None or video.project_id != project_id:
                 raise MediaNotFound("video not found")
+            if video_has_active_export(database, project_id, video_id):
+                raise MediaConflict("video is frozen by an active dataset export")
             if video.version != version:
                 raise MediaConflict("video version conflict")
             video.enabled = enabled

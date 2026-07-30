@@ -23,6 +23,7 @@ from .labels import (
 from .models import ModelService
 from .projects import ProjectForbidden, ProjectService
 from .sampling import SamplingService
+from .dataset_exports import video_has_active_export
 
 
 class AutoAnnotationUnavailable(ValueError):
@@ -161,6 +162,10 @@ class AutoAnnotationService:
             video = database.get(Video, video_id)
             if video is None or video.project_id != project_id:
                 raise AutoAnnotationUnavailable("video not found")
+            if video_has_active_export(database, project_id, video_id):
+                raise AutoAnnotationConflict(
+                    "video is frozen by an active dataset export"
+                )
             if not video.enabled:
                 raise AutoAnnotationConflict("video is disabled")
             enabled_frames = database.scalar(
