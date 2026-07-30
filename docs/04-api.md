@@ -107,7 +107,7 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 
 全局任务接口按项目可见性过滤，按任务创建时间倒序返回。每项在普通任务字段之外包含 `project_id`、`project_name` 和 `can_manage`；viewer 的 `can_manage=false`。分页响应的 `latest_terminal_at` 在全部可见任务中计算，不受当前页限制，用于浏览器任务中心判断 succeeded、failed 或 canceled 任务是否未读。取消和重试仍使用项目级写接口，权限检查不在全局查询中复制。
 
-视频列表每项包含 `enabled`、可空 `sampling` 和可空 `latest_task`。采样摘要包含 `updated_at`，前端据此判断失败任务是否已被后续资源修改覆盖。各视频最新任务由服务端一次批量查询取得，列表请求不会逐视频查询。`PUT .../enabled` 请求体为 `{"enabled": false, "version": 2}`；版本过期返回 409，viewer 返回 403。视频停用只控制未来自动标注和导出的参与资格，不禁止播放、采样配置、抽帧、筛帧或手动标注。
+视频列表每项包含 `enabled`、`has_annotations`、可空 `sampling` 和可空 `latest_task`。`has_annotations` 由当前页视频 ID 一次关联查询得出，不逐视频请求或持久化冗余计数。采样摘要包含 `updated_at`，前端据此判断失败任务是否已被后续资源修改覆盖。各视频最新任务由服务端一次批量查询取得。`PUT .../enabled` 请求体为 `{"enabled": false, "version": 2}`；版本过期返回 409，viewer 返回 403。视频停用只控制未来自动标注和导出的参与资格，不禁止播放、采样配置、抽帧、筛帧或手动标注。
 
 单个项目最多 999 个视频。批量导入容量不足时，剩余容量内条目进入 `accepted`，超出部分进入 `rejected` 并给出容量原因；前端按钮禁用不是最终约束，数据库触发器仍会拒绝并发产生的第 1000 条记录。
 
@@ -118,7 +118,9 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 - `time_interval`：参数 `seconds` 和 `frames` 均为 1–10，换算成确定的帧间隔。
 - 输出为 `jpg` 时质量为 1–31、默认 2；输出为 `png` 时压缩级别为 0–9、默认 6。
 
-更新方案只增加方案版本，不立即删除旧帧。抽帧成功才更新 `applied_version`、`generation` 和帧记录；旧方案任务、活动任务和未配置方案以逐项 rejected 返回。帧批量启停要求客户端提交当前 `frame_revision`，过期值返回 409，一次请求最多传 999 个帧 ID；不传 `frame_ids` 表示操作该视频全部帧。
+`POST .../sampling-plans` 的 `overwrite_level` 为 `none`、`configured` 或 `sampled`，默认 `none`；级别不足时对应视频进入 `rejected`。更新方案只增加方案版本，不立即删除旧帧。`POST .../extractions` 的 `overwrite_level` 为 `none`、`light` 或 `destructive`，默认 `none`：无标注且未筛帧的已有帧至少要求 `light`，存在标注或 `frame_revision > 1` 任意一项至少要求 `destructive`。服务端按实时状态重新校验，批量拒绝项包含稳定 `code` 和可读 `reason`。
+
+抽帧成功才更新 `applied_version`、`generation` 和帧记录；活动任务和未配置方案以逐项 rejected 返回。`extract_frames` queued/running 期间，采样配置、帧启停和标注替换写接口返回 409，读取不受影响。帧批量启停要求客户端提交当前 `frame_revision`，过期值返回 409，一次请求最多传 999 个帧 ID；不传 `frame_ids` 表示操作该视频全部帧。
 
 本地导入可提交单文件或目录预览返回的路径，目录只扫描第一层。远程导入只接受 HTTP/HTTPS，允许局域网 HTTP；播放列表解析后由用户选择条目再提交。批量响应分别列出 `accepted`、`skipped` 和 `rejected`。本地文件在 Worker 中计算完整 SHA-256，远程文件以 yt-dlp extractor + 原始 ID 在项目内判重；重复任务以成功但 skipped 的结果结束，不新增重复 Video。
 

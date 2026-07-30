@@ -140,9 +140,11 @@ SQLite             Persistent Worker
 
 `pending` → `ready`
 
-复制或下载失败记录在 Task，视频保留为 `pending` 供重试；文件确实不可用时预留 `unavailable`。采样不再改变视频生命周期：每个视频最多一个 SamplingPlan；方案版本未应用为 `configured`，当前版本已抽出帧为 `sampled`。帧启停保存于稳定 Frame 记录，并用 `frame_revision` 防止并发覆盖。
+复制或下载失败记录在 Task，视频保留为 `pending` 供重试；文件确实不可用时预留 `unavailable`。采样不再改变视频生命周期：每个视频最多一个 SamplingPlan；方案版本未应用为 `configured`，当前版本已抽出帧为 `sampled`。帧启停保存于稳定 Frame 记录，并用 `frame_revision` 防止并发覆盖。列表中的业务状态由媒体状态、任务、采样版本、帧修订和标注存在性实时推导，不写入单独且不可逆的状态枚举。
 
 任务状态与业务状态分离。复制、下载、抽帧、模型入库和批量自动标注使用 queued、running、succeeded、failed、canceled；任务记录包含类型、提交者、资源范围、进度、尝试次数、错误、取消标记、租约和时间。批量自动标注要求视频启用，并按 Worker 开始执行时启用的帧集合逐帧提交；失败或取消时保留已成功帧。导出后续复用该状态模型。
+
+采样方案覆盖使用 `none/configured/sampled` 三级确认，重新抽帧使用 `none/light/destructive` 三级确认。后端在写事务中根据当前帧、`frame_revision` 和标注存在性重新计算所需级别；前端状态过期导致风险升级时逐项拒绝。`extract_frames` 任务 queued/running 期间冻结方案、筛帧和标注写入，读取和播放不受影响；成功发布新一代帧后才删除旧帧及其级联标注。
 
 ## 一致性原则
 

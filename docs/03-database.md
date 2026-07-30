@@ -93,7 +93,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 
 短码与视频 UUID 保存在同一条 Video 记录中；UUID 继续作为主键、外键和 API 路由身份。短码由服务端在创建导入任务时生成，数据库以 `(project_id, short_code)` 唯一索引和格式 CHECK 约束兜底，冲突只重试短码分配。本地重复内容和远程重复身份通过 SQLite partial unique index 约束。每个项目最多保存 999 条 Video：导入服务先检查剩余容量并返回逐项 accepted/rejected，SQLite `trg_videos_project_limit` 插入触发器处理多用户并发越过前置检查的竞争场景。复制/下载成功前视频保持 `pending`；Worker 验证文件与元数据后才写入受管路径并切换为 `ready`。
 
-视频 `enabled` 与媒体 `status` 相互独立。停用不删除文件、不取消任务，也不阻止播放、采样配置、抽帧、筛帧或手动/单张自动标注；停用视频不能新建批量自动标注任务，Worker 只处理开始执行时启用的帧，后续导出也必须显式过滤 `enabled = true`。备注和遗留自由文本 `status_info` 不进入新 schema，状态信息由任务、视频和采样方案结构化字段推导。
+视频 `enabled` 与媒体 `status` 相互独立。停用不删除文件、不取消任务，也不阻止播放、采样配置、抽帧、筛帧或手动/单张自动标注；停用视频不能新建批量自动标注任务，Worker 只处理开始执行时启用的帧，后续导出也必须显式过滤 `enabled = true`。备注、遗留自由文本 `status_info` 和不可逆业务状态枚举不进入新 schema；列表业务状态由任务、视频、采样版本、帧修订及标注存在性推导。
 
 `sampling_plans` 每个视频最多一行：
 
@@ -122,6 +122,8 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | `created_at` | 当前代次发布时间 |
 
 Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找；布尔 `enabled` 与单列 `video_id` 不再建立冗余索引。重采样先在任务临时目录生成并验证全部文件，再替换 `frames/<video short code>/` 并在同一数据库事务中重建 Frame 记录。帧文件名为 `<video short code>_frame_<六位序号>.<jpg|png>`，可在同一项目内平铺复制而不重名。失败、取消或方案版本改变时保留上一代目录和记录。
+
+覆盖风险不新增冗余计数列：`extracted_frames > 0` 表示已有帧，`frame_revision > 1` 表示当前代次保存过筛帧变更，是否已有标注通过 `frames` 与 `annotations` 的索引关联查询判断。重新抽帧成功后 Frame 重建会级联删除旧标注，并把新帧全部初始化为启用。
 
 `annotations` 表保存当前帧的轴对齐矩形框：
 
