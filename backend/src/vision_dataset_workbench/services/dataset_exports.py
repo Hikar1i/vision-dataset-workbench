@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -214,6 +215,74 @@ class DatasetExportService:
             if record is None:
                 raise DatasetExportNotFound("dataset export not found")
             return record
+
+    def download_directory(
+        self, actor: User, project_id: str, export_id: str
+    ) -> tuple[DatasetExport, Path]:
+        record = self.get(actor, project_id, export_id)
+        if record.status != "ready":
+            raise DatasetExportConflict("dataset export is not ready for download")
+        return record, self._managed_directory(record)
+
+    def delete(self, actor: User, project_id: str, export_id: str) -> None:
+        if self.projects.get_project(actor, project_id).role == "viewer":
+            raise ProjectForbidden("project edit permission required")
+        with self._session_factory() as database:
+            record = database.scalar(
+                select(DatasetExport).where(
+                    DatasetExport.id == export_id,
+                    DatasetExport.project_id == project_id,
+                    DatasetExport.deleted_at.is_(None),
+                )
+            )
+            if record is None:
+                raise DatasetExportNotFound("dataset export not found")
+            if record.status in {"queued", "running"}:
+                raise DatasetExportConflict(
+                    "active dataset export must be canceled before deletion"
+                )
+
+            source = None
+            destination = None
+            if record.storage_path:
+                source = self._managed_directory(record)
+                deleted_root = (
+                    self.workspace
+                    / ".deleted"
+                    / "projects"
+                    / project_id
+                    / "exports"
+                )
+                deleted_root.mkdir(parents=True, exist_ok=True)
+                destination = deleted_root / source.name
+                suffix = 2
+                while destination.exists():
+                    destination = deleted_root / f"{source.name}_{suffix}"
+                    suffix += 1
+                os.replace(source, destination)
+                record.storage_path = destination.relative_to(self.workspace).as_posix()
+            record.deleted_at = self._now()
+            try:
+                database.commit()
+            except Exception:
+                database.rollback()
+                if source is not None and destination is not None and destination.exists():
+                    os.replace(destination, source)
+                raise
+
+    def _managed_directory(self, record: DatasetExport) -> Path:
+        if not record.storage_path:
+            raise DatasetExportConflict("dataset export directory is unavailable")
+        try:
+            path = (self.workspace / record.storage_path).resolve(strict=True)
+        except OSError as exc:
+            raise DatasetExportConflict("dataset export directory is unavailable") from exc
+        expected_root = (
+            self.workspace / "projects" / record.project_id / "exports"
+        ).resolve()
+        if not path.is_dir() or not path.is_relative_to(expected_root):
+            raise DatasetExportConflict("dataset export directory is invalid")
+        return path
 
     @staticmethod
     def _validate_labels(

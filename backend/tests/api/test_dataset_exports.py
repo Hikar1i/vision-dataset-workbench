@@ -1,3 +1,6 @@
+import io
+import zipfile
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -250,6 +253,74 @@ def test_queued_export_cancellation_updates_export_record(tmp_path):
     ).json()
     assert detail["status"] == "canceled"
     assert detail["error"] == "dataset export canceled"
+
+
+def test_ready_export_download_and_logical_delete(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "owner")
+    viewer = client_for(app, "viewer")
+    created = owner.post(
+        "/api/v1/projects/project-id/dataset-exports",
+        headers=ORIGIN,
+        json=export_payload(),
+    ).json()
+    relative = "projects/project-id/exports/dataset_20260730120000"
+    target = app.state.workspace / relative
+    (target / "train/images").mkdir(parents=True)
+    (target / "train/images/frame.jpg").write_bytes(b"image")
+    (target / "manifest.json").write_text('{"version": 1}\n')
+    with Session(app.state.auth_service.engine) as session:
+        record = session.get(DatasetExport, created["id"])
+        record.status = "ready"
+        record.storage_path = relative
+        record.manifest = '{"version": 1}'
+        task = session.get(Task, record.task_id)
+        task.status = "succeeded"
+        session.commit()
+
+    downloaded = viewer.get(
+        f"/api/v1/projects/project-id/dataset-exports/{created['id']}/download"
+    )
+    assert downloaded.status_code == 200
+    assert downloaded.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(downloaded.content)) as archive:
+        assert archive.namelist() == ["manifest.json", "train/images/frame.jpg"]
+        assert archive.read("train/images/frame.jpg") == b"image"
+
+    assert viewer.delete(
+        f"/api/v1/projects/project-id/dataset-exports/{created['id']}",
+        headers=ORIGIN,
+    ).status_code == 403
+    assert owner.delete(
+        f"/api/v1/projects/project-id/dataset-exports/{created['id']}",
+        headers=ORIGIN,
+    ).status_code == 204
+    deleted = (
+        app.state.workspace
+        / ".deleted/projects/project-id/exports/dataset_20260730120000"
+    )
+    assert deleted.is_dir()
+    assert not target.exists()
+    assert owner.get(
+        f"/api/v1/projects/project-id/dataset-exports/{created['id']}"
+    ).status_code == 404
+    assert owner.get(
+        "/api/v1/projects/project-id/dataset-exports"
+    ).json()["total"] == 0
+
+
+def test_active_export_cannot_be_downloaded_or_deleted(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "owner")
+    created = owner.post(
+        "/api/v1/projects/project-id/dataset-exports",
+        headers=ORIGIN,
+        json=export_payload(),
+    ).json()
+
+    base = f"/api/v1/projects/project-id/dataset-exports/{created['id']}"
+    assert owner.get(f"{base}/download").status_code == 409
+    assert owner.delete(base, headers=ORIGIN).status_code == 409
 
 
 def test_active_export_freezes_participating_video_writes_until_terminal(tmp_path):

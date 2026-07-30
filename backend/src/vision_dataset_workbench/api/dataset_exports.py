@@ -1,8 +1,12 @@
 import json
+import zipfile
 from typing import Annotated, NoReturn
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+import zipstream
 
 from ..models import DatasetExport, User
 from ..services.dataset_exports import (
@@ -172,3 +176,55 @@ def get_dataset_export(
         absolute_path=absolute_path,
         manifest=json.loads(record.manifest) if record.manifest else None,
     )
+
+
+@router.get("/{export_id}/download")
+def download_dataset_export(
+    project_id: str,
+    export_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> StreamingResponse:
+    try:
+        record, directory = dataset_export_service(request).download_directory(
+            user, project_id, export_id
+        )
+    except (
+        ProjectNotFound,
+        ProjectForbidden,
+        DatasetExportNotFound,
+        DatasetExportConflict,
+    ) as exc:
+        _raise_http_error(exc)
+    archive = zipstream.ZipStream(compress_type=zipfile.ZIP_STORED)
+    for path in sorted(directory.rglob("*")):
+        resolved = path.resolve()
+        if path.is_symlink() or not resolved.is_relative_to(directory):
+            raise HTTPException(status_code=409, detail="dataset export contains unsafe paths")
+        if resolved.is_file():
+            archive.add_path(resolved, arcname=resolved.relative_to(directory).as_posix())
+    filename = quote(f"{record.name}.zip")
+    return StreamingResponse(
+        archive,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.delete("/{export_id}", status_code=204)
+def delete_dataset_export(
+    project_id: str,
+    export_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> None:
+    require_same_origin(request)
+    try:
+        dataset_export_service(request).delete(user, project_id, export_id)
+    except (
+        ProjectNotFound,
+        ProjectForbidden,
+        DatasetExportNotFound,
+        DatasetExportConflict,
+    ) as exc:
+        _raise_http_error(exc)
