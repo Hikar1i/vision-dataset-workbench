@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -255,7 +256,10 @@ def test_annotation_write_requires_same_origin(tmp_path):
     ).status_code == 403
 
 
-def test_manual_save_is_blocked_while_batch_auto_annotation_is_active(tmp_path):
+@pytest.mark.parametrize("task_type", ["auto_annotate", "extract_frames"])
+def test_manual_save_is_blocked_while_frame_writing_task_is_active(
+    tmp_path, task_type
+):
     app = make_app(tmp_path)
     owner = client_for(app, "creator")
     project_id, _label_id = seed_annotation_context(app, owner)
@@ -265,7 +269,7 @@ def test_manual_save_is_blocked_while_batch_auto_annotation_is_active(tmp_path):
                 project_id=project_id,
                 submitted_by_id="creator-id",
                 video_id="video-id",
-                type="auto_annotate",
+                type=task_type,
                 status="running",
             )
         )

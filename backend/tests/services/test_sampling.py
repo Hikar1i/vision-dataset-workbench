@@ -109,6 +109,25 @@ def test_editor_configures_batch_and_creates_persistent_extraction(tmp_path):
     assert summary.updated_at == batch.accepted[0].plan.updated_at
     assert batch.rejected[0].input == "pending-id"
     assert service.get_plan(actors["viewer"], "project-id", "ready-id") is not None
+    protected = service.configure(
+        actors["editor"],
+        "project-id",
+        ["ready-id"],
+        sampling_input,
+        "jpg",
+        2,
+    )
+    assert protected.rejected[0].code == "sampling_plan_exists"
+    overwritten = service.configure(
+        actors["editor"],
+        "project-id",
+        ["ready-id"],
+        sampling_input,
+        "jpg",
+        2,
+        "configured",
+    )
+    assert overwritten.accepted[0].plan.version == 2
     with pytest.raises(ProjectForbidden):
         service.configure(
             actors["viewer"],
@@ -124,7 +143,7 @@ def test_editor_configures_batch_and_creates_persistent_extraction(tmp_path):
     )
     assert len(extraction.accepted) == 1
     assert extraction.accepted[0].task.type == "extract_frames"
-    assert json.loads(extraction.accepted[0].task.payload)["sampling_plan_version"] == 1
+    assert json.loads(extraction.accepted[0].task.payload)["sampling_plan_version"] == 2
     assert extraction.rejected[0].input == "pending-id"
 
     conflict = service.create_extractions(
@@ -249,4 +268,49 @@ def test_viewer_reads_frames_and_editor_filters_with_revision(tmp_path):
         revision=2,
     )
     assert restored.enabled_frames == 2
+
+    sampling_input = SamplingInput(
+        "target_frames", {"minimum": 50, "maximum": 200}
+    )
+    locked_plan = service.configure(
+        actors["editor"],
+        "project-id",
+        ["ready-id"],
+        sampling_input,
+        "jpg",
+        2,
+        "configured",
+    )
+    assert locked_plan.rejected[0].code == "sampled_plan_locked"
+    forced_plan = service.configure(
+        actors["editor"],
+        "project-id",
+        ["ready-id"],
+        sampling_input,
+        "jpg",
+        2,
+        "sampled",
+    )
+    assert forced_plan.accepted[0].plan.version == 2
+
+    blocked = service.create_extractions(
+        actors["editor"], "project-id", ["ready-id"]
+    )
+    assert blocked.rejected[0].code == "destructive_overwrite_required"
+    still_blocked = service.create_extractions(
+        actors["editor"], "project-id", ["ready-id"], "light"
+    )
+    assert still_blocked.rejected[0].code == "destructive_overwrite_required"
+    accepted = service.create_extractions(
+        actors["editor"], "project-id", ["ready-id"], "destructive"
+    )
+    assert len(accepted.accepted) == 1
+    with pytest.raises(SamplingConflict, match="locked while extraction is active"):
+        service.set_frames_enabled(
+            actors["editor"],
+            "project-id",
+            "ready-id",
+            {"frame-1": False},
+            revision=restored.frame_revision,
+        )
     engine.dispose()

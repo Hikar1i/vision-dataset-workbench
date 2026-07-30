@@ -31,15 +31,18 @@ class ConfigureSamplingRequest(BaseModel):
     parameters: dict[str, int]
     output_format: Literal["jpg", "png"] = "jpg"
     output_quality: int = Field(default=2, ge=0, le=31)
+    overwrite_level: Literal["none", "configured", "sampled"] = "none"
 
 
 class ExtractionRequest(BaseModel):
     video_ids: list[str] = Field(min_length=1, max_length=999)
+    overwrite_level: Literal["none", "light", "destructive"] = "none"
 
 
 class SamplingNoticeResponse(BaseModel):
     input: str
     reason: str
+    code: str
 
 
 class AcceptedPlanResponse(BaseModel):
@@ -191,6 +194,7 @@ def configure_sampling(
             SamplingInput(payload.mode, payload.parameters),
             payload.output_format,
             payload.output_quality,
+            payload.overwrite_level,
         )
     except (ProjectNotFound, ProjectForbidden, InvalidSampling, ValueError) as exc:
         _raise_sampling_error(exc)
@@ -217,9 +221,9 @@ def create_extractions(
     require_same_origin(request)
     try:
         batch = sampling_service(request).create_extractions(
-            user, project_id, payload.video_ids
+            user, project_id, payload.video_ids, payload.overwrite_level
         )
-    except (ProjectNotFound, ProjectForbidden) as exc:
+    except (ProjectNotFound, ProjectForbidden, ValueError) as exc:
         _raise_sampling_error(exc)
     return ExtractionBatchResponse(
         accepted=[

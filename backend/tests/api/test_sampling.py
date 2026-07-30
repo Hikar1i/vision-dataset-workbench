@@ -80,7 +80,7 @@ def client_for(app, username):
     return client
 
 
-def configure(editor):
+def configure(editor, overwrite_level="none"):
     return editor.post(
         "/api/v1/projects/project-id/sampling-plans",
         headers=ORIGIN,
@@ -90,6 +90,7 @@ def configure(editor):
             "parameters": {"minimum": 50, "maximum": 200},
             "output_format": "jpg",
             "output_quality": 2,
+            "overwrite_level": overwrite_level,
         },
     )
 
@@ -100,10 +101,11 @@ def test_editor_configures_and_queues_while_viewer_is_read_only(tmp_path):
     viewer = client_for(app, "viewer")
 
     assert configure(editor).status_code == 200
-    configured = configure(editor).json()
+    configured = configure(editor, "configured").json()
     assert configured["accepted"][0]["plan"]["expected_frames"] == 106
     listed = viewer.get("/api/v1/projects/project-id/videos").json()
     assert listed["items"][0]["sampling"]["state"] == "configured"
+    assert listed["items"][0]["has_annotations"] is False
     assert listed["items"][0]["sampling"]["updated_at"].endswith("Z")
     assert viewer.get(
         "/api/v1/projects/project-id/videos/video-id/sampling-plan"

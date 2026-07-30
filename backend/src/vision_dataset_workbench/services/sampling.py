@@ -20,13 +20,16 @@ class SamplingNotFound(ValueError):
 
 
 class SamplingConflict(ValueError):
-    pass
+    def __init__(self, message: str, code: str = "sampling_conflict"):
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True)
 class SamplingNotice:
     input: str
     reason: str
+    code: str = "invalid_request"
 
 
 @dataclass(frozen=True)
@@ -141,6 +144,31 @@ class SamplingService:
         )
 
     @staticmethod
+    def _active_extraction(database, video_id: str) -> bool:
+        return (
+            database.scalar(
+                select(Task.id).where(
+                    Task.video_id == video_id,
+                    Task.type == "extract_frames",
+                    Task.status.in_(("queued", "running")),
+                )
+            )
+            is not None
+        )
+
+    @staticmethod
+    def _has_annotations(database, video_id: str) -> bool:
+        return (
+            database.scalar(
+                select(FrameAnnotation.id)
+                .join(Frame, Frame.id == FrameAnnotation.frame_id)
+                .where(Frame.video_id == video_id)
+                .limit(1)
+            )
+            is not None
+        )
+
+    @staticmethod
     def _validate_output(output_format: str, output_quality: int) -> None:
         valid = (output_format == "jpg" and 1 <= output_quality <= 31) or (
             output_format == "png" and 0 <= output_quality <= 9
@@ -156,24 +184,32 @@ class SamplingService:
         sampling_input: SamplingInput,
         output_format: str,
         output_quality: int,
+        overwrite_level: str = "none",
     ) -> PlanBatch:
         self._require_editor(actor, project_id)
         self._validate_output(output_format, output_quality)
         accepted: list[AcceptedPlan] = []
         rejected: list[SamplingNotice] = []
+        overwrite_rank = {"none": 0, "configured": 1, "sampled": 2}
+        if overwrite_level not in overwrite_rank:
+            raise ValueError("sampling overwrite level is invalid")
         seen: set[str] = set()
         for video_id in video_ids[:999]:
             if video_id in seen:
-                rejected.append(SamplingNotice(video_id, "duplicate selection"))
+                rejected.append(
+                    SamplingNotice(video_id, "duplicate selection", "duplicate_selection")
+                )
                 continue
             seen.add(video_id)
             try:
                 with self._session_factory() as database:
                     video = self._video(database, project_id, video_id)
                     if video.status != "ready":
-                        raise SamplingConflict("video is not ready")
+                        raise SamplingConflict("video is not ready", "video_not_ready")
                     if self._active_task(database, video_id):
-                        raise SamplingConflict("video already has an active task")
+                        raise SamplingConflict(
+                            "video already has an active task", "active_task"
+                        )
                     estimate = calculate_sampling(
                         video.total_frames,
                         video.fps,
@@ -183,6 +219,20 @@ class SamplingService:
                     plan = database.scalar(
                         select(SamplingPlan).where(SamplingPlan.video_id == video_id)
                     )
+                    if plan is not None:
+                        required_level = (
+                            "sampled" if plan.extracted_frames > 0 else "configured"
+                        )
+                        if overwrite_rank[overwrite_level] < overwrite_rank[required_level]:
+                            code = (
+                                "sampled_plan_locked"
+                                if required_level == "sampled"
+                                else "sampling_plan_exists"
+                            )
+                            raise SamplingConflict(
+                                f"{required_level} sampling overwrite confirmation required",
+                                code,
+                            )
                     now = _utc_now()
                     if plan is None:
                         plan = SamplingPlan(
@@ -211,33 +261,64 @@ class SamplingService:
                     database.expunge(plan)
                     accepted.append(AcceptedPlan(video_id, plan))
             except (SamplingNotFound, SamplingConflict, ValueError) as exc:
-                rejected.append(SamplingNotice(video_id, str(exc)))
+                rejected.append(
+                    SamplingNotice(
+                        video_id,
+                        str(exc),
+                        getattr(exc, "code", "invalid_request"),
+                    )
+                )
         return PlanBatch(accepted, rejected)
 
     def create_extractions(
-        self, actor: User, project_id: str, video_ids: list[str]
+        self,
+        actor: User,
+        project_id: str,
+        video_ids: list[str],
+        overwrite_level: str = "none",
     ) -> ExtractionBatch:
         self._require_editor(actor, project_id)
         accepted: list[AcceptedExtraction] = []
         rejected: list[SamplingNotice] = []
+        overwrite_rank = {"none": 0, "light": 1, "destructive": 2}
+        if overwrite_level not in overwrite_rank:
+            raise ValueError("extraction overwrite level is invalid")
         seen: set[str] = set()
         for video_id in video_ids[:999]:
             if video_id in seen:
-                rejected.append(SamplingNotice(video_id, "duplicate selection"))
+                rejected.append(
+                    SamplingNotice(video_id, "duplicate selection", "duplicate_selection")
+                )
                 continue
             seen.add(video_id)
             try:
                 with self._session_factory() as database:
                     video = self._video(database, project_id, video_id)
                     if video.status != "ready":
-                        raise SamplingConflict("video is not ready")
+                        raise SamplingConflict("video is not ready", "video_not_ready")
                     if self._active_task(database, video_id):
-                        raise SamplingConflict("video already has an active task")
+                        raise SamplingConflict(
+                            "video already has an active task", "active_task"
+                        )
                     plan = database.scalar(
                         select(SamplingPlan).where(SamplingPlan.video_id == video_id)
                     )
                     if plan is None:
-                        raise SamplingConflict("sampling plan is not configured")
+                        raise SamplingConflict(
+                            "sampling plan is not configured", "sampling_plan_missing"
+                        )
+                    if plan.extracted_frames > 0:
+                        required_level = (
+                            "destructive"
+                            if plan.frame_revision > 1
+                            or self._has_annotations(database, video_id)
+                            else "light"
+                        )
+                        if overwrite_rank[overwrite_level] < overwrite_rank[required_level]:
+                            raise SamplingConflict(
+                                f"{required_level} overwrite confirmation required",
+                                f"{required_level}_overwrite_required",
+                            )
                     now = _utc_now()
                     task = Task(
                         id=str(uuid4()),
@@ -259,8 +340,32 @@ class SamplingService:
                     if isinstance(exc, IntegrityError)
                     else str(exc)
                 )
-                rejected.append(SamplingNotice(video_id, reason))
+                rejected.append(
+                    SamplingNotice(
+                        video_id,
+                        reason,
+                        "active_task"
+                        if isinstance(exc, IntegrityError)
+                        else getattr(exc, "code", "invalid_request"),
+                    )
+                )
         return ExtractionBatch(accepted, rejected)
+
+    def videos_with_annotations(
+        self, actor: User, project_id: str, video_ids: list[str]
+    ) -> set[str]:
+        self._project_role(actor, project_id)
+        if not video_ids:
+            return set()
+        with self._session_factory() as database:
+            return set(
+                database.scalars(
+                    select(Frame.video_id)
+                    .join(FrameAnnotation, FrameAnnotation.frame_id == Frame.id)
+                    .where(Frame.video_id.in_(video_ids))
+                    .distinct()
+                )
+            )
 
     def get_plan(
         self, actor: User, project_id: str, video_id: str
@@ -419,6 +524,11 @@ class SamplingService:
             )
             if plan is None or plan.extracted_frames == 0:
                 raise SamplingConflict("video has no sampled frames")
+            if self._active_extraction(database, video_id):
+                raise SamplingConflict(
+                    "frame changes are locked while extraction is active",
+                    "active_extraction",
+                )
             if plan.frame_revision != revision:
                 raise SamplingConflict("frame revision conflict")
             frame_ids = set(changes)

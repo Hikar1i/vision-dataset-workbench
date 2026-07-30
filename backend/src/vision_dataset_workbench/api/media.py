@@ -118,6 +118,7 @@ class VideoResponse(BaseModel):
     updated_at: str
     sampling: SamplingSummaryResponse | None = None
     latest_task: TaskResponse | None = None
+    has_annotations: bool = False
 
 
 class VideoEnabledRequest(BaseModel):
@@ -193,6 +194,7 @@ def _video_response(
     video: Video,
     summary: SamplingSummary | None = None,
     latest_task: Task | None = None,
+    has_annotations: bool = False,
 ) -> VideoResponse:
     return VideoResponse(
         id=video.id,
@@ -214,6 +216,7 @@ def _video_response(
         updated_at=_utc_text(video.updated_at) or "",
         sampling=_sampling_response(summary) if summary else None,
         latest_task=_task_response(latest_task) if latest_task else None,
+        has_annotations=has_annotations,
     )
 
 
@@ -310,12 +313,16 @@ def list_videos(
         user, project_id, [item.id for item in items]
     )
     latest_tasks = service.latest_tasks(user, project_id, [item.id for item in items])
+    annotated_video_ids = request.app.state.sampling_service.videos_with_annotations(
+        user, project_id, [item.id for item in items]
+    )
     return VideoPageResponse(
         items=[
             _video_response(
                 item,
                 summaries.get(item.id),
                 latest_tasks.get(item.id),
+                item.id in annotated_video_ids,
             )
             for item in items
         ],

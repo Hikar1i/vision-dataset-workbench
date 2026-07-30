@@ -71,15 +71,17 @@ class AnnotationService:
             raise ProjectForbidden("project edit permission required")
         with self._session_factory() as database:
             frame, video = self._context(database, project_id, video_id, frame_id)
-            active_auto_task = database.scalar(
+            active_task = database.scalar(
                 select(Task.id).where(
                     Task.video_id == video_id,
-                    Task.type == "auto_annotate",
+                    Task.type.in_(("auto_annotate", "extract_frames")),
                     Task.status.in_(("queued", "running")),
                 )
             )
-            if active_auto_task is not None:
-                raise AnnotationConflict("batch auto annotation is active")
+            if active_task is not None:
+                raise AnnotationConflict(
+                    "annotation changes are locked while a video task is active"
+                )
             self._validate_items(database, project_id, video, items)
             changed = database.execute(
                 update(Frame)
