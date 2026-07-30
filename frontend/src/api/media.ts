@@ -60,7 +60,7 @@ export type ProjectTask = {
   id: string
   project_id: string
   video_id: string | null
-  type: 'copy_video' | 'download_video' | 'extract_frames' | 'import_model' | 'auto_annotate'
+  type: 'copy_video' | 'download_video' | 'extract_frames' | 'import_model' | 'auto_annotate' | 'export_dataset'
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
   progress: number
   error: string | null

@@ -77,4 +77,35 @@ describe('TaskCenterDrawer', () => {
     )
     wrapper.unmount()
   })
+
+  it('labels dataset export tasks without offering unsupported retry', async () => {
+    const exportTask = {
+      ...failedTask,
+      id: 'export-task',
+      video_id: null,
+      type: 'export_dataset',
+    } as const
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          items: [exportTask],
+          page: 1,
+          page_size: 50,
+          total: 1,
+          latest_terminal_at: exportTask.updated_at,
+        }),
+      }),
+    )
+    const wrapper = mount(TaskCenterDrawer, {
+      props: { modelValue: true },
+      global: { plugins: [ElementPlus], stubs: { teleport: false } },
+    })
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('数据集导出')
+    expect(document.body.querySelector('[data-test="retry-export-task"]')).toBeNull()
+    wrapper.unmount()
+  })
 })

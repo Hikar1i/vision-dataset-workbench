@@ -23,6 +23,7 @@ it('loads project context and renders only implemented tabs', async () => {
         children: [
           { path: 'videos', component: { template: '<div>videos</div>' } },
           { path: 'labels', component: { template: '<div>labels</div>' } },
+          { path: 'datasets', component: { template: '<div>datasets</div>' } },
           { path: 'settings', component: { template: '<div>settings</div>' } },
         ],
       },
@@ -41,5 +42,7 @@ it('loads project context and renders only implemented tabs', async () => {
   expect(wrapper.get('[data-test="project-tab-labels"]').attributes('href')).toBe(
     '/projects/project-1/labels',
   )
-  expect(wrapper.text()).not.toContain('数据集管理')
+  expect(wrapper.get('[data-test="project-tab-datasets"]').attributes('href')).toBe(
+    '/projects/project-1/datasets',
+  )
 })

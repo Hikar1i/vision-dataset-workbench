@@ -29,6 +29,7 @@ const typeLabels = {
   extract_frames: '采样抽帧',
   import_model: '模型入库',
   auto_annotate: '自动标注',
+  export_dataset: '数据集导出',
 } as const
 const statusLabels = {
   queued: '排队中',
@@ -133,7 +134,7 @@ onUnmounted(stopPolling)
             @click="cancel(task)"
           >取消</el-button>
           <el-button
-            v-if="(task.status === 'failed' || task.status === 'canceled') && task.type !== 'import_model' && task.type !== 'auto_annotate'"
+            v-if="(task.status === 'failed' || task.status === 'canceled') && task.type !== 'import_model' && task.type !== 'auto_annotate' && task.type !== 'export_dataset'"
             :data-test="`retry-${task.id}`"
             text
             type="primary"

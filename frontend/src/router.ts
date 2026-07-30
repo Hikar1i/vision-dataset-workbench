@@ -12,6 +12,7 @@ import AdminUsersView from './views/AdminUsersView.vue'
 import ProjectsView from './views/ProjectsView.vue'
 import ProjectSettingsView from './views/ProjectSettingsView.vue'
 import ProjectLabelsView from './views/ProjectLabelsView.vue'
+import ProjectDatasetsView from './views/ProjectDatasetsView.vue'
 import ProjectVideosView from './views/ProjectVideosView.vue'
 import RegisterView from './views/RegisterView.vue'
 import SetupView from './views/SetupView.vue'
@@ -51,6 +52,12 @@ export function createAppRouter() {
                 name: 'project-labels',
                 component: ProjectLabelsView,
                 meta: { section: '数据集项目', page: '标签管理' },
+              },
+              {
+                path: 'datasets',
+                name: 'project-datasets',
+                component: ProjectDatasetsView,
+                meta: { section: '数据集项目', page: '数据集管理' },
               },
               {
                 path: 'settings',
