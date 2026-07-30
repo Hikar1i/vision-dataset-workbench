@@ -15,6 +15,7 @@ import {
 } from '../api/media'
 import type { Project } from '../api/projects'
 import ExtractionConfirmDialog from '../components/ExtractionConfirmDialog.vue'
+import ExportDatasetDialog from '../components/ExportDatasetDialog.vue'
 import FramesDialog from '../components/FramesDialog.vue'
 import ImportVideosDialog from '../components/ImportVideosDialog.vue'
 import SamplingDialog from '../components/SamplingDialog.vue'
@@ -29,6 +30,7 @@ const pageSize = ref(50)
 const total = ref(0)
 const loading = ref(false)
 const importOpen = ref(false)
+const exportOpen = ref(false)
 const playing = ref<Video | null>(null)
 const frameVideo = ref<Video | null>(null)
 const selected = ref<string[]>([])
@@ -281,6 +283,13 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
           >
             导入视频
           </el-button>
+          <el-button
+            v-if="canEdit"
+            data-test="export-dataset"
+            @click="exportOpen = true"
+          >
+            导出数据集
+          </el-button>
         </header>
 
         <section class="video-action-lane" data-test="video-action-lane">
@@ -481,6 +490,11 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
       v-model="importOpen"
       :project-id="projectId"
       @submitted="imported"
+    />
+    <ExportDatasetDialog
+      v-if="canEdit"
+      v-model="exportOpen"
+      :project-id="projectId"
     />
     <SamplingDialog
       v-if="canEdit"

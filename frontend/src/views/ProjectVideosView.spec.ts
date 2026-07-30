@@ -91,6 +91,7 @@ describe('ProjectVideosView', () => {
     expect(wrapper.text()).toContain('已筛帧')
     expect(wrapper.text()).toContain('48/50 帧启用')
     expect(wrapper.find('[data-test="import-videos"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="export-dataset"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="enabled-video-id"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="frames-video-id"]').exists()).toBe(true)
@@ -122,6 +123,7 @@ describe('ProjectVideosView', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-test="import-videos"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="export-dataset"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="select-video-id"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="extract-video-id"]').exists()).toBe(true)
