@@ -22,9 +22,11 @@ from sqlalchemy.orm import sessionmaker
 
 from .config import RuntimeSettings
 from .database import make_engine
+from .dataset_export_task import DatasetExportTaskCanceled, execute_dataset_export
 from .media import MediaMetadata, MediaToolError, normalize_remote_url, probe_video, ytdlp_base_args
 from .inference import InferenceRunner, InferenceUnavailable
 from .models import (
+    DatasetExport,
     Frame,
     FrameAnnotation,
     InferenceModel,
@@ -45,6 +47,7 @@ LIMITS = {
     "extract_frames": 2,
     "import_model": 1,
     "auto_annotate": 2,
+    "export_dataset": 1,
 }
 LEASE_SECONDS = 30
 COPY_CHUNK_SIZE = 1024 * 1024
@@ -189,9 +192,19 @@ class TaskWorker:
                 self._execute_import_model(task_id, task_temp)
             elif task_type == "auto_annotate":
                 self._execute_auto_annotate(task_id)
+            elif task_type == "export_dataset":
+                execute_dataset_export(
+                    self._session_factory,
+                    self.workspace,
+                    task_id,
+                    task_temp,
+                    self._now,
+                    self._heartbeat,
+                    self._cancel_requested,
+                )
             else:
                 raise RuntimeError("unsupported task type")
-        except TaskCanceled:
+        except (TaskCanceled, DatasetExportTaskCanceled):
             self._finish_canceled(task_id)
         except Exception as exc:
             self._finish_failed(task_id, exc)
@@ -964,6 +977,7 @@ class TaskWorker:
             task.lease_owner = None
             task.lease_expires_at = None
             self._fail_imported_model(database, task, "model import canceled")
+            self._finish_dataset_export(database, task, "canceled", "dataset export canceled")
             database.commit()
 
     def _safe_error(self, exc: Exception) -> str:
@@ -984,6 +998,7 @@ class TaskWorker:
             task.lease_owner = None
             task.lease_expires_at = None
             self._fail_imported_model(database, task, task.error)
+            self._finish_dataset_export(database, task, "failed", task.error)
             database.commit()
 
     @staticmethod
@@ -996,6 +1011,19 @@ class TaskWorker:
             model.status = "failed"
             model.error = error
             model.updated_at = task.updated_at
+
+    @staticmethod
+    def _finish_dataset_export(
+        database, task: Task, status: str, error: str
+    ) -> None:
+        if task.type != "export_dataset":
+            return
+        export_id = str(json.loads(task.payload).get("export_id") or "")
+        record = database.get(DatasetExport, export_id)
+        if record is not None:
+            record.status = status
+            record.error = error
+            record.completed_at = task.updated_at
 
     def _remove_task_temp(self, path: Path) -> None:
         expected_parent = (self.workspace / "tmp").resolve()

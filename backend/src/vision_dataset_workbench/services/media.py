@@ -13,6 +13,7 @@ from sqlalchemy.orm import aliased, sessionmaker
 from ..config import RuntimeSettings
 from ..media import RemotePreview, normalize_remote_url, preview_remote
 from ..models import (
+    DatasetExport,
     Project,
     ProjectMembership,
     Task,
@@ -22,8 +23,8 @@ from ..models import (
 )
 from ..storage.browser import VIDEO_EXTENSIONS
 from ..storage.paths import HomePathResolver, UnsafePathError
-from .projects import ProjectForbidden, ProjectService
 from .dataset_exports import video_has_active_export
+from .projects import ProjectForbidden, ProjectService
 
 
 class MediaNotFound(ValueError):
@@ -450,6 +451,14 @@ class MediaService:
             if task.status == "queued":
                 task.status = "canceled"
                 task.finished_at = now
+                if task.type == "export_dataset":
+                    record = database.scalar(
+                        select(DatasetExport).where(DatasetExport.task_id == task.id)
+                    )
+                    if record is not None:
+                        record.status = "canceled"
+                        record.error = "dataset export canceled"
+                        record.completed_at = now
             elif task.status == "running":
                 task.cancel_requested = True
             else:

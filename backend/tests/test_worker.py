@@ -11,6 +11,7 @@ from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.media import MediaMetadata
 from vision_dataset_workbench.models import (
+    DatasetExport,
     Frame,
     FrameAnnotation,
     InferenceModel,
@@ -343,6 +344,240 @@ def test_auto_annotation_task_processes_only_starting_enabled_frames(tmp_path):
         overwritten = session.query(FrameAnnotation).filter_by(frame_id="frame-1").all()
         assert [item.source for item in overwritten] == ["model"]
         assert overwritten[0].sort_order == 0
+    engine.dispose()
+
+
+def add_dataset_export_task(engine, workspace, *, missing_source=False):
+    frames_dir = workspace / "projects" / "project-id" / "frames" / "TESTV001"
+    frames_dir.mkdir(parents=True)
+    with Session(engine) as session:
+        session.add(
+            Video(
+                id="export-video",
+                project_id="project-id",
+                short_code="TESTV001",
+                source_type="local",
+                title="export video",
+                status="ready",
+                enabled=True,
+                width=320,
+                height=240,
+                version=1,
+            )
+        )
+        session.flush()
+        session.add(
+            SamplingPlan(
+                id="export-plan",
+                video_id="export-video",
+                mode="target_frames",
+                parameters="{}",
+                output_format="jpg",
+                output_quality=2,
+                expected_frames=3,
+                extracted_frames=3,
+                enabled_frames=2,
+                version=1,
+                applied_version=1,
+                generation=1,
+                frame_revision=1,
+            )
+        )
+        session.add_all(
+            [
+                ProjectLabel(
+                    id="person-label",
+                    project_id="project-id",
+                    name="person",
+                    name_normalized="person",
+                    color="#16866f",
+                    sort_order=0,
+                    enabled=True,
+                ),
+                ProjectLabel(
+                    id="car-label",
+                    project_id="project-id",
+                    name="car",
+                    name_normalized="car",
+                    color="#e85d4a",
+                    sort_order=1,
+                    enabled=True,
+                ),
+            ]
+        )
+        for sequence, enabled in ((1, True), (2, True), (3, False)):
+            path = frames_dir / f"TESTV001_frame_{sequence:06d}.jpg"
+            if not (missing_source and sequence == 2):
+                path.write_bytes(f"frame-{sequence}".encode())
+            session.add(
+                Frame(
+                    id=f"export-frame-{sequence}",
+                    video_id="export-video",
+                    generation=1,
+                    sequence=sequence,
+                    source_frame_index=sequence - 1,
+                    time_offset=sequence / 10,
+                    file_path=path.relative_to(workspace).as_posix(),
+                    enabled=enabled,
+                )
+            )
+        session.flush()
+        session.add_all(
+            [
+                FrameAnnotation(
+                    id="person-box-1",
+                    frame_id="export-frame-1",
+                    label_id="person-label",
+                    x_min=1,
+                    y_min=2,
+                    x_max=30,
+                    y_max=40,
+                    source="manual",
+                    sort_order=0,
+                ),
+                FrameAnnotation(
+                    id="car-box-1",
+                    frame_id="export-frame-1",
+                    label_id="car-label",
+                    x_min=32,
+                    y_min=24,
+                    x_max=160,
+                    y_max=120,
+                    source="model",
+                    confidence=0.9,
+                    sort_order=1,
+                ),
+                FrameAnnotation(
+                    id="person-box-2",
+                    frame_id="export-frame-2",
+                    label_id="person-label",
+                    x_min=10,
+                    y_min=20,
+                    x_max=100,
+                    y_max=200,
+                    source="manual",
+                ),
+            ]
+        )
+        task = Task(
+            id="dataset-export-task",
+            project_id="project-id",
+            submitted_by_id="one-id",
+            type="export_dataset",
+            payload=json.dumps({"export_id": "dataset-export"}),
+        )
+        session.add(task)
+        session.flush()
+        session.add(
+            DatasetExport(
+                id="dataset-export",
+                project_id="project-id",
+                task_id=task.id,
+                created_by_id="one-id",
+                name="训练集",
+                status="queued",
+                train_ratio=1,
+                label_snapshot=json.dumps(
+                    [
+                        {
+                            "source_label_id": "person-label",
+                            "name": "person",
+                            "mapping": 0,
+                            "enabled": False,
+                        },
+                        {
+                            "source_label_id": "car-label",
+                            "name": "car",
+                            "mapping": 1,
+                            "enabled": True,
+                        },
+                    ]
+                ),
+                source_snapshot=json.dumps(
+                    {
+                        "videos": [
+                            {
+                                "video_id": "export-video",
+                                "video_version": 1,
+                                "sampling_generation": 1,
+                                "frame_revision": 1,
+                                "enabled_frames": 2,
+                            }
+                        ]
+                    }
+                ),
+            )
+        )
+        session.commit()
+
+
+def test_dataset_export_task_hardlinks_images_and_writes_sparse_labels(tmp_path):
+    worker, engine, _home, workspace = make_worker(tmp_path)
+    add_dataset_export_task(engine, workspace)
+    assert worker.claim_available()[0].id == "dataset-export-task"
+
+    worker.execute_task("dataset-export-task")
+
+    with Session(engine) as session:
+        task = session.get(Task, "dataset-export-task")
+        record = session.get(DatasetExport, "dataset-export")
+        assert task is not None and task.status == "succeeded", task.error if task else None
+        assert record is not None and record.status == "ready"
+        assert (record.total_frames, record.train_frames, record.val_frames) == (2, 2, 0)
+        assert record.actual_train_ratio == 1
+        target = workspace / str(record.storage_path)
+        manifest = json.loads(record.manifest or "{}")
+
+    first_source = workspace / "projects/project-id/frames/TESTV001/TESTV001_frame_000001.jpg"
+    first_export = target / "train/images/TESTV001_frame_000001.jpg"
+    assert first_export.stat().st_ino == first_source.stat().st_ino
+    assert (target / "train/labels/TESTV001_frame_000001.txt").read_text() == (
+        "1 0.300000 0.300000 0.400000 0.400000\n"
+    )
+    assert (target / "train/labels/TESTV001_frame_000002.txt").read_text() == ""
+    assert not (target / "train/images/TESTV001_frame_000003.jpg").exists()
+    assert (target / "classes.txt").read_text() == "person\ncar\n"
+    assert "nc: 2" in (target / "dataset.yaml").read_text()
+    assert manifest["train_video_ids"] == ["export-video"]
+    assert manifest["video_stats"][0]["positive_frames"] == 1
+    assert manifest["video_stats"][0]["negative_frames"] == 1
+    engine.dispose()
+
+
+def test_dataset_export_failure_does_not_publish_partial_directory(tmp_path):
+    worker, engine, _home, workspace = make_worker(tmp_path)
+    add_dataset_export_task(engine, workspace, missing_source=True)
+    worker.claim_available()
+
+    worker.execute_task("dataset-export-task")
+
+    with Session(engine) as session:
+        task = session.get(Task, "dataset-export-task")
+        record = session.get(DatasetExport, "dataset-export")
+        assert task is not None and task.status == "failed"
+        assert record is not None and record.status == "failed"
+        assert record.storage_path is None
+    exports = workspace / "projects/project-id/exports"
+    assert not exports.exists() or list(exports.iterdir()) == []
+    engine.dispose()
+
+
+def test_dataset_export_cancellation_updates_export_record(tmp_path):
+    worker, engine, _home, workspace = make_worker(tmp_path)
+    add_dataset_export_task(engine, workspace)
+    worker.claim_available()
+    with Session(engine) as session:
+        task = session.get(Task, "dataset-export-task")
+        task.cancel_requested = True
+        session.commit()
+
+    worker.execute_task("dataset-export-task")
+
+    with Session(engine) as session:
+        task = session.get(Task, "dataset-export-task")
+        record = session.get(DatasetExport, "dataset-export")
+        assert task is not None and task.status == "canceled"
+        assert record is not None and record.status == "canceled"
     engine.dispose()
 
 

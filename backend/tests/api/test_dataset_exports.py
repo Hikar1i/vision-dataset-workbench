@@ -230,6 +230,28 @@ def test_export_requires_enabled_frames_and_same_origin(tmp_path):
     ).status_code == 409
 
 
+def test_queued_export_cancellation_updates_export_record(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "owner")
+    created = owner.post(
+        "/api/v1/projects/project-id/dataset-exports",
+        headers=ORIGIN,
+        json=export_payload(),
+    ).json()
+
+    canceled = owner.post(
+        f"/api/v1/projects/project-id/tasks/{created['task_id']}/cancel",
+        headers=ORIGIN,
+    )
+    assert canceled.status_code == 200
+    assert canceled.json()["status"] == "canceled"
+    detail = owner.get(
+        f"/api/v1/projects/project-id/dataset-exports/{created['id']}"
+    ).json()
+    assert detail["status"] == "canceled"
+    assert detail["error"] == "dataset export canceled"
+
+
 def test_active_export_freezes_participating_video_writes_until_terminal(tmp_path):
     app = make_app(tmp_path)
     owner = client_for(app, "owner")
