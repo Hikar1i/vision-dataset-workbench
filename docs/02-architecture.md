@@ -1,10 +1,10 @@
 # 架构
 
-状态：总体设计已批准，初始化、认证、项目权限、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、模型入库和自动标注已实现。
+状态：总体设计已批准，初始化、认证、项目权限、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、模型入库、自动标注和数据集导出已实现。
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十二版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型推理、GPU 能力探测和独立 Worker。训练和导出仍是目标设计。因此本页区分：
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十三版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型推理、数据集导出、GPU 能力探测和独立 Worker。模型训练仍是目标设计。因此本页区分：
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -39,9 +39,13 @@ Vue setup/auth/admin/project/media pages
        └─ authenticated frame image delivery
   ├─ /api/v1/.../frames/<id>/annotations → AnnotationService
   │    └─ original-pixel rectangles + stable display order + annotation revision
-  └─ /api/v1/models|auto-annotations → ModelService / AutoAnnotationService
+  ├─ /api/v1/models|auto-annotations → ModelService / AutoAnnotationService
        ├─ synchronous single-frame review draft
        └─ persistent batch task creation
+  └─ /api/v1/projects/<id>/dataset-exports → DatasetExportService
+       ├─ immutable label/source snapshots
+       ├─ list/detail/streaming ZIP/logical delete
+       └─ owner/editor writes + viewer reads/downloads
 
 Independent Python Worker
   ├─ SQLite lease / progress / cancel / retry
@@ -49,10 +53,11 @@ Independent Python Worker
   ├─ yt-dlp HTTP(S) download + remote identity deduplication
   ├─ FFmpeg frame extraction + atomic generation replacement
   ├─ inference model copy + atomic publication
-  └─ per-frame batch auto annotation + progress/status publication
+  ├─ per-frame batch auto annotation + progress/status publication
+  └─ YOLO dataset hardlinks + labels/manifest + atomic publication
 ```
 
-API 请求负责校验、权限和应用服务编排。视频导入、抽帧、模型入库和批量自动标注只创建持久任务并立即返回；复制、下载、媒体探测、抽帧、模型复制和批量推理在独立 Worker 中执行。单张自动标注是为交互复核保留的例外：在 API 同步线程池中运行并只返回草稿，不直接改写标注。帧文件和模型先写任务临时目录，验证后原子发布。审计表、训练和导出尚未实现。
+API 请求负责校验、权限和应用服务编排。视频导入、抽帧、模型入库、批量自动标注和数据集导出只创建持久任务并立即返回；复制、下载、媒体探测、抽帧、模型复制、批量推理和导出在独立 Worker 中执行。单张自动标注是为交互复核保留的例外：在 API 同步线程池中运行并只返回草稿，不直接改写标注。帧文件、模型和导出产物先写任务临时目录，验证后原子发布。审计表和模型训练尚未实现。
 
 ## 遗留架构基线
 
@@ -142,7 +147,7 @@ SQLite             Persistent Worker
 
 复制或下载失败记录在 Task，视频保留为 `pending` 供重试；文件确实不可用时预留 `unavailable`。采样不再改变视频生命周期：每个视频最多一个 SamplingPlan；方案版本未应用为 `configured`，当前版本已抽出帧为 `sampled`。帧启停保存于稳定 Frame 记录，并用 `frame_revision` 防止并发覆盖。列表中的业务状态由媒体状态、任务、采样版本、帧修订和标注存在性实时推导，不写入单独且不可逆的状态枚举。
 
-任务状态与业务状态分离。复制、下载、抽帧、模型入库和批量自动标注使用 queued、running、succeeded、failed、canceled；任务记录包含类型、提交者、资源范围、进度、尝试次数、错误、取消标记、租约和时间。批量自动标注要求视频启用，并按 Worker 开始执行时启用的帧集合逐帧提交；失败或取消时保留已成功帧。导出后续复用该状态模型。
+任务状态与业务状态分离。复制、下载、抽帧、模型入库、批量自动标注和数据集导出使用 queued、running、succeeded、failed、canceled；任务记录包含类型、提交者、资源范围、进度、尝试次数、错误、取消标记、租约和时间。批量自动标注要求视频启用，并按 Worker 开始执行时启用的帧集合逐帧提交；失败或取消时保留已成功帧。导出记录另以 queued、running、ready、failed、canceled 表达产物状态，并关联持久任务。
 
 采样方案覆盖使用 `none/configured/sampled` 三级确认，重新抽帧使用 `none/light/destructive` 三级确认。后端在写事务中根据当前帧、`frame_revision` 和标注存在性重新计算所需级别；前端状态过期导致风险升级时逐项拒绝。`extract_frames` 任务 queued/running 期间冻结方案、筛帧和标注写入，读取和播放不受影响；成功发布新一代帧后才删除旧帧及其级联标注。
 
@@ -161,8 +166,9 @@ SQLite             Persistent Worker
 - 所有模式共用用户、权限和数据，单用户模式临时以工作区管理员访问全部项目。
 - 所有受管理数据位于 `<parent>/.vision-dataset-workbench/`。
 - 所有认证用户可浏览启动用户 `~`，导入后复制到工作区；API 不暴露绝对路径。
-- Worker 与 API 读取同一 SQLite 和工作区。复制、下载和抽帧各自全局并发 2、同类型每用户并发 1；每个 FFmpeg 抽帧进程限制 2 个线程，当前只部署一个调度 Worker。
+- Worker 与 API 读取同一 SQLite 和工作区。复制、下载、抽帧和批量自动标注各自全局并发 2，模型入库和数据集导出各自全局并发 1；同类型每用户并发 1。每个 FFmpeg 抽帧进程限制 2 个线程，当前只部署一个调度 Worker。
 - 项目媒体位于 `projects/<project UUID>/videos/<video short code>.<ext>`，缩略图位于 `projects/<project UUID>/thumbnails/<video short code>_thumbnail.jpg`，采样帧位于 `projects/<project UUID>/frames/<video short code>/<video short code>_frame_000001.<jpg|png>`；执行中输出位于顶层 `tmp/<task UUID>/`，验证后原子发布。短码在项目内唯一，帧文件可按原名平铺复制；每视频子目录仍是重采样原子替换边界。
+- 数据集导出位于 `projects/<project UUID>/exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；图像通过硬链接引用当前帧文件，类别和源数据快照、YOLO 标签、配置及统计清单随产物保存。下载按请求流式生成 ZIP，不在工作区保留额外压缩包。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
 - Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
 - Python 核心依赖不包含模型运行库；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、Ultralytics、Transformers 和 ONNX Runtime GPU。
@@ -176,14 +182,13 @@ projects/<project UUID>/
 ├─ thumbnails/<video short code>_thumbnail.jpg
 ├─ frames/<video short code>/      # 已实现：当前一代规范采样帧
 │  └─ <video short code>_frame_000001.<jpg|png>
-├─ labels/<video UUID>/            # 计划：导出前的规范标签文件；在线标注当前存入 SQLite
 ├─ annotation-batches/<batch UUID>/ # 逻辑概念：当前批量任务直接按 Frame 记录处理，不物化固定分组目录
-└─ exports/<export UUID>/           # 计划：不可变数据集导出
+└─ exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/ # 已实现：不可变 YOLO 数据集导出
 
 models/<model UUID>/                # 已实现：受管推理模型文件或 Transformers 目录
 ```
 
-遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应后续 `exports/<export UUID>/`；遗留 `groups/` 不作为普通数据目录照搬，而对应后续自动标注任务的帧快照/分片概念。新系统直接调用 YOLO、GroundingDINO 等模型并由任务调度器动态分片，不依赖 X-AnyLabeling 或固定分组目录。
+遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应新的 `exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；遗留 `groups/` 不作为普通数据目录照搬，而对应自动标注任务的帧快照/分片概念。新系统直接调用 YOLO、GroundingDINO 等模型并由任务调度器动态分片，不依赖 X-AnyLabeling 或固定分组目录。
 
 ## 延期架构
 

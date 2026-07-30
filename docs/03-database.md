@@ -1,6 +1,6 @@
 # 数据库
 
-状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注和推理模型迁移已实现；导出 schema 仍为批准设计。
+状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、推理模型和数据集导出迁移已实现。
 
 ## 数据库选型
 
@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述，`0009_annotations` 增加矩形标注和帧标注修订号，`0010_inference_models` 增加推理模型并扩展任务类型，`0011_annotation_order` 为标注增加稳定显示顺序，`0012_video_short_codes` 增加视频短码并精简 Frame 索引。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述，`0009_annotations` 增加矩形标注和帧标注修订号，`0010_inference_models` 增加推理模型并扩展任务类型，`0011_annotation_order` 为标注增加稳定显示顺序，`0012_video_short_codes` 增加视频短码并精简 Frame 索引，`0013_dataset_exports` 增加不可变导出记录并扩展任务类型。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -151,12 +151,27 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 
 模型属于工作区而非单个数据集项目；项目级标签与推理时选择的英文提示词决定结果如何映射到具体项目。
 
-`tasks` 表当前承载 `copy_video`、`download_video`、`extract_frames`、`import_model` 和 `auto_annotate`：
+`dataset_exports` 表保存项目级不可变导出记录：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `project_id` / `created_by_id` | 导出 UUID、项目和创建者外键 |
+| `task_id` | 可空且唯一的关联持久任务；任务删除时置空 |
+| `name` / `status` | 用户展示名称；`queued`、`running`、`ready`、`failed` 或 `canceled` |
+| `train_ratio` / `actual_train_ratio` | 期望及完成后的实际训练集比例 |
+| `total_frames` / `train_frames` / `val_frames` | 完成后的样本统计 |
+| `label_snapshot` / `source_snapshot` | 创建任务时冻结的类别映射和参与视频修订快照 JSON |
+| `manifest` / `storage_path` | 完成后的清单 JSON 和工作区相对产物路径 |
+| `error` / 时间字段 | 安全错误信息、创建、开始、完成、逻辑删除和更新时间 |
+
+同一项目通过 partial unique index 只允许一个 `queued` 或 `running` 导出。正常查询过滤 `deleted_at`；逻辑删除保留记录，并把产物移动至工作区 `.deleted/`。
+
+`tasks` 表当前承载 `copy_video`、`download_video`、`extract_frames`、`import_model`、`auto_annotate` 和 `export_dataset`：
 
 | 字段 | 约束/含义 |
 | --- | --- |
 | `id` / `project_id` / `submitted_by_id` / `video_id` | 任务、项目、提交者和目标视频关系 |
-| `type` | 视频复制/下载、抽帧、模型入库或批量自动标注 |
+| `type` | 视频复制/下载、抽帧、模型入库、批量自动标注或数据集导出 |
 | `status` | `queued`、`running`、`succeeded`、`failed` 或 `canceled` |
 | `payload` / `result` | JSON 文本；分别保存执行输入和最终摘要 |
 | `progress` / `error` / `cancel_requested` | 0–100 进度、安全错误文本和协作取消标记 |
@@ -164,7 +179,7 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 | `lease_owner` / `lease_expires_at` | Worker 租约；过期的 running 任务可重新排队 |
 | 时间字段 | 创建、开始、结束和更新时间 |
 
-同一视频只允许一个 queued/running 任务。视频复制、下载和抽帧可通过重试接口创建新 Task 并保留原记录；模型入库和批量自动标注不提供通用重试按钮，需由用户重新发起以明确当次模型参数和帧范围。批量自动标注逐帧独立提交，失败或取消不会回滚此前成功帧。
+同一视频只允许一个 queued/running 任务；数据集导出另由 `dataset_exports` 的项目级索引串行化。视频复制、下载和抽帧可通过重试接口创建新 Task 并保留原记录；模型入库、批量自动标注和数据集导出不提供通用重试按钮，需由用户重新发起以明确当次参数和快照。批量自动标注逐帧独立提交，失败或取消不会回滚此前成功帧；导出失败或取消不发布残缺目录。
 
 初始化服务先在目标父目录创建同文件系统临时目录，执行迁移并写入管理员，成功后原子重命名为 `.vision-dataset-workbench`。定位文件写入失败时会删除未发布工作区，口令保持可重试。
 
