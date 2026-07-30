@@ -231,7 +231,19 @@ async function submitExtraction(
       targetVideos.map((video) => video.id),
       overwriteLevel,
     )
-    ElMessage.success(`已创建 ${batch.accepted.length} 个抽帧任务，拒绝 ${batch.rejected.length} 项。`)
+    if (batch.rejected.length) {
+      const riskChanged = batch.rejected.some((item) =>
+        item.code === 'light_overwrite_required'
+        || item.code === 'destructive_overwrite_required',
+      )
+      ElMessage.warning(
+        riskChanged
+          ? `已创建 ${batch.accepted.length} 个任务；部分视频风险状态已变化，请按最新状态重新确认。`
+          : `已创建 ${batch.accepted.length} 个任务，拒绝 ${batch.rejected.length} 项。`,
+      )
+    } else {
+      ElMessage.success(`已创建 ${batch.accepted.length} 个抽帧任务。`)
+    }
     const accepted = new Set(batch.accepted.map((item) => item.video_id))
     selected.value = selected.value.filter((id) => !accepted.has(id))
     await load(page.value, pageSize.value, true)
