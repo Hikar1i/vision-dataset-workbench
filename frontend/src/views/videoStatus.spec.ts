@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ProjectTask, SamplingSummary, Video } from '../api/media'
-import { videoStatusInfo } from './videoStatus'
+import { videoStatusInfo, videoWorkflowStatus } from './videoStatus'
 
 const sampling: SamplingSummary = {
   id: 'plan-id',
@@ -59,6 +59,7 @@ const video: Video = {
   updated_at: '2026-07-24T00:00:00Z',
   sampling: null,
   latest_task: null,
+  has_annotations: false,
 }
 
 describe('videoStatusInfo', () => {
@@ -119,32 +120,58 @@ describe('videoStatusInfo', () => {
         latest_task: { ...task, status: 'failed', error: '旧错误' },
       }),
     ).toBe('已采样 · 50 帧')
-    expect(videoStatusInfo({ ...video, enabled: false })).toBe(
-      '视频已停用，不参与标注与导出',
-    )
+    expect(videoWorkflowStatus({ ...video, enabled: false }).flags).toEqual(['视频停用'])
     expect(
       videoStatusInfo({
         ...video,
         sampling: { ...sampling, enabled_frames: 38, frame_revision: 2 },
       }),
-    ).toBe('已筛选 · 38/50 帧启用')
+    ).toBe('已采样 · 38/50 帧启用')
     expect(
       videoStatusInfo({
         ...video,
         sampling: { ...sampling, frame_revision: 2 },
       }),
-    ).toBe('已恢复全部采样帧')
+    ).toBe('已采样 · 50 帧')
   })
 
   it('reports configured and base media states', () => {
     expect(
       videoStatusInfo({
         ...video,
-        sampling: { ...sampling, state: 'configured', expected_frames: 80 },
+        sampling: {
+          ...sampling,
+          state: 'configured',
+          expected_frames: 80,
+          extracted_frames: 0,
+          enabled_frames: 0,
+          applied_version: 0,
+        },
       }),
     ).toBe('待抽帧 · 预计 80 帧')
     expect(videoStatusInfo({ ...video, status: 'pending' })).toBe('等待导入')
     expect(videoStatusInfo(video)).toBe('可配置采样')
     expect(videoStatusInfo({ ...video, status: 'unavailable' })).toBe('媒体不可用')
+  })
+
+  it('reports pending resampling and overlapping work flags', () => {
+    const changed = {
+      ...video,
+      has_annotations: true,
+      enabled: false,
+      sampling: {
+        ...sampling,
+        state: 'configured' as const,
+        version: 2,
+        applied_version: 1,
+        expected_frames: 80,
+        frame_revision: 2,
+      },
+    }
+
+    expect(videoStatusInfo(changed)).toBe(
+      '待重新抽帧 · 当前 50 帧，新方案预计 80 帧',
+    )
+    expect(videoWorkflowStatus(changed).flags).toEqual(['已筛帧', '有标注', '视频停用'])
   })
 })

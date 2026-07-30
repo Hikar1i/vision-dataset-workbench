@@ -14,10 +14,11 @@ import {
   type Video,
 } from '../api/media'
 import type { Project } from '../api/projects'
+import ExtractionConfirmDialog from '../components/ExtractionConfirmDialog.vue'
 import FramesDialog from '../components/FramesDialog.vue'
 import ImportVideosDialog from '../components/ImportVideosDialog.vue'
 import SamplingDialog from '../components/SamplingDialog.vue'
-import { videoStatusInfo } from './videoStatus'
+import { videoWorkflowStatus } from './videoStatus'
 
 const props = defineProps<{ project: Project }>()
 const router = useRouter()
@@ -32,7 +33,11 @@ const playing = ref<Video | null>(null)
 const frameVideo = ref<Video | null>(null)
 const selected = ref<string[]>([])
 const samplingOpen = ref(false)
-const samplingVideoIds = ref<string[]>([])
+const samplingTargets = ref<Video[]>([])
+const configureChoiceTargets = ref<Video[]>([])
+const extractionChoiceTargets = ref<Video[]>([])
+const extractionTargets = ref<Video[]>([])
+const extractionConfirmOpen = ref(false)
 const changingEnabled = ref('')
 const error = ref('')
 
@@ -45,6 +50,15 @@ const selectableIds = computed(() =>
 const selectedOnPage = computed(() =>
   selected.value.filter((id) => selectableIds.value.includes(id)),
 )
+const selectedVideos = computed(() =>
+  videos.value.filter((video) => selected.value.includes(video.id)),
+)
+const selectedCounts = computed(() => ({
+  configured: selectedVideos.value.filter((video) => video.sampling !== null).length,
+  extracted: selectedVideos.value.filter((video) => (video.sampling?.extracted_frames ?? 0) > 0).length,
+  screened: selectedVideos.value.filter((video) => (video.sampling?.frame_revision ?? 0) > 1).length,
+  annotated: selectedVideos.value.filter((video) => video.has_annotations).length,
+}))
 const allSelected = computed(
   () => selectableIds.value.length > 0 && selectedOnPage.value.length === selectableIds.value.length,
 )
@@ -74,13 +88,19 @@ function hideBrokenThumbnail(event: Event) {
   image.style.display = 'none'
 }
 
-async function load(nextPage = page.value, nextPageSize = pageSize.value) {
+async function load(
+  nextPage = page.value,
+  nextPageSize = pageSize.value,
+  preserveSelection = false,
+) {
   loading.value = true
   error.value = ''
   try {
     const videoResult = await listVideos(projectId, nextPage, nextPageSize)
     videos.value = videoResult.items
-    selected.value = []
+    selected.value = preserveSelection
+      ? selected.value.filter((id) => videoResult.items.some((video) => video.id === id))
+      : []
     page.value = videoResult.page
     pageSize.value = videoResult.page_size
     total.value = videoResult.total
@@ -126,9 +146,34 @@ function imported(batch: ImportBatch) {
   void load(1)
 }
 
-function configure(videoIds: string[]) {
-  samplingVideoIds.value = videoIds
+function targets(videoIds: string[]) {
+  return videos.value.filter((video) => videoIds.includes(video.id))
+}
+
+function openSampling(targetVideos: Video[]) {
+  samplingTargets.value = targetVideos
   samplingOpen.value = true
+}
+
+function configure(videoIds: string[]) {
+  const targetVideos = targets(videoIds)
+  if (targetVideos.length > 1 && targetVideos.some((video) => video.sampling)) {
+    configureChoiceTargets.value = targetVideos
+    return
+  }
+  openSampling(targetVideos)
+}
+
+function configureUnconfigured() {
+  const safe = configureChoiceTargets.value.filter((video) => !video.sampling)
+  configureChoiceTargets.value = []
+  if (safe.length) openSampling(safe)
+}
+
+function configureAll() {
+  const targetVideos = configureChoiceTargets.value
+  configureChoiceTargets.value = []
+  openSampling(targetVideos)
 }
 
 function openAnnotation(video: Video) {
@@ -136,19 +181,60 @@ function openAnnotation(video: Video) {
   void router.push(`/projects/${projectId}/videos/${video.id}/annotation`)
 }
 
-function samplingSubmitted() {
+async function samplingSubmitted(batch: { accepted: Array<{ video_id: string }> }) {
   ElMessage.success('采样方案已保存。')
-  selected.value = []
-  void load()
+  const accepted = new Set(batch.accepted.map((item) => item.video_id))
+  selected.value = selected.value.filter((id) => !accepted.has(id))
+  await load(page.value, pageSize.value, true)
 }
 
-async function extract(videoIds: string[]) {
+function openExtractionConfirmation(targetVideos: Video[]) {
+  extractionTargets.value = targetVideos
+  extractionConfirmOpen.value = true
+}
+
+function extract(videoIds: string[]) {
+  const targetVideos = targets(videoIds)
+  if (!targetVideos.some((video) => (video.sampling?.extracted_frames ?? 0) > 0)) {
+    void submitExtraction(targetVideos, 'none')
+    return
+  }
+  if (targetVideos.length > 1) {
+    extractionChoiceTargets.value = targetVideos
+    return
+  }
+  openExtractionConfirmation(targetVideos)
+}
+
+function extractUnextracted() {
+  const safe = extractionChoiceTargets.value.filter(
+    (video) => (video.sampling?.extracted_frames ?? 0) === 0,
+  )
+  extractionChoiceTargets.value = []
+  if (safe.length) void submitExtraction(safe, 'none')
+}
+
+function extractAll() {
+  const targetVideos = extractionChoiceTargets.value
+  extractionChoiceTargets.value = []
+  openExtractionConfirmation(targetVideos)
+}
+
+async function submitExtraction(
+  targetVideos: Video[],
+  overwriteLevel: 'none' | 'light' | 'destructive',
+) {
   error.value = ''
   try {
-    const batch = await createExtractions(projectId, videoIds)
+    const batch = await createExtractions(
+      projectId,
+      targetVideos.map((video) => video.id),
+      overwriteLevel,
+    )
     ElMessage.success(`已创建 ${batch.accepted.length} 个抽帧任务，拒绝 ${batch.rejected.length} 项。`)
-    selected.value = []
-    await load()
+    const accepted = new Set(batch.accepted.map((item) => item.video_id))
+    selected.value = selected.value.filter((id) => !accepted.has(id))
+    await load(page.value, pageSize.value, true)
   } catch (reason) {
     ElMessage.error(reason instanceof Error ? reason.message : '抽帧任务创建失败')
   }
@@ -187,7 +273,13 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
         <section class="video-action-lane" data-test="video-action-lane">
           <template v-if="canEdit && selected.length">
-            <strong>已选择 {{ selected.length }} 个视频</strong>
+            <strong class="selection-summary">
+              已选择 {{ selected.length }} 个视频
+              <small>
+                已配置 {{ selectedCounts.configured }} · 已抽帧 {{ selectedCounts.extracted }} ·
+                已筛帧 {{ selectedCounts.screened }} · 有标注 {{ selectedCounts.annotated }}
+              </small>
+            </strong>
             <div>
             <el-button data-test="batch-configure" @click="configure(selected)">批量配置采样</el-button>
             <el-button data-test="batch-extract" @click="extract(selected)">批量抽帧</el-button>
@@ -220,7 +312,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
               <span>规格</span>
               <span>启用帧/采样帧</span>
               <span>媒体状态</span>
-              <span>状态信息</span>
+              <span>业务状态</span>
               <span>操作</span>
             </header>
 
@@ -280,7 +372,21 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
                 {{ video.sampling ? `${video.sampling.enabled_frames}/${video.sampling.extracted_frames || video.sampling.expected_frames}` : '—' }}
               </span>
               <span class="status-mark" :data-status="video.status">{{ statusLabels[video.status] }}</span>
-              <span class="status-info" :title="videoStatusInfo(video)">{{ videoStatusInfo(video) }}</span>
+              <div class="status-info" :title="videoWorkflowStatus(video).detail">
+                <span
+                  class="workflow-state"
+                  :data-state="videoWorkflowStatus(video).code"
+                >{{ videoWorkflowStatus(video).primary }}</span>
+                <span
+                  v-for="flag in videoWorkflowStatus(video).flags"
+                  :key="flag"
+                  class="workflow-flag"
+                  :data-flag="flag"
+                >{{ flag }}</span>
+                <small v-if="videoWorkflowStatus(video).detail">
+                  {{ videoWorkflowStatus(video).detail }}
+                </small>
+              </div>
               <div class="row-actions">
                 <button
                   :data-test="`play-${video.id}`"
@@ -368,8 +474,53 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
       v-if="canEdit"
       v-model="samplingOpen"
       :project-id="projectId"
-      :video-ids="samplingVideoIds"
+      :videos="samplingTargets"
       @submitted="samplingSubmitted"
+    />
+    <el-dialog
+      append-to-body
+      :model-value="configureChoiceTargets.length > 0"
+      title="批量配置采样"
+      width="min(540px, calc(100vw - 32px))"
+      @update:model-value="!$event && (configureChoiceTargets = [])"
+    >
+      <p>选中的视频中已有 {{ configureChoiceTargets.filter((video) => video.sampling).length }} 个配置过采样方案。</p>
+      <template #footer>
+        <el-button @click="configureChoiceTargets = []">取消</el-button>
+        <el-button
+          data-test="configure-unconfigured"
+          :disabled="!configureChoiceTargets.some((video) => !video.sampling)"
+          @click="configureUnconfigured"
+        >仅处理 {{ configureChoiceTargets.filter((video) => !video.sampling).length }} 个未配置视频</el-button>
+        <el-button data-test="configure-all" type="warning" @click="configureAll">
+          处理全部 {{ configureChoiceTargets.length }} 个视频
+        </el-button>
+      </template>
+    </el-dialog>
+    <el-dialog
+      append-to-body
+      :model-value="extractionChoiceTargets.length > 0"
+      title="批量抽帧"
+      width="min(540px, calc(100vw - 32px))"
+      @update:model-value="!$event && (extractionChoiceTargets = [])"
+    >
+      <p>选中的视频中已有 {{ extractionChoiceTargets.filter((video) => video.sampling?.extracted_frames).length }} 个完成抽帧。</p>
+      <template #footer>
+        <el-button @click="extractionChoiceTargets = []">取消</el-button>
+        <el-button
+          data-test="extract-unextracted"
+          :disabled="!extractionChoiceTargets.some((video) => !video.sampling?.extracted_frames)"
+          @click="extractUnextracted"
+        >仅处理 {{ extractionChoiceTargets.filter((video) => !video.sampling?.extracted_frames).length }} 个未抽帧视频</el-button>
+        <el-button data-test="extract-all" type="danger" @click="extractAll">
+          处理全部 {{ extractionChoiceTargets.length }} 个视频
+        </el-button>
+      </template>
+    </el-dialog>
+    <ExtractionConfirmDialog
+      v-model="extractionConfirmOpen"
+      :videos="extractionTargets"
+      @confirmed="submitExtraction(extractionTargets, $event)"
     />
     <FramesDialog
       :model-value="frameVideo !== null"
@@ -449,6 +600,18 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 .video-action-lane :deep(.el-button) {
   height: var(--vdm-control-height);
   border-radius: 2px;
+}
+
+.selection-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  color: var(--vdw-ink);
+}
+
+.selection-summary small {
+  color: var(--vdw-muted);
+  font-weight: 400;
 }
 
 .video-ledger {
@@ -629,11 +792,46 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 }
 
 .status-info {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   overflow: hidden;
+  gap: 4px;
   color: #53616d;
   font-size: 11px;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workflow-state,
+.workflow-flag {
+  flex: none;
+  padding: 2px 5px;
+  border: 1px solid #b7c3cc;
+}
+
+.workflow-state[data-state^='running'],
+.workflow-state[data-state^='queued'] {
+  color: #0d6b58;
+  border-color: #70bda9;
+  background: #eef9f6;
+}
+
+.workflow-state[data-state='task-failed'],
+.workflow-state[data-state='unavailable'],
+.workflow-state[data-state='resampling-required'] {
+  color: #a33e39;
+  border-color: #d9aaa7;
+  background: #fff3f2;
+}
+
+.workflow-flag[data-flag='视频停用'] {
+  color: #a33e39;
+}
+
+.status-info small {
+  overflow: hidden;
+  color: var(--vdw-muted);
+  text-overflow: ellipsis;
 }
 
 .row-actions {

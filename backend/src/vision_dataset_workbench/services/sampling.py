@@ -362,7 +362,11 @@ class SamplingService:
                 database.scalars(
                     select(Frame.video_id)
                     .join(FrameAnnotation, FrameAnnotation.frame_id == Frame.id)
-                    .where(Frame.video_id.in_(video_ids))
+                    .join(Video, Video.id == Frame.video_id)
+                    .where(
+                        Video.project_id == project_id,
+                        Frame.video_id.in_(video_ids),
+                    )
                     .distinct()
                 )
             )

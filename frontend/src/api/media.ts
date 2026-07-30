@@ -21,6 +21,7 @@ export type Video = {
   updated_at: string
   sampling: SamplingSummary | null
   latest_task: ProjectTask | null
+  has_annotations: boolean
 }
 
 export type SamplingSummary = {
@@ -128,7 +129,7 @@ export type ImportBatch = {
   rejected: ImportNotice[]
 }
 
-export type SamplingNotice = { input: string; reason: string }
+export type SamplingNotice = { input: string; reason: string; code: string }
 export type PlanBatch = {
   accepted: Array<{ video_id: string; plan: SamplingSummary }>
   rejected: SamplingNotice[]
@@ -264,18 +265,23 @@ export const configureSampling = (
   projectId: string,
   videoIds: string[],
   config: SamplingConfig,
+  overwriteLevel: 'none' | 'configured' | 'sampled' = 'none',
 ) =>
   json<PlanBatch>(`${projectPath(projectId)}/sampling-plans`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ video_ids: videoIds, ...config }),
+    body: JSON.stringify({ video_ids: videoIds, ...config, overwrite_level: overwriteLevel }),
   })
 
-export const createExtractions = (projectId: string, videoIds: string[]) =>
+export const createExtractions = (
+  projectId: string,
+  videoIds: string[],
+  overwriteLevel: 'none' | 'light' | 'destructive' = 'none',
+) =>
   json<ExtractionBatch>(`${projectPath(projectId)}/extractions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ video_ids: videoIds }),
+    body: JSON.stringify({ video_ids: videoIds, overwrite_level: overwriteLevel }),
   })
 
 export const getSamplingPlan = (projectId: string, videoId: string) =>

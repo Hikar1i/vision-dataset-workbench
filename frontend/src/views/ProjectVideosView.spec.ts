@@ -44,6 +44,7 @@ const video = {
     generation: 1, frame_revision: 2, updated_at: '2026-07-23T01:00:00Z',
   },
   latest_task: null,
+  has_annotations: false,
 }
 
 beforeEach(() => {
@@ -86,7 +87,9 @@ describe('ProjectVideosView', () => {
     expect(wrapper.text()).not.toContain(video.id.slice(0, 8))
     expect(wrapper.text()).toContain('01:05')
     expect(wrapper.text()).toContain('48/50')
-    expect(wrapper.text()).toContain('已筛选 · 48/50 帧启用')
+    expect(wrapper.text()).toContain('已采样')
+    expect(wrapper.text()).toContain('已筛帧')
+    expect(wrapper.text()).toContain('48/50 帧启用')
     expect(wrapper.find('[data-test="import-videos"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="enabled-video-id"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(false)
@@ -205,7 +208,7 @@ describe('ProjectVideosView', () => {
     const wrapper = mountView('editor')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('视频已停用，不参与标注与导出')
+    expect(wrapper.text()).toContain('视频停用')
     for (const action of ['play', 'configure', 'extract', 'annotate', 'frames']) {
       expect(wrapper.get(`[data-test="${action}-video-id"]`).attributes('disabled')).toBeUndefined()
     }
@@ -234,5 +237,65 @@ describe('ProjectVideosView', () => {
     const call = fetchMock.mock.calls.find(([path]) => String(path).endsWith('/enabled'))
     expect(call?.[1]?.method).toBe('PUT')
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ enabled: false, version: 2 })
+  })
+
+  it('summarizes selected risk and splits configured videos from safe batch configuration', async () => {
+    const unconfigured = { ...video, id: 'video-new', sampling: null }
+    const protectedVideo = { ...video, id: 'video-protected', has_annotations: true }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [unconfigured, protectedVideo], page: 1, page_size: 50, total: 2 }
+          : { ...project, role: 'editor' },
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="select-all"] input').setValue(true)
+    expect(wrapper.get('[data-test="video-action-lane"]').text()).toContain(
+      '已配置 1 · 已抽帧 1 · 已筛帧 1 · 有标注 1',
+    )
+    await wrapper.get('[data-test="batch-configure"]').trigger('click')
+    await flushPromises()
+    const body = new DOMWrapper(document.body)
+    expect(body.get('[data-test="configure-unconfigured"]').text()).toContain('1 个未配置视频')
+    expect(body.get('[data-test="configure-all"]').text()).toContain('全部 2 个视频')
+  })
+
+  it('offers unextracted-only processing before destructive batch extraction', async () => {
+    const configured = {
+      ...video,
+      id: 'video-configured',
+      sampling: {
+        ...video.sampling,
+        state: 'configured' as const,
+        extracted_frames: 0,
+        enabled_frames: 0,
+        applied_version: 0,
+        frame_revision: 0,
+      },
+    }
+    const protectedVideo = { ...video, id: 'video-protected', has_annotations: true }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [configured, protectedVideo], page: 1, page_size: 50, total: 2 }
+          : { ...project, role: 'editor' },
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="select-all"] input').setValue(true)
+    await wrapper.get('[data-test="batch-extract"]').trigger('click')
+    await flushPromises()
+    const body = new DOMWrapper(document.body)
+    expect(body.get('[data-test="extract-unextracted"]').text()).toContain('1 个未抽帧视频')
+    expect(body.get('[data-test="extract-all"]').text()).toContain('全部 2 个视频')
   })
 })
