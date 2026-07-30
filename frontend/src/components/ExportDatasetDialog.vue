@@ -25,6 +25,7 @@ const estimatedFrames = ref(0)
 const loading = ref(false)
 const submitting = ref(false)
 const error = ref('')
+const validationRatio = computed(() => (1 - trainRatio.value).toFixed(2))
 
 const validationMessage = computed(() => {
   if (!labels.value.length) return '项目还没有标签，请先在标签管理页创建标签。'
@@ -129,22 +130,25 @@ watch(() => props.modelValue, (open) => {
       <div class="field-row ratio-row">
         <span>训练集 / 验证集比例</span>
         <el-slider v-model="trainRatio" :min="0" :max="1" :step="0.01" />
-        <el-input-number
-          v-model="trainRatio"
-          data-test="train-ratio"
-          :min="0"
-          :max="1"
-          :step="0.01"
-          :precision="2"
-          controls-position="right"
-        />
-        <b>:</b>
-        <el-input-number
-          :model-value="Number((1 - trainRatio).toFixed(2))"
-          :precision="2"
-          :controls="false"
-          disabled
-        />
+        <div class="ratio-inputs" data-test="ratio-inputs">
+          <el-input-number
+            v-model="trainRatio"
+            data-test="train-ratio"
+            :min="0"
+            :max="1"
+            :step="0.01"
+            :precision="2"
+            controls-position="right"
+            aria-label="训练集比例"
+          />
+          <b>:</b>
+          <el-input
+            :model-value="validationRatio"
+            data-test="validation-ratio"
+            readonly
+            aria-label="验证集比例"
+          />
+        </div>
       </div>
 
       <div class="estimate">
@@ -153,8 +157,10 @@ watch(() => props.modelValue, (open) => {
 
       <section class="labels-section">
         <header>
-          <div><strong>YOLO 标签快照</strong><small>导出后不随项目标签变化</small></div>
-          <el-radio-group v-model="mode" size="small">
+          <div class="labels-section-title">
+            <strong>YOLO 标签快照</strong><small>导出后不随项目标签变化</small>
+          </div>
+          <el-radio-group v-model="mode" class="label-mode" data-test="label-mode" size="small">
             <el-radio-button value="project">使用项目标签</el-radio-button>
             <el-radio-button data-test="manual-mode" value="manual">手动调整</el-radio-button>
           </el-radio-group>
@@ -218,13 +224,17 @@ watch(() => props.modelValue, (open) => {
 .export-form { display: grid; gap: 17px; }
 .field-row { display: grid; grid-template-columns: 148px minmax(0, 1fr); align-items: center; gap: 13px; }
 .field-row > span { color: var(--vdw-muted); font-size: 14px; }
-.ratio-row { grid-template-columns: 148px minmax(120px, 1fr) 108px auto 108px; }
-.ratio-row b { color: var(--vdw-muted); text-align: center; }
+.ratio-row { grid-template-columns: 148px minmax(120px, 1fr) auto; }
+.ratio-inputs { display: grid; grid-template-columns: 110px 13px 110px; align-items: center; gap: 5px; min-width: 0; }
+.ratio-inputs b { color: var(--vdw-muted); text-align: center; }
+.ratio-inputs :deep(.el-input-number) { width: 100%; min-width: 0; }
+.ratio-inputs :deep(.el-input__inner) { text-align: center; }
 .estimate { padding: 10px 13px; color: var(--vdw-teal); background: #eaf5f2; border-left: 3px solid var(--vdw-teal); }
 .labels-section { border: 1px solid var(--vdw-rule); }
 .labels-section > header { display: flex; align-items: center; justify-content: space-between; gap: 13px; padding: 12px 14px; background: #f7f9fb; border-bottom: 1px solid var(--vdw-rule); }
-.labels-section header > div { display: grid; gap: 2px; }
+.labels-section-title { display: grid; gap: 2px; }
 .labels-section small { color: var(--vdw-muted); font-size: 12px; }
+.label-mode { flex: none; flex-wrap: nowrap; white-space: nowrap; }
 .label-list { max-height: 286px; overflow: auto; }
 .label-row { display: grid; grid-template-columns: 38px 48px minmax(0, 1fr) auto; align-items: center; min-height: 45px; padding: 0 13px; border-bottom: 1px solid #edf0f4; }
 .label-row:last-child { border-bottom: 0; }
@@ -233,6 +243,7 @@ watch(() => props.modelValue, (open) => {
 .empty-labels { margin: 0; padding: 24px; color: var(--vdw-muted); text-align: center; }
 @media (max-width: 680px) {
   .field-row, .ratio-row { grid-template-columns: 1fr; }
+  .ratio-inputs { grid-template-columns: minmax(96px, 1fr) 13px minmax(96px, 1fr); }
   .labels-section > header { align-items: flex-start; flex-direction: column; }
 }
 </style>

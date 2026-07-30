@@ -89,6 +89,11 @@ it('lets a viewer inspect and download without delete controls', async () => {
   await flushPromises()
 
   expect(wrapper.text()).toContain('训练集 v1')
+  expect(wrapper.get('[data-test="frame-summary-export-id"]').text()).toContain('总计100')
+  expect(wrapper.get('[data-test="frame-summary-export-id"]').text()).toContain('训练75')
+  expect(wrapper.get('[data-test="frame-summary-export-id"]').text()).toContain('验证25')
+  expect(wrapper.get('[data-test="ratio-summary-export-id"]').text()).toContain('期望0.80 : 0.20')
+  expect(wrapper.get('[data-test="ratio-summary-export-id"]').text()).toContain('实际0.75 : 0.25')
   expect(wrapper.find('[data-test="delete-export-id"]').exists()).toBe(false)
   expect(wrapper.get('[data-test="download-export-id"]').attributes('href')).toBe(
     '/api/v1/projects/project-id/dataset-exports/export-id/download',
@@ -96,6 +101,10 @@ it('lets a viewer inspect and download without delete controls', async () => {
   await wrapper.get('[data-test="detail-export-id"]').trigger('click')
   await flushPromises()
   const body = new DOMWrapper(document.body)
+  expect(body.get('[data-test="dataset-detail-content"]').classes()).toContain(
+    'dataset-detail-content',
+  )
+  expect(body.get('[data-test="detail-frame-summary"]').text()).toContain('总计100')
   expect(body.text()).toContain('TESTV001')
   expect(body.text()).toContain('正样本')
   wrapper.unmount()

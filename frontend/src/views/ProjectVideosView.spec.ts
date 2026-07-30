@@ -124,6 +124,9 @@ describe('ProjectVideosView', () => {
 
     expect(wrapper.find('[data-test="import-videos"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="export-dataset"]').exists()).toBe(true)
+    const toolbarActions = wrapper.get('[data-test="video-toolbar-actions"]')
+    expect(toolbarActions.find('[data-test="import-videos"]').exists()).toBe(true)
+    expect(toolbarActions.find('[data-test="export-dataset"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="select-video-id"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="configure-video-id"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="extract-video-id"]').exists()).toBe(true)

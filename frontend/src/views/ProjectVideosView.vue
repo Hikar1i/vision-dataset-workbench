@@ -269,27 +269,24 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   <main class="workbench-shell">
     <section class="workspace">
         <header class="workspace-toolbar">
-          <div>
+          <div class="workspace-toolbar-title">
             <h1>视频资料库</h1>
             <span>{{ total }} 个视频</span>
           </div>
-          <el-button
-            v-if="canEdit"
-            data-test="import-videos"
-            type="primary"
-            :disabled="importLimitReached"
-            :title="importLimitReached ? '项目视频数量已达上限（999）' : '导入视频'"
-            @click="importOpen = true"
-          >
-            导入视频
-          </el-button>
-          <el-button
-            v-if="canEdit"
-            data-test="export-dataset"
-            @click="exportOpen = true"
-          >
-            导出数据集
-          </el-button>
+          <div v-if="canEdit" class="workspace-toolbar-actions" data-test="video-toolbar-actions">
+            <el-button
+              data-test="import-videos"
+              type="primary"
+              :disabled="importLimitReached"
+              :title="importLimitReached ? '项目视频数量已达上限（999）' : '导入视频'"
+              @click="importOpen = true"
+            >
+              导入视频
+            </el-button>
+            <el-button data-test="export-dataset" @click="exportOpen = true">
+              导出数据集
+            </el-button>
+          </div>
         </header>
 
         <section class="video-action-lane" data-test="video-action-lane">
@@ -583,10 +580,20 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   border-bottom: 1px solid var(--vdw-rule);
 }
 
-.workspace-toolbar > div {
+.workspace-toolbar-title {
   display: flex;
   align-items: baseline;
   gap: 11px;
+}
+
+.workspace-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-toolbar-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .workspace-toolbar h1 {

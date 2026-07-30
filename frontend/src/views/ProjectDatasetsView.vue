@@ -152,11 +152,22 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
             </el-popover>
           </template>
         </el-table-column>
-        <el-table-column label="样本帧" width="180">
-          <template #default="{ row }">{{ row.total_frames }} / {{ row.train_frames }} / {{ row.val_frames }}</template>
+        <el-table-column label="样本帧" width="220">
+          <template #default="{ row }">
+            <div class="frame-summary" :data-test="`frame-summary-${row.id}`">
+              <span><small>总计</small><b>{{ row.total_frames }}</b></span>
+              <span><small>训练</small><b>{{ row.train_frames }}</b></span>
+              <span><small>验证</small><b>{{ row.val_frames }}</b></span>
+            </div>
+          </template>
         </el-table-column>
-        <el-table-column label="期望 / 实际比例" width="210">
-          <template #default="{ row }">{{ ratio(row.train_ratio) }} / {{ ratio(row.actual_train_ratio) }}</template>
+        <el-table-column label="训练集 : 验证集" width="210">
+          <template #default="{ row }">
+            <div class="ratio-summary" :data-test="`ratio-summary-${row.id}`">
+              <span><small>期望</small><b>{{ ratio(row.train_ratio) }}</b></span>
+              <span><small>实际</small><b>{{ ratio(row.actual_train_ratio) }}</b></span>
+            </div>
+          </template>
         </el-table-column>
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
@@ -198,25 +209,34 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
     <el-dialog
       append-to-body
       fullscreen
+      class="dataset-detail-dialog"
       :model-value="detail !== null || detailLoading"
       title="数据集详细信息"
       @update:model-value="!$event && (detail = null)"
     >
-      <div v-loading="detailLoading" class="dataset-detail">
-        <template v-if="detail">
-          <el-descriptions :column="2" border>
-            <el-descriptions-item label="数据集名称">{{ detail.name }}</el-descriptions-item>
-            <el-descriptions-item label="状态">{{ statusLabels[detail.status] }}</el-descriptions-item>
-            <el-descriptions-item label="绝对路径" :span="2">{{ detail.absolute_path || '—' }}</el-descriptions-item>
-            <el-descriptions-item label="期望比例">{{ ratio(detail.train_ratio) }}</el-descriptions-item>
-            <el-descriptions-item label="实际比例">{{ ratio(detail.actual_train_ratio) }}</el-descriptions-item>
-            <el-descriptions-item label="总帧 / 训练 / 验证">{{ detail.total_frames }} / {{ detail.train_frames }} / {{ detail.val_frames }}</el-descriptions-item>
-            <el-descriptions-item label="导出时间">{{ dateTime(detail.completed_at) }}</el-descriptions-item>
-          </el-descriptions>
+      <div v-loading="detailLoading" class="dataset-detail-scroll">
+        <div v-if="detail" class="dataset-detail-content" data-test="dataset-detail-content">
+          <section class="detail-panel detail-overview">
+            <el-descriptions :column="2" border>
+              <el-descriptions-item label="数据集名称">{{ detail.name }}</el-descriptions-item>
+              <el-descriptions-item label="状态">{{ statusLabels[detail.status] }}</el-descriptions-item>
+              <el-descriptions-item label="绝对路径" :span="2">{{ detail.absolute_path || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="期望比例">{{ ratio(detail.train_ratio) }}</el-descriptions-item>
+              <el-descriptions-item label="实际比例">{{ ratio(detail.actual_train_ratio) }}</el-descriptions-item>
+              <el-descriptions-item label="样本帧">
+                <div class="frame-summary" data-test="detail-frame-summary">
+                  <span><small>总计</small><b>{{ detail.total_frames }}</b></span>
+                  <span><small>训练</small><b>{{ detail.train_frames }}</b></span>
+                  <span><small>验证</small><b>{{ detail.val_frames }}</b></span>
+                </div>
+              </el-descriptions-item>
+              <el-descriptions-item label="导出时间">{{ dateTime(detail.completed_at) }}</el-descriptions-item>
+            </el-descriptions>
+          </section>
 
-          <section>
+          <section class="detail-panel">
             <h2>类别映射快照</h2>
-            <el-table :data="detail.labels" size="small">
+            <el-table :data="detail.labels" size="small" border>
               <el-table-column prop="mapping" label="映射" width="80" />
               <el-table-column prop="name" label="英文类别" />
               <el-table-column label="状态" width="100">
@@ -225,9 +245,9 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
             </el-table>
           </section>
 
-          <section v-if="detail.manifest">
+          <section v-if="detail.manifest" class="detail-panel">
             <h2>视频统计</h2>
-            <el-table :data="detail.manifest.video_stats" size="small" max-height="420">
+            <el-table :data="detail.manifest.video_stats" size="small" border max-height="520">
               <el-table-column prop="video_short_code" label="视频 ID" width="120" />
               <el-table-column prop="title" label="视频" min-width="180" />
               <el-table-column label="集合" width="110">
@@ -241,12 +261,12 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
             </el-table>
           </section>
 
-          <el-collapse v-if="manifestText">
+          <el-collapse v-if="manifestText" class="detail-panel manifest-panel">
             <el-collapse-item title="查看 manifest.json" name="manifest">
               <pre>{{ manifestText }}</pre>
             </el-collapse-item>
           </el-collapse>
-        </template>
+        </div>
       </div>
     </el-dialog>
   </main>
@@ -258,14 +278,39 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 .workspace-toolbar h1 { margin: 0; font-size: 20px; }
 .workspace-toolbar span { color: var(--vdw-muted); font-size: 13px; }
 .datasets-table { min-height: 260px; background: white; border: 1px solid var(--vdw-rule); }
-.row-actions { display: flex; align-items: center; gap: 4px; }
-.row-actions a { padding: 6px 8px; color: var(--vdw-teal); text-decoration: none; }
+.frame-summary { display: grid; grid-template-columns: repeat(3, minmax(42px, 1fr)); gap: 8px; }
+.frame-summary span { display: grid; gap: 2px; min-width: 0; }
+.frame-summary small,
+.ratio-summary small { color: var(--vdw-muted); font-size: 11px; font-weight: 500; }
+.frame-summary b,
+.ratio-summary b { color: var(--vdw-ink); font: 600 13px var(--vdw-mono); white-space: nowrap; }
+.ratio-summary { display: grid; gap: 4px; }
+.ratio-summary span { display: grid; grid-template-columns: 34px auto; align-items: baseline; gap: 7px; }
+.row-actions { display: inline-flex; align-items: stretch; overflow: hidden; background: white; border: 1px solid var(--vdw-rule); border-radius: 2px; }
+.row-actions > * + * { border-left: 1px solid var(--vdw-rule) !important; }
+.row-actions :deep(.el-button),
+.row-actions a { display: inline-flex; align-items: center; height: 32px; margin: 0; padding: 0 11px; background: white; border: 0; border-radius: 0; }
+.row-actions a { color: var(--vdw-teal); text-decoration: none; }
+.row-actions :deep(.el-button:hover),
+.row-actions a:hover { background: #eef5f3; }
 .category-popover { display: grid; gap: 7px; }
 .category-popover span[data-enabled='false'] { color: var(--vdw-muted); }
-.dataset-detail { display: grid; gap: 22px; padding: 0 4px 24px; }
-.dataset-detail section h2 { margin: 0 0 10px; font-size: 17px; }
-.dataset-detail pre { max-height: 420px; margin: 0; padding: 14px; overflow: auto; color: #d7e3ec; background: #111820; font: 12px/1.6 var(--vdw-mono); }
+.dataset-detail-scroll { height: calc(100dvh - 57px); padding: 20px; overflow: auto; background: var(--vdw-canvas); }
+.dataset-detail-content { display: grid; gap: 18px; width: min(100%, 1600px); margin: 0 auto; }
+.detail-panel { overflow: hidden; background: white; border: 1px solid var(--vdw-rule); }
+.detail-panel h2 { margin: 0; padding: 13px 16px; font: 700 17px var(--vdw-title); border-bottom: 1px solid var(--vdw-rule); }
+.detail-overview { padding: 0; }
+.manifest-panel { padding: 0 16px; }
+.dataset-detail-content pre { max-height: 420px; margin: 0; padding: 14px; overflow: auto; color: #d7e3ec; background: #111820; font: 12px/1.6 var(--vdw-mono); }
 .empty-state { padding: 72px 20px; text-align: center; }
 .empty-state h2 { margin: 0 0 8px; font-size: 18px; }
 .empty-state p { color: var(--vdw-muted); }
+</style>
+
+<style>
+.dataset-detail-dialog { background: var(--vdw-canvas) !important; }
+.dataset-detail-dialog > .el-dialog__header { height: 57px; margin: 0; padding: 0 20px; border-bottom: 1px solid var(--vdw-rule); background: white; }
+.dataset-detail-dialog > .el-dialog__header .el-dialog__title { font: 700 19px var(--vdw-title); line-height: 57px; }
+.dataset-detail-dialog > .el-dialog__header .el-dialog__headerbtn { top: 4px; }
+.dataset-detail-dialog > .el-dialog__body { padding: 0 !important; }
 </style>

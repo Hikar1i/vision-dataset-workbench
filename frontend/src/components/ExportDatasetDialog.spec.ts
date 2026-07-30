@@ -49,6 +49,9 @@ it('loads project scope and submits an independently ordered label snapshot', as
   const body = new DOMWrapper(document.body)
 
   expect(body.text()).toContain('预计参与 1 个视频 · 48 个启用帧')
+  expect(body.find('[data-test="ratio-inputs"] input').exists()).toBe(true)
+  expect(body.get('[data-test="validation-ratio"]').attributes('readonly')).toBeDefined()
+  expect(body.get('[data-test="label-mode"]').classes()).toContain('label-mode')
   await body.get('[data-test="dataset-name"]').setValue('训练集 v1')
   await body.get('[data-test="manual-mode"]').trigger('click')
   await flushPromises()
