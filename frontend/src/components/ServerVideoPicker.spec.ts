@@ -57,4 +57,40 @@ describe('ServerVideoPicker', () => {
     )
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['new'])
   })
+
+  it('selects multiple videos or one directory without exposing directory creation', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        path: '~',
+        parent: null,
+        items: [
+          { name: 'clips', path: 'clips', type: 'directory', size: null },
+          { name: 'one.mp4', path: 'one.mp4', type: 'file', size: 10 },
+        ],
+        page: 1,
+        page_size: 100,
+        total: 2,
+      }),
+    }))
+    const wrapper = mount(ServerVideoPicker, {
+      props: {
+        modelValue: [],
+        selectedDirectory: '',
+        multiple: true,
+        allowCreate: false,
+      },
+      global: { plugins: [ElementPlus] },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="select-directory-clips"]').trigger('click')
+    expect(wrapper.emitted('update:selectedDirectory')?.at(-1)).toEqual(['clips'])
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([[]])
+
+    await wrapper.get('[data-test="select-file-one.mp4"]').trigger('click')
+    expect(wrapper.emitted('update:selectedDirectory')?.at(-1)).toEqual([''])
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['one.mp4']])
+    expect(wrapper.find('[data-test="new-directory"]').exists()).toBe(false)
+  })
 })

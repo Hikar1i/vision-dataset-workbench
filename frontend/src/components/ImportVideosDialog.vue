@@ -7,7 +7,6 @@ import {
   previewLocal,
   previewRemote,
   type ImportBatch,
-  type LocalPreview,
   type RemotePreview,
 } from '../api/media'
 import ServerVideoPicker from './ServerVideoPicker.vue'
@@ -18,39 +17,39 @@ const emit = defineEmits<{
   submitted: [batch: ImportBatch]
 }>()
 const tab = ref<'local' | 'remote'>('local')
-const selectedPath = ref('')
+const selectedLocalFiles = ref<string[]>([])
+const selectedLocalDirectory = ref('')
 const remoteUrl = ref('')
-const localItems = ref<LocalPreview[]>([])
 const remoteItems = ref<RemotePreview[]>([])
 const selected = ref<string[]>([])
 const parsing = ref(false)
 const submitting = ref(false)
 const error = ref('')
 
-const candidates = computed(() =>
-  tab.value === 'local'
-    ? localItems.value.map((item) => ({ key: item.path, title: item.name, detail: item.path }))
-    : remoteItems.value.map((item) => ({
-        key: item.url,
-        title: item.title,
-        detail: item.playlist
-          ? `${item.playlist} · #${item.playlist_index ?? '-'}`
-          : item.extractor,
-      })),
-)
+const candidates = computed(() => remoteItems.value.map((item) => ({
+  key: item.url,
+  title: item.title,
+  detail: item.playlist
+    ? `${item.playlist} · #${item.playlist_index ?? '-'}`
+    : item.extractor,
+})))
+const canSubmit = computed(() => tab.value === 'local'
+  ? Boolean(selectedLocalDirectory.value || selectedLocalFiles.value.length)
+  : Boolean(selected.value.length))
+const submitLabel = computed(() => {
+  if (tab.value === 'remote') return `创建 ${selected.value.length} 个导入任务`
+  return selectedLocalDirectory.value
+    ? '导入选中目录下的视频'
+    : `导入选中的 ${selectedLocalFiles.value.length} 个视频`
+})
 
 async function parse() {
   parsing.value = true
   error.value = ''
   selected.value = []
   try {
-    if (tab.value === 'local') {
-      localItems.value = await previewLocal(props.projectId, selectedPath.value)
-      selected.value = localItems.value.map((item) => item.path)
-    } else {
-      remoteItems.value = await previewRemote(props.projectId, remoteUrl.value)
-      selected.value = remoteItems.value.map((item) => item.url)
-    }
+    remoteItems.value = await previewRemote(props.projectId, remoteUrl.value)
+    selected.value = remoteItems.value.map((item) => item.url)
     if (!selected.value.length) error.value = '没有找到可导入的视频'
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '视频解析失败'
@@ -60,19 +59,30 @@ async function parse() {
 }
 
 async function submit() {
-  if (!selected.value.length) return
+  if (!canSubmit.value) return
   submitting.value = true
   error.value = ''
   try {
-    const batch =
-      tab.value === 'local'
-        ? await importLocal(props.projectId, selected.value)
-        : await importRemote(
-            props.projectId,
-            remoteItems.value
-              .filter((item) => selected.value.includes(item.url))
-              .map((item) => ({ title: item.title, url: item.url })),
-          )
+    let batch: ImportBatch
+    if (tab.value === 'local') {
+      let paths = selectedLocalFiles.value
+      if (selectedLocalDirectory.value) {
+        paths = (await previewLocal(props.projectId, selectedLocalDirectory.value))
+          .map((item) => item.path)
+        if (!paths.length) {
+          error.value = '没有找到可导入的视频'
+          return
+        }
+      }
+      batch = await importLocal(props.projectId, paths)
+    } else {
+      batch = await importRemote(
+        props.projectId,
+        remoteItems.value
+          .filter((item) => selected.value.includes(item.url))
+          .map((item) => ({ title: item.title, url: item.url })),
+      )
+    }
     emit('submitted', batch)
     emit('update:modelValue', false)
   } catch (reason) {
@@ -83,7 +93,10 @@ async function submit() {
 }
 
 watch(tab, () => {
+  selectedLocalFiles.value = []
+  selectedLocalDirectory.value = ''
   selected.value = []
+  remoteItems.value = []
   error.value = ''
 })
 </script>
@@ -98,18 +111,13 @@ watch(tab, () => {
   >
     <el-tabs v-model="tab">
       <el-tab-pane label="本地文件" name="local">
-        <p class="instruction">选择启动用户主目录中的一个视频，或选择目录扫描第一层文件。</p>
-        <ServerVideoPicker v-model="selectedPath" />
-        <el-button
-          data-test="preview-local"
-          type="primary"
-          plain
-          :loading="parsing"
-          :disabled="!selectedPath"
-          @click="parse"
-        >
-          预览本地视频
-        </el-button>
+        <p class="instruction">直接选择一个或多个视频，或选择一个目录导入其第一层视频。</p>
+        <ServerVideoPicker
+          v-model="selectedLocalFiles"
+          v-model:selected-directory="selectedLocalDirectory"
+          multiple
+          :allow-create="false"
+        />
       </el-tab-pane>
       <el-tab-pane label="远程 URL" name="remote">
         <p class="instruction">支持 HTTP/HTTPS 单视频或播放列表；解析不会立即下载。</p>
@@ -135,13 +143,13 @@ watch(tab, () => {
 
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
 
-    <section v-if="candidates.length" class="candidate-panel">
+    <section v-if="tab === 'remote' && candidates.length" class="candidate-panel">
       <header><strong>选择要导入的视频</strong><span>{{ selected.length }}/{{ candidates.length }}</span></header>
       <el-checkbox-group v-model="selected">
-        <label v-for="item in candidates" :key="item.key" class="candidate">
+        <div v-for="item in candidates" :key="item.key" class="candidate">
           <el-checkbox :value="item.key" />
           <span><strong>{{ item.title }}</strong><small>{{ item.detail }}</small></span>
-        </label>
+        </div>
       </el-checkbox-group>
     </section>
 
@@ -151,10 +159,10 @@ watch(tab, () => {
         data-test="submit-import"
         type="primary"
         :loading="submitting"
-        :disabled="!selected.length"
+        :disabled="!canSubmit"
         @click="submit"
       >
-        创建 {{ selected.length }} 个导入任务
+        {{ submitLabel }}
       </el-button>
     </template>
   </el-dialog>
@@ -165,11 +173,6 @@ watch(tab, () => {
   margin: 0 0 15px;
   color: #687482;
   font-size: 14px;
-}
-
-.el-tab-pane > .el-button {
-  width: 100%;
-  margin-top: 13px;
 }
 
 .remote-entry {

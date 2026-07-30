@@ -8,16 +8,23 @@ import {
 } from '../api/media'
 
 const props = withDefaults(defineProps<{
-  modelValue: string
+  modelValue: string | string[]
   kind?: 'video' | 'model'
   allowDirectorySelection?: boolean
   allowCreate?: boolean
+  multiple?: boolean
+  selectedDirectory?: string
 }>(), {
   kind: 'video',
   allowDirectorySelection: true,
   allowCreate: true,
+  multiple: false,
+  selectedDirectory: '',
 })
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const emit = defineEmits<{
+  'update:modelValue': [value: string | string[]]
+  'update:selectedDirectory': [value: string]
+}>()
 const current = ref('.')
 const displayPath = ref('~')
 const parent = ref<string | null>(null)
@@ -60,7 +67,36 @@ async function load(path: string, requestedPage = 1) {
 
 function choose(item: FilesystemItem) {
   if (item.type === 'directory') void load(item.path)
+  else if (props.multiple) toggleSelection(item)
   else emit('update:modelValue', item.path)
+}
+
+function isSelected(item: FilesystemItem) {
+  return item.type === 'directory'
+    ? props.selectedDirectory === item.path
+    : Array.isArray(props.modelValue)
+      ? props.modelValue.includes(item.path)
+      : props.modelValue === item.path
+}
+
+function selectDirectory(path: string) {
+  emit('update:modelValue', [])
+  emit('update:selectedDirectory', props.selectedDirectory === path ? '' : path)
+}
+
+function toggleSelection(item: FilesystemItem) {
+  if (item.type === 'directory') {
+    selectDirectory(item.path)
+    return
+  }
+  const selected = Array.isArray(props.modelValue) ? props.modelValue : []
+  emit('update:selectedDirectory', '')
+  emit(
+    'update:modelValue',
+    selected.includes(item.path)
+      ? selected.filter((path) => path !== item.path)
+      : [...selected, item.path],
+  )
 }
 
 async function createDirectory() {
@@ -99,19 +135,27 @@ onMounted(() => load('.'))
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
 
     <div v-loading="loading" class="entry-list">
-      <button
+      <div
         v-for="item in items"
         :key="item.path"
-        type="button"
         class="entry"
-        :class="{ selected: modelValue === item.path }"
-        :data-test="`entry-${item.path}`"
-        @click="choose(item)"
+        :class="{ selected: isSelected(item), multiple }"
       >
+        <el-checkbox
+          v-if="multiple"
+          :model-value="isSelected(item)"
+          :aria-label="item.type === 'directory' ? `选择目录 ${item.name}` : `选择视频 ${item.name}`"
+          :data-test="`select-${item.type === 'directory' ? 'directory' : 'file'}-${item.path}`"
+          @click.stop="toggleSelection(item)"
+        />
         <span class="entry-type">{{ item.type === 'directory' ? 'DIR' : kind === 'model' ? 'MODEL' : 'VIDEO' }}</span>
-        <strong>{{ item.name }}</strong>
-        <span>{{ item.type === 'directory' ? '打开' : '选择' }}</span>
-      </button>
+        <button type="button" class="entry-name" :data-test="`entry-${item.path}`" @click="choose(item)">
+          {{ item.name }}
+        </button>
+        <button type="button" class="entry-action" @click="choose(item)">
+          {{ item.type === 'directory' ? '打开' : isSelected(item) ? '已选择' : '选择' }}
+        </button>
+      </div>
     </div>
 
     <el-pagination
@@ -126,7 +170,7 @@ onMounted(() => load('.'))
     <footer>
       <span>当前位置：{{ displayPath }}</span>
       <div>
-        <el-button v-if="allowDirectorySelection" data-test="select-directory" @click="emit('update:modelValue', current)">
+        <el-button v-if="allowDirectorySelection" data-test="select-directory" @click="multiple ? selectDirectory(current) : emit('update:modelValue', current)">
           选择当前目录
         </el-button>
         <el-button v-if="allowCreate" data-test="new-directory" @click="creating = true">新建目录</el-button>
@@ -188,15 +232,21 @@ footer {
 .entry {
   display: grid;
   grid-template-columns: 62px minmax(0, 1fr) 44px;
+  align-items: center;
   gap: 13px;
   width: 100%;
-  padding: 12px 15px;
+  min-height: 45px;
+  padding: 0 15px;
   color: #17212b;
   text-align: left;
   background: white;
   border: 0;
   border-bottom: 1px solid #edf0f4;
   cursor: pointer;
+}
+
+.entry.multiple {
+  grid-template-columns: 22px 62px minmax(0, 1fr) 52px;
 }
 
 .entry:hover,
@@ -210,9 +260,28 @@ footer {
   font-size: 11px;
 }
 
-.entry > span:last-child {
+.entry-name,
+.entry-action {
+  min-width: 0;
+  padding: 12px 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.entry-name {
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-action {
   color: #687482;
   font-size: 13px;
+  text-align: right;
 }
 
 @media (max-width: 620px) {
