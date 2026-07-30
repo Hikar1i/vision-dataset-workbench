@@ -95,7 +95,12 @@ describe('AppShell', () => {
   it('persists sidebar and project group preferences', async () => {
     const { wrapper } = await mountShell()
 
-    await wrapper.get('[data-test="sidebar-toggle"]').trigger('click')
+    const sidebarToggle = wrapper.get('[data-test="sidebar-toggle"]')
+    expect(sidebarToggle.attributes('aria-label')).toBe('收起侧栏')
+    expect(sidebarToggle.find('.anticon-menu-fold').exists()).toBe(true)
+    await sidebarToggle.trigger('click')
+    expect(sidebarToggle.attributes('aria-label')).toBe('展开侧栏')
+    expect(sidebarToggle.find('.anticon-menu-unfold').exists()).toBe(true)
     await wrapper.get('[data-test="project-group-toggle"]').trigger('click')
 
     expect(localStorage.getItem('vdm.sidebar-collapsed')).toBe('true')

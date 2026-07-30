@@ -121,6 +121,7 @@ body {
 }
 .app-sidebar svg,
 .app-topbar svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.app-topbar .anticon svg { fill: currentColor; stroke: none; }
 .app-nav-children { display: grid; }
 .app-nav-children a {
   overflow: hidden;

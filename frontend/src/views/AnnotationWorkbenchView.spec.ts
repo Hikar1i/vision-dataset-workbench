@@ -225,6 +225,54 @@ describe('AnnotationWorkbenchView', () => {
     wrapper.unmount()
   })
 
+  it('summarizes every frame with the current draft and expands or collapses every object group', async () => {
+    mocks.listLabels.mockResolvedValueOnce([
+      { id: 'label-id', name: 'helmet', description_zh: '安全帽', color: '#16866f', sort_order: 0, enabled: true, version: 1, created_at: '', updated_at: '' },
+      { id: 'person-id', name: 'person', description_zh: '人员', color: '#c83f49', sort_order: 1, enabled: true, version: 1, created_at: '', updated_at: '' },
+    ])
+    const helmetBox = (id: string) => ({
+      id, label_id: 'label-id', x_min: 1, y_min: 2, x_max: 30, y_max: 40,
+      source: 'manual' as const, confidence: null,
+    })
+    const personBox = {
+      id: 'person-box', label_id: 'person-id', x_min: 2, y_min: 3, x_max: 40, y_max: 50,
+      source: 'manual' as const, confidence: null,
+    }
+    mocks.listFrames.mockResolvedValueOnce({
+      items: [
+        { ...frames[0], annotations: [helmetBox('saved-1'), helmetBox('saved-2')] },
+        { ...frames[1], annotations: [personBox] },
+      ],
+      page: 1,
+      page_size: 200,
+      total: 2,
+      sampling: structuredClone(video.sampling),
+    })
+    mocks.getFrameAnnotations.mockResolvedValueOnce({
+      frame_id: 'frame-1',
+      annotation_revision: 1,
+      items: [helmetBox('saved-1'), helmetBox('saved-2')],
+    })
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="canvas-change"]').trigger('click')
+    document.querySelector<HTMLElement>('[data-test="stats-action"]')?.click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-test="all-box-count"]').text()).toContain('2')
+    expect(wrapper.get('[data-test="stats-category-label-id"]').text()).toBe('helmet1')
+    expect(wrapper.get('[data-test="stats-category-label-id"] dt').attributes('style')).toContain('rgb(22, 134, 111)')
+    expect(wrapper.get('[data-test="stats-category-person-id"]').text()).toBe('person1')
+
+    await wrapper.get('[data-test="expand-all-objects"]').trigger('click')
+    expect(wrapper.findAll('.box-list')).toHaveLength(1)
+    await wrapper.get('[data-test="collapse-all-objects"]').trigger('click')
+    expect(wrapper.findAll('.box-list')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
   it('keeps a pending rectangle until category confirmation or Escape', async () => {
     const wrapper = mount(AnnotationWorkbenchView, {
       global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
@@ -235,6 +283,7 @@ describe('AnnotationWorkbenchView', () => {
       '采样帧2',
       '启用帧2',
       '当前帧标注框0',
+      '所有帧标注框0',
     ])
     expect(
       wrapper.get('[data-test="shortcut-list"]').findAll('dt').map((item) => item.text()),

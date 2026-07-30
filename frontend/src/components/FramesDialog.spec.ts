@@ -99,6 +99,20 @@ describe('FramesDialog', () => {
     expect(wrapper.find('[data-test="frame-card"] .annotation-preview').exists()).toBe(false)
   })
 
+  it('applies the thumbnail grid scale after the slider change is committed', async () => {
+    const { wrapper } = mountDialog(true)
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="grid-scale-value"]').text()).toBe('1.00×')
+    expect(wrapper.get('[data-test="frames-grid"]').attributes('style')).toContain('--frame-card-width: 180px')
+    const slider = wrapper.getComponent({ name: 'ElSlider' })
+    slider.vm.$emit('update:modelValue', 1.5)
+    slider.vm.$emit('change', 1.5)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-test="grid-scale-value"]').text()).toBe('1.50×')
+    expect(wrapper.get('[data-test="frames-grid"]').attributes('style')).toContain('--frame-card-width: 270px')
+  })
+
   it('keeps viewer access read-only while allowing large-image inspection', async () => {
     const { wrapper } = mountDialog(false)
     await flushPromises()

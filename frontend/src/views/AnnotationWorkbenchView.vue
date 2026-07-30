@@ -173,6 +173,24 @@ const allBoxesHidden = computed(() =>
 )
 const enabledFrameCount = computed(() => frames.value.filter((frame) => frame.enabled).length)
 const boxCount = computed(() => annotations.value.length)
+const allAnnotationStats = computed(() => {
+  const counts = new Map<string, number>()
+  let total = 0
+  for (const frame of frames.value) {
+    const items = frame.id === currentFrame.value?.id
+      ? annotations.value
+      : (frame.annotations ?? [])
+    total += items.length
+    for (const item of items) counts.set(item.label_id, (counts.get(item.label_id) ?? 0) + 1)
+  }
+  return {
+    total,
+    categories: [...labels.value]
+      .sort((left, right) => left.sort_order - right.sort_order)
+      .map((label) => ({ label, count: counts.get(label.id) ?? 0 }))
+      .filter((item) => item.count > 0),
+  }
+})
 const annotationOrder = computed(() => new Map(
   annotations.value.map((item, index) => [item.id, index + 1]),
 ))
@@ -525,6 +543,14 @@ function toggleExpanded(labelId: string) {
     : [...expandedLabelIds.value, labelId]
 }
 
+function expandAllObjects() {
+  expandedLabelIds.value = groupedObjects.value.map(({ label }) => label.id)
+}
+
+function collapseAllObjects() {
+  expandedLabelIds.value = []
+}
+
 function isInputTarget(target: EventTarget | null) {
   const element = target as HTMLElement | null
   return Boolean(element?.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(element?.tagName ?? ''))
@@ -808,7 +834,18 @@ watch(reuseLabel, (reuse) => {
         </dl>
       </section>
       <section class="object-list">
-        <header><strong>对象列表</strong><span>{{ boxCount }} 个</span></header>
+        <header>
+          <strong>对象列表</strong>
+          <div class="object-heading-actions">
+            <span>{{ boxCount }} 个</span>
+            <button data-test="expand-all-objects" type="button" title="展开所有类别" aria-label="展开所有类别" :disabled="!groupedObjects.length" @click="expandAllObjects">
+              <el-icon><ArrowDownBold /></el-icon>
+            </button>
+            <button data-test="collapse-all-objects" type="button" title="收起所有类别" aria-label="收起所有类别" :disabled="!expandedLabelIds.length" @click="collapseAllObjects">
+              <el-icon><ArrowUpBold /></el-icon>
+            </button>
+          </div>
+        </header>
         <p v-if="!groupedObjects.length" class="empty-copy">当前图像暂无标注框</p>
         <article v-for="group in groupedObjects" :key="group.label.id" class="object-group">
           <div class="object-group-row">
@@ -959,6 +996,10 @@ watch(reuseLabel, (reuse) => {
       <div data-test="stats-row"><dt>采样帧</dt><dd>{{ frames.length }}</dd></div>
       <div data-test="stats-row"><dt>启用帧</dt><dd>{{ enabledFrameCount }}</dd></div>
       <div data-test="stats-row"><dt>当前帧标注框</dt><dd>{{ boxCount }}</dd></div>
+      <div data-test="stats-row"><dt>所有帧标注框</dt><dd data-test="all-box-count">{{ allAnnotationStats.total }}</dd></div>
+      <div v-for="item in allAnnotationStats.categories" :key="item.label.id" :data-test="`stats-category-${item.label.id}`">
+        <dt :style="{ color: item.label.color }">{{ item.label.name }}</dt><dd>{{ item.count }}</dd>
+      </div>
     </dl>
   </el-dialog>
   <el-dialog v-model="registerOpen" title="登记推理模型" width="min(760px, calc(100vw - 32px))" append-to-body>
@@ -1067,6 +1108,10 @@ watch(reuseLabel, (reuse) => {
 .info-heading-actions { display: flex; align-items: center; gap: 6px; }
 .info-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #5f6e78; background: transparent; border: 0; cursor: pointer; }
 .info-heading-actions button:hover { color: #16866f; background: #e4eeeb; }
+.object-heading-actions { display: flex; align-items: center; gap: 3px; }
+.object-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #5f6e78; background: transparent; border: 0; cursor: pointer; }
+.object-heading-actions button:hover:not(:disabled) { color: #16866f; background: #e4eeeb; }
+.object-heading-actions button:disabled { color: #b0bac0; cursor: not-allowed; }
 .image-info header strong,
 .object-list header strong,
 .minimap header strong { font-size: 13px; }

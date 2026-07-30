@@ -60,6 +60,8 @@ const baseline = ref<EnabledState>({})
 const draft = ref<EnabledState>({})
 const page = ref(1)
 const pageSize = ref<PageSize>(100)
+const gridScaleInput = ref(1)
+const gridScale = ref(1)
 const selected = ref(new Set<string>())
 const selectionAnchor = ref<string | null>(null)
 const rangeMode = ref(false)
@@ -185,6 +187,10 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+function applyGridScale(value: number | number[]) {
+  if (typeof value === 'number') gridScale.value = value
 }
 
 function resetTransientState() {
@@ -587,6 +593,19 @@ onBeforeUnmount(() => {
           <label>缩略图标注
             <el-switch v-model="showThumbnailAnnotations" data-test="thumbnail-annotations-switch" />
           </label>
+          <label class="grid-scale-control">缩略图大小
+            <el-slider
+              v-model="gridScaleInput"
+              data-test="grid-scale-slider"
+              aria-label="缩略图显示比例"
+              :min="0.75"
+              :max="2"
+              :step="0.05"
+              :show-tooltip="false"
+              @change="applyGridScale"
+            />
+            <output data-test="grid-scale-value">{{ gridScaleInput.toFixed(2) }}×</output>
+          </label>
           <template v-if="canEdit">
             <el-button v-if="!rangeMode" data-test="enter-range" @click="enterRangeMode">范围多选</el-button>
             <template v-else>
@@ -628,7 +647,11 @@ onBeforeUnmount(() => {
       <section v-loading="loading" class="frames-grid-shell">
         <el-alert v-if="error" class="frames-error" :title="error" type="error" show-icon @close="error = ''" />
         <div v-if="!loading && !frames.length" class="empty-state">该视频尚无采样帧</div>
-        <div class="frames-grid">
+        <div
+          data-test="frames-grid"
+          class="frames-grid"
+          :style="{ '--frame-card-width': `${Math.round(180 * gridScale)}px` }"
+        >
           <article
             v-for="frame in visibleFrames"
             :key="frame.id"
@@ -833,6 +856,9 @@ onBeforeUnmount(() => {
 .toolbar-left::-webkit-scrollbar { display: none; }
 .toolbar-left label { display: flex; align-items: center; gap: 7px; color: #aebbc4; font-size: 12px; }
 .page-size-select { width: 92px; }
+.grid-scale-control { min-width: 210px; }
+.grid-scale-control :deep(.el-slider) { width: 112px; }
+.grid-scale-control output { width: 42px; color: #b8c5cd; font: 11px var(--vdw-mono); text-align: right; }
 .toolbar-right span { color: #f3c76d; font: 12px var(--vdw-mono); }
 .frames-toolbar :deep(.el-button) { height: 30px; padding: 0 11px; color: #dce5eb; background: #263641; border-color: #41515d; border-radius: 3px; }
 .frames-toolbar :deep(.el-button:hover:not(:disabled)) { color: #9de0cc; background: #2d414b; border-color: #507165; }
@@ -855,7 +881,7 @@ onBeforeUnmount(() => {
 .frames-grid-shell { position: relative; min-height: 0; overflow: auto; padding: 12px 14px 18px; scrollbar-color: #16866f #0b1117; scrollbar-width: thin; }
 .frames-grid-shell::-webkit-scrollbar { width: 10px; }.frames-grid-shell::-webkit-scrollbar-track { background: #0b1117; }.frames-grid-shell::-webkit-scrollbar-thumb { background: #16866f; border: 2px solid #0b1117; border-radius: 6px; }
 .frames-error { position: sticky; z-index: 8; top: 0; margin-bottom: 10px; }
-.frames-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(166px, 1fr)); gap: 9px; align-content: start; }
+.frames-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--frame-card-width, 180px)), 1fr)); gap: 9px; align-content: start; }
 .frame-card { min-width: 0; overflow: hidden; background: #1b252e; border: 1px solid #34434e; border-radius: 3px; transition: border-color 150ms ease, box-shadow 150ms ease; }
 .frame-card:hover { border-color: #567063; box-shadow: 0 6px 18px rgb(0 0 0 / 24%); }
 .frame-card.selected { border-color: #78d2b8; box-shadow: 0 0 0 1px #16866f; }
@@ -914,7 +940,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1100px) {
-  .frames-grid { grid-template-columns: repeat(auto-fill, minmax(154px, 1fr)); }
   .frames-stats { gap: 18px; }.stats-cluster { gap: 12px; padding-right: 18px; }
   .preview-info span:nth-of-type(2),
   .preview-info span:nth-of-type(3) { display: none; }

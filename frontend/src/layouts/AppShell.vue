@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { ElNotification } from 'element-plus'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
@@ -44,6 +45,9 @@ const breadcrumbs = computed(() => {
   items.push(String(route.meta.page ?? ''))
   return items.filter(Boolean)
 })
+const sidebarExpanded = computed(() => window.innerWidth < 768
+  ? mobileOpen.value
+  : !collapsed.value)
 
 function toggleSidebar() {
   if (window.innerWidth < 768) {
@@ -180,8 +184,9 @@ onMounted(async () => {
 
     <section class="app-frame">
       <header class="app-topbar">
-        <button data-test="sidebar-toggle" type="button" aria-label="展开或折叠侧栏" @click="toggleSidebar">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+        <button data-test="sidebar-toggle" type="button" :aria-label="sidebarExpanded ? '收起侧栏' : '展开侧栏'" @click="toggleSidebar">
+          <MenuFoldOutlined v-if="sidebarExpanded" aria-hidden="true" />
+          <MenuUnfoldOutlined v-else aria-hidden="true" />
         </button>
         <nav class="app-breadcrumb" aria-label="面包屑">
           <span v-for="item in breadcrumbs" :key="item">{{ item }}</span>
