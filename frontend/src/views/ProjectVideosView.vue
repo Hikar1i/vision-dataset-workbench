@@ -329,7 +329,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
               <span>来源</span>
               <span>规格</span>
               <span>启用帧/采样帧</span>
-              <span>媒体状态</span>
+              <span>状态</span>
               <span>业务状态</span>
               <span>操作</span>
             </header>
@@ -659,11 +659,17 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .ledger-row {
   display: grid;
-  grid-template-columns: 33px 59px minmax(242px, 1.35fr) 79px 139px 108px 92px minmax(209px, 1fr) 306px;
-  gap: 9px;
+  grid-template-columns: 30px 50px minmax(200px, 1.2fr) 40px 100px 80px 50px minmax(200px, 1.1fr) 306px;
+  gap: 8px;
   align-items: center;
   min-width: 1292px;
   padding: 0 9px;
+}
+
+.ledger-row > :nth-child(4),
+.ledger-row > :nth-child(7),
+.ledger-row > :nth-child(8) {
+  justify-self: center;
 }
 
 .ledger-head {
@@ -673,8 +679,11 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   background: #f5f7f9;
   border-bottom: 1px solid var(--vdw-rule);
 }
+.ledger-head > * {
+  text-align: center;
+}
 
-.ledger-head > span:last-child {
+.media-row > :not(:nth-child(3)) {
   text-align: center;
 }
 

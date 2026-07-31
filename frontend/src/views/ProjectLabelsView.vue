@@ -359,7 +359,7 @@ onMounted(load)
 
 .label-row {
   display: grid;
-  grid-template-columns: 80px 110px 120px minmax(180px, 1fr) minmax(180px, 1fr) 210px;
+  grid-template-columns: 60px 110px 120px minmax(180px, 1fr) minmax(180px, 1fr) 210px;
   gap: 18px;
   align-items: center;
   min-width: 1040px;
@@ -397,7 +397,8 @@ onMounted(load)
 
 .mapping-order {
   color: var(--vdw-muted);
-  font: 12px var(--vdw-mono);
+  font: 16px var(--vdw-mono);
+  justify-self: center;
 }
 
 .label-color {
@@ -418,7 +419,7 @@ onMounted(load)
 .label-color code {
   overflow: hidden;
   color: var(--vdw-muted);
-  font: 11px var(--vdw-mono);
+  font: 12px var(--vdw-mono);
   text-overflow: ellipsis;
 }
 
