@@ -19,6 +19,7 @@ const router = useRouter()
 const user = ref<CurrentUser>()
 const fallbackProjects = ref<Project[]>([])
 const activeProject = ref<Project>()
+const recentProjects = readRecentProjects()
 const projectGroupOpen = ref(localStorage.getItem('vdm.nav-projects-open') !== 'false')
 const savedCollapsed = localStorage.getItem('vdm.sidebar-collapsed')
 const collapsed = ref(
@@ -34,9 +35,8 @@ const capabilityNoticeKey = 'vdm.gpu-capability-notice-shown'
 
 const shortcuts = computed(() =>
   resolveProjectShortcuts(
-    readRecentProjects(),
+    recentProjects,
     fallbackProjects.value,
-    activeProject.value,
   ),
 )
 const breadcrumbs = computed(() => {

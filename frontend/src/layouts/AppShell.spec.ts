@@ -56,7 +56,16 @@ async function mountShell() {
             component: { template: '<div>projects</div>' },
             meta: { section: '数据集项目', page: '全部项目' },
           },
-          { path: 'projects/:id/videos', component: { template: '<div />' } },
+          {
+            path: 'projects/:id/videos',
+            component: {
+              emits: ['project-loaded'],
+              mounted() {
+                this.$emit('project-loaded', { id: 'project-1', name: 'Project 1' })
+              },
+              template: '<div />',
+            },
+          },
           { path: 'account', component: { template: '<div />' } },
           { path: 'admin/users', component: { template: '<div />' } },
         ],
@@ -90,6 +99,35 @@ describe('AppShell', () => {
     expect(wrapper.findAll('[data-test="recent-project"]')).toHaveLength(5)
     expect(wrapper.text()).not.toContain('超参模板')
     expect(wrapper.find('[data-test="nav-admin-users"]').exists()).toBe(true)
+  })
+
+  it('keeps project order stable until the app shell is mounted again', async () => {
+    localStorage.setItem('vdm.recent-projects', JSON.stringify([
+      { id: 'project-0', name: 'Project 0', visitedAt: 30 },
+      { id: 'project-1', name: 'Project 1', visitedAt: 20 },
+      { id: 'project-2', name: 'Project 2', visitedAt: 10 },
+    ]))
+    const first = await mountShell()
+    expect(first.wrapper.findAll('[data-test="recent-project"]').slice(0, 3).map(
+      (item) => item.text(),
+    )).toEqual(['Project 0', 'Project 1', 'Project 2'])
+
+    await first.router.push('/projects/project-1/videos')
+    await flushPromises()
+
+    expect(first.wrapper.findAll('[data-test="recent-project"]').slice(0, 3).map(
+      (item) => item.text(),
+    )).toEqual(['Project 0', 'Project 1', 'Project 2'])
+    expect(JSON.parse(localStorage.getItem('vdm.recent-projects') ?? '[]')[0].id).toBe(
+      'project-1',
+    )
+    first.wrapper.unmount()
+
+    const second = await mountShell()
+    expect(second.wrapper.findAll('[data-test="recent-project"]').slice(0, 3).map(
+      (item) => item.text(),
+    )).toEqual(['Project 1', 'Project 0', 'Project 2'])
+    second.wrapper.unmount()
   })
 
   it('persists sidebar and project group preferences', async () => {

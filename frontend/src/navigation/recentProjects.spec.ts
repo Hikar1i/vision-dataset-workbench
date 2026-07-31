@@ -32,16 +32,15 @@ describe('recent projects', () => {
     expect(readRecentProjects()).toEqual([])
   })
 
-  it('pins the active project and fills remaining entries without duplicates', () => {
+  it('keeps recent order and fills remaining entries without duplicates', () => {
     const result = resolveProjectShortcuts(
       [{ id: '1', name: 'Recent' }],
       [
         { id: '1', name: 'Duplicate' },
         { id: '2', name: 'Fallback' },
       ],
-      { id: '3', name: 'Active' },
     )
 
-    expect(result.map((project) => project.id)).toEqual(['3', '1', '2'])
+    expect(result.map((project) => project.id)).toEqual(['1', '2'])
   })
 })

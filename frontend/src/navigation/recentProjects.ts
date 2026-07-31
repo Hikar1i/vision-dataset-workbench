@@ -37,10 +37,9 @@ export function rememberProject(project: ProjectShortcut) {
 export function resolveProjectShortcuts(
   recent: ProjectShortcut[],
   fallback: ProjectShortcut[],
-  active?: ProjectShortcut,
 ) {
   const seen = new Set<string>()
-  return [...(active ? [active] : []), ...recent, ...fallback]
+  return [...recent, ...fallback]
     .filter((project) => {
       if (seen.has(project.id)) return false
       seen.add(project.id)
