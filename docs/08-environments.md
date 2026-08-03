@@ -16,12 +16,14 @@ GPU 服务器安装可选模型运行依赖：
 ```bash
 cd backend
 uv sync --python 3.12 --dev --extra gpu
-uv run python -c "import torch, onnxruntime as ort, transformers, ultralytics; print(torch.cuda.is_available()); print(ort.get_available_providers()); print(transformers.__version__, ultralytics.__version__)"
+uv run python -c "import torch, ultralytics; print(torch.cuda.is_available()); print(torch.__version__, ultralytics.__version__)"
 ```
 
-当前锁定组合为 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8、ONNX Runtime GPU 1.26.x、Transformers 4.57.x 和 Ultralytics 8.4.x。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)、[PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)和 [ONNX Runtime CUDA Provider](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)。
+当前锁定组合为 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8 和 Ultralytics 8.4.x。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)和 [PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)。
 
-自动标注时 API 和 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理。管理员可登记 `.pt`/`.onnx` YOLO 文件或本地 GroundingDINO Transformers 模型目录；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理时验证。
+本地自动标注时 API 和 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理时验证。本系统不再安装或加载本地 ONNX、Transformers 或 GroundingDINO 模型。
+
+远程自动标注不要求本系统安装模型运行依赖。用户在标注页配置可由 API 和 Worker 访问的 X-AnyLabeling Server 地址及可选 API 密钥；客户端访问本机服务时应填写 `http://127.0.0.1:<port>`，`0.0.0.0` 只用于服务监听。当前只接收矩形结果，服务端点选、关键点、多边形等任务不会出现在可选模型列表中。
 
 安装与启动前端：
 
@@ -105,6 +107,7 @@ REGISTRATION_ENABLED=false|true
 VDW_WORKSPACE=<workspace-path>
 YTDLP_PROXY=<optional-proxy-url>
 YTDLP_COOKIE_FILE=<optional-netscape-cookie-file>
+VDW_CREDENTIAL_ENCRYPTION_KEY=<optional-fernet-key>
 ```
 
 - 默认 `multi`。
@@ -113,8 +116,9 @@ YTDLP_COOKIE_FILE=<optional-netscape-cookie-file>
 - 模式切换后重启生效。
 - `VDW_WORKSPACE` 优先于平台工作区定位文件；当前 API 启动命令没有单独的工作区 CLI 参数。
 - yt-dlp 默认不使用代理或 Cookie；仅在实例确有需要时配置上述两个变量。
+- `VDW_CREDENTIAL_ENCRYPTION_KEY` 用于加密用户保存的远程 API 密钥。保存带 API 密钥的配置前必须设置；API 和 Worker 必须一致。
 
-上述五个变量均已实现。布尔值只接受 `true` 或 `false`；`APP_MODE=single` 与 `REGISTRATION_ENABLED=true` 同时出现会使应用启动失败。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
+上述六个变量均已实现。布尔值只接受 `true` 或 `false`；`APP_MODE=single` 与 `REGISTRATION_ENABLED=true` 同时出现会使应用启动失败。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
 
 管理员忘记密码时，先停止 API，再在终端交互式重置；密码不会出现在命令参数中：
 

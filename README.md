@@ -1,6 +1,6 @@
 # Vision Dataset Workbench
 
-面向视觉数据集生产流程的多人工作台。项目以遗留单机工具为业务参考，已重构视频导入、采样、筛帧、权限和在线矩形标注主链路，并开始在系统内直接集成模型自动标注能力。
+面向视觉数据集生产流程的多人工作台。项目以遗留单机工具为业务参考，已重构视频导入、采样、筛帧、权限和在线矩形标注主链路，并支持本地 YOLO 与外部 X-AnyLabeling-Server 自动标注。
 
 ## 当前状态
 
@@ -31,19 +31,19 @@
 - owner/editor 可从视频列表进入全屏在线标注工作台；viewer 的标注入口禁用。
 - 基于 Konva 的原图坐标矩形框编辑，支持绘制、选中、移动、缩放、撤销/重做、画布平移缩放、十字线、快捷键、对象列表和帧缩略图导航。
 - 标注仅在切换帧或关闭工作台时保存；修订号冲突返回 409，意外刷新或关闭仅警告未保存修改。
-- 管理员可从启动用户 `~` 登记 YOLO 文件或 GroundingDINO Transformers 模型目录，Worker 将其复制到工作区统一管理。
-- 可直接调用 Ultralytics YOLO 或 Transformers GroundingDINO：单张推理返回可复核草稿，批量推理作为持久任务逐帧提交，并支持追加或覆盖已有框。
+- 管理员可从启动用户 `~` 登记 `.pt` YOLO 文件；兼容登记模型统一归入工作区全局“临时模型项目”。
+- 标注页可按模型项目选择本地 YOLO，或按用户配置 X-AnyLabeling-Server 地址和可选 API 密钥；单张返回可复核草稿，批量任务支持追加或覆盖已有框。
 - 自动标注支持项目标签、`All` 全类别及临时英文提示词；只为实际检出的新类别创建项目标签。
 - 单项目最多 999 个视频，数据库处理并发容量竞争；owner/editor 可按版本启停视频的批量自动标注与导出参与状态。
 - 高密度视频工作台提供项目轨道、紧凑媒体台账、派生业务状态标签、批量风险统计、当前页全选以及 25/50/100/200/全部分页。
-- 启动时检测 NVIDIA GPU、PyTorch CUDA、ONNX Runtime CUDA、Ultralytics 和 Transformers；缺少 GPU 或依赖时保持启动并提示功能降级。
-- uv 可选 `gpu` 依赖组，已在 RTX A4000 和 Quadro RTX 4000 上验证 PyTorch CUDA 12.8 与 ONNX CUDA Provider。
+- 启动时检测 NVIDIA GPU、PyTorch CUDA 和 Ultralytics；缺少 GPU 或依赖时保持启动并提示本地 YOLO 功能降级。
+- uv 可选 `gpu` 依赖组仅包含 PyTorch、torchvision 和 Ultralytics；远程大模型依赖由 X-AnyLabeling-Server 自行管理。
 - Python 3.12/FastAPI 与 Vue 3/TypeScript/Vite 项目骨架。
 
 下一阶段：
 
 - 项目级数据集导出与导出产物管理。
-- 独立的模型项目、训练任务、可视化训练和超参模板。
+- 模型项目管理页面、训练任务、可视化训练和超参模板；本期已建立模型项目数据基础。
 - 在线标注的真实模型与大批量性能冒烟、审计记录和操作细节迭代。
 - 按实际交互需求评估任务事件推送；当前任务抽屉使用轮询。
 

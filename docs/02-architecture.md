@@ -4,7 +4,7 @@
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十三版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型推理、数据集导出、GPU 能力探测和独立 Worker。模型训练仍是目标设计。因此本页区分：
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十四版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、本地/远程模型推理、数据集导出、GPU 能力探测和独立 Worker。模型管理页面与训练仍是目标设计。因此本页区分：
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -27,7 +27,7 @@ Vue setup/auth/admin/project/media pages
   │    └─ owner/editor writes + viewer reads
   ├─ /api/v1/capabilities → startup-cached capability probe
   │    ├─ nvidia-smi device inventory
-  │    └─ PyTorch CUDA / ONNX CUDA / Ultralytics / Transformers readiness
+  │    └─ PyTorch CUDA / Ultralytics readiness
   ├─ /api/v1/filesystem → HomePathResolver
   ├─ /api/v1/projects/<id>/videos|imports|tasks → MediaService
        ├─ SQLite Video / Task state
@@ -39,9 +39,12 @@ Vue setup/auth/admin/project/media pages
        └─ authenticated frame image delivery
   ├─ /api/v1/.../frames/<id>/annotations → AnnotationService
   │    └─ original-pixel rectangles + stable display order + annotation revision
-  ├─ /api/v1/models|auto-annotations → ModelService / AutoAnnotationService
+  ├─ /api/v1/model-projects|models → ModelService
+  ├─ /api/v1/me/x-anylabeling-server → XAnyLabelingSettingsService
+  ├─ /api/v1/.../auto-annotations → AutoAnnotationService
        ├─ synchronous single-frame review draft
-       └─ persistent batch task creation
+       ├─ local `.pt` YOLO or per-user X-AnyLabeling connection
+       └─ persistent batch task creation without credential snapshots
   └─ /api/v1/projects/<id>/dataset-exports → DatasetExportService
        ├─ immutable label/source snapshots
        ├─ list/detail/streaming ZIP/logical delete
@@ -171,7 +174,7 @@ SQLite             Persistent Worker
 - 数据集导出位于 `projects/<project UUID>/exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；图像通过硬链接引用当前帧文件，类别和源数据快照、YOLO 标签、配置及统计清单随产物保存。下载按请求流式生成 ZIP，不在工作区保留额外压缩包。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
 - Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
-- Python 核心依赖不包含模型运行库；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、Ultralytics、Transformers 和 ONNX Runtime GPU。
+- Python 核心依赖不包含本地大模型运行库；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、torchvision 和 Ultralytics。远程模型依赖只存在于 X-AnyLabeling-Server。
 - 只支持单机本地磁盘，不支持跨服务器 Worker 或网络文件系统上的 SQLite。
 
 当前及后续工作区目录约定：
@@ -185,14 +188,14 @@ projects/<project UUID>/
 ├─ annotation-batches/<batch UUID>/ # 逻辑概念：当前批量任务直接按 Frame 记录处理，不物化固定分组目录
 └─ exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/ # 已实现：不可变 YOLO 数据集导出
 
-models/<model UUID>/                # 已实现：受管推理模型文件或 Transformers 目录
+models/<model UUID>/                # 已实现：受管 `.pt` YOLO 模型文件
 ```
 
-遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应新的 `exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；遗留 `groups/` 不作为普通数据目录照搬，而对应自动标注任务的帧快照/分片概念。新系统直接调用 YOLO、GroundingDINO 等模型并由任务调度器动态分片，不依赖 X-AnyLabeling 或固定分组目录。
+遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应新的 `exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；遗留 `groups/` 不作为普通数据目录照搬，而对应自动标注任务的帧快照/分片概念。新系统本地只加载 YOLO；大模型通过 X-AnyLabeling-Server 的 `/v1/models` 与 `/v1/predict` 解耦运行。
 
 ## 延期架构
 
 - 图片数据集能力在视频重构后实现，不直接移植遗留分支路由。
-- 在线标注已实现手动矩形框，以及 Ultralytics YOLO 和 Transformers GroundingDINO 自动标注；不依赖 X-AnyLabeling。
+- 在线标注已实现手动矩形框、本地 Ultralytics YOLO 和 X-AnyLabeling-Server 自动标注；远程返回只接纳轴对齐矩形。
 - 批量自动标注由 Worker 按任务启动时的启用 Frame 集合处理，不依赖外部 AnnotationBatch 目录。
 - 不预建任意模型或训练脚本插件框架。

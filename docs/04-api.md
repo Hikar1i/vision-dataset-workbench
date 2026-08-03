@@ -7,7 +7,7 @@
 | 方法与路径 | 认证 | 用途 |
 | --- | --- | --- |
 | `GET /api/v1/health` | 无 | 进程存活检查，返回 `{"status":"ok"}` |
-| `GET /api/v1/capabilities` | Session | 返回缓存的 GPU、PyTorch CUDA、ONNX CUDA 与功能能力 |
+| `GET /api/v1/capabilities` | Session | 返回缓存的 GPU、PyTorch CUDA、Ultralytics 与功能能力 |
 | `GET /api/v1/setup/status` | 无 | 返回工作区是否已初始化 |
 | `GET /api/v1/setup/directories` | `X-Setup-Token` | 分页浏览启动用户 `~` 内目录 |
 | `POST /api/v1/setup/directories` | `X-Setup-Token` | 在受控父目录中新建目录 |
@@ -59,7 +59,12 @@
 | `GET /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/annotations` | 项目成员 | 读取整帧矩形标注及 `annotation_revision` |
 | `PUT /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/annotations` | owner/editor + 同源 | 按修订号整体替换当前帧标注 |
 | `GET /api/v1/models` | Session | 返回工作区内推理模型及入库状态 |
-| `POST /api/v1/projects/{id}/models` | 系统管理员 + 项目访问 + 同源 | 登记 `~` 内 YOLO 文件或 GroundingDINO 目录并创建入库任务 |
+| `GET /api/v1/model-projects` | Session | 返回工作区全局模型项目 |
+| `GET /api/v1/model-projects/{id}/models` | Session | 返回指定模型项目内模型 |
+| `POST /api/v1/projects/{id}/models` | 系统管理员 + 项目访问 + 同源 | 登记 `~` 内 `.pt` YOLO 并归入临时模型项目 |
+| `GET /api/v1/me/x-anylabeling-server` | Session | 返回当前用户脱敏远程配置，不返回 API 密钥 |
+| `PUT /api/v1/me/x-anylabeling-server` | Session + 同源 | 验证远程模型目录后保存 URL 和可选密钥 |
+| `GET /api/v1/me/x-anylabeling-server/models` | Session | 实时刷新当前用户远程模型目录 |
 | `POST /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/auto-annotations` | owner/editor + 同源 | 同步运行单张推理并返回未保存草稿 |
 | `POST /api/v1/projects/{id}/videos/{video_id}/auto-annotations` | owner/editor + 同源 | 创建批量自动标注任务，返回 202 |
 | `POST /api/v1/projects/{id}/dataset-exports` | owner/editor + 同源 | 按类别与源数据快照创建导出任务，返回 202 |
@@ -106,17 +111,17 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 
 创建导出要求训练集比例位于 `[0, 1]`、类别快照完整且映射连续，并至少启用一个类别；同一项目已有 queued/running 导出时返回 409。任务活动期间，参与视频的启停、帧启停、重抽帧和手动/自动标注写入返回 409，读取不受影响。导出详情只在 ready 后包含工作区绝对路径与 `manifest`；下载不生成持久 ZIP，删除将产物移动到 `.deleted/projects/<project UUID>/exports/` 并从普通列表隐藏。
 
-标签名称由服务端转为小写并压缩空白，只允许英文字母、数字、空格、连字符和下划线；项目内不区分大小写唯一。`description_zh` 为最长 64 字符的可选显示说明，不作为 YOLO 类别或 DINO 提示词。批量排序请求必须恰好包含项目当前全部标签 ID，否则返回 422。标签重名、过期版本以及删除已被标注引用的标签返回 409。内部标签身份使用 UUID，排序变化不修改标注关联。
+标签名称由服务端转为小写并压缩空白，只允许英文字母、数字、空格、连字符和下划线；项目内不区分大小写唯一。`description_zh` 为最长 64 字符的可选显示说明，不作为模型类别或提示词。批量排序请求必须恰好包含项目当前全部标签 ID，否则返回 422。标签重名、过期版本以及删除已被标注引用的标签返回 409。内部标签身份使用 UUID，排序变化不修改标注关联。
 
-能力接口在后端进程启动时探测一次。`gpu` 返回设备序号、名称和总显存；`pytorch_cuda`、`onnx_cuda` 以及 `features.manual_annotation/yolo_auto_annotation/grounding_dino_auto_annotation/model_training` 分别返回 `available` 和可空 `reason`。YOLO 能力要求 PyTorch CUDA 与 Ultralytics；GroundingDINO 能力要求 PyTorch CUDA 与 Transformers。探测失败只降级功能，不影响应用启动；具体模型是否已入库不属于该接口。
+能力接口在后端进程启动时探测一次。`gpu` 返回设备序号、名称和总显存；`pytorch_cuda` 以及 `features.manual_annotation/yolo_auto_annotation/model_training` 分别返回 `available` 和可空 `reason`。本地 YOLO 能力要求 PyTorch CUDA 与 Ultralytics；探测失败只降级本地功能，不影响应用启动或外部 X-AnyLabeling 使用。
 
 矩形标注坐标使用原图像素整数，必须位于图片边界内，单帧最多 10000 项；响应顺序同时是稳定对象编号和图层顺序。客户端只在切换帧、点击其他缩略图、启动批量任务或关闭标注工作台时提交整帧草稿；`annotation_revision` 过期返回 409。浏览器意外刷新、崩溃或断电不会后台频繁保存，页面只通过 `beforeunload` 警告未保存修改。帧列表默认不返回标注，标注工作台显式使用 `include_annotations=true` 一次加载缩略图所需的框坐标和标签 ID。
 
 筛帧工作台先在浏览器维护启停草稿，保存时只提交与打开页面时基准不同的帧。`PUT .../frames/enabled` 请求体为 `{"changes":[{"frame_id":"...","enabled":false}],"frame_revision":4}`；同一请求中的帧 ID 必须唯一且都属于目标视频，服务端在一个事务内更新全部状态并只递增一次帧修订号。版本过期返回 409且不进行部分写入。标注帧摘要只返回存在至少一个已保存标注框的帧 ID；前端用该集合结合当前启停草稿实时计算标注帧启用/停用统计和“按标注启停”结果。
 
-单张自动标注在 API 同步线程池运行，只返回可编辑草稿，不修改当前标注；同一模型的进程内推理使用互斥锁，避免并发复用模型对象。`categories` 接受项目英文标签或临时英文类别，`All` 表示使用模型可提供的全部类别；只有实际检出的缺失类别会加入项目标签。批量接口拒绝停用视频，并把 Worker 开始执行时启用的帧作为处理范围；`overwrite=false` 追加模型框，`overwrite=true` 覆盖整帧已有框，两种模式都不改变帧启停状态。批量任务活动期间该视频标注写接口返回 409，前端进入只读并轮询任务状态；失败或取消保留此前已成功提交的帧。
+单张自动标注在 API 同步线程池运行，只返回可编辑草稿，不修改当前标注。请求用 `source=local|xanylabeling`、`model_id` 和可空 `remote_task_id` 标识来源；本地模型使用进程内互斥锁，远程模型使用当前用户配置。`categories` 接受项目英文标签或临时英文类别，`All` 表示使用模型可提供的全部类别；只有实际检出的缺失类别会加入项目标签。批量接口拒绝停用视频，并把 Worker 开始执行时启用的帧作为处理范围；任务只保存来源和模型选择，不保存服务器 URL、API 密钥或图片。`overwrite=false` 追加模型框，`overwrite=true` 覆盖整帧已有框。活动远程任务期间修改该用户 X-AnyLabeling 配置返回 409。
 
-模型入库只允许系统管理员发起。YOLO 接受模型文件，GroundingDINO 接受本地 Transformers 模型目录；Worker 复制到 `models/<model UUID>/` 后将状态置为 `ready`。`ready` 只表示受管副本已发布，权重格式与运行库兼容性在首次推理时最终验证。`import_model` 和 `auto_annotate` 任务不开放通用重试接口，用户需重新发起以确认参数和范围。
+模型入库只允许系统管理员发起，只接受 `.pt` YOLO；Worker 复制到 `models/<model UUID>/` 后将状态置为 `ready`。`ready` 只表示受管副本已发布，权重兼容性在首次推理时最终验证。X-AnyLabeling PUT 用 `api_key_mode=retain|replace|clear` 表达密钥操作，保存前实时请求 `/v1/models`，失败不覆盖旧配置；远程响应只接纳有限坐标的 `rectangle`。`import_model` 和 `auto_annotate` 任务不开放通用重试接口。
 
 全局任务接口按项目可见性过滤，按任务创建时间倒序返回。每项在普通任务字段之外包含 `project_id`、`project_name` 和 `can_manage`；viewer 的 `can_manage=false`。分页响应的 `latest_terminal_at` 在全部可见任务中计算，不受当前页限制，用于浏览器任务中心判断 succeeded、failed 或 canceled 任务是否未读。取消和重试仍使用项目级写接口，权限检查不在全局查询中复制。
 

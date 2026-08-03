@@ -1,6 +1,6 @@
 # 数据库
 
-状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、推理模型和数据集导出迁移已实现。
+状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、模型项目、用户远程配置、推理模型和数据集导出迁移已实现。
 
 ## 数据库选型
 
@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述，`0009_annotations` 增加矩形标注和帧标注修订号，`0010_inference_models` 增加推理模型并扩展任务类型，`0011_annotation_order` 为标注增加稳定显示顺序，`0012_video_short_codes` 增加视频短码并精简 Frame 索引，`0013_dataset_exports` 增加不可变导出记录并扩展任务类型。当前 `users` 表为：
+Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述，`0009_annotations` 增加矩形标注和帧标注修订号，`0010_inference_models` 增加推理模型并扩展任务类型，`0011_annotation_order` 为标注增加稳定显示顺序，`0012_video_short_codes` 增加视频短码并精简 Frame 索引，`0013_dataset_exports` 增加不可变导出记录，`0014_model_projects` 增加模型项目、模型归属字段和按用户保存的 X-AnyLabeling 配置。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -138,18 +138,32 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 
 客户端按整帧读取和替换标注；请求必须携带当前 `annotation_revision`。服务端校验所有标签属于同一项目、矩形在图片边界内且 ID 不重复，按请求数组顺序重建 `sort_order`，成功后整体替换并递增修订号。
 
+`model_projects` 表保存工作区全局模型系列：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `name` | 模型项目 UUID 和名称 |
+| `series_type` | `archive` 或 `training` |
+| `system_key` | 可空唯一系统标识；`temporary` 对应兼容登记入口 |
+| `created_at` | 创建时间 |
+
 `inference_models` 表保存全局受管推理模型：
 
 | 字段 | 约束/含义 |
 | --- | --- |
-| `id` / `name` / `kind` | 模型 UUID、显示名及 `yolo` 或 `grounding_dino` 类型 |
+| `id` / `model_project_id` | 模型 UUID 和模型项目外键 |
+| `name` / `description` | 可编辑显示名和描述基础字段 |
+| `parameters` | JSON 文本；保留训练超参数和模型参数信息 |
+| `kind` | 当前固定为 `yolo` |
 | `status` | `copying`、`ready` 或 `failed`；ready 表示入库完成，首次推理仍会验证运行兼容性 |
 | `storage_path` / `source_name` | 工作区内受管路径及不含绝对路径的来源显示名 |
 | `created_by_id` | 登记模型的系统管理员 |
 | `error` | 入库失败的安全错误信息 |
 | 时间字段 | 创建和更新时间 |
 
-模型属于工作区而非单个数据集项目；项目级标签与推理时选择的英文提示词决定结果如何映射到具体项目。
+模型属于工作区而非单个数据集项目；旧模型迁移和兼容登记模型均归入固定“临时模型项目”。
+
+`user_xanylabeling_settings` 以 `user_id` 为主键保存每个用户的 `server_url`、可空 `api_key_ciphertext` 和时间字段。API 密钥使用部署级 `VDW_CREDENTIAL_ENCRYPTION_KEY` 加密，表中不保存明文；删除用户时配置级联删除。远程模型目录不写入本表或 `inference_models`。
 
 `dataset_exports` 表保存项目级不可变导出记录：
 
