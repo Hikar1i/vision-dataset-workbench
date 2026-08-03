@@ -10,6 +10,7 @@ import {
   Hide,
   QuestionFilled,
   Rank,
+  Refresh,
   Right,
   View,
   ZoomIn,
@@ -39,11 +40,18 @@ import {
 } from '../api/media'
 import {
   createBatchAutoAnnotation,
-  listInferenceModels,
+  getXAnyLabelingSetting,
+  listModelProjectModels,
+  listModelProjects,
+  listXAnyLabelingModels,
   registerInferenceModel,
   runFrameAutoAnnotation,
+  saveXAnyLabelingSetting,
   type AutoAnnotationConfig,
   type InferenceModel,
+  type ModelProject,
+  type RemoteModelOption,
+  type XAnyLabelingSetting,
 } from '../api/models'
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
@@ -61,6 +69,7 @@ import {
 type CanvasMode = 'select' | 'draw' | 'pan'
 type CanvasApi = { zoomBy: (factor: number) => void; resetView: () => void; zoomPercent: number }
 type SaveContext = 'switch' | 'close' | 'batch'
+type ModelSourceValue = 'xanylabeling' | 'online' | `project:${string}`
 
 const route = useRoute()
 const router = useRouter()
@@ -73,6 +82,9 @@ const video = ref<Video | null>(null)
 const frames = ref<Frame[]>([])
 const labels = ref<ProjectLabel[]>([])
 const inferenceModels = ref<InferenceModel[]>([])
+const modelProjects = ref<ModelProject[]>([])
+const remoteModels = ref<RemoteModelOption[]>([])
+const xanylabelingSetting = ref<XAnyLabelingSetting | null>(null)
 const capabilities = ref<SystemCapabilities | null>(null)
 const currentUser = ref<CurrentUser | null>(null)
 const sampling = ref<SamplingSummary | null>(null)
@@ -101,8 +113,14 @@ const imageInfoExpanded = ref(true)
 const registerOpen = ref(false)
 const registering = ref(false)
 const registerName = ref('')
-const registerKind = ref<InferenceModel['kind']>('yolo')
 const registerPath = ref('')
+const selectedSource = ref<ModelSourceValue>('' as ModelSourceValue)
+const modelListLoading = ref(false)
+const xanylabelingSettingsOpen = ref(false)
+const xanylabelingSettingsSaving = ref(false)
+const xanylabelingServerUrl = ref('')
+const xanylabelingApiKey = ref('')
+const clearXAnyLabelingApiKey = ref(false)
 const inferenceRunning = ref(false)
 const activeAutoTask = ref<ProjectTask | null>(null)
 const pendingBounds = ref<BoxBounds | null>(null)
@@ -138,28 +156,36 @@ const frameFileName = computed(() => {
 const enabledLabels = computed(() => labels.value.filter((label) => label.enabled))
 const readyModels = computed(() => inferenceModels.value.filter((model) => {
   if (model.status !== 'ready') return false
-  const feature = model.kind === 'yolo'
-    ? capabilities.value?.features.yolo_auto_annotation
-    : capabilities.value?.features.grounding_dino_auto_annotation
-  return feature?.available === true
+  return capabilities.value?.features.yolo_auto_annotation.available === true
 }))
-const selectedModel = computed(() =>
+const selectedLocalModel = computed(() =>
   inferenceModels.value.find((model) => model.id === autoModel.value) ?? null,
 )
+const selectedRemoteModel = computed(() =>
+  remoteModels.value.find((model) => model.key === autoModel.value) ?? null,
+)
+const selectedModelName = computed(() => selectedSource.value === 'xanylabeling'
+  ? selectedRemoteModel.value?.name ?? ''
+  : selectedLocalModel.value?.name ?? '')
 const batchActive = computed(() =>
   activeAutoTask.value?.type === 'auto_annotate'
   && ['queued', 'running'].includes(activeAutoTask.value.status),
 )
 const autoUnavailableReason = computed(() => {
+  if (selectedSource.value === 'xanylabeling') {
+    if (xanylabelingSetting.value?.available && remoteModels.value.length) return ''
+    return xanylabelingSetting.value?.configured
+      ? 'X-anylabeling-server 当前不可用'
+      : '尚未配置 X-anylabeling-server'
+  }
   if (readyModels.value.length) return ''
   return capabilities.value?.features.yolo_auto_annotation.reason
-    ?? capabilities.value?.features.grounding_dino_auto_annotation.reason
     ?? '没有可用的已入库模型'
 })
 const autoUnavailableText = computed(() => {
+  if (selectedSource.value === 'xanylabeling') return '远程模型不可用'
   const yolo = capabilities.value?.features.yolo_auto_annotation.available
-  const dino = capabilities.value?.features.grounding_dino_auto_annotation.available
-  return yolo === false && dino === false ? 'GPU功能不可用' : '暂无可用模型'
+  return yolo === false ? 'GPU功能不可用' : '暂无可用模型'
 })
 const groupedObjects = computed(() => labels.value
   .map((label) => ({
@@ -331,8 +357,93 @@ function setAutoCategories(values: string[]) {
   categoryQuery.value = ''
 }
 
+function selectedModelProjectId() {
+  return selectedSource.value.startsWith('project:')
+    ? selectedSource.value.slice('project:'.length)
+    : ''
+}
+
+async function openXAnyLabelingSettings() {
+  if (!xanylabelingSetting.value) {
+    xanylabelingSetting.value = await getXAnyLabelingSetting()
+  }
+  xanylabelingServerUrl.value = xanylabelingSetting.value.server_url
+  xanylabelingApiKey.value = ''
+  clearXAnyLabelingApiKey.value = false
+  xanylabelingSettingsOpen.value = true
+}
+
+async function changeModelSource(value: ModelSourceValue) {
+  selectedSource.value = value
+  autoModel.value = ''
+  if (value === 'xanylabeling') {
+    await openXAnyLabelingSettings()
+    return
+  }
+  await refreshSelectedModels()
+}
+
+async function refreshSelectedModels() {
+  modelListLoading.value = true
+  try {
+    if (selectedSource.value === 'xanylabeling') {
+      remoteModels.value = await listXAnyLabelingModels()
+      if (xanylabelingSetting.value) {
+        xanylabelingSetting.value = { ...xanylabelingSetting.value, available: true }
+      }
+      autoModel.value = remoteModels.value[0]?.key ?? ''
+      return
+    }
+    const modelProjectId = selectedModelProjectId()
+    inferenceModels.value = modelProjectId
+      ? await listModelProjectModels(modelProjectId)
+      : []
+    autoModel.value = readyModels.value[0]?.id ?? ''
+  } catch (reason) {
+    if (selectedSource.value === 'xanylabeling') {
+      remoteModels.value = []
+      if (xanylabelingSetting.value) {
+        xanylabelingSetting.value = { ...xanylabelingSetting.value, available: false }
+      }
+    } else {
+      inferenceModels.value = []
+    }
+    autoModel.value = ''
+    ElMessage.error(reason instanceof Error ? reason.message : '模型列表刷新失败')
+  } finally {
+    modelListLoading.value = false
+  }
+}
+
+async function saveXAnyLabelingSettings() {
+  if (!xanylabelingServerUrl.value.trim()) return
+  xanylabelingSettingsSaving.value = true
+  try {
+    const mode = clearXAnyLabelingApiKey.value
+      ? 'clear'
+      : xanylabelingApiKey.value ? 'replace' : 'retain'
+    const saved = await saveXAnyLabelingSetting(
+      xanylabelingServerUrl.value,
+      mode,
+      mode === 'replace' ? xanylabelingApiKey.value : null,
+    )
+    xanylabelingSetting.value = saved.setting
+    remoteModels.value = saved.models
+    selectedSource.value = 'xanylabeling'
+    autoModel.value = saved.models[0]?.key ?? ''
+    xanylabelingSettingsOpen.value = false
+    ElMessage.success('X-anylabeling-server 设置已保存。')
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '远程服务器设置保存失败')
+  } finally {
+    xanylabelingSettingsSaving.value = false
+  }
+}
+
 function autoConfig(): AutoAnnotationConfig | null {
-  if (!selectedModel.value) {
+  const local = selectedLocalModel.value
+  const remote = selectedRemoteModel.value
+  if (selectedSource.value === 'xanylabeling' ? !remote : !local) {
     ElMessage.warning('请先选择可用模型。')
     return null
   }
@@ -340,7 +451,9 @@ function autoConfig(): AutoAnnotationConfig | null {
     ? []
     : [...new Set(autoCategories.value.map((item) => item.trim().toLowerCase()).filter(Boolean))]
   return {
-    model_id: selectedModel.value.id,
+    source: selectedSource.value === 'xanylabeling' ? 'xanylabeling' : 'local',
+    model_id: remote?.model_id ?? local?.id ?? '',
+    remote_task_id: remote?.task_id ?? null,
     categories,
     confidence: confidence.value,
     iou: iou.value,
@@ -380,7 +493,7 @@ async function runBatchAutoAnnotation() {
   const categoryText = config.categories.length ? config.categories.join(', ') : 'All / 全类别'
   try {
     await ElMessageBox.confirm(
-      `将使用「${selectedModel.value?.name ?? ''}」处理 ${enabledFrameCount.value} 个启用采样帧；类别：${categoryText}；${overwrite.value ? '覆盖已有标注' : '保留已有标注并追加结果'}。`,
+      `将使用「${selectedModelName.value}」处理 ${enabledFrameCount.value} 个启用采样帧；类别：${categoryText}；${overwrite.value ? '覆盖已有标注' : '保留已有标注并追加结果'}。`,
       '确认批量自动标注',
       {
         confirmButtonText: '确认运行',
@@ -414,10 +527,11 @@ async function submitModelRegistration() {
     const registered = await registerInferenceModel(
       projectId,
       registerName.value,
-      registerKind.value,
       registerPath.value,
     )
-    inferenceModels.value = [registered.model, ...inferenceModels.value]
+    if (registered.model.model_project_id === selectedModelProjectId()) {
+      inferenceModels.value = [registered.model, ...inferenceModels.value]
+    }
     registerOpen.value = false
     registerName.value = ''
     registerPath.value = ''
@@ -448,7 +562,10 @@ async function refreshAutoTask() {
       window.dispatchEvent(new CustomEvent('vdm:tasks-settled'))
     }
     if (inferenceModels.value.some((model) => model.status === 'copying')) {
-      inferenceModels.value = await listInferenceModels()
+      const modelProjectId = selectedModelProjectId()
+      inferenceModels.value = modelProjectId
+        ? await listModelProjectModels(modelProjectId)
+        : []
       if (!autoModel.value) autoModel.value = readyModels.value[0]?.id ?? ''
     }
   } catch {
@@ -619,11 +736,12 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [project, videos, projectLabels, models, detectedCapabilities, user] = await Promise.all([
+    const [project, videos, projectLabels, projects, remoteSetting, detectedCapabilities, user] = await Promise.all([
       getProject(projectId),
       listVideos(projectId, 1, 999),
       listLabels(projectId),
-      listInferenceModels(),
+      listModelProjects(),
+      getXAnyLabelingSetting(),
       getCapabilities(),
       getCurrentUser(),
     ])
@@ -635,18 +753,25 @@ async function load() {
     video.value = videos.items.find((item) => item.id === videoId) ?? null
     if (!video.value) throw new Error('视频不存在或不可访问')
     labels.value = projectLabels
-    inferenceModels.value = models
+    modelProjects.value = projects
+    xanylabelingSetting.value = remoteSetting
     capabilities.value = detectedCapabilities
     currentUser.value = user
     activeAutoTask.value = video.value.latest_task?.type === 'auto_annotate'
       ? video.value.latest_task
       : null
-    autoModel.value = models.find((model) => {
-      if (model.status !== 'ready') return false
-      return model.kind === 'yolo'
-        ? detectedCapabilities.features.yolo_auto_annotation.available
-        : detectedCapabilities.features.grounding_dino_auto_annotation.available
-    })?.id ?? ''
+    const firstProject = projects[0]
+    if (firstProject) {
+      selectedSource.value = `project:${firstProject.id}`
+      inferenceModels.value = await listModelProjectModels(firstProject.id)
+      autoModel.value = inferenceModels.value.find((model) => (
+        model.status === 'ready'
+        && detectedCapabilities.features.yolo_auto_annotation.available
+      ))?.id ?? ''
+    } else if (remoteSetting.configured) {
+      selectedSource.value = 'xanylabeling'
+      await refreshSelectedModels()
+    }
     const remembered = projectLabels.find(
       (label) => label.enabled && label.id === lastUsedLabelId.value,
     )
@@ -706,12 +831,59 @@ watch(reuseLabel, (reuse) => {
     <section class="auto-bar" aria-label="自动标注控制">
       <div class="auto-controls">
         <el-select
+          :model-value="selectedSource"
+          data-test="model-project-select"
+          class="model-project-select"
+          :class="selectedSource === 'xanylabeling'
+            ? (xanylabelingSetting?.available ? 'remote-source-available' : 'remote-source-unavailable')
+            : ''"
+          placeholder="选择模型项目"
+          :title="selectedSource === 'xanylabeling'
+            ? `X-anylabeling-server ${xanylabelingSetting?.available ? '可用' : '不可用'}`
+            : '选择模型项目'"
+          :disabled="batchActive || inferenceRunning"
+          @change="changeModelSource"
+        >
+          <el-option
+            value="xanylabeling"
+            label="X-anylabeling-server"
+            :class="xanylabelingSetting?.available ? 'remote-source-available' : 'remote-source-unavailable'"
+          >
+            <span @click="openXAnyLabelingSettings">
+              X-anylabeling-server（{{ xanylabelingSetting?.available ? '可用' : '不可用' }}）
+            </span>
+          </el-option>
+          <el-option value="online" label="在线大模型（后续实现）" disabled />
+          <el-option
+            v-for="modelProject in modelProjects"
+            :key="modelProject.id"
+            :label="modelProject.name"
+            :value="`project:${modelProject.id}`"
+          />
+        </el-select>
+        <button
+          data-test="model-list-refresh"
+          type="button"
+          title="刷新模型列表"
+          aria-label="刷新模型列表"
+          :disabled="modelListLoading || batchActive || inferenceRunning || !selectedSource"
+          @click="refreshSelectedModels"
+        >
+          <el-icon><Refresh /></el-icon>
+        </button>
+        <el-select
           v-model="autoModel"
+          data-test="inference-model-select"
           class="model-select"
           placeholder="选择模型"
-          :disabled="batchActive || inferenceRunning || !readyModels.length"
+          :disabled="batchActive || inferenceRunning || modelListLoading"
         >
-          <el-option v-for="model in readyModels" :key="model.id" :label="model.name" :value="model.id" />
+          <template v-if="selectedSource === 'xanylabeling'">
+            <el-option v-for="model in remoteModels" :key="model.key" :label="model.name" :value="model.key" />
+          </template>
+          <template v-else>
+            <el-option v-for="model in readyModels" :key="model.id" :label="model.name" :value="model.id" />
+          </template>
         </el-select>
         <button
           v-if="currentUser?.is_system_admin"
@@ -1005,23 +1177,62 @@ watch(reuseLabel, (reuse) => {
   <el-dialog v-model="registerOpen" title="登记推理模型" width="min(760px, calc(100vw - 32px))" append-to-body>
     <div class="model-registration-form">
       <label><span>模型名称</span><el-input v-model="registerName" maxlength="128" placeholder="例如：安全帽 YOLO26 v1" /></label>
-      <label><span>模型类型</span>
-        <el-radio-group v-model="registerKind">
-          <el-radio-button value="yolo">YOLO</el-radio-button>
-          <el-radio-button value="grounding_dino">GroundingDINO</el-radio-button>
-        </el-radio-group>
-      </label>
-      <p>{{ registerKind === 'yolo' ? '选择 .pt 或 .onnx 模型文件。' : '选择包含 Transformers 本地模型配置与权重的目录。' }}</p>
+      <p>选择 `.pt` YOLO 模型文件，模型将归入“临时模型项目”。</p>
       <ServerVideoPicker
         v-model="registerPath"
         kind="model"
-        :allow-directory-selection="registerKind === 'grounding_dino'"
+        :allow-directory-selection="false"
         :allow-create="false"
       />
     </div>
     <template #footer>
       <el-button @click="registerOpen = false">取消</el-button>
       <el-button type="primary" :loading="registering" :disabled="!registerName.trim() || !registerPath" @click="submitModelRegistration">创建入库任务</el-button>
+    </template>
+  </el-dialog>
+  <el-dialog
+    v-model="xanylabelingSettingsOpen"
+    data-test="xanylabeling-settings-dialog"
+    title="X-anylabeling-server 设置"
+    width="min(560px, calc(100vw - 32px))"
+    append-to-body
+    :close-on-click-modal="!xanylabelingSettingsSaving"
+    :close-on-press-escape="!xanylabelingSettingsSaving"
+    :show-close="!xanylabelingSettingsSaving"
+  >
+    <div class="xanylabeling-settings-form">
+      <label>
+        <span>服务器地址</span>
+        <el-input
+          v-model="xanylabelingServerUrl"
+          data-test="xanylabeling-server-url"
+          placeholder="http://127.0.0.1:44444"
+        />
+      </label>
+      <label>
+        <span>API 密钥（可选）</span>
+        <el-input
+          v-model="xanylabelingApiKey"
+          data-test="xanylabeling-api-key"
+          type="password"
+          show-password
+          autocomplete="new-password"
+          :placeholder="xanylabelingSetting?.has_api_key ? '已配置，留空则保留' : '未配置'"
+        />
+      </label>
+      <el-checkbox
+        v-if="xanylabelingSetting?.has_api_key"
+        v-model="clearXAnyLabelingApiKey"
+      >清除已保存的 API 密钥</el-checkbox>
+    </div>
+    <template #footer>
+      <el-button :disabled="xanylabelingSettingsSaving" @click="xanylabelingSettingsOpen = false">取消</el-button>
+      <el-button
+        type="primary"
+        :loading="xanylabelingSettingsSaving"
+        :disabled="!xanylabelingServerUrl.trim()"
+        @click="saveXAnyLabelingSettings"
+      >确认</el-button>
     </template>
   </el-dialog>
 </template>
@@ -1068,7 +1279,12 @@ watch(reuseLabel, (reuse) => {
 .frame-controls { gap: 10px; min-width: 0; white-space: nowrap; }
 .auto-controls label,
 .frame-controls label { display: flex; align-items: center; gap: 5px; color: #aebbc4; font-size: 12px; }
-.model-select { width: 250px; }
+.model-project-select { width: 210px; }
+.model-select { width: 230px; }
+.remote-source-available { color: #16866f; }
+.remote-source-unavailable { color: #c45656; }
+.remote-source-available :deep(.el-select__selected-item) { color: #16866f; }
+.remote-source-unavailable :deep(.el-select__selected-item) { color: #c45656; }
 .category-select { width: 340px; }
 .auto-controls :deep(.el-input-number) { width: 100px; }
 .auto-bar button { height: 30px; padding: 0 10px; color: #dce5eb; background: #263641; border: 1px solid #41515d; }
@@ -1188,6 +1404,9 @@ watch(reuseLabel, (reuse) => {
 .model-registration-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 12px; }
 .model-registration-form > label > span { color: #5f6c76; font-size: 13px; }
 .model-registration-form > p { margin: 0; color: #687482; font-size: 13px; }
+.xanylabeling-settings-form { display: grid; gap: 16px; }
+.xanylabeling-settings-form > label { display: grid; gap: 7px; }
+.xanylabeling-settings-form > label > span { color: #5f6c76; font-size: 13px; }
 
 @media (max-width: 1180px) {
   .annotation-workbench { grid-template-columns: 54px minmax(0, 1fr) 250px; }

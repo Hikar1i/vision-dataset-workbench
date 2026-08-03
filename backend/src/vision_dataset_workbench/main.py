@@ -13,6 +13,7 @@ from .api.projects import router as projects_router
 from .api.registrations import router as registrations_router
 from .api.sampling import router as sampling_router
 from .api.setup import router as setup_router
+from .api.xanylabeling_settings import router as xanylabeling_settings_router
 from .capabilities import SystemCapabilities, detect_capabilities
 from .config import RuntimeSettings
 from .services.auth import build_auth_service
@@ -25,6 +26,7 @@ from .services.labels import LabelService
 from .services.projects import ProjectService
 from .services.sampling import SamplingService
 from .services.setup import SetupService
+from .services.xanylabeling_settings import XAnyLabelingSettingsService
 from .setup.tokens import SetupToken
 from .storage.locator import WorkspaceLocator, default_locator_path
 
@@ -82,6 +84,11 @@ def create_app(
         and app.state.project_service is not None
         else None
     )
+    app.state.xanylabeling_settings_service = (
+        XAnyLabelingSettingsService(auth_service.engine, resolved_settings)
+        if auth_service is not None
+        else None
+    )
     app.state.auto_annotation_service = (
         AutoAnnotationService(
             auth_service.engine,
@@ -91,12 +98,14 @@ def create_app(
             app.state.model_service,
             app.state.label_service,
             app.state.capabilities,
+            app.state.xanylabeling_settings_service,
         )
         if auth_service is not None
         and workspace is not None
         and app.state.project_service is not None
         and app.state.model_service is not None
         and app.state.label_service is not None
+        and app.state.xanylabeling_settings_service is not None
         else None
     )
     app.state.media_service = (
@@ -133,6 +142,7 @@ def create_app(
     app.include_router(auto_annotations_router)
     app.include_router(dataset_exports_router)
     app.include_router(models_router)
+    app.include_router(xanylabeling_settings_router)
     app.include_router(global_task_router)
     app.include_router(media_router)
     app.include_router(sampling_router)

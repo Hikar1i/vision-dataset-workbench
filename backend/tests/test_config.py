@@ -27,6 +27,13 @@ def test_ytdlp_settings_are_optional_instance_configuration(tmp_path, monkeypatc
     assert settings.ytdlp_cookie_file == tmp_path / "cookies.txt"
 
 
+def test_credential_encryption_key_is_optional(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("VDW_CREDENTIAL_ENCRYPTION_KEY", "deployment-key")
+
+    assert RuntimeSettings.from_env().credential_encryption_key == "deployment-key"
+
+
 @pytest.mark.parametrize("value", ["yes", "1", "enabled"])
 def test_registration_boolean_is_strict(tmp_path, monkeypatch, value):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)

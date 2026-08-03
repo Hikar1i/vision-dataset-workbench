@@ -15,9 +15,9 @@ def make_app(tmp_path):
     home = tmp_path / "home"
     workspace = home / ".vision-dataset-workbench"
     home.mkdir()
-    (home / "models" / "grounding-dino").mkdir(parents=True)
-    (home / "models" / "grounding-dino" / "config.json").write_text("{}")
+    (home / "models").mkdir(parents=True)
     (home / "models" / "yolo.pt").write_bytes(b"weights")
+    (home / "models" / "yolo.onnx").write_bytes(b"weights")
     (workspace / "projects").mkdir(parents=True)
     create_workspace_database(workspace / "db" / "workbench.sqlite3")
     engine = make_engine(workspace / "db" / "workbench.sqlite3")
@@ -74,15 +74,27 @@ def test_admin_registers_models_and_members_list_them(tmp_path):
     response = admin.post(
         f"/api/v1/projects/{project_id}/models",
         headers=ORIGIN,
-        json={"name": "YOLO helmet", "kind": "yolo", "source_path": "models/yolo.pt"},
+        json={"name": "YOLO helmet", "source_path": "models/yolo.pt"},
     )
 
     assert response.status_code == 202
     assert response.json()["model"]["status"] == "copying"
+    assert response.json()["model"]["model_project_id"] == (
+        "00000000-0000-0000-0000-000000000001"
+    )
     assert response.json()["task"]["type"] == "import_model"
+    projects = editor.get("/api/v1/model-projects")
+    assert projects.status_code == 200
+    assert projects.json()[0]["system_key"] == "temporary"
+    project_models = editor.get(
+        f"/api/v1/model-projects/{projects.json()[0]['id']}/models"
+    )
+    assert project_models.status_code == 200
+    assert project_models.json()[0]["name"] == "YOLO helmet"
     listed = editor.get("/api/v1/models")
     assert listed.status_code == 200
     assert listed.json()[0]["name"] == "YOLO helmet"
+    assert TestClient(_app).get("/api/v1/model-projects").status_code == 401
 
 
 def test_model_registration_requires_admin_and_valid_source_shape(tmp_path):
@@ -92,19 +104,19 @@ def test_model_registration_requires_admin_and_valid_source_shape(tmp_path):
     assert editor.post(
         url,
         headers=ORIGIN,
-        json={"name": "Forbidden", "kind": "yolo", "source_path": "models/yolo.pt"},
+        json={"name": "Forbidden", "source_path": "models/yolo.pt"},
     ).status_code == 403
     assert admin.post(
         url,
         headers=ORIGIN,
-        json={"name": "Bad YOLO", "kind": "yolo", "source_path": "models/grounding-dino"},
+        json={"name": "Bad YOLO", "source_path": "models"},
     ).status_code == 422
     assert admin.post(
         url,
         headers=ORIGIN,
-        json={"name": "Bad DINO", "kind": "grounding_dino", "source_path": "models/yolo.pt"},
+        json={"name": "Bad ONNX", "source_path": "models/yolo.onnx"},
     ).status_code == 422
     assert admin.post(
         url,
-        json={"name": "No origin", "kind": "yolo", "source_path": "models/yolo.pt"},
+        json={"name": "No origin", "source_path": "models/yolo.pt"},
     ).status_code == 403

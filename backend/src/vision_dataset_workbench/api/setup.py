@@ -10,6 +10,7 @@ from ..services.models import ModelService
 from ..services.projects import ProjectService
 from ..services.sampling import SamplingService
 from ..services.setup import SetupConflict, SetupService
+from ..services.xanylabeling_settings import XAnyLabelingSettingsService
 from ..setup.tokens import InvalidSetupToken
 from ..storage.browser import create_home_directory, list_home_entries
 from ..storage.paths import HomePathResolver, UnsafePathError
@@ -122,6 +123,10 @@ def initialize(
         workspace,
         request.app.state.project_service,
     )
+    request.app.state.xanylabeling_settings_service = XAnyLabelingSettingsService(
+        request.app.state.auth_service.engine,
+        request.app.state.settings,
+    )
     request.app.state.auto_annotation_service = AutoAnnotationService(
         request.app.state.auth_service.engine,
         request.app.state.settings,
@@ -130,6 +135,7 @@ def initialize(
         request.app.state.model_service,
         request.app.state.label_service,
         request.app.state.capabilities,
+        request.app.state.xanylabeling_settings_service,
     )
     request.app.state.media_service = MediaService(
         request.app.state.auth_service.engine,

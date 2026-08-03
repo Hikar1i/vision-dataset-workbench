@@ -34,11 +34,9 @@ vi.mock('../api/capabilities', () => ({
 const readyCapabilities = {
   gpu: { available: true, reason: null, devices: [] },
   pytorch_cuda: { available: true, reason: null },
-  onnx_cuda: { available: true, reason: null },
   features: {
     manual_annotation: { available: true, reason: null },
     yolo_auto_annotation: { available: true, reason: null },
-    grounding_dino_auto_annotation: { available: true, reason: null },
     model_training: { available: true, reason: null },
   },
 }

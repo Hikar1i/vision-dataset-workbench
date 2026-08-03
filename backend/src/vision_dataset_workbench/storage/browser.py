@@ -14,7 +14,7 @@ VIDEO_EXTENSIONS = {
     ".webm",
     ".wmv",
 }
-MODEL_EXTENSIONS = {".pt", ".onnx"}
+MODEL_EXTENSIONS = {".pt"}
 
 
 def list_home_entries(

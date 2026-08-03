@@ -5,8 +5,11 @@ import type { ProjectTask } from './media'
 
 export type InferenceModel = {
   id: string
+  model_project_id: string
   name: string
-  kind: 'yolo' | 'grounding_dino'
+  description: string
+  parameters: Record<string, unknown>
+  kind: 'yolo'
   status: 'copying' | 'ready' | 'failed'
   source_name: string
   error: string | null
@@ -14,8 +17,33 @@ export type InferenceModel = {
   updated_at: string
 }
 
-export type AutoAnnotationConfig = {
+export type ModelProject = {
+  id: string
+  name: string
+  series_type: 'archive' | 'training'
+  system_key: string | null
+  created_at: string
+}
+
+export type RemoteModelOption = {
+  key: string
   model_id: string
+  task_id: string | null
+  name: string
+  batch_processing_mode: 'default' | 'text_prompt'
+}
+
+export type XAnyLabelingSetting = {
+  configured: boolean
+  server_url: string
+  has_api_key: boolean
+  available: boolean
+}
+
+export type AutoAnnotationConfig = {
+  source: 'local' | 'xanylabeling'
+  model_id: string
+  remote_task_id: string | null
   categories: string[]
   confidence: number
   iou: number
@@ -29,10 +57,37 @@ export type AutoAnnotationResult = {
 
 export const listInferenceModels = () => json<InferenceModel[]>('/api/v1/models')
 
+export const listModelProjects = () => json<ModelProject[]>('/api/v1/model-projects')
+
+export const listModelProjectModels = (modelProjectId: string) =>
+  json<InferenceModel[]>(`/api/v1/model-projects/${modelProjectId}/models`)
+
+export const getXAnyLabelingSetting = () =>
+  json<XAnyLabelingSetting>('/api/v1/me/x-anylabeling-server')
+
+export const saveXAnyLabelingSetting = (
+  serverUrl: string,
+  apiKeyMode: 'retain' | 'replace' | 'clear',
+  apiKey: string | null,
+) => json<{ setting: XAnyLabelingSetting; models: RemoteModelOption[] }>(
+  '/api/v1/me/x-anylabeling-server',
+  {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      server_url: serverUrl,
+      api_key_mode: apiKeyMode,
+      api_key: apiKey,
+    }),
+  },
+)
+
+export const listXAnyLabelingModels = () =>
+  json<RemoteModelOption[]>('/api/v1/me/x-anylabeling-server/models')
+
 export const registerInferenceModel = (
   projectId: string,
   name: string,
-  kind: InferenceModel['kind'],
   sourcePath: string,
 ) =>
   json<{ model: InferenceModel; task: ProjectTask }>(
@@ -40,7 +95,7 @@ export const registerInferenceModel = (
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, kind, source_path: sourcePath }),
+      body: JSON.stringify({ name, source_path: sourcePath }),
     },
   )
 

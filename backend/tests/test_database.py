@@ -19,12 +19,14 @@ from vision_dataset_workbench.models import (
     Frame,
     FrameAnnotation,
     InferenceModel,
+    ModelProject,
     Project,
     ProjectLabel,
     ProjectMembership,
     SamplingPlan,
     Task,
     User,
+    UserXAnyLabelingSetting,
     Video,
 )
 from vision_dataset_workbench.security.passwords import hash_password, verify_password
@@ -47,6 +49,8 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         "frames",
         "annotations",
         "inference_models",
+        "model_projects",
+        "user_xanylabeling_settings",
         "dataset_exports",
     }.issubset(
         inspect(engine).get_table_names()
@@ -802,6 +806,11 @@ def test_inference_models_and_auto_annotation_task_constraints(tmp_path):
     create_workspace_database(database_path)
     engine = make_engine(database_path)
     with Session(engine) as session:
+        temporary = session.scalar(
+            select(ModelProject).where(ModelProject.system_key == "temporary")
+        )
+        assert temporary is not None
+        assert temporary.name == "临时模型项目"
         session.add(
             User(
                 id="admin-id",
@@ -865,6 +874,26 @@ def test_inference_models_and_auto_annotation_task_constraints(tmp_path):
         )
         with pytest.raises(IntegrityError):
             session.commit()
+        session.rollback()
+        session.add(
+            User(
+                id="remote-user-id",
+                username="remote",
+                username_normalized="remote",
+                password_hash="hash",
+            )
+        )
+        session.flush()
+        session.add(
+            UserXAnyLabelingSetting(
+                user_id="remote-user-id",
+                server_url="http://127.0.0.1:44444",
+            )
+        )
+        session.commit()
+        session.delete(session.get(User, "remote-user-id"))
+        session.commit()
+        assert session.get(UserXAnyLabelingSetting, "remote-user-id") is None
     engine.dispose()
 
 

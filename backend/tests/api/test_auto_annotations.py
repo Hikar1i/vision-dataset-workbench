@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -16,10 +18,13 @@ from vision_dataset_workbench.models import (
     InferenceModel,
     ProjectLabel,
     SamplingPlan,
+    Task,
     User,
+    UserXAnyLabelingSetting,
     Video,
 )
 from vision_dataset_workbench.security.passwords import hash_password
+from vision_dataset_workbench.xanylabeling import RemoteModelOption
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct horse battery staple"
@@ -33,13 +38,31 @@ class FakeRunner:
         ]
 
 
+class FakeRemoteClient:
+    def __init__(self, *_args):
+        pass
+
+    def list_models(self):
+        return [
+            RemoteModelOption(
+                '["remote-detector","grounding"]',
+                "remote-detector",
+                "grounding",
+                "Remote Detector / Grounding",
+                "text_prompt",
+            )
+        ]
+
+    def predict(self, *_args):
+        return [Detection("dog", 200, 100, 420, 500, 0.82)]
+
+
 def capabilities():
     ready = CapabilityStatus(True)
     return SystemCapabilities(
         gpu=GpuStatus(True, None, ()),
         pytorch_cuda=ready,
-        onnx_cuda=CapabilityStatus(False, "unused"),
-        features=FeatureCapabilities(ready, ready, ready, ready),
+        features=FeatureCapabilities(ready, ready, ready),
     )
 
 
@@ -134,6 +157,43 @@ def test_single_inference_returns_draft_and_creates_only_detected_missing_labels
         f"/api/v1/projects/project-id/labels/{body['items'][0]['label_id']}",
         headers=ORIGIN,
     ).status_code == 409
+
+
+def test_remote_single_and_batch_use_user_setting_and_source_payload(tmp_path):
+    app = make_app(tmp_path)
+    app.state.xanylabeling_settings_service.client_factory = FakeRemoteClient
+    with Session(app.state.auth_service.engine) as session:
+        session.add(
+            UserXAnyLabelingSetting(
+                user_id="owner-id", server_url="http://server.test"
+            )
+        )
+        session.commit()
+    owner = client_for(app, "owner")
+    payload = {
+        "source": "xanylabeling",
+        "model_id": "remote-detector",
+        "remote_task_id": "grounding",
+        "categories": ["dog"],
+        "confidence": 0.25,
+        "iou": 0.45,
+    }
+
+    single = owner.post(url(), headers=ORIGIN, json=payload)
+    batch = owner.post(
+        "/api/v1/projects/project-id/videos/video-id/auto-annotations",
+        headers=ORIGIN,
+        json={**payload, "overwrite": False},
+    )
+
+    assert single.status_code == 200
+    assert [item["label_name"] for item in single.json()["items"]] == ["dog"]
+    assert batch.status_code == 202
+    with Session(app.state.auth_service.engine) as session:
+        task = session.get(Task, batch.json()["id"])
+        task_payload = json.loads(task.payload)
+    assert task_payload["source"] == "xanylabeling"
+    assert task_payload["remote_task_id"] == "grounding"
 
 
 def test_single_inference_rejects_viewer_and_requires_same_origin(tmp_path):

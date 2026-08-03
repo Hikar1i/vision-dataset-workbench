@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -23,6 +24,7 @@ class Base(DeclarativeBase):
 
 VIDEO_SHORT_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 VIDEO_SHORT_CODE_LENGTH = 8
+TEMPORARY_MODEL_PROJECT_ID = "00000000-0000-0000-0000-000000000001"
 
 
 def generate_video_short_code() -> str:
@@ -304,11 +306,30 @@ class FrameAnnotation(Base):
     )
 
 
+class ModelProject(Base):
+    __tablename__ = "model_projects"
+    __table_args__ = (
+        CheckConstraint(
+            "series_type IN ('archive', 'training')",
+            name="ck_model_projects_series_type",
+        ),
+        UniqueConstraint("system_key", name="uq_model_projects_system_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(128))
+    series_type: Mapped[str] = mapped_column(String(16))
+    system_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class InferenceModel(Base):
     __tablename__ = "inference_models"
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('yolo', 'grounding_dino')",
+            "kind = 'yolo'",
             name="ck_inference_models_kind",
         ),
         CheckConstraint(
@@ -318,8 +339,15 @@ class InferenceModel(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    model_project_id: Mapped[str] = mapped_column(
+        ForeignKey("model_projects.id", ondelete="RESTRICT"),
+        default=TEMPORARY_MODEL_PROJECT_ID,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(128))
     kind: Mapped[str] = mapped_column(String(32))
+    description: Mapped[str] = mapped_column(Text, default="")
+    parameters: Mapped[str] = mapped_column(Text, default="{}")
     status: Mapped[str] = mapped_column(String(16), default="copying", index=True)
     storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_name: Mapped[str] = mapped_column(String(512))
@@ -327,6 +355,22 @@ class InferenceModel(Base):
         ForeignKey("users.id", ondelete="RESTRICT"), index=True
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class UserXAnyLabelingSetting(Base):
+    __tablename__ = "user_xanylabeling_settings"
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    server_url: Mapped[str] = mapped_column(Text)
+    api_key_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

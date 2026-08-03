@@ -100,7 +100,6 @@ async function showCapabilityWarning() {
     const capabilities = await getCapabilities()
     const reason = capabilities.gpu.reason
       ?? capabilities.features.yolo_auto_annotation.reason
-      ?? capabilities.features.grounding_dino_auto_annotation.reason
       ?? capabilities.features.model_training.reason
     if (!reason) return
     sessionStorage.setItem(capabilityNoticeKey, 'true')

@@ -17,6 +17,11 @@ const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   getCapabilities: vi.fn(),
   listInferenceModels: vi.fn(),
+  listModelProjects: vi.fn(),
+  listModelProjectModels: vi.fn(),
+  getXAnyLabelingSetting: vi.fn(),
+  listXAnyLabelingModels: vi.fn(),
+  saveXAnyLabelingSetting: vi.fn(),
   runFrameAutoAnnotation: vi.fn(),
   createBatchAutoAnnotation: vi.fn(),
   registerInferenceModel: vi.fn(),
@@ -47,7 +52,11 @@ vi.mock('../api/annotations', () => ({
   replaceFrameAnnotations: mocks.replaceFrameAnnotations,
 }))
 vi.mock('../api/models', () => ({
-  listInferenceModels: mocks.listInferenceModels,
+  listModelProjects: mocks.listModelProjects,
+  listModelProjectModels: mocks.listModelProjectModels,
+  getXAnyLabelingSetting: mocks.getXAnyLabelingSetting,
+  listXAnyLabelingModels: mocks.listXAnyLabelingModels,
+  saveXAnyLabelingSetting: mocks.saveXAnyLabelingSetting,
   runFrameAutoAnnotation: mocks.runFrameAutoAnnotation,
   createBatchAutoAnnotation: mocks.createBatchAutoAnnotation,
   registerInferenceModel: mocks.registerInferenceModel,
@@ -118,15 +127,28 @@ beforeEach(() => {
   mocks.getCapabilities.mockResolvedValue({
     gpu: { available: true, reason: null, devices: [] },
     pytorch_cuda: { available: true, reason: null },
-    onnx_cuda: { available: false, reason: 'unused' },
     features: {
       manual_annotation: { available: true, reason: null },
       yolo_auto_annotation: { available: true, reason: null },
-      grounding_dino_auto_annotation: { available: true, reason: null },
       model_training: { available: true, reason: null },
     },
   })
   mocks.listInferenceModels.mockResolvedValue([])
+  mocks.listModelProjects.mockResolvedValue([{
+    id: 'temporary-model-project',
+    name: '临时模型项目',
+    series_type: 'archive',
+    system_key: 'temporary',
+    created_at: '',
+  }])
+  mocks.listModelProjectModels.mockImplementation(() => mocks.listInferenceModels())
+  mocks.getXAnyLabelingSetting.mockResolvedValue({
+    configured: false,
+    server_url: '',
+    has_api_key: false,
+    available: false,
+  })
+  mocks.listXAnyLabelingModels.mockResolvedValue([])
   mocks.listVideos.mockResolvedValue({ items: [video], page: 1, page_size: 999, total: 1 })
   mocks.listLabels.mockResolvedValue([
     { id: 'label-id', name: 'helmet', description_zh: '安全帽', color: '#16866f', sort_order: 0, enabled: true, version: 1, created_at: '', updated_at: '' },
@@ -417,6 +439,9 @@ describe('AnnotationWorkbenchView', () => {
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
     expect(mocks.runFrameAutoAnnotation).toHaveBeenCalledTimes(1)
+    expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3]).toMatchObject({
+      source: 'local', model_id: 'model-id', remote_task_id: null,
+    })
     await wrapper.get('[data-test="run-batch-auto"]').trigger('click')
     await flushPromises()
     expect(mocks.confirmBatch).toHaveBeenCalledWith(
@@ -426,6 +451,45 @@ describe('AnnotationWorkbenchView', () => {
     )
     expect(mocks.replaceFrameAnnotations).toHaveBeenCalledTimes(1)
     expect(mocks.createBatchAutoAnnotation).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('uses the configured X-AnyLabeling model as a remote source', async () => {
+    mocks.listModelProjects.mockResolvedValueOnce([])
+    mocks.getXAnyLabelingSetting.mockResolvedValueOnce({
+      configured: true,
+      server_url: 'http://127.0.0.1:44444',
+      has_api_key: false,
+      available: true,
+    })
+    mocks.listXAnyLabelingModels.mockResolvedValueOnce([{
+      key: '["remote","grounding"]',
+      model_id: 'remote',
+      task_id: 'grounding',
+      name: 'Remote / Grounding',
+      batch_processing_mode: 'text_prompt',
+    }])
+    mocks.runFrameAutoAnnotation.mockResolvedValue({ items: [], created_labels: [] })
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="run-single-auto"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3]).toMatchObject({
+      source: 'xanylabeling', model_id: 'remote', remote_task_id: 'grounding',
+    })
     wrapper.unmount()
   })
 

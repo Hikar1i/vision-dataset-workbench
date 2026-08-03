@@ -1,4 +1,4 @@
-from typing import Annotated, NoReturn
+from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -22,7 +22,9 @@ router = APIRouter(prefix="/api/v1/projects/{project_id}", tags=["auto-annotatio
 
 
 class RunAutoAnnotationRequest(BaseModel):
-    model_id: str = Field(min_length=1, max_length=36)
+    source: Literal["local", "xanylabeling"] = "local"
+    model_id: str = Field(min_length=1, max_length=255)
+    remote_task_id: str | None = Field(default=None, max_length=128)
     categories: list[str] = Field(max_length=64)
     confidence: float = Field(ge=0, le=1)
     iou: float = Field(ge=0, le=1)
@@ -83,6 +85,8 @@ def run_frame_auto_annotation(
             payload.categories,
             payload.confidence,
             payload.iou,
+            payload.source,
+            payload.remote_task_id,
         )
     except (
         ProjectNotFound,
@@ -129,6 +133,8 @@ def create_batch_auto_annotation(
             payload.confidence,
             payload.iou,
             payload.overwrite,
+            payload.source,
+            payload.remote_task_id,
         )
     except (
         ProjectNotFound,

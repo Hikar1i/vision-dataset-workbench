@@ -23,7 +23,9 @@ from .labels import (
 from .models import ModelService
 from .projects import ProjectForbidden, ProjectService
 from .sampling import SamplingService
+from .xanylabeling_settings import XAnyLabelingSettingsService
 from .dataset_exports import video_has_active_export
+from ..xanylabeling import XAnyLabelingUnavailable
 
 
 class AutoAnnotationUnavailable(ValueError):
@@ -46,6 +48,13 @@ class AutoAnnotationResult:
     created_labels: list[ProjectLabel]
 
 
+@dataclass(frozen=True)
+class AutoAnnotationModel:
+    source: str
+    model_id: str
+    remote_task_id: str | None = None
+
+
 class AutoAnnotationService:
     def __init__(
         self,
@@ -56,6 +65,7 @@ class AutoAnnotationService:
         models: ModelService,
         labels: LabelService,
         capabilities: SystemCapabilities,
+        remote_settings: XAnyLabelingSettingsService,
         runner: InferenceRunner | None = None,
     ):
         self.workspace = workspace.resolve()
@@ -63,6 +73,7 @@ class AutoAnnotationService:
         self.models = models
         self.labels = labels
         self.capabilities = capabilities
+        self.remote_settings = remote_settings
         self.runner = runner or InferenceRunner()
         self.sampling = SamplingService(engine, settings, workspace)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
@@ -77,33 +88,23 @@ class AutoAnnotationService:
         categories: list[str],
         confidence: float,
         iou: float,
+        source: str = "local",
+        remote_task_id: str | None = None,
     ) -> AutoAnnotationResult:
         if self.projects.get_project(actor, project_id).role == "viewer":
             raise ProjectForbidden("project edit permission required")
-        model, model_path = self.models.ready_model(model_id)
-        capability = (
-            self.capabilities.features.yolo_auto_annotation
-            if model.kind == "yolo"
-            else self.capabilities.features.grounding_dino_auto_annotation
-        )
-        if not capability.available:
-            raise AutoAnnotationUnavailable(capability.reason or "auto annotation unavailable")
         frame, image_path = self.sampling.ready_frame_file(
             actor, project_id, video_id, frame_id
         )
         prompts = list(dict.fromkeys(normalize_label_name(item) for item in categories))
-        if model.kind == "grounding_dino" and not prompts:
-            prompts = [
-                item.name
-                for item in self.labels.list_labels(actor, project_id)
-                if item.enabled
-            ]
-        try:
-            detections = self.runner.predict(
-                model, model_path, image_path, prompts, confidence, iou
-            )
-        except InferenceUnavailable as exc:
-            raise AutoAnnotationUnavailable(str(exc)) from exc
+        detections = self._predict(
+            actor,
+            AutoAnnotationModel(source, model_id, remote_task_id),
+            image_path,
+            prompts,
+            confidence,
+            iou,
+        )
         with self._session_factory() as database:
             video = database.get(Video, video_id)
             if video is None or video.project_id != project_id or frame.video_id != video_id:
@@ -128,7 +129,11 @@ class AutoAnnotationService:
                         label_id=label_map[clean_name].id,
                         **bounds,
                         source="model",
-                        confidence=max(0.0, min(1.0, detection.confidence)),
+                        confidence=(
+                            max(0.0, min(1.0, detection.confidence))
+                            if detection.confidence is not None
+                            else None
+                        ),
                     ),
                     clean_name,
                 )
@@ -145,17 +150,13 @@ class AutoAnnotationService:
         confidence: float,
         iou: float,
         overwrite: bool,
+        source: str = "local",
+        remote_task_id: str | None = None,
     ) -> Task:
         if self.projects.get_project(actor, project_id).role == "viewer":
             raise ProjectForbidden("project edit permission required")
-        model, _model_path = self.models.ready_model(model_id)
-        capability = (
-            self.capabilities.features.yolo_auto_annotation
-            if model.kind == "yolo"
-            else self.capabilities.features.grounding_dino_auto_annotation
-        )
-        if not capability.available:
-            raise AutoAnnotationUnavailable(capability.reason or "auto annotation unavailable")
+        selection = AutoAnnotationModel(source, model_id, remote_task_id)
+        self._validate_model(actor, selection)
         prompts = list(dict.fromkeys(normalize_label_name(item) for item in categories))
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         with self._session_factory() as database:
@@ -191,7 +192,9 @@ class AutoAnnotationService:
                 type="auto_annotate",
                 payload=json.dumps(
                     {
+                        "source": source,
                         "model_id": model_id,
+                        "remote_task_id": remote_task_id,
                         "categories": prompts,
                         "confidence": confidence,
                         "iou": iou,
@@ -210,6 +213,57 @@ class AutoAnnotationService:
                 raise AutoAnnotationConflict("video already has an active task") from exc
             database.expunge(task)
             return task
+
+    def _predict(
+        self,
+        actor: User,
+        selection: AutoAnnotationModel,
+        image_path: Path,
+        categories: list[str],
+        confidence: float,
+        iou: float,
+    ) -> list[Detection]:
+        resolved = self._validate_model(actor, selection)
+        try:
+            if selection.source == "local":
+                model, model_path = resolved
+                return self.runner.predict(
+                    model, model_path, image_path, categories, confidence, iou
+                )
+            client, option = resolved
+            return client.predict(option, image_path, categories, confidence, iou)
+        except (InferenceUnavailable, XAnyLabelingUnavailable) as exc:
+            raise AutoAnnotationUnavailable(str(exc)) from exc
+
+    def _validate_model(
+        self, actor: User, selection: AutoAnnotationModel
+    ) -> tuple[object, object]:
+        if selection.source == "local":
+            model, model_path = self.models.ready_model(selection.model_id)
+            capability = self.capabilities.features.yolo_auto_annotation
+            if not capability.available:
+                raise AutoAnnotationUnavailable(
+                    capability.reason or "auto annotation unavailable"
+                )
+            return model, model_path
+        if selection.source != "xanylabeling":
+            raise AutoAnnotationUnavailable("unsupported auto annotation source")
+        try:
+            client = self.remote_settings.client_for(actor.id)
+            option = next(
+                (
+                    item
+                    for item in client.list_models()
+                    if item.model_id == selection.model_id
+                    and item.task_id == selection.remote_task_id
+                ),
+                None,
+            )
+        except ValueError as exc:
+            raise AutoAnnotationUnavailable(str(exc)) from exc
+        if option is None:
+            raise AutoAnnotationUnavailable("remote model is no longer available")
+        return client, option
 
     def _ensure_labels(
         self,

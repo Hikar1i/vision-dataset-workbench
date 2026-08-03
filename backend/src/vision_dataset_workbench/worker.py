@@ -37,9 +37,11 @@ from .models import (
 )
 from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
 from .services.labels import automatic_label_color, normalize_label_name
+from .services.xanylabeling_settings import XAnyLabelingSettingsService
 from .storage.browser import VIDEO_EXTENSIONS
 from .storage.locator import WorkspaceLocator, default_locator_path
 from .storage.paths import HomePathResolver, UnsafePathError
+from .xanylabeling import XAnyLabelingUnavailable
 
 LIMITS = {
     "copy_video": 2,
@@ -107,6 +109,7 @@ class TaskWorker:
         now=_utc_now,
         worker_id: str | None = None,
         inference_runner: InferenceRunner | None = None,
+        remote_settings: XAnyLabelingSettingsService | None = None,
     ):
         self.engine = engine
         self.settings = settings
@@ -117,6 +120,9 @@ class TaskWorker:
         self._now = now
         self.worker_id = worker_id or str(uuid4())
         self._inference_runner = inference_runner or InferenceRunner()
+        self._remote_settings = remote_settings or XAnyLabelingSettingsService(
+            engine, settings
+        )
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="vdw-task")
         self._futures: dict[str, Future[None]] = {}
@@ -340,9 +346,19 @@ class TaskWorker:
                 raise MediaToolError("active auto annotation task not found")
             payload = json.loads(task.payload)
             video = database.get(Video, task.video_id)
-            model = database.get(InferenceModel, str(payload.get("model_id") or ""))
-            if video is None or model is None or model.status != "ready" or not model.storage_path:
+            source = str(payload.get("source") or "local")
+            model = (
+                database.get(InferenceModel, str(payload.get("model_id") or ""))
+                if source == "local"
+                else None
+            )
+            if video is None or (
+                source == "local"
+                and (model is None or model.status != "ready" or not model.storage_path)
+            ):
                 raise MediaToolError("auto annotation resources not ready")
+            if source not in {"local", "xanylabeling"}:
+                raise MediaToolError("unsupported auto annotation source")
             frames = list(
                 database.scalars(
                     select(Frame)
@@ -352,35 +368,55 @@ class TaskWorker:
             )
             if not frames:
                 raise MediaToolError("video has no enabled sampled frames")
-            if model.kind == "grounding_dino" and not payload.get("categories"):
-                payload["categories"] = list(
-                    database.scalars(
-                        select(ProjectLabel.name).where(
-                            ProjectLabel.project_id == video.project_id,
-                            ProjectLabel.enabled.is_(True),
-                        )
-                    )
-                )
             database.expunge(video)
-            database.expunge(model)
+            if model is not None:
+                database.expunge(model)
             for frame in frames:
                 database.expunge(frame)
-        model_path = self._managed_model_path(model)
+            submitted_by_id = task.submitted_by_id
+        model_path = self._managed_model_path(model) if model is not None else None
+        remote_client = None
+        remote_option = None
+        if source == "xanylabeling":
+            try:
+                remote_client = self._remote_settings.client_for(submitted_by_id)
+                remote_option = next(
+                    (
+                        item
+                        for item in remote_client.list_models()
+                        if item.model_id == payload.get("model_id")
+                        and item.task_id == payload.get("remote_task_id")
+                    ),
+                    None,
+                )
+            except ValueError as exc:
+                raise MediaToolError(str(exc)) from exc
+            if remote_option is None:
+                raise MediaToolError("remote model is no longer available")
         total_annotations = 0
         for index, frame in enumerate(frames, start=1):
             if self._cancel_requested(task_id):
                 raise TaskCanceled("task canceled")
             image_path = self._managed_frame_path(video, frame)
             try:
-                detections = self._inference_runner.predict(
-                    model,
-                    model_path,
-                    image_path,
-                    list(payload.get("categories") or []),
-                    float(payload.get("confidence", 0.25)),
-                    float(payload.get("iou", 0.45)),
-                )
-            except InferenceUnavailable as exc:
+                if source == "local":
+                    detections = self._inference_runner.predict(
+                        model,
+                        model_path,
+                        image_path,
+                        list(payload.get("categories") or []),
+                        float(payload.get("confidence", 0.25)),
+                        float(payload.get("iou", 0.45)),
+                    )
+                else:
+                    detections = remote_client.predict(
+                        remote_option,
+                        image_path,
+                        list(payload.get("categories") or []),
+                        float(payload.get("confidence", 0.25)),
+                        float(payload.get("iou", 0.45)),
+                    )
+            except (InferenceUnavailable, XAnyLabelingUnavailable) as exc:
                 raise MediaToolError(str(exc)) from exc
             total_annotations += self._store_auto_detections(
                 video,
@@ -511,7 +547,11 @@ class TaskWorker:
                         label_id=labels[name].id,
                         **bounds,
                         source="model",
-                        confidence=max(0.0, min(1.0, detection.confidence)),
+                        confidence=(
+                            max(0.0, min(1.0, detection.confidence))
+                            if detection.confidence is not None
+                            else None
+                        ),
                         sort_order=first_annotation_order + offset,
                         created_at=now,
                     )

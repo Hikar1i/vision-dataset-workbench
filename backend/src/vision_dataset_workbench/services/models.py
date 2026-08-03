@@ -9,7 +9,13 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from ..config import RuntimeSettings
-from ..models import InferenceModel, Task, User
+from ..models import (
+    InferenceModel,
+    ModelProject,
+    TEMPORARY_MODEL_PROJECT_ID,
+    Task,
+    User,
+)
 from ..storage.browser import MODEL_EXTENSIONS
 from ..storage.paths import HomePathResolver, UnsafePathError
 from .projects import ProjectService
@@ -63,12 +69,41 @@ class ModelService:
                 database.expunge(item)
             return items
 
+    def list_projects(self, actor: User) -> list[ModelProject]:
+        with self._session_factory() as database:
+            items = list(
+                database.scalars(
+                    select(ModelProject).order_by(
+                        ModelProject.created_at, ModelProject.id
+                    )
+                )
+            )
+            for item in items:
+                database.expunge(item)
+            return items
+
+    def list_project_models(
+        self, actor: User, model_project_id: str
+    ) -> list[InferenceModel]:
+        with self._session_factory() as database:
+            if database.get(ModelProject, model_project_id) is None:
+                raise ModelNotFound("model project not found")
+            items = list(
+                database.scalars(
+                    select(InferenceModel)
+                    .where(InferenceModel.model_project_id == model_project_id)
+                    .order_by(InferenceModel.created_at.desc(), InferenceModel.id)
+                )
+            )
+            for item in items:
+                database.expunge(item)
+            return items
+
     def register(
         self,
         actor: User,
         project_id: str,
         name: str,
-        kind: str,
         source_path: str,
     ) -> RegisteredModel:
         if not actor.is_system_admin:
@@ -77,8 +112,6 @@ class ModelService:
         clean_name = " ".join(name.strip().split())
         if not clean_name or len(clean_name) > 128:
             raise InvalidModel("model name must contain 1-128 characters")
-        if kind not in {"yolo", "grounding_dino"}:
-            raise InvalidModel("model kind is invalid")
         resolver = HomePathResolver(self.settings.home)
         try:
             source = resolver.resolve_existing(source_path)
@@ -86,18 +119,17 @@ class ModelService:
             raise InvalidModel(str(exc)) from exc
         if source == self.workspace or source.is_relative_to(self.workspace):
             raise InvalidModel("managed workspace is not an import source")
-        if kind == "yolo" and (
-            not source.is_file() or source.suffix.lower() not in MODEL_EXTENSIONS
-        ):
-            raise InvalidModel("YOLO model source must be a .pt or .onnx file")
-        if kind == "grounding_dino" and not source.is_dir():
-            raise InvalidModel("GroundingDINO model source must be a local model directory")
+        if not source.is_file() or source.suffix.lower() not in MODEL_EXTENSIONS:
+            raise InvalidModel("YOLO model source must be a .pt file")
 
         now = _utc_now()
         model = InferenceModel(
             id=str(uuid4()),
+            model_project_id=TEMPORARY_MODEL_PROJECT_ID,
             name=clean_name,
-            kind=kind,
+            kind="yolo",
+            description="",
+            parameters="{}",
             status="copying",
             source_name=source.name,
             created_by_id=actor.id,
