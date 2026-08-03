@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.main import create_app
-from vision_dataset_workbench.models import User
+from vision_dataset_workbench.models import Task, User
 from vision_dataset_workbench.security.passwords import hash_password
 
 PASSWORD = "correct horse battery staple"
@@ -157,6 +157,47 @@ def test_project_writes_require_same_origin(tmp_path):
     assert creator.post(
         "/api/v1/projects", json={"name": "Project", "description": ""}
     ).status_code == 403
+
+
+def test_only_owner_can_delete_project_and_archive_it(tmp_path):
+    app, _ = make_app(tmp_path)
+    creator = client_for(app, "creator")
+    editor = client_for(app, "editor")
+    viewer = client_for(app, "viewer")
+    project_id = create_project(creator).json()["id"]
+    assert add_member(creator, project_id, "editor", "editor").status_code == 201
+    assert add_member(creator, project_id, "viewer", "viewer").status_code == 201
+
+    assert editor.delete(f"/api/v1/projects/{project_id}", headers=ORIGIN).status_code == 403
+    assert viewer.delete(f"/api/v1/projects/{project_id}", headers=ORIGIN).status_code == 403
+    assert creator.delete(f"/api/v1/projects/{project_id}").status_code == 403
+    assert creator.delete(f"/api/v1/projects/{project_id}", headers=ORIGIN).status_code == 204
+
+    assert creator.get(f"/api/v1/projects/{project_id}").status_code == 404
+    assert creator.get("/api/v1/projects").json()["total"] == 0
+    archived = app.state.workspace / ".deleted" / "projects" / project_id / "project"
+    assert (archived / "project_metadata.json").is_file()
+
+
+def test_active_project_task_blocks_delete(tmp_path):
+    app, _ = make_app(tmp_path)
+    creator = client_for(app, "creator")
+    project_id = create_project(creator).json()["id"]
+    with Session(app.state.auth_service.engine) as session:
+        session.add(
+            Task(
+                project_id=project_id,
+                submitted_by_id="creator-id",
+                type="copy_video",
+                status="running",
+            )
+        )
+        session.commit()
+
+    response = creator.delete(f"/api/v1/projects/{project_id}", headers=ORIGIN)
+
+    assert response.status_code == 409
+    assert "active tasks" in response.json()["detail"]
 
 
 def test_single_mode_admin_has_owner_equivalent_access(tmp_path):

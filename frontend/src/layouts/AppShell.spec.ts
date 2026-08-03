@@ -53,7 +53,10 @@ async function mountShell() {
         children: [
           {
             path: 'projects',
-            component: { template: '<div>projects</div>' },
+            component: {
+              emits: ['project-deleted'],
+              template: '<button data-test="emit-project-deleted" @click="$emit(\'project-deleted\', \'project-1\')">projects</button>',
+            },
             meta: { section: '数据集项目', page: '全部项目' },
           },
           {
@@ -143,6 +146,21 @@ describe('AppShell', () => {
 
     expect(localStorage.getItem('vdm.sidebar-collapsed')).toBe('true')
     expect(localStorage.getItem('vdm.nav-projects-open')).toBe('false')
+  })
+
+  it('removes a deleted project from the current sidebar and storage', async () => {
+    localStorage.setItem('vdm.recent-projects', JSON.stringify([
+      { id: 'project-1', name: 'Project 1', visitedAt: 20 },
+      { id: 'project-2', name: 'Project 2', visitedAt: 10 },
+    ]))
+    const { wrapper } = await mountShell()
+
+    await wrapper.get('[data-test="emit-project-deleted"]').trigger('click')
+
+    expect(wrapper.findAll('[data-test="recent-project"]').map((item) => item.text()))
+      .not.toContain('Project 1')
+    expect(JSON.parse(localStorage.getItem('vdm.recent-projects') ?? '[]'))
+      .toHaveLength(1)
   })
 
   it('uses fixed icon slots while the sidebar changes width', async () => {

@@ -59,7 +59,7 @@ SQLite 不保留时区偏移，当前认证表按 naive UTC 持久化，API 输�
 | `role` | 仅允许 `editor` 或 `viewer` |
 | `created_at` | 加入项目时间 |
 
-owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过成员接口转移、降级或移除。创建项目时同步创建空的 `projects/<project UUID>/` 目录；`videos/` 和 `thumbnails/` 由 Worker 首次发布对应文件时创建。当前尚无项目删除流程。
+owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过成员接口转移、降级或移除。创建项目时同步创建空的 `projects/<project UUID>/` 目录；`videos/` 和 `thumbnails/` 由 Worker 首次发布对应文件时创建。仅 owner 可删除项目，且项目存在 queued/running 任务时拒绝删除。删除前在项目目录生成当前 schema 的完整 `project_metadata.json`，再将目录移动到 `.deleted/projects/<project UUID>/project/`，最后删除 `projects` 记录并由外键级联删除关联数据；快照不承诺兼容未来 schema，也不提供恢复入口。
 
 `labels` 表保存项目级目标检测类别：
 

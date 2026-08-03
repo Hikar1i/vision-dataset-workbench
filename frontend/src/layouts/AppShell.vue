@@ -9,6 +9,7 @@ import { getCapabilities } from '../api/capabilities'
 import { listProjects, type Project } from '../api/projects'
 import TaskCenterDrawer from '../components/TaskCenterDrawer.vue'
 import {
+  forgetProject,
   readRecentProjects,
   rememberProject,
   resolveProjectShortcuts,
@@ -19,7 +20,7 @@ const router = useRouter()
 const user = ref<CurrentUser>()
 const fallbackProjects = ref<Project[]>([])
 const activeProject = ref<Project>()
-const recentProjects = readRecentProjects()
+const recentProjects = ref(readRecentProjects())
 const projectGroupOpen = ref(localStorage.getItem('vdm.nav-projects-open') !== 'false')
 const savedCollapsed = localStorage.getItem('vdm.sidebar-collapsed')
 const collapsed = ref(
@@ -35,7 +36,7 @@ const capabilityNoticeKey = 'vdm.gpu-capability-notice-shown'
 
 const shortcuts = computed(() =>
   resolveProjectShortcuts(
-    recentProjects,
+    recentProjects.value,
     fallbackProjects.value,
   ),
 )
@@ -66,6 +67,12 @@ function toggleProjectGroup() {
 function projectLoaded(project: Project) {
   activeProject.value = project
   rememberProject(project)
+}
+
+function projectDeleted(projectId: string) {
+  recentProjects.value = forgetProject(projectId)
+  fallbackProjects.value = fallbackProjects.value.filter((project) => project.id !== projectId)
+  if (activeProject.value?.id === projectId) activeProject.value = undefined
 }
 
 async function signOut() {
@@ -216,7 +223,11 @@ onMounted(async () => {
       <main class="app-content">
         <RouterView v-slot="{ Component }">
           <Transition name="page-fade" mode="out-in">
-            <component :is="Component" @project-loaded="projectLoaded" />
+            <component
+              :is="Component"
+              @project-loaded="projectLoaded"
+              @project-deleted="projectDeleted"
+            />
           </Transition>
         </RouterView>
       </main>

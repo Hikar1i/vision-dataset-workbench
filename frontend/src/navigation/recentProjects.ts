@@ -34,6 +34,12 @@ export function rememberProject(project: ProjectShortcut) {
   return projects
 }
 
+export function forgetProject(id: string) {
+  const projects = readRecentProjects().filter((project) => project.id !== id)
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects))
+  return projects
+}
+
 export function resolveProjectShortcuts(
   recent: ProjectShortcut[],
   fallback: ProjectShortcut[],

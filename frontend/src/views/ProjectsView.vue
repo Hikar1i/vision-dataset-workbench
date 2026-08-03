@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 
-import { createProject, listProjects, type Project } from '../api/projects'
+import { ApiError } from '../api/auth'
+import { createProject, deleteProject, listProjects, type Project } from '../api/projects'
 
+const emit = defineEmits<{ 'project-deleted': [id: string] }>()
 const router = useRouter()
 const projects = ref<Project[]>([])
 const page = ref(1)
@@ -14,6 +17,7 @@ const showCreate = ref(false)
 const name = ref('')
 const description = ref('')
 const creating = ref(false)
+const deleting = ref('')
 const error = ref('')
 const valid = computed(() => name.value.trim().length > 0 && name.value.trim().length <= 128)
 
@@ -46,6 +50,37 @@ async function create() {
     error.value = reason instanceof Error ? reason.message : '项目创建失败'
   } finally {
     creating.value = false
+  }
+}
+
+async function remove(project: Project) {
+  try {
+    await ElMessageBox.confirm(
+      `删除数据集项目“${project.name}”？项目目录和完整元数据将移入工作区 .deleted 目录，项目随后不再显示。`,
+      '删除数据集项目',
+      {
+        type: 'warning',
+        confirmButtonText: '删除项目',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+  deleting.value = project.id
+  try {
+    await deleteProject(project.id)
+    emit('project-deleted', project.id)
+    ElMessage.success('项目已归档至逻辑删除目录。')
+    await load(page.value > 1 && projects.value.length === 1 ? page.value - 1 : page.value)
+  } catch (reason) {
+    ElMessage.error(
+      reason instanceof ApiError && reason.status === 409
+        ? '项目仍有排队中或运行中任务，请先处理任务。'
+        : reason instanceof Error ? reason.message : '项目删除失败',
+    )
+  } finally {
+    deleting.value = ''
   }
 }
 
@@ -117,12 +152,21 @@ onMounted(() => load())
         <span class="role-mark" :data-role="project.role">{{ roleLabels[project.role] }}</span>
         <span>{{ project.creator_username }}</span>
         <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
-        <router-link
-          :data-test="`open-${project.id}`"
-          :to="`/projects/${project.id}/videos`"
-        >
-          打开
-        </router-link>
+        <div class="project-actions">
+          <router-link
+            :data-test="`open-${project.id}`"
+            :to="`/projects/${project.id}/videos`"
+          >打开</router-link>
+          <el-button
+            v-if="project.role === 'owner'"
+            :data-test="`delete-${project.id}`"
+            type="danger"
+            link
+            :loading="deleting === project.id"
+            :disabled="Boolean(deleting)"
+            @click="remove(project)"
+          >删除</el-button>
+        </div>
       </article>
 
       <div v-if="!loading && !projects.length" class="empty-state">
@@ -157,9 +201,15 @@ onMounted(() => load())
   letter-spacing: 0.1em;
 }
 
-.project-row > a {
+.project-actions a {
   color: #76a7ff;
   text-decoration: none;
+}
+
+.project-actions {
+  display: flex;
+  gap: 14px;
+  align-items: center;
 }
 
 .section-code {
@@ -198,7 +248,7 @@ onMounted(() => load())
 
 .index-row {
   display: grid;
-  grid-template-columns: minmax(280px, 2fr) 100px 140px 130px 60px;
+  grid-template-columns: minmax(280px, 2fr) 100px 140px 130px 120px;
   gap: 22px;
   align-items: center;
   min-width: 858px;

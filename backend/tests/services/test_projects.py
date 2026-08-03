@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 import pytest
@@ -6,7 +7,18 @@ from sqlalchemy.orm import Session
 
 from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
-from vision_dataset_workbench.models import Project, ProjectMembership, User
+from vision_dataset_workbench.models import (
+    DatasetExport,
+    Frame,
+    FrameAnnotation,
+    Project,
+    ProjectLabel,
+    ProjectMembership,
+    SamplingPlan,
+    Task,
+    User,
+    Video,
+)
 from vision_dataset_workbench.security.passwords import hash_password
 from vision_dataset_workbench.services.projects import (
     InvalidProjectMember,
@@ -208,3 +220,158 @@ def test_directory_failure_does_not_create_project(project_runtime):
 
     with Session(engine) as session:
         assert session.scalar(select(func.count()).select_from(Project)) == 0
+
+
+def test_owner_archives_complete_project_metadata_and_deletes_records(project_runtime):
+    service = make_service(project_runtime)
+    engine, workspace, users = project_runtime
+    project = service.create_project(users["creator-id"], "Project", "description").project
+    service.add_member(users["creator-id"], project.id, "editor", "editor")
+    with Session(engine) as session:
+        session.add_all(
+            [
+                ProjectLabel(
+                    id="label-id",
+                    project_id=project.id,
+                    name="person",
+                    name_normalized="person",
+                    description_zh="人员",
+                    color="#16866f",
+                    sort_order=0,
+                ),
+                Video(
+                    id="video-id",
+                    project_id=project.id,
+                    short_code="ABCDEFGH",
+                    source_type="local",
+                    title="video.mp4",
+                    status="ready",
+                ),
+            ]
+        )
+        session.flush()
+        session.add(
+            Task(
+                id="task-id",
+                project_id=project.id,
+                submitted_by_id="creator-id",
+                video_id="video-id",
+                type="copy_video",
+                status="succeeded",
+            )
+        )
+        session.add(
+            SamplingPlan(
+                id="plan-id",
+                video_id="video-id",
+                mode="target_frames",
+                parameters='{"target_frames": 1}',
+                output_format="jpg",
+                output_quality=2,
+                expected_frames=1,
+                extracted_frames=1,
+                enabled_frames=1,
+            )
+        )
+        session.add(
+            Frame(
+                id="frame-id",
+                video_id="video-id",
+                generation=1,
+                sequence=1,
+                source_frame_index=0,
+                time_offset=0,
+                file_path="projects/project/frames/frame.jpg",
+                enabled=False,
+            )
+        )
+        session.flush()
+        session.add(
+            FrameAnnotation(
+                id="annotation-id",
+                frame_id="frame-id",
+                label_id="label-id",
+                x_min=1,
+                y_min=2,
+                x_max=10,
+                y_max=20,
+                source="manual",
+            )
+        )
+        session.add(
+            DatasetExport(
+                id="export-id",
+                project_id=project.id,
+                task_id="task-id",
+                created_by_id="creator-id",
+                name="dataset",
+                status="ready",
+                train_ratio=0.8,
+                label_snapshot="[]",
+                source_snapshot="{}",
+            )
+        )
+        session.commit()
+    (workspace / "projects" / project.id / "video.mp4").write_bytes(b"video")
+
+    service.delete_project(users["creator-id"], project.id)
+
+    archived = workspace / ".deleted" / "projects" / project.id / "project"
+    metadata = json.loads((archived / "project_metadata.json").read_text("utf-8"))
+    assert (archived / "video.mp4").read_bytes() == b"video"
+    assert metadata["format_version"] == 1
+    assert metadata["project"]["id"] == project.id
+    assert metadata["project"]["creator_username"] == "creator"
+    assert metadata["project_memberships"][0]["username"] == "editor"
+    assert metadata["labels"][0]["id"] == "label-id"
+    assert metadata["videos"][0]["id"] == "video-id"
+    assert metadata["sampling_plans"][0]["id"] == "plan-id"
+    assert metadata["frames"][0]["enabled"] is False
+    assert metadata["annotations"][0]["id"] == "annotation-id"
+    assert metadata["tasks"][0]["id"] == "task-id"
+    assert metadata["dataset_exports"][0]["id"] == "export-id"
+    with Session(engine) as session:
+        assert session.get(Project, project.id) is None
+        assert session.get(Video, "video-id") is None
+        assert session.get(FrameAnnotation, "annotation-id") is None
+
+
+def test_project_delete_requires_owner_and_no_active_tasks(project_runtime):
+    service = make_service(project_runtime)
+    engine, workspace, users = project_runtime
+    project = service.create_project(users["creator-id"], "Project", "").project
+    service.add_member(users["creator-id"], project.id, "editor", "editor")
+
+    with pytest.raises(ProjectForbidden):
+        service.delete_project(users["editor-id"], project.id)
+    with Session(engine) as session:
+        session.add(
+            Task(
+                project_id=project.id,
+                submitted_by_id="creator-id",
+                type="copy_video",
+                status="queued",
+            )
+        )
+        session.commit()
+    with pytest.raises(ProjectConflict, match="active"):
+        service.delete_project(users["creator-id"], project.id)
+
+    assert (workspace / "projects" / project.id).is_dir()
+    with Session(engine) as session:
+        assert session.get(Project, project.id) is not None
+
+
+def test_project_delete_never_overwrites_existing_archive(project_runtime):
+    service = make_service(project_runtime)
+    engine, workspace, users = project_runtime
+    project = service.create_project(users["creator-id"], "Project", "").project
+    archived = workspace / ".deleted" / "projects" / project.id / "project"
+    archived.mkdir(parents=True)
+
+    with pytest.raises(ProjectConflict, match="archive"):
+        service.delete_project(users["creator-id"], project.id)
+
+    assert (workspace / "projects" / project.id).is_dir()
+    with Session(engine) as session:
+        assert session.get(Project, project.id) is not None

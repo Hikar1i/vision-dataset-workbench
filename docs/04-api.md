@@ -24,6 +24,7 @@
 | `POST /api/v1/projects` | Session + 同源 | 创建默认私有项目 |
 | `GET /api/v1/projects/{id}` | 项目成员 | 读取项目元数据 |
 | `PATCH /api/v1/projects/{id}` | owner/editor + 同源 | 按 `version` 修改名称和描述 |
+| `DELETE /api/v1/projects/{id}` | owner + 同源 | 归档完整项目并删除数据库记录，返回 204 |
 | `GET /api/v1/projects/{id}/members` | 项目成员 | 返回永久 owner 和 editor/viewer 成员 |
 | `POST /api/v1/projects/{id}/members` | owner + 同源 | 按用户名添加已有有效账号 |
 | `PATCH /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 在 editor/viewer 间切换角色 |
@@ -80,6 +81,7 @@
 | 查看项目与成员 | 是 | 是 | 是 |
 | 修改项目名称、描述 | 是 | 是 | 否 |
 | 添加、改角色、移除成员 | 是 | 否 | 否 |
+| 归档删除项目 | 是 | 否 | 否 |
 | 浏览 `~` 内文件/目录、新建目录 | 是 | 是 | 是 |
 | 查看、播放、下载项目原始视频 | 是 | 是 | 是 |
 | 查看项目任务 | 是 | 是 | 是 |
@@ -99,6 +101,8 @@
 | 创建和逻辑删除数据集导出 | 是 | 是 | 否 |
 
 viewer 已可查看、播放和下载原始视频，查看任务、采样方案、采样帧图片、标注数据和数据集导出，并可下载 ready 产物；不能添加或导入视频、启停视频整体、改变采样策略、重新采样、启停帧、写入标注、创建或删除导出。为简化交互，视频列表的“标注”入口对 viewer 禁用；读取标注 API 保留，以支持只读展示。
+
+项目删除要求 owner 权限，且任意 queued/running 项目任务都会返回 409。服务端先在项目目录写入包含项目、成员、标签、视频、采样方案、帧、标注、任务和数据集导出全部当前持久字段的 `project_metadata.json`，再将目录原子移动到 `.deleted/projects/<project UUID>/project/`，最后级联删除数据库记录；提交失败时尝试把目录移回。该快照仅对应生成时 schema，不承诺未来兼容，当前也不提供加载或恢复接口。
 
 创建导出要求训练集比例位于 `[0, 1]`、类别快照完整且映射连续，并至少启用一个类别；同一项目已有 queued/running 导出时返回 409。任务活动期间，参与视频的启停、帧启停、重抽帧和手动/自动标注写入返回 409，读取不受影响。导出详情只在 ready 后包含工作区绝对路径与 `manifest`；下载不生成持久 ZIP，删除将产物移动到 `.deleted/projects/<project UUID>/exports/` 并从普通列表隐藏。
 
