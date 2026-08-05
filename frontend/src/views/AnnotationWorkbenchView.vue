@@ -44,7 +44,6 @@ import {
   listModelProjectModels,
   listModelProjects,
   listXAnyLabelingModels,
-  registerInferenceModel,
   runFrameAutoAnnotation,
   saveXAnyLabelingSetting,
   type AutoAnnotationConfig,
@@ -56,7 +55,6 @@ import {
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
 import FrameAnnotationThumbnail from '../components/FrameAnnotationThumbnail.vue'
-import ServerVideoPicker from '../components/ServerVideoPicker.vue'
 import { formatFrameFileName } from '../components/framePresentation'
 import { type BoxBounds } from './annotationGeometry'
 import { createAnnotationHistory } from './annotationHistory'
@@ -110,10 +108,6 @@ const filmstripVisible = ref(true)
 const shortcutsOpen = ref(false)
 const statsOpen = ref(false)
 const imageInfoExpanded = ref(true)
-const registerOpen = ref(false)
-const registering = ref(false)
-const registerName = ref('')
-const registerPath = ref('')
 const selectedSource = ref<ModelSourceValue>('' as ModelSourceValue)
 const modelListLoading = ref(false)
 const xanylabelingSettingsOpen = ref(false)
@@ -520,29 +514,6 @@ async function runBatchAutoAnnotation() {
   }
 }
 
-async function submitModelRegistration() {
-  if (!registerName.value.trim() || !registerPath.value) return
-  registering.value = true
-  try {
-    const registered = await registerInferenceModel(
-      projectId,
-      registerName.value,
-      registerPath.value,
-    )
-    if (registered.model.model_project_id === selectedModelProjectId()) {
-      inferenceModels.value = [registered.model, ...inferenceModels.value]
-    }
-    registerOpen.value = false
-    registerName.value = ''
-    registerPath.value = ''
-    ElMessage.success('模型入库任务已创建，可在任务中心查看进度。')
-  } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '模型登记失败')
-  } finally {
-    registering.value = false
-  }
-}
-
 async function refreshAutoTask() {
   if (!video.value) return
   if (!batchActive.value && !inferenceModels.value.some((model) => model.status === 'copying')) return
@@ -885,13 +856,6 @@ watch(reuseLabel, (reuse) => {
             <el-option v-for="model in readyModels" :key="model.id" :label="model.name" :value="model.id" />
           </template>
         </el-select>
-        <button
-          v-if="currentUser?.is_system_admin"
-          type="button"
-          :disabled="batchActive"
-          title="登记本地推理模型"
-          @click="registerOpen = true"
-        >＋模型</button>
         <el-select
           :model-value="autoCategories"
           class="category-select"
@@ -1173,22 +1137,6 @@ watch(reuseLabel, (reuse) => {
         <dt :style="{ color: item.label.color }">{{ item.label.name }}</dt><dd>{{ item.count }}</dd>
       </div>
     </dl>
-  </el-dialog>
-  <el-dialog v-model="registerOpen" title="登记推理模型" width="min(760px, calc(100vw - 32px))" append-to-body>
-    <div class="model-registration-form">
-      <label><span>模型名称</span><el-input v-model="registerName" maxlength="128" placeholder="例如：安全帽 YOLO26 v1" /></label>
-      <p>选择 `.pt` YOLO 模型文件，模型将归入“临时模型项目”。</p>
-      <ServerVideoPicker
-        v-model="registerPath"
-        kind="model"
-        :allow-directory-selection="false"
-        :allow-create="false"
-      />
-    </div>
-    <template #footer>
-      <el-button @click="registerOpen = false">取消</el-button>
-      <el-button type="primary" :loading="registering" :disabled="!registerName.trim() || !registerPath" @click="submitModelRegistration">创建入库任务</el-button>
-    </template>
   </el-dialog>
   <el-dialog
     v-model="xanylabelingSettingsOpen"

@@ -13,12 +13,12 @@
 - 工作区 SQLite。
 - 受控媒体存储。
 - FFmpeg/ffprobe；远程下载功能还需要 yt-dlp 及网络配置。
-- 本地自动标注还需要 `gpu` extra、NVIDIA 驱动和管理员已入库的 YOLO `.pt` 文件；远程自动标注要求 API 与 Worker 均可访问用户配置的 X-AnyLabeling Server。
+- 本地自动标注和训练还需要 `gpu` extra、NVIDIA 驱动和已入库的 YOLO `.pt` 文件；远程自动标注要求 API 与 Worker 均可访问用户配置的 X-AnyLabeling Server。
 
 - Linux 原生使用两个 systemd 服务管理 API 与 Worker。
 - Windows 本地使用一个启动器管理两个子进程。
 - Docker Compose 使用 API 和 Worker 服务，共享本机工作区挂载。
-- Docker 基础配置不要求 GPU 且不应因未声明 GPU 资源而启动失败；可选 GPU 配置需要为 API 和 Worker 安装包含 PyTorch、torchvision 与 Ultralytics 的 `gpu` extra，并向两者暴露同一设备视图。API 负责能力检测和单张交互推理，Worker 负责批量推理，因此不能只给其中一个进程安装依赖或暴露 GPU。
+- Docker 基础配置不要求 GPU 且不应因未声明 GPU 资源而启动失败；可选 GPU 配置需要为 API 和 Worker 安装包含 PyTorch、torchvision 与 Ultralytics 的 `gpu` extra，并向两者暴露同一设备视图。API 负责能力检测和单张交互推理，Worker 负责批量推理和训练子进程，因此不能只给其中一个进程安装依赖或暴露 GPU。
 
 当前可按[环境与启动](08-environments.md)运行 API、前端和 Worker，但尚无受进程管理器监管的正式部署产物。不应将 Vite 开发服务器或 Uvicorn `--reload` 用作长期部署。
 

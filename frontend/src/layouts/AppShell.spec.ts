@@ -98,7 +98,17 @@ describe('AppShell', () => {
     expect(wrapper.get('[data-test="brand"]').text()).toBe('VDM')
     expect(wrapper.get('[data-test="nav-projects"]').text()).toContain('数据集项目')
     expect(wrapper.findAll('[data-test="recent-project"]')).toHaveLength(5)
-    expect(wrapper.text()).not.toContain('超参模板')
+    expect(wrapper.get('[data-test="nav-model-projects"]').text()).toContain('模型项目')
+    expect(wrapper.get('[data-test="nav-hyperparameter-templates"]').text()).toContain('超参数模板')
+    expect(wrapper.get('[data-test="nav-training-tasks"]').text()).toContain('训练任务')
+    for (const selector of [
+      '[data-test="nav-projects"]',
+      '[data-test="nav-model-projects"]',
+      '[data-test="nav-hyperparameter-templates"]',
+      '[data-test="nav-training-tasks"]',
+    ]) {
+      expect(wrapper.get(selector).classes()).toContain('app-nav-entry')
+    }
     expect(wrapper.find('[data-test="nav-admin-users"]').exists()).toBe(true)
   })
 

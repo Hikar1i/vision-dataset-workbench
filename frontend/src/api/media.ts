@@ -58,7 +58,8 @@ export type VideoPage = {
 
 export type ProjectTask = {
   id: string
-  project_id: string
+  project_id: string | null
+  model_project_id: string | null
   video_id: string | null
   type: 'copy_video' | 'download_video' | 'extract_frames' | 'import_model' | 'auto_annotate' | 'export_dataset'
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
@@ -83,6 +84,8 @@ export type TaskPage = {
 
 export type GlobalProjectTask = ProjectTask & {
   project_name: string
+  resource_kind: 'project' | 'model_project'
+  resource_name: string
   can_manage: boolean
 }
 
@@ -246,6 +249,9 @@ export const cancelTask = (projectId: string, taskId: string) =>
   json<ProjectTask>(`${projectPath(projectId)}/tasks/${taskId}/cancel`, {
     method: 'POST',
   })
+
+export const cancelGlobalTask = (taskId: string) =>
+  json<ProjectTask>(`/api/v1/tasks/${taskId}/cancel`, { method: 'POST' })
 
 export const retryTask = (projectId: string, taskId: string) =>
   json<ProjectTask>(`${projectPath(projectId)}/tasks/${taskId}/retry`, {

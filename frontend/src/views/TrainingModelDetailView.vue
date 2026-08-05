@@ -1,0 +1,409 @@
+<script setup lang="ts">
+import { ElMessage, ElMessageBox } from "element-plus";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import PrecisionRecallChart from "../components/PrecisionRecallChart.vue";
+import TrainingMetricsChart from "../components/TrainingMetricsChart.vue";
+import {
+  cancelTrainingModel,
+  deleteTrainingModel,
+  deriveTrainingModel,
+  extendTrainingModel,
+  getTrainingLog,
+  getTrainingMetrics,
+  getTrainingPrCurve,
+  getTrainingTask,
+  resumeTrainingModel,
+  retryTrainingModel,
+  type TrainingMetric,
+  type PrCurve,
+  type TrainingModel,
+  type TrainingTask,
+} from "../api/training";
+const route = useRoute();
+const router = useRouter();
+const task = ref<TrainingTask>();
+const model = ref<TrainingModel>();
+const metrics = ref<TrainingMetric[]>([]);
+const prCurve = ref<PrCurve>({ version: 1, kind: "unavailable", series: [] });
+const log = ref("");
+const dialog = ref<"derive" | "extend" | null>(null);
+const action = reactive({
+  task_code: "",
+  task_name: "",
+  epochs: null as number | null,
+  batch_mode: null as "auto" | "fixed" | "fraction" | null,
+  batch_value: null as number | null,
+  image_size: null as number | null,
+  additional_epochs: 50,
+  checkpoint: "best",
+  gpu_index: 0,
+});
+let timer: number | undefined;
+const latest = computed(() => model.value?.runs[0]);
+const active = computed(
+  () =>
+    model.value &&
+    ["queued", "running", "canceling"].includes(model.value.status),
+);
+async function load() {
+  task.value = await getTrainingTask(String(route.params.id));
+  model.value = task.value.models?.find(
+    (item) => item.id === route.params.modelId,
+  );
+  if (!model.value) return;
+  const run = model.value.runs[0];
+  if (run) {
+    metrics.value = await getTrainingMetrics(run.id);
+    prCurve.value = await getTrainingPrCurve(run.id);
+    log.value = (await getTrainingLog(run.id)).content;
+  }
+}
+async function cancel() {
+  try {
+    await ElMessageBox.confirm(
+      "只取消这个模型；同一 GPU lane 的后续模型仍会继续。",
+      "取消模型训练",
+      { type: "warning" },
+    );
+    await cancelTrainingModel(String(route.params.modelId));
+    await load();
+  } catch (e) {
+    if (e instanceof Error) ElMessage.error(e.message);
+  }
+}
+async function retry() {
+  if (!model.value) return;
+  try {
+    let confirm = false;
+    if (model.value.status === "succeeded") {
+      await ElMessageBox.confirm(
+        "该模型已经成功发布。重试成功后将原子替换现有发布模型；重试失败时继续保留当前模型。",
+        "确认重试成功模型",
+        { type: "warning", confirmButtonText: "确认重新训练" },
+      );
+      confirm = true;
+    }
+    await retryTrainingModel(model.value.id, confirm);
+    await load();
+  } catch (e) {
+    if (e instanceof Error) ElMessage.error(e.message);
+  }
+}
+async function remove() {
+  if (!model.value) return;
+  const published = model.value.status === "succeeded";
+  try {
+    await ElMessageBox.confirm(
+      published
+        ? "该模型已经发布。删除会同时逻辑删除模型项目中的发布模型，并将权重和运行目录移入 .deleted。"
+        : "删除会将该模型的运行目录移入工作区 .deleted。",
+      "删除训练模型",
+      { type: "warning", confirmButtonText: "确认删除" },
+    );
+    await deleteTrainingModel(model.value.id, published);
+    await router.push(`/training-tasks/${task.value?.id}`);
+  } catch (e) {
+    if (e instanceof Error) ElMessage.error(e.message);
+  }
+}
+async function resume() {
+  try {
+    await ElMessageBox.confirm(
+      "将从上一运行的 last.pt 恢复中断状态，目标 epoch 保持不变。",
+      "恢复中断",
+    );
+    await resumeTrainingModel(String(route.params.modelId));
+    await load();
+  } catch (e) {
+    if (e instanceof Error) ElMessage.error(e.message);
+  }
+}
+function open(kind: "derive" | "extend") {
+  dialog.value = kind;
+  action.task_code = "";
+  action.task_name = `${model.value?.name || "模型"} ${kind === "derive" ? "派生" : "追加训练"}`;
+  action.gpu_index = model.value?.gpu_index || 0;
+}
+async function submitAction() {
+  if (!model.value) return;
+  try {
+    const created =
+      dialog.value === "derive"
+        ? await deriveTrainingModel(model.value.id, {
+            task_code: action.task_code,
+            task_name: action.task_name,
+            description: "",
+            epochs: action.epochs,
+            batch_mode: action.batch_mode,
+            batch_value: action.batch_value,
+            image_size: action.image_size,
+            gpu_index: action.gpu_index,
+          })
+        : await extendTrainingModel(model.value.id, {
+            task_code: action.task_code,
+            task_name: action.task_name,
+            additional_epochs: action.additional_epochs,
+            checkpoint: action.checkpoint,
+            gpu_index: action.gpu_index,
+          });
+    dialog.value = null;
+    await router.push(`/training-tasks/${created.id}/edit`);
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : "操作失败");
+  }
+}
+onMounted(async () => {
+  try {
+    await load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : "训练详情加载失败");
+  }
+  timer = window.setInterval(() => {
+    if (active.value) void load();
+  }, 1500);
+});
+onBeforeUnmount(() => clearInterval(timer));
+</script>
+<template>
+  <main class="content-page training-model-page">
+    <header class="content-toolbar">
+      <div class="content-toolbar-title">
+        <h1>{{ model?.name || "训练模型" }}</h1>
+        <span>{{ model?.artifact_code || "未冻结产物名" }}</span>
+      </div>
+      <div v-if="model">
+        <el-button v-if="active" type="warning" @click="cancel">取消</el-button
+        ><el-button v-if="model.actions.retry?.allowed" @click="retry"
+          >重试</el-button
+        ><el-button v-if="model.actions.resume?.allowed" @click="resume"
+          >恢复中断</el-button
+        ><el-button v-if="model.actions.derive?.allowed" @click="open('derive')"
+          >派生</el-button
+        ><el-button
+          v-if="model.actions.extend?.allowed"
+          type="primary"
+          @click="open('extend')"
+          >追加训练</el-button
+        ><el-button
+          v-if="model.actions.delete?.allowed"
+          type="danger"
+          @click="remove"
+          >删除</el-button
+        >
+      </div>
+    </header>
+    <div class="content-body" v-if="model">
+      <section class="model-summary">
+        <div>
+          <span>STATUS</span><strong>{{ model.status }}</strong>
+        </div>
+        <div>
+          <span>GPU / ORDER</span
+          ><strong
+            >GPU {{ model.gpu_index }} / q{{
+              String(model.queue_order).padStart(2, "0")
+            }}</strong
+          >
+        </div>
+        <div>
+          <span>EPOCH</span
+          ><strong
+            >{{ latest?.current_epoch || 0 }} /
+            {{ latest?.target_epochs || "—" }}</strong
+          >
+        </div>
+        <div>
+          <span>PID</span><strong>{{ latest?.pid || "—" }}</strong>
+        </div>
+      </section>
+      <el-alert
+        v-if="latest?.error"
+        :title="latest.error"
+        type="error"
+        :closable="false"
+      /><el-alert
+        v-if="latest?.warning"
+        :title="latest.warning"
+        type="warning"
+        :closable="false"
+      />
+      <section class="panel">
+        <header>
+          <span>METRICS / LINKED AXIS</span>
+          <h2>训练指标</h2>
+          <p>
+            悬浮任一列可联动查看 loss、学习率、precision、recall 与
+            mAP；支持滚轮和滑块缩放。
+          </p>
+        </header>
+        <TrainingMetricsChart :metrics="metrics" />
+        <div class="metric-table">
+          <span v-for="item in metrics.slice(-5)" :key="item.epoch"
+            >E{{ item.epoch }} · P {{ item.precision?.toFixed(3) ?? "—" }} · R
+            {{ item.recall?.toFixed(3) ?? "—" }} · mAP50
+            {{ item.map50?.toFixed(3) ?? "—" }}</span
+          >
+        </div>
+      </section>
+      <section class="panel pr-panel">
+        <header>
+          <span>P-R TRAJECTORY</span>
+          <h2>Precision–Recall 训练轨迹</h2>
+        </header>
+        <PrecisionRecallChart :curve="prCurve" />
+      </section>
+      <section class="panel">
+        <header>
+          <span>RUN LOG</span>
+          <h2>训练日志</h2>
+        </header>
+        <pre>{{ log || "暂无日志输出" }}</pre>
+      </section>
+    </div>
+    <el-dialog
+      v-model="dialog"
+      :title="dialog === 'derive' ? '派生训练模型' : '追加训练'"
+      width="520px"
+      ><el-form label-position="top"
+        ><el-form-item label="新任务 code"
+          ><el-input
+            v-model="action.task_code"
+            placeholder="小写字母、数字或连字符" /></el-form-item
+        ><el-form-item label="新任务名称"
+          ><el-input v-model="action.task_name" /></el-form-item
+        ><template v-if="dialog === 'derive'"
+          ><el-alert
+            title="派生固定使用原数据集与原 basemodel，仅允许修改超参数。"
+            type="info"
+            :closable="false" />
+          <div class="inline-fields">
+            <el-form-item label="epochs"
+              ><el-input-number
+                v-model="action.epochs"
+                :min="1" /></el-form-item
+            ><el-form-item label="image size"
+              ><el-input-number
+                v-model="action.image_size"
+                :min="32"
+                :step="32"
+            /></el-form-item></div></template
+        ><template v-else
+          ><el-form-item label="追加 epochs"
+            ><el-input-number
+              v-model="action.additional_epochs"
+              :min="1" /></el-form-item
+          ><el-form-item label="起点 checkpoint"
+            ><el-radio-group v-model="action.checkpoint"
+              ><el-radio value="best">best.pt</el-radio
+              ><el-radio value="last">last.pt</el-radio></el-radio-group
+            ></el-form-item
+          ></template
+        ><el-form-item label="GPU 序号"
+          ><el-input-number
+            v-model="action.gpu_index"
+            :min="0" /></el-form-item></el-form
+      ><template #footer
+        ><el-button @click="dialog = null">取消</el-button
+        ><el-button
+          type="primary"
+          :disabled="!action.task_code || !action.task_name"
+          @click="submitAction"
+          >创建草稿</el-button
+        ></template
+      ></el-dialog
+    >
+  </main>
+</template>
+<style scoped>
+.training-model-page {
+  background: #f4f7fa;
+}
+.model-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  margin: 20px 0;
+  background: #d8dee6;
+  border: 1px solid #d8dee6;
+}
+.model-summary div {
+  display: grid;
+  gap: 7px;
+  padding: 18px;
+  background: #fff;
+}
+.model-summary span,
+.panel > header span {
+  color: #16866f;
+  font:
+    11px ui-monospace,
+    monospace;
+  letter-spacing: 0.08em;
+}
+.panel {
+  margin: 18px 0;
+  padding: 22px;
+  background: #fff;
+  border: 1px solid #d8dee6;
+}
+.panel h2 {
+  margin: 5px 0;
+}
+.panel header p {
+  margin: 5px 0;
+  color: #687482;
+  font-size: 13px;
+}
+.metric-table {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  background: #f4f7fa;
+  color: #687482;
+  font:
+    11px ui-monospace,
+    monospace;
+}
+.pr-panel svg {
+  width: min(100%, 650px);
+  height: 300px;
+}
+.pr-panel polyline {
+  fill: none;
+  stroke: #16866f;
+  stroke-width: 3;
+}
+.pr-panel .guide {
+  fill: none;
+  stroke: #d8dee6;
+  stroke-width: 1;
+}
+.pr-panel text {
+  fill: #687482;
+  font-size: 12px;
+}
+.panel pre {
+  max-height: 420px;
+  margin: 14px 0 0;
+  padding: 16px;
+  overflow: auto;
+  background: #17212b;
+  color: #dce5ed;
+  font:
+    12px/1.6 ui-monospace,
+    monospace;
+  white-space: pre-wrap;
+}
+.inline-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 800px) {
+  .model-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+</style>

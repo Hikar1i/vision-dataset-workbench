@@ -177,10 +177,13 @@ def test_global_tasks_include_project_context_and_permissions(tmp_path):
     assert viewer_page.status_code == 200
     assert viewer_page.json()["items"] == [
         {
-            **imported["accepted"][0]["task"],
-            "project_id": "project-id",
-            "project_name": "project",
-            "can_manage": False,
+                **imported["accepted"][0]["task"],
+                "project_id": "project-id",
+                "model_project_id": None,
+                "project_name": "project",
+                "resource_kind": "project",
+                "resource_name": "project",
+                "can_manage": False,
         }
     ]
     assert viewer_page.json()["latest_terminal_at"] is None

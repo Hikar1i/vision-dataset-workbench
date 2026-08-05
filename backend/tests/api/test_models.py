@@ -71,23 +71,31 @@ def client_for(app, username):
 
 def test_admin_registers_models_and_members_list_them(tmp_path):
     _app, admin, editor, project_id = make_app(tmp_path)
-    response = admin.post(
-        f"/api/v1/projects/{project_id}/models",
+    created = admin.post(
+        "/api/v1/model-projects",
         headers=ORIGIN,
-        json={"name": "YOLO helmet", "source_path": "models/yolo.pt"},
+        json={"name": "Official YOLO", "description": "archive"},
+    )
+    assert created.status_code == 201
+    model_project_id = created.json()["id"]
+    response = admin.post(
+        f"/api/v1/model-projects/{model_project_id}/models",
+        headers=ORIGIN,
+        json={"name": "YOLO helmet", "description": "detect", "source_path": "models/yolo.pt"},
     )
 
     assert response.status_code == 202
     assert response.json()["model"]["status"] == "copying"
-    assert response.json()["model"]["model_project_id"] == (
-        "00000000-0000-0000-0000-000000000001"
-    )
+    assert response.json()["model"]["model_project_id"] == model_project_id
+    assert response.json()["task"]["project_id"] is None
+    assert response.json()["task"]["model_project_id"] == model_project_id
     assert response.json()["task"]["type"] == "import_model"
     projects = editor.get("/api/v1/model-projects")
     assert projects.status_code == 200
-    assert projects.json()[0]["system_key"] == "temporary"
+    archive = next(item for item in projects.json() if item["id"] == model_project_id)
+    assert archive["can_manage"] is False
     project_models = editor.get(
-        f"/api/v1/model-projects/{projects.json()[0]['id']}/models"
+        f"/api/v1/model-projects/{model_project_id}/models"
     )
     assert project_models.status_code == 200
     assert project_models.json()[0]["name"] == "YOLO helmet"
@@ -99,7 +107,12 @@ def test_admin_registers_models_and_members_list_them(tmp_path):
 
 def test_model_registration_requires_admin_and_valid_source_shape(tmp_path):
     _app, admin, editor, project_id = make_app(tmp_path)
-    url = f"/api/v1/projects/{project_id}/models"
+    created = admin.post(
+        "/api/v1/model-projects",
+        headers=ORIGIN,
+        json={"name": "Admin archive", "description": ""},
+    ).json()
+    url = f"/api/v1/model-projects/{created['id']}/models"
 
     assert editor.post(
         url,
@@ -119,4 +132,54 @@ def test_model_registration_requires_admin_and_valid_source_shape(tmp_path):
     assert admin.post(
         url,
         json={"name": "No origin", "source_path": "models/yolo.pt"},
+    ).status_code == 403
+
+
+def test_model_projects_are_versioned_and_logically_deleted(tmp_path):
+    _app, admin, editor, _project_id = make_app(tmp_path)
+    created = editor.post(
+        "/api/v1/model-projects",
+        headers=ORIGIN,
+        json={"name": "Fire models", "description": "first"},
+    )
+    assert created.status_code == 201
+    project = created.json()
+    assert project["series_type"] == "archive"
+    assert project["can_manage"] is True
+    assert admin.patch(
+        f"/api/v1/model-projects/{project['id']}",
+        headers=ORIGIN,
+        json={"name": "Fire models v2", "description": "updated", "version": 1},
+    ).status_code == 200
+    assert editor.patch(
+        f"/api/v1/model-projects/{project['id']}",
+        headers=ORIGIN,
+        json={"name": "stale", "description": "", "version": 1},
+    ).status_code == 409
+    assert editor.delete(
+        f"/api/v1/model-projects/{project['id']}", headers=ORIGIN
+    ).status_code == 204
+    assert editor.get(f"/api/v1/model-projects/{project['id']}").status_code == 404
+    assert editor.post(
+        "/api/v1/model-projects",
+        headers=ORIGIN,
+        json={"name": "Fire models v2", "description": "reused"},
+    ).status_code == 201
+
+
+def test_training_and_temporary_projects_are_not_manually_writable(tmp_path):
+    _app, admin, _editor, _project_id = make_app(tmp_path)
+    assert admin.post(
+        "/api/v1/model-projects",
+        headers=ORIGIN,
+        json={"name": "training", "description": "", "series_type": "training"},
+    ).status_code == 422
+    temporary = next(
+        item for item in admin.get("/api/v1/model-projects").json()
+        if item["system_key"] == "temporary"
+    )
+    assert admin.post(
+        f"/api/v1/model-projects/{temporary['id']}/models",
+        headers=ORIGIN,
+        json={"name": "forbidden", "source_path": "models/yolo.pt"},
     ).status_code == 403

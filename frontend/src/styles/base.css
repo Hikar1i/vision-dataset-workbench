@@ -79,7 +79,7 @@ body {
 
 .app-nav { padding: 11px 0; }
 .app-nav-group { display: grid; grid-template-columns: minmax(0, 1fr) 40px; }
-.app-nav-group > a,
+.app-nav-entry,
 .app-sidebar-footer > a,
 .app-sidebar-user {
   display: grid;
@@ -121,6 +121,7 @@ body {
 }
 .app-sidebar svg,
 .app-topbar svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.app-sidebar .anticon svg,
 .app-topbar .anticon svg { fill: currentColor; stroke: none; }
 .app-nav-children { display: grid; }
 .app-nav-children a {

@@ -60,7 +60,26 @@
 | `PUT /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/annotations` | owner/editor + 同源 | 按修订号整体替换当前帧标注 |
 | `GET /api/v1/models` | Session | 返回工作区内推理模型及入库状态 |
 | `GET /api/v1/model-projects` | Session | 返回工作区全局模型项目 |
+| `POST /api/v1/model-projects` | Session + same-origin | 创建归档模型项目；训练类型拒绝手工创建 |
+| `GET/PATCH/DELETE /api/v1/model-projects/{id}` | Session；写入需创建者或管理员 | 查看、版本化编辑或逻辑删除模型项目 |
 | `GET /api/v1/model-projects/{id}/models` | Session | 返回指定模型项目内模型 |
+| `POST /api/v1/model-projects/{id}/models` | Session + same-origin；创建者或管理员 | 创建 `.pt` 模型导入任务 |
+| `GET/PATCH/DELETE /api/v1/models/{id}` | Session；写入需项目管理权 | 查看、编辑/移动或逻辑删除模型 |
+| `GET /api/v1/hyperparameter-catalog` | Session | 返回 Detect v1 参数目录、类型、默认值和约束 |
+| `POST /api/v1/hyperparameter-catalog/validate-raw` | Session | 严格校验完整 RAW YAML；失败不返回可应用配置 |
+| `GET/POST /api/v1/hyperparameter-templates` | Session；创建需同源 | 列出或创建工作区全局不可变模板，可指定派生来源 |
+| `GET/DELETE /api/v1/hyperparameter-templates/{id}` | Session；删除需创建者或管理员与同源 | 查看或逻辑删除模板；系统模板不可删除 |
+| `GET /api/v1/training/capabilities` | Session | 返回 2 秒缓存的主机/GPU 实时显存、利用率、颜色级别和训练可用性 |
+| `GET /api/v1/training/resources` | Session | 返回工作区 ready 数据集导出、活动模板和 ready basemodel 候选 |
+| `GET/POST /api/v1/training-tasks` | Session；创建需同源 | 按最近训练倒序列出任务，或创建含 1–10 个模型的草稿 |
+| `GET/PATCH /api/v1/training-tasks/{id}` | Session；PATCH 需创建者/管理员与同源 | 查看任务详情；仅 draft 可按 `version` 修改且 code 不可变 |
+| `POST /api/v1/training-tasks/{id}/start|cancel` | 创建者/管理员 + 同源 | 原子预检并冻结排队，或整体取消 queued/running 模型 |
+| `POST /api/v1/training-tasks/{id}/retry-failed|derive` | 创建者/管理员 + 同源 | 重试未成功子项，或固定各模型数据集/basemodel 派生新草稿 |
+| `DELETE /api/v1/training-tasks/{id}` | 创建者/管理员 + 同源 | 拒绝活动任务；归档运行目录并保留已发布模型 |
+| `POST /api/v1/training-models/{id}/cancel|retry|resume` | 创建者/管理员 + 同源 | 单模型取消、从 epoch 0 重试或基于 last.pt 恢复中断 |
+| `POST /api/v1/training-models/{id}/derive|extend` | 创建者/管理员 + 同源 | 固定原数据集/basemodel 改超参派生，或从 best/last 追加 epoch |
+| `DELETE /api/v1/training-models/{id}` | 创建者/管理员 + 同源 | 活动模型拒绝；已发布模型要求 `confirm_published_model=true` |
+| `GET /api/v1/training-runs/{id}/metrics|log|pr-curve` | Session | 增量 epoch 指标、游标日志和交互 P-R JSON/授权图片回退 |
 | `POST /api/v1/projects/{id}/models` | 系统管理员 + 项目访问 + 同源 | 登记 `~` 内 `.pt` YOLO 并归入临时模型项目 |
 | `GET /api/v1/me/x-anylabeling-server` | Session | 返回当前用户脱敏远程配置，不返回 API 密钥 |
 | `PUT /api/v1/me/x-anylabeling-server` | Session + 同源 | 验证远程模型目录后保存 URL 和可选密钥 |
@@ -101,7 +120,8 @@
 | 读取已有矩形标注 | 是 | 是 | 是 |
 | 进入在线标注工作台并保存标注 | 是 | 是 | 否 |
 | 运行单张或批量自动标注 | 是 | 是 | 否 |
-| 登记全局推理模型 | 仅系统管理员 | 仅系统管理员 | 否 |
+| 创建模型项目 | 是 | 是 | 是 |
+| 编辑、导入和删除模型项目资源 | 创建者或系统管理员 | 创建者或系统管理员 | 其他用户只读 |
 | 查看和下载已有数据集导出 | 是 | 是 | 是 |
 | 创建和逻辑删除数据集导出 | 是 | 是 | 否 |
 
@@ -121,7 +141,15 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 
 单张自动标注在 API 同步线程池运行，只返回可编辑草稿，不修改当前标注。请求用 `source=local|xanylabeling`、`model_id` 和可空 `remote_task_id` 标识来源；本地模型使用进程内互斥锁，远程模型使用当前用户配置。`categories` 接受项目英文标签或临时英文类别，`All` 表示使用模型可提供的全部类别；只有实际检出的缺失类别会加入项目标签。批量接口拒绝停用视频，并把 Worker 开始执行时启用的帧作为处理范围；任务只保存来源和模型选择，不保存服务器 URL、API 密钥或图片。`overwrite=false` 追加模型框，`overwrite=true` 覆盖整帧已有框。活动远程任务期间修改该用户 X-AnyLabeling 配置返回 409。
 
-模型入库只允许系统管理员发起，只接受 `.pt` YOLO；Worker 复制到 `models/<model UUID>/` 后将状态置为 `ready`。`ready` 只表示受管副本已发布，权重兼容性在首次推理时最终验证。X-AnyLabeling PUT 用 `api_key_mode=retain|replace|clear` 表达密钥操作，保存前实时请求 `/v1/models`，失败不覆盖旧配置；远程响应只接纳有限坐标的 `rectangle`。`import_model` 和 `auto_annotate` 任务不开放通用重试接口。
+模型项目全局可见，所有认证用户可创建 archive 项目，创建者或系统管理员可管理；training 项目仅由后续训练发布服务创建。导入只接受 `.pt` YOLO，Worker 发布时记录大小和 SHA-256。项目和模型删除从普通查询隐藏数据库记录，并将受管文件移入 `.deleted`；临时项目只读。X-AnyLabeling 用户配置语义不变。
+
+超参数模板全局可见，所有认证用户可创建；模板创建后不可编辑，需要变更时从已有模板派生新资源。非系统模板仅创建者或系统管理员可逻辑删除。RAW 接口仅接受单文档、顶层 mapping、无锚点/别名/重复键的 YAML，未知键、系统控制键、嵌套值、类型或范围错误都会整体拒绝；只有 `valid=true` 的响应可覆盖客户端表单。
+
+训练资源当前按已确认的工作区全局权限实现：所有认证用户可读和创建任务，创建者或系统管理员可修改草稿及执行生命周期操作；最终按功能/RBAC 的权限优化另行重构。任务 code 是不可变全局业务标识而非主键，UUID 继续承担路由和外键身份。
+
+三种模式分别为 `single_model`、`single_device_serial` 和 `custom_sequence`。一个模型只属于一个 GPU lane，同卡严格串行、不同 GPU 可并行，不支持单 GPU 多模型并行或一个模型使用多 GPU。GPU 高显存只产生红/橙风险提示，不阻止选择；本系统已有 active run 会由数据库和调度器强制排队。
+
+生命周期 action 可携带最长 128 字符的 `Idempotency-Key`。重试生成新 run；恢复只允许 failed/canceled 且有有效 last.pt；派生生成新 task/model 且请求 DTO 不接受 dataset/basemodel；追加训练只允许成功模型并创建新单模型草稿。成功模型重试还必须提交 `confirm_replace=true`，新训练失败不会修改当前发布模型。
 
 全局任务接口按项目可见性过滤，按任务创建时间倒序返回。每项在普通任务字段之外包含 `project_id`、`project_name` 和 `can_manage`；viewer 的 `can_manage=false`。分页响应的 `latest_terminal_at` 在全部可见任务中计算，不受当前页限制，用于浏览器任务中心判断 succeeded、failed 或 canceled 任务是否未读。取消和重试仍使用项目级写接口，权限检查不在全局查询中复制。
 

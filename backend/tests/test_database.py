@@ -848,7 +848,8 @@ def test_inference_models_and_auto_annotation_task_constraints(tmp_path):
             [
                 Task(
                     id="import-model-task",
-                    project_id="project-id",
+                    project_id=None,
+                    model_project_id="00000000-0000-0000-0000-000000000001",
                     submitted_by_id="admin-id",
                     type="import_model",
                 ),

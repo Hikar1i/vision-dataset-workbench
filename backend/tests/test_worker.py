@@ -175,7 +175,8 @@ def test_import_model_task_copies_into_managed_storage(tmp_path):
         session.add(
             Task(
                 id="import-model",
-                project_id="project-id",
+                project_id=None,
+                model_project_id="00000000-0000-0000-0000-000000000001",
                 submitted_by_id="one-id",
                 type="import_model",
                 payload=json.dumps({"model_id": "model-id", "source_path": "models/detector.pt"}),

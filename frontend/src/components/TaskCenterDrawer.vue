@@ -4,6 +4,7 @@ import { onUnmounted, ref, watch } from 'vue'
 
 import {
   cancelTask,
+  cancelGlobalTask,
   listGlobalTasks,
   retryTask,
   type GlobalProjectTask,
@@ -68,7 +69,8 @@ async function load() {
 async function cancel(task: GlobalProjectTask) {
   changing.value = task.id
   try {
-    await cancelTask(task.project_id, task.id)
+    if (task.resource_kind === 'model_project') await cancelGlobalTask(task.id)
+    else if (task.project_id) await cancelTask(task.project_id, task.id)
     await load()
   } catch (reason) {
     ElMessage.error(reason instanceof Error ? reason.message : '任务取消失败')
@@ -80,6 +82,7 @@ async function cancel(task: GlobalProjectTask) {
 async function retry(task: GlobalProjectTask) {
   changing.value = task.id
   try {
+    if (!task.project_id) throw new Error('该任务不能从任务中心重试')
     await retryTask(task.project_id, task.id)
     await load()
   } catch (reason) {

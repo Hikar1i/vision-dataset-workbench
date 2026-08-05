@@ -1,6 +1,6 @@
 # 环境与启动
 
-状态：后端、前端、首次初始化、认证模式、GPU 能力检测，以及视频导入、抽帧、模型入库和自动标注可在开发环境运行；正式部署启动器尚未实现。
+状态：后端、前端、首次初始化、认证模式、GPU 能力与实时显存检测，以及视频导入、抽帧、模型入库、自动标注和 YOLO Detect 训练可在开发环境运行；正式部署启动器尚未实现。
 
 ## 当前可执行操作
 
@@ -21,7 +21,7 @@ uv run python -c "import torch, ultralytics; print(torch.cuda.is_available()); p
 
 当前锁定组合为 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8 和 Ultralytics 8.4.x。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)和 [PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)。
 
-本地自动标注时 API 和 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理时验证。本系统不再安装或加载本地 ONNX、Transformers 或 GroundingDINO 模型。
+本地自动标注和训练时 API 与 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理并为每个训练模型启动独立 Python/Ultralytics 子进程。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理或训练预检后由运行时确认。本系统不再安装或加载本地 ONNX、Transformers 或 GroundingDINO 模型。
 
 远程自动标注不要求本系统安装模型运行依赖。用户在标注页配置可由 API 和 Worker 访问的 X-AnyLabeling Server 地址及可选 API 密钥；客户端访问本机服务时应填写 `http://127.0.0.1:<port>`，`0.0.0.0` 只用于服务监听。当前只接收矩形结果，服务端点选、关键点、多边形等任务不会出现在可选模型列表中。
 
@@ -142,7 +142,7 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 | Media | FFmpeg/ffprobe/yt-dlp 路径与限制 |
 | Web | 绑定地址、前端来源和 Cookie 安全属性 |
 | Auth | 运行模式、注册开关和 Session 生命周期 |
-| GPU | 已实现硬件/运行时能力检测、单模型进程内互斥和批量任务并发限制；设备选择、显存感知调度和尚未实现的训练调度后续补充 |
+| GPU | 已实现启动时运行时能力检测、2 秒动态显存遥测、显卡选择、每 GPU 串行训练 lane 和跨 GPU 并行；不支持同卡多模型并行或单模型多 GPU |
 
 本地示例配置只能包含无敏感默认值；真实密钥通过未提交文件或密钥管理服务注入。
 

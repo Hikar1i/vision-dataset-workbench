@@ -82,7 +82,8 @@ class SamplingSummaryResponse(BaseModel):
 
 class TaskResponse(BaseModel):
     id: str
-    project_id: str
+    project_id: str | None
+    model_project_id: str | None
     video_id: str | None
     type: str
     status: str
@@ -158,6 +159,8 @@ class TaskPageResponse(BaseModel):
 
 class GlobalTaskResponse(TaskResponse):
     project_name: str
+    resource_kind: str
+    resource_name: str
     can_manage: bool
 
 
@@ -225,6 +228,7 @@ def _task_response(task: Task) -> TaskResponse:
     return TaskResponse(
         id=task.id,
         project_id=task.project_id,
+        model_project_id=task.model_project_id,
         video_id=task.video_id,
         type=task.type,
         status=task.status,
@@ -255,7 +259,9 @@ def list_global_tasks(
         items=[
             GlobalTaskResponse(
                 **_task_response(item.task).model_dump(),
-                project_name=item.project_name,
+                project_name=item.resource_name,
+                resource_kind=item.resource_kind,
+                resource_name=item.resource_name,
                 can_manage=item.can_manage,
             )
             for item in items
@@ -267,18 +273,28 @@ def list_global_tasks(
     )
 
 
+@global_task_router.post("/tasks/{task_id}/cancel", response_model=TaskResponse)
+def cancel_global_task(
+    task_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> TaskResponse:
+    require_same_origin(request)
+    try:
+        task = media_service(request).cancel_global_task(user, task_id)
+    except (ProjectForbidden, MediaNotFound, MediaConflict) as exc:
+        _raise_media_error(exc)
+    return _task_response(task)
+
+
 def _batch_response(batch: ImportBatch) -> ImportBatchResponse:
     return ImportBatchResponse(
         accepted=[
-            AcceptedResponse(
-                video=_video_response(item.video), task=_task_response(item.task)
-            )
+            AcceptedResponse(video=_video_response(item.video), task=_task_response(item.task))
             for item in batch.accepted
         ],
         skipped=[NoticeResponse(input=item.input, reason=item.reason) for item in batch.skipped],
-        rejected=[
-            NoticeResponse(input=item.input, reason=item.reason) for item in batch.rejected
-        ],
+        rejected=[NoticeResponse(input=item.input, reason=item.reason) for item in batch.rejected],
     )
 
 
@@ -304,9 +320,7 @@ def list_videos(
 ) -> VideoPageResponse:
     service = media_service(request)
     try:
-        items, total = service.list_videos(
-            user, project_id, page=page, page_size=page_size
-        )
+        items, total = service.list_videos(user, project_id, page=page, page_size=page_size)
     except (ProjectNotFound, ProjectForbidden) as exc:
         _raise_media_error(exc)
     summaries = request.app.state.sampling_service.summaries(
@@ -401,9 +415,7 @@ def video_thumbnail(
     request: Request,
     user: Annotated[User, Depends(current_user)],
 ) -> FileResponse:
-    _video, path = _video_file(
-        project_id, video_id, request, user, thumbnail=True
-    )
+    _video, path = _video_file(project_id, video_id, request, user, thumbnail=True)
     return FileResponse(path, media_type="image/jpeg")
 
 

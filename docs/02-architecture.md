@@ -1,10 +1,10 @@
 # 架构
 
-状态：总体设计已批准，初始化、认证、项目权限、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、模型入库、自动标注和数据集导出已实现。
+状态：初始化、认证、项目权限、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、模型项目、超参数模板、训练任务、自动标注和数据集导出已实现。
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十四版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、本地/远程模型推理、数据集导出、GPU 能力探测和独立 Worker。模型管理页面与训练仍是目标设计。因此本页区分：
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十八版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型项目管理、不可变超参数模板、本地/远程模型推理、数据集导出、GPU 实时遥测和独立 Worker 训练调度器。
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -40,6 +40,16 @@ Vue setup/auth/admin/project/media pages
   ├─ /api/v1/.../frames/<id>/annotations → AnnotationService
   │    └─ original-pixel rectangles + stable display order + annotation revision
   ├─ /api/v1/model-projects|models → ModelService
+  │    ├─ 全局可见、创建者/管理员写入的归档项目
+  │    ├─ 后台 `.pt` 导入、归档项目间移动与乐观并发
+  │    └─ `.deleted/model-projects|models` 逻辑删除
+  ├─ /api/v1/hyperparameter-* → HyperparameterTemplateService
+  │    ├─ 工作区全局不可变模板、派生和逻辑删除
+  │    └─ Detect v1 参数目录与严格 RAW YAML 校验
+  ├─ /api/v1/training-* → TrainingService
+  │    ├─ 全局草稿、冻结快照、生命周期操作与逻辑删除
+  │    ├─ 单模型/单卡串行/多卡自定义序列
+  │    └─ 指标、日志、P-R 曲线和训练模型项目发布
   ├─ /api/v1/me/x-anylabeling-server → XAnyLabelingSettingsService
   ├─ /api/v1/.../auto-annotations → AutoAnnotationService
        ├─ synchronous single-frame review draft
@@ -57,10 +67,14 @@ Independent Python Worker
   ├─ FFmpeg frame extraction + atomic generation replacement
   ├─ inference model copy + atomic publication
   ├─ per-frame batch auto annotation + progress/status publication
-  └─ YOLO dataset hardlinks + labels/manifest + atomic publication
+  ├─ YOLO dataset hardlinks + labels/manifest + atomic publication
+  └─ TrainingScheduler
+       ├─ 每 GPU 一个非抢占 FIFO lane、跨 GPU 并行
+       ├─ 独立 Python/Ultralytics 子进程 + JSONL 事件
+       └─ checkpoint 保留、指标入库和模型原子发布
 ```
 
-API 请求负责校验、权限和应用服务编排。视频导入、抽帧、模型入库、批量自动标注和数据集导出只创建持久任务并立即返回；复制、下载、媒体探测、抽帧、模型复制、批量推理和导出在独立 Worker 中执行。单张自动标注是为交互复核保留的例外：在 API 同步线程池中运行并只返回草稿，不直接改写标注。帧文件、模型和导出产物先写任务临时目录，验证后原子发布。审计表和模型训练尚未实现。
+API 请求负责校验、权限和应用服务编排。视频导入、抽帧、模型入库、批量自动标注、数据集导出和训练只创建持久状态并立即返回；外部工具和训练进程由独立 Worker 管理。训练启动前冻结数据集、超参和 basemodel 快照，启动后不允许修改原任务设置。
 
 ## 遗留架构基线
 

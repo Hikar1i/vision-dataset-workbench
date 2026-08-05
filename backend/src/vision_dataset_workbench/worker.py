@@ -41,6 +41,7 @@ from .services.xanylabeling_settings import XAnyLabelingSettingsService
 from .storage.browser import VIDEO_EXTENSIONS
 from .storage.locator import WorkspaceLocator, default_locator_path
 from .storage.paths import HomePathResolver, UnsafePathError
+from .training.scheduler import TrainingScheduler
 from .xanylabeling import XAnyLabelingUnavailable
 
 LIMITS = {
@@ -63,9 +64,7 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def download_command(
-    settings: RuntimeSettings, url: str, output_template: Path
-) -> list[str]:
+def download_command(settings: RuntimeSettings, url: str, output_template: Path) -> list[str]:
     return [
         *ytdlp_base_args(settings),
         "--no-playlist",
@@ -120,13 +119,14 @@ class TaskWorker:
         self._now = now
         self.worker_id = worker_id or str(uuid4())
         self._inference_runner = inference_runner or InferenceRunner()
-        self._remote_settings = remote_settings or XAnyLabelingSettingsService(
-            engine, settings
-        )
+        self._remote_settings = remote_settings or XAnyLabelingSettingsService(engine, settings)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="vdw-task")
         self._futures: dict[str, Future[None]] = {}
         self._stop = threading.Event()
+        self._training_scheduler = TrainingScheduler(
+            engine, self.workspace, worker_id=self.worker_id, popen=popen
+        )
 
     def claim_available(self) -> list[Task]:
         now = self._now()
@@ -146,15 +146,11 @@ class TaskWorker:
                 task.cancel_requested = False
                 task.updated_at = now
 
-            running = database.scalars(
-                select(Task).where(Task.status == "running")
-            ).all()
+            running = database.scalars(select(Task).where(Task.status == "running")).all()
             type_counts = Counter(task.type for task in running)
             user_counts = Counter((task.type, task.submitted_by_id) for task in running)
             queued = database.scalars(
-                select(Task)
-                .where(Task.status == "queued")
-                .order_by(Task.created_at, Task.id)
+                select(Task).where(Task.status == "queued").order_by(Task.created_at, Task.id)
             ).all()
             claimed: list[Task] = []
             for task in queued:
@@ -293,9 +289,7 @@ class TaskWorker:
             for path in files:
                 destination = staged / path.relative_to(source)
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                copied = self._copy_file_with_progress(
-                    task_id, path, destination, total, copied
-                )
+                copied = self._copy_file_with_progress(task_id, path, destination, total, copied)
         target = self.workspace / "models" / model_id
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
@@ -310,6 +304,9 @@ class TaskWorker:
                 raise MediaToolError("model import resources disappeared")
             model.status = "ready"
             model.storage_path = relative.relative_to(self.workspace).as_posix()
+            model.file_size = relative.stat().st_size
+            with relative.open("rb") as model_file:
+                model.sha256 = hashlib.file_digest(model_file, "sha256").hexdigest()
             model.error = None
             model.updated_at = now
             task.status = "succeeded"
@@ -458,11 +455,7 @@ class TaskWorker:
         except OSError as exc:
             raise MediaToolError("frame file not found") from exc
         root = (
-            self.workspace
-            / "projects"
-            / video.project_id
-            / "frames"
-            / video.short_code
+            self.workspace / "projects" / video.project_id / "frames" / video.short_code
         ).resolve()
         if not path.is_file() or not path.is_relative_to(root):
             raise MediaToolError("frame file not found")
@@ -638,9 +631,7 @@ class TaskWorker:
         task, video, payload = self._load_task(task_id)
         requested_version = int(payload.get("sampling_plan_version") or 0)
         with self._session_factory() as database:
-            plan = database.scalar(
-                select(SamplingPlan).where(SamplingPlan.video_id == video.id)
-            )
+            plan = database.scalar(select(SamplingPlan).where(SamplingPlan.video_id == video.id))
             if plan is None or plan.version != requested_version:
                 raise MediaToolError("sampling plan changed; create a new extraction task")
             database.expunge(plan)
@@ -650,9 +641,7 @@ class TaskWorker:
             video_path = (self.workspace / video.file_path).resolve(strict=True)
         except OSError as exc:
             raise MediaToolError("video file not found") from exc
-        videos_root = (
-            self.workspace / "projects" / video.project_id / "videos"
-        ).resolve()
+        videos_root = (self.workspace / "projects" / video.project_id / "videos").resolve()
         if not video_path.is_file() or not video_path.is_relative_to(videos_root):
             raise MediaToolError("video file not found")
 
@@ -670,9 +659,7 @@ class TaskWorker:
             if extension == "jpg"
             else ["-compression_level", str(plan.output_quality)]
         )
-        output_pattern = staged_frames / (
-            f"{video.short_code}_frame_%06d.{extension}"
-        )
+        output_pattern = staged_frames / (f"{video.short_code}_frame_%06d.{extension}")
         command = [
             "ffmpeg",
             "-hide_banner",
@@ -766,13 +753,7 @@ class TaskWorker:
         staged_frames: Path,
         files: list[Path],
     ) -> None:
-        target = (
-            self.workspace
-            / "projects"
-            / video.project_id
-            / "frames"
-            / video.short_code
-        )
+        target = self.workspace / "projects" / video.project_id / "frames" / video.short_code
         target.parent.mkdir(parents=True, exist_ok=True)
         backup = staged_frames.parent / "previous-frames"
         with self._session_factory() as database:
@@ -1053,9 +1034,7 @@ class TaskWorker:
             model.updated_at = task.updated_at
 
     @staticmethod
-    def _finish_dataset_export(
-        database, task: Task, status: str, error: str
-    ) -> None:
+    def _finish_dataset_export(database, task: Task, status: str, error: str) -> None:
         if task.type != "export_dataset":
             return
         export_id = str(json.loads(task.payload).get("export_id") or "")
@@ -1073,6 +1052,7 @@ class TaskWorker:
             shutil.rmtree(path)
 
     def run_once(self) -> None:
+        self._training_scheduler.tick()
         for task_id, future in list(self._futures.items()):
             if future.done():
                 future.result()
@@ -1104,7 +1084,9 @@ def _workspace(settings: RuntimeSettings) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Vision Dataset Workbench task worker")
-    parser.add_argument("--once", action="store_true", help="claim and execute available tasks once")
+    parser.add_argument(
+        "--once", action="store_true", help="claim and execute available tasks once"
+    )
     parser.add_argument("--poll-interval", type=float, default=0.5)
     args = parser.parse_args()
     settings = RuntimeSettings.from_env()
