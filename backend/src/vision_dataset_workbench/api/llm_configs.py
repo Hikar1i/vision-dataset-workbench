@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -19,14 +20,15 @@ class LLMConfigResponse(BaseModel):
     api_type: str
     model_name: str
     has_api_key: bool
+    masked_api_key: str | None
     enabled: bool
     available: bool
     last_test_status: str
     last_test_latency_ms: int | None
     advanced_options: dict[str, object]
     version: int
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class LLMConfigPayload(BaseModel):

@@ -4,14 +4,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from ..config import RuntimeSettings
 from ..models import User, UserLLMConfig, UserLLMDefaults
-from ..security.credentials import CredentialCipher
+from ..security.credentials import CredentialCipher, mask_credential
+from .llm_annotation import probe
 
 DEFAULT_OPTIONS = {
     "connection_timeout_seconds": 10,
@@ -33,6 +33,7 @@ class LLMConfigView:
     api_type: str
     model_name: str
     has_api_key: bool
+    masked_api_key: str | None
     enabled: bool
     available: bool
     last_test_status: str
@@ -90,8 +91,16 @@ class LLMConfigService:
             if item and item.user_id != actor.id:
                 raise ValueError("配置不存在")
             if item is None:
-                item = UserLLMConfig(id=str(uuid4()), user_id=actor.id, created_at=now, updated_at=now)
+                item = UserLLMConfig(
+                    id=str(uuid4()),
+                    user_id=actor.id,
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                )
                 db.add(item)
+            else:
+                item.version += 1
             item.name = name
             item.description = str(payload.get("description") or "")
             item.base_url = base_url
@@ -102,7 +111,6 @@ class LLMConfigService:
             api_key = payload.get("api_key")
             if api_key:
                 item.api_key_ciphertext = CredentialCipher(self.settings.credential_encryption_key).encrypt(str(api_key))
-            item.version += 1
             item.updated_at = now
             db.commit()
             return self._view(item)
@@ -116,25 +124,22 @@ class LLMConfigService:
             db.commit()
 
     def test_connection(self, actor: User, config_id: str) -> dict[str, object]:
+        connection = self.connection(actor, config_id)
+        started = time.perf_counter()
+        try:
+            probe(connection)
+            status = "success"
+            available = True
+            detail = "OK"
+        except ValueError as exc:
+            status = "failed"
+            available = False
+            detail = str(exc)
+        latency = round((time.perf_counter() - started) * 1000)
         with self._session_factory() as db:
             item = db.get(UserLLMConfig, config_id)
             if item is None or item.user_id != actor.id:
                 raise ValueError("配置不存在")
-            key = CredentialCipher(self.settings.credential_encryption_key).decrypt(item.api_key_ciphertext) if item.api_key_ciphertext else None
-            timeout = float(json.loads(item.advanced_options or "{}").get("connection_timeout_seconds", DEFAULT_OPTIONS["connection_timeout_seconds"]))
-            started = time.perf_counter()
-            try:
-                headers = {"Authorization": f"Bearer {key}"} if key else {}
-                response = httpx.get(f"{item.base_url}/models", headers=headers, timeout=timeout)
-                response.raise_for_status()
-                status = "success"
-                available = True
-                detail = response.status_code
-            except Exception as exc:
-                status = "failed"
-                available = False
-                detail = str(exc)
-            latency = round((time.perf_counter() - started) * 1000)
             item.available = available
             item.last_test_status = status
             item.last_test_latency_ms = latency
@@ -154,11 +159,18 @@ class LLMConfigService:
             advanced.update(json.loads(item.advanced_options or "{}"))
             return {"base_url": item.base_url, "api_type": item.api_type, "model_name": item.model_name, "api_key": key, "advanced_options": advanced}
 
-    @staticmethod
-    def _view(item: UserLLMConfig) -> LLMConfigView:
+    def _view(self, item: UserLLMConfig) -> LLMConfigView:
+        masked_api_key = None
+        if item.api_key_ciphertext:
+            masked_api_key = mask_credential(
+                CredentialCipher(self.settings.credential_encryption_key).decrypt(
+                    item.api_key_ciphertext
+                )
+            )
         return LLMConfigView(
             id=item.id, name=item.name, description=item.description, base_url=item.base_url,
             api_type=item.api_type, model_name=item.model_name, has_api_key=bool(item.api_key_ciphertext),
+            masked_api_key=masked_api_key,
             enabled=item.enabled, available=item.available, last_test_status=item.last_test_status,
             last_test_latency_ms=item.last_test_latency_ms, advanced_options=json.loads(item.advanced_options or "{}"),
             version=item.version, created_at=item.created_at, updated_at=item.updated_at,
