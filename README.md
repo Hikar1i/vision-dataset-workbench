@@ -1,6 +1,6 @@
 # Vision Dataset Workbench
 
-面向视觉数据集生产流程的多人工作台。项目以遗留单机工具为业务参考，已重构视频导入、采样、筛帧、权限、在线矩形标注和 YOLO Detect 训练主链路，并支持本地 YOLO 与外部 X-AnyLabeling-Server 自动标注。
+面向视觉数据集生产流程的多人工作台。项目以遗留单机工具为业务参考，已重构视频导入、采样、筛帧、权限、在线矩形标注和 YOLO Detect 训练主链路，并支持本地 YOLO、外部 X-AnyLabeling-Server 及用户配置的在线视觉大模型自动标注。
 
 ## 当前状态
 
@@ -37,17 +37,18 @@
 - 每个训练模型在独立 Python 子进程运行，Worker 按持久 GPU lane 调度；任务详情展示进度、PID、主机快照、日志，以及带联动指针和缩放的 loss、学习率、precision、recall、mAP 与 P-R 曲线。
 - 成功模型自动发布到训练类型模型项目；提供重试、恢复中断、派生、追加训练、取消和逻辑删除，并区分各操作的数据集、basemodel、超参数和 checkpoint 语义。
 - 标注页可按模型项目选择本地 YOLO，或按用户配置 X-AnyLabeling-Server 地址和可选 API 密钥；单张返回可复核草稿，批量任务支持追加或覆盖已有框。
+- 每个用户可维护多个 OpenAI-compatible 或 Anthropic 大模型配置，支持本机、局域网及在线 Base URL；API Key 加密落库、只脱敏回显，连接测试记录状态和时延。
+- 批量自动标注在混合选择时先确认处理范围；覆盖已有标注必须显式解锁风险设置。“按标注启停”忽略无标注视频，覆盖已有筛帧结果前需要 3 秒二次确认。
 - 自动标注支持项目标签、`All` 全类别及临时英文提示词；只为实际检出的新类别创建项目标签。
 - 单项目最多 999 个视频，数据库处理并发容量竞争；owner/editor 可按版本启停视频的批量自动标注与导出参与状态。
 - 高密度视频工作台提供项目轨道、紧凑媒体台账、派生业务状态标签、批量风险统计、当前页全选以及 25/50/100/200/全部分页。
 - 启动时检测 NVIDIA GPU、PyTorch CUDA 和 Ultralytics；缺少 GPU 或依赖时保持启动并提示本地 YOLO 功能降级。
-- uv 可选 `gpu` 依赖组仅包含 PyTorch、torchvision 和 Ultralytics；远程大模型依赖由 X-AnyLabeling-Server 自行管理。
+- uv 可选 `gpu` 依赖组仅包含 PyTorch、torchvision 和 Ultralytics；X-AnyLabeling-Server 和在线视觉大模型均通过 HTTP 解耦，不引入 Agent 或本地大模型框架。
 - Python 3.12/FastAPI 与 Vue 3/TypeScript/Vite 项目骨架。
 
 下一阶段：
 
 - 按功能域和最终 RBAC 方案重构全局资源权限。
-- 在线大模型配置与 OpenAI-compatible 标注协议。
 - 真实 YOLO 数据集/权重的 GPU 操作矩阵与长时稳定性验收。
 - 在线标注的真实模型与大批量性能冒烟、审计记录和操作细节迭代。
 - 按实际交互需求评估任务事件推送；当前任务抽屉使用轮询。

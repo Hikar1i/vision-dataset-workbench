@@ -94,8 +94,15 @@
 | `GET /api/v1/me/x-anylabeling-server` | Session | 返回当前用户脱敏远程配置，不返回 API 密钥 |
 | `PUT /api/v1/me/x-anylabeling-server` | Session + 同源 | 验证远程模型目录后保存 URL 和可选密钥 |
 | `GET /api/v1/me/x-anylabeling-server/models` | Session | 实时刷新当前用户远程模型目录 |
+| `GET/POST /api/v1/me/llm-configs` | Session；POST 需同源 | 列出或创建当前用户的大模型配置；密钥仅返回脱敏值 |
+| `PATCH/DELETE /api/v1/me/llm-configs/{id}` | Session + 同源 | 修改或删除当前用户自己的大模型配置 |
+| `POST /api/v1/me/llm-configs/{id}/test` | Session + 同源 | 使用对应协议发起最小模型请求并记录连接状态与响应时延 |
+| `GET/PUT /api/v1/me/llm-configs/defaults` | Session；PUT 需同源 | 读取或保存当前用户的新配置默认高级参数 |
+| `GET /api/v1/overview` | Session | 返回个人资源统计、主机/GPU 状态、个人训练任务和脱敏全局训练负载 |
 | `POST /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/auto-annotations` | owner/editor + 同源 | 同步运行单张推理并返回未保存草稿 |
 | `POST /api/v1/projects/{id}/videos/{video_id}/auto-annotations` | owner/editor + 同源 | 创建批量自动标注任务，返回 202 |
+| `POST /api/v1/projects/{id}/auto-annotations/batch` | owner/editor + 同源 | 按 `unannotated|all` 范围创建项目批量自动标注任务 |
+| `POST /api/v1/projects/{id}/videos/batch-enabled-by-annotation` | owner/editor + 同源 | 按已保存标注批量更新帧启停，支持安全范围或确认覆盖 |
 | `POST /api/v1/projects/{id}/dataset-exports` | owner/editor + 同源 | 按类别与源数据快照创建导出任务，返回 202 |
 | `GET /api/v1/projects/{id}/dataset-exports` | 项目成员 | 分页读取未删除的数据集导出 |
 | `GET /api/v1/projects/{id}/dataset-exports/{export_id}` | 项目成员 | 读取导出详情、绝对路径和清单 |
@@ -147,9 +154,11 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 
 矩形标注坐标使用原图像素整数，必须位于图片边界内，单帧最多 10000 项；响应顺序同时是稳定对象编号和图层顺序。客户端只在切换帧、点击其他缩略图、启动批量任务或关闭标注工作台时提交整帧草稿；`annotation_revision` 过期返回 409。浏览器意外刷新、崩溃或断电不会后台频繁保存，页面只通过 `beforeunload` 警告未保存修改。帧列表默认不返回标注，标注工作台显式使用 `include_annotations=true` 一次加载缩略图所需的框坐标和标签 ID。
 
-筛帧工作台先在浏览器维护启停草稿，保存时只提交与打开页面时基准不同的帧。`PUT .../frames/enabled` 请求体为 `{"changes":[{"frame_id":"...","enabled":false}],"frame_revision":4}`；同一请求中的帧 ID 必须唯一且都属于目标视频，服务端在一个事务内更新全部状态并只递增一次帧修订号。版本过期返回 409且不进行部分写入。标注帧摘要只返回存在至少一个已保存标注框的帧 ID；前端用该集合结合当前启停草稿实时计算标注帧启用/停用统计和“按标注启停”结果。
+筛帧工作台先在浏览器维护启停草稿，保存时只提交与打开页面时基准不同的帧。`PUT .../frames/enabled` 请求体为 `{"changes":[{"frame_id":"...","enabled":false}],"frame_revision":4}`；同一请求中的帧 ID 必须唯一且都属于目标视频，服务端在一个事务内更新全部状态并只递增一次帧修订号。版本过期返回 409且不进行部分写入。标注帧摘要只返回存在至少一个已保存标注框的帧 ID；前端用该集合结合当前启停草稿实时计算标注帧启用/停用统计和“按标注启停”结果。批量按标注启停的 `scope=unscreened-only` 只处理有标注且 `frame_revision <= 1` 的视频；`scope=all` 可覆盖已筛帧视频，但存在 `frame_revision > 1` 的有标注视频时必须提交 `confirm_all=true`。无标注视频在两种范围中都进入 `rejected(code=no_annotations)`，其帧启停不变。
 
-单张自动标注在 API 同步线程池运行，只返回可编辑草稿，不修改当前标注。请求用 `source=local|xanylabeling`、`model_id` 和可空 `remote_task_id` 标识来源；本地模型使用进程内互斥锁，远程模型使用当前用户配置。`categories` 接受项目英文标签或临时英文类别，`All` 表示使用模型可提供的全部类别；只有实际检出的缺失类别会加入项目标签。批量接口拒绝停用视频，并把 Worker 开始执行时启用的帧作为处理范围；任务只保存来源和模型选择，不保存服务器 URL、API 密钥或图片。`overwrite=false` 追加模型框，`overwrite=true` 覆盖整帧已有框。活动远程任务期间修改该用户 X-AnyLabeling 配置返回 409。
+单张自动标注在 API 同步线程池运行，只返回可编辑草稿，不修改当前标注。请求用 `source=local|xanylabeling|online`、`model_id` 和可空 `remote_task_id` 标识来源；本地模型使用进程内互斥锁，X-AnyLabeling 与在线视觉大模型读取当前用户配置。在线来源使用内置目标检测矩形框提示词，分别按 OpenAI-compatible 或 Anthropic 原生消息格式发送图片，不引入 Agent 框架。`categories` 接受项目英文标签或临时英文类别，`All` 表示使用模型可提供的全部类别；只有实际检出的缺失类别会加入项目标签。项目批量接口的 `scope=unannotated` 忽略已有标注视频且强制 `overwrite=false`，`scope=all` 可包含已有标注视频；前端在混合范围和覆盖场景分别确认。批量接口拒绝停用视频，并把 Worker 开始执行时启用的帧作为处理范围；任务只保存来源和模型选择，不保存服务器 URL、API 密钥或图片。`overwrite=false` 追加模型框，`overwrite=true` 覆盖整帧已有框。活动远程任务期间修改对应用户配置返回 409。
+
+大模型配置创建时 `version` 从 1 开始；更新使用乐观版本。API Key 写入前由工作区凭据密钥加密，配置响应不返回明文，仅提供 `has_api_key` 和类似 `sk-test-******abcd` 的 `masked_api_key`。编辑请求省略或留空 `api_key` 表示保留旧密钥。连接测试不依赖 `/models` 列表能力，而是按配置的 API 类型向指定模型发送最小请求，因此兼容不实现模型目录接口的本地和在线服务。
 
 模型项目全局可见，所有认证用户可创建 archive 项目，创建者或系统管理员可管理；training 项目仅由训练发布服务创建。项目创建/编辑接受 1–20 个标签名，未指定时使用“未分类”。导入只接受 `.pt` YOLO，Worker 发布时记录大小和 SHA-256。项目和模型删除从普通查询隐藏数据库记录，并将受管文件移入 `.deleted`；临时项目只读。ready 模型可经授权下载接口读取，接口拒绝任意路径。X-AnyLabeling 用户配置语义不变。
 

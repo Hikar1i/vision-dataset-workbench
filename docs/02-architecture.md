@@ -51,9 +51,12 @@ Vue setup/auth/admin/project/media pages
   │    ├─ 单模型/单卡串行/多卡自定义序列
   │    └─ 独立指标/曲线、终端快照日志和训练模型项目发布
   ├─ /api/v1/me/x-anylabeling-server → XAnyLabelingSettingsService
+  ├─ /api/v1/me/llm-configs → LLMConfigService
+  │    ├─ 按用户隔离的 OpenAI-compatible / Anthropic 配置
+  │    └─ 工作区 Fernet 密钥加密与脱敏回显
   ├─ /api/v1/.../auto-annotations → AutoAnnotationService
        ├─ synchronous single-frame review draft
-       ├─ local `.pt` YOLO or per-user X-AnyLabeling connection
+       ├─ local `.pt` YOLO, X-AnyLabeling or online vision LLM
        └─ persistent batch task creation without credential snapshots
   └─ /api/v1/projects/<id>/dataset-exports → DatasetExportService
        ├─ immutable label/source snapshots
@@ -168,7 +171,7 @@ SQLite             Persistent Worker
 
 任务状态与业务状态分离。复制、下载、抽帧、模型入库、批量自动标注和数据集导出使用 queued、running、succeeded、failed、canceled；任务记录包含类型、提交者、资源范围、进度、尝试次数、错误、取消标记、租约和时间。批量自动标注要求视频启用，并按 Worker 开始执行时启用的帧集合逐帧提交；失败或取消时保留已成功帧。导出记录另以 queued、running、ready、failed、canceled 表达产物状态，并关联持久任务。
 
-采样方案覆盖使用 `none/configured/sampled` 三级确认，重新抽帧使用 `none/light/destructive` 三级确认。后端在写事务中根据当前帧、`frame_revision` 和标注存在性重新计算所需级别；前端状态过期导致风险升级时逐项拒绝。`extract_frames` 任务 queued/running 期间冻结方案、筛帧和标注写入，读取和播放不受影响；成功发布新一代帧后才删除旧帧及其级联标注。
+采样方案覆盖使用 `none/configured/sampled` 三级确认，重新抽帧使用 `none/light/destructive` 三级确认。按标注启停的安全范围仅包含有标注且 `frame_revision <= 1` 的视频；无标注视频始终忽略，覆盖 `frame_revision > 1` 的筛帧结果必须显式确认。后端在写事务中根据当前帧、`frame_revision` 和标注存在性重新计算所需级别；前端状态过期导致风险升级时逐项拒绝。`extract_frames` 任务 queued/running 期间冻结方案、筛帧和标注写入，读取和播放不受影响；成功发布新一代帧后才删除旧帧及其级联标注。
 
 ## 一致性原则
 
@@ -191,7 +194,7 @@ SQLite             Persistent Worker
 - 训练子进程在 `<workspace>/cache/ultralytics/` 运行；Ultralytics 的 AMP 辅助权重等运行缓存不会写入源码目录。每次运行在自身目录生成解析为绝对路径的 `dataset.yaml`，避免相对路径随子进程工作目录漂移。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
 - Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
-- Python 核心依赖不包含本地大模型运行库；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、torchvision 和 Ultralytics。远程模型依赖只存在于 X-AnyLabeling-Server。
+- Python 核心依赖不包含本地大模型或 Agent 框架；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、torchvision 和 Ultralytics。X-AnyLabeling 与在线视觉大模型均通过 HTTP 调用。
 - 只支持单机本地磁盘，不支持跨服务器 Worker 或网络文件系统上的 SQLite。
 
 当前及后续工作区目录约定：
@@ -208,11 +211,11 @@ projects/<project UUID>/
 models/<model UUID>/                # 已实现：受管 `.pt` YOLO 模型文件
 ```
 
-遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应新的 `exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；遗留 `groups/` 不作为普通数据目录照搬，而对应自动标注任务的帧快照/分片概念。新系统本地只加载 YOLO；大模型通过 X-AnyLabeling-Server 的 `/v1/models` 与 `/v1/predict` 解耦运行。
+遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应新的 `exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；遗留 `groups/` 不作为普通数据目录照搬，而对应自动标注任务的帧快照/分片概念。新系统本地只加载 YOLO；X-AnyLabeling 使用其 `/v1/models` 与 `/v1/predict` 协议，在线视觉大模型独立使用 OpenAI-compatible 或 Anthropic 原生消息协议。
 
 ## 延期架构
 
 - 图片数据集能力在视频重构后实现，不直接移植遗留分支路由。
-- 在线标注已实现手动矩形框、本地 Ultralytics YOLO 和 X-AnyLabeling-Server 自动标注；远程返回只接纳轴对齐矩形。
+- 在线标注已实现手动矩形框、本地 Ultralytics YOLO、X-AnyLabeling-Server 和在线视觉大模型自动标注；远程返回只接纳轴对齐矩形。
 - 批量自动标注由 Worker 按任务启动时的启用 Frame 集合处理，不依赖外部 AnnotationBatch 目录。
 - 不预建任意模型或训练脚本插件框架。

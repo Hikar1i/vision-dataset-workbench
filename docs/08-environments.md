@@ -27,6 +27,8 @@ uv run python -c "import torch, ultralytics; print(torch.cuda.is_available()); p
 
 远程自动标注不要求本系统安装模型运行依赖。用户在标注页配置可由 API 和 Worker 访问的 X-AnyLabeling Server 地址及可选 API 密钥；客户端访问本机服务时应填写 `http://127.0.0.1:<port>`，`0.0.0.0` 只用于服务监听。当前只接收矩形结果，服务端点选、关键点、多边形等任务不会出现在可选模型列表中。
 
+在线视觉大模型独立于 X-AnyLabeling 配置，支持 OpenAI-compatible 和 Anthropic API，也允许填写 API/Worker 可访问的本机或局域网 Base URL。当前直接使用 HTTP 协议适配器和内置目标检测提示词，不安装 LangChain、LangGraph 或本地大模型运行框架。
+
 安装与启动前端：
 
 ```bash
@@ -118,7 +120,7 @@ VDW_CREDENTIAL_ENCRYPTION_KEY=<optional-fernet-key>
 - 模式切换后重启生效。
 - `VDW_WORKSPACE` 优先于平台工作区定位文件；当前 API 启动命令没有单独的工作区 CLI 参数。
 - yt-dlp 默认不使用代理或 Cookie；仅在实例确有需要时配置上述两个变量。
-- `VDW_CREDENTIAL_ENCRYPTION_KEY` 用于加密用户保存的远程 API 密钥。保存带 API 密钥的配置前必须设置；API 和 Worker 必须一致。
+- `VDW_CREDENTIAL_ENCRYPTION_KEY` 可显式覆盖用于加密用户远程 API 密钥的 Fernet 密钥。未配置时，初始化后的 API 会自动创建 `<workspace>/config/credential.key`（目录权限 `0700`、文件权限 `0600`），API 与 Worker 从同一工作区读取，因此无需用户手工维护。显式配置时两者仍必须一致。
 
 上述六个变量均已实现。布尔值只接受 `true` 或 `false`；`APP_MODE=single` 与 `REGISTRATION_ENABLED=true` 同时出现会使应用启动失败。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
 
