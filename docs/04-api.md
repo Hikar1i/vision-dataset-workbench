@@ -1,5 +1,13 @@
 # API
 
+## 2026-08 新增接口
+
+- 项目批量自动标注：POST /api/v1/projects/{id}/auto-annotations/batch。
+- 按标注启停：POST /api/v1/projects/{id}/videos/batch-enabled-by-annotation。
+- 当前用户大模型配置：GET/POST/PATCH/DELETE /api/v1/me/llm-configs，默认参数使用 /defaults，连接测试使用 /{id}/test。
+- Overview 看板：GET /api/v1/overview，返回个人统计、脱敏全局训练负载和任务状态汇总。
+- 在线标注支持 source=online，通过当前用户配置调用 OpenAI-compatible /chat/completions，使用内置目标检测提示词。
+
 状态：`/api/v1` 初始化、认证、用户、项目、项目标签、运行能力、文件浏览、视频导入、任务、采样方案、帧、矩形标注、推理模型、自动标注和数据集导出接口已实现。
 
 ## 当前接口
