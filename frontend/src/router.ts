@@ -21,15 +21,21 @@ export function createAppRouter() {
   const router = createRouter({
     history: createWebHistory(),
     routes: [
-      { path: "/", redirect: "/projects" },
+      { path: "/", redirect: "/overview" },
       { path: "/setup", component: SetupView },
       { path: "/login", component: LoginView },
       { path: "/register", component: RegisterView },
-      { path: "/ready", redirect: "/projects" },
+      { path: "/ready", redirect: "/overview" },
       {
         path: "/",
         component: AppShell,
         children: [
+          {
+            path: "overview",
+            name: "overview",
+            component: () => import("./views/OverviewView.vue"),
+            meta: { section: "Overview", page: "系统总览" },
+          },
           {
             path: "projects",
             name: "projects",

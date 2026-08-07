@@ -201,10 +201,14 @@ onMounted(async () => {
       @click="mobileOpen = false"
     />
     <aside class="app-sidebar">
-      <RouterLink class="app-brand" data-test="brand" to="/projects">
+      <RouterLink class="app-brand" data-test="brand" to="/overview">
         <span class="app-sidebar-icon">VDM</span>
       </RouterLink>
       <nav class="app-nav" aria-label="主导航">
+        <RouterLink class="app-nav-entry" data-test="nav-overview" title="Overview" to="/overview">
+          <span class="app-sidebar-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h4v7H4zM10 4h4v16h-4zM16 9h4v11h-4z" /></svg></span>
+          <span class="app-sidebar-label">Overview</span>
+        </RouterLink>
         <div class="app-nav-group">
           <RouterLink
             class="app-nav-entry"

@@ -17,6 +17,7 @@ from .api.setup import router as setup_router
 from .api.training import router as training_router
 from .api.xanylabeling_settings import router as xanylabeling_settings_router
 from .api.llm_configs import router as llm_configs_router
+from .api.overview import router as overview_router
 from .capabilities import SystemCapabilities, detect_capabilities
 from .config import RuntimeSettings
 from .services.auth import build_auth_service
@@ -166,6 +167,7 @@ def create_app(
     app.include_router(training_router)
     app.include_router(xanylabeling_settings_router)
     app.include_router(llm_configs_router)
+    app.include_router(overview_router)
     app.include_router(global_task_router)
     app.include_router(media_router)
     app.include_router(sampling_router)
