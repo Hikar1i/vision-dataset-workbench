@@ -8,6 +8,7 @@ export type LLMConfig = {
   api_type: 'openai' | 'anthropic'
   model_name: string
   has_api_key: boolean
+  masked_api_key: string | null
   enabled: boolean
   available: boolean
   last_test_status: 'untested' | 'success' | 'failed'

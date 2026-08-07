@@ -12,11 +12,35 @@ const editing = ref<LLMConfig | null>(null)
 const dialog = ref(false)
 const advanced = ref(false)
 const saving = ref(false)
+const loading = ref(false)
+const error = ref('')
 const form = reactive({ name: '', description: '', base_url: '', api_type: 'openai', model_name: '', api_key: '', enabled: true, advanced_options: {} as Record<string, unknown> })
 
-async function load() { configs.value = await listLLMConfigs(); Object.assign(defaults, await getLLMDefaults()) }
-function openCreate() { editing.value = null; Object.assign(form, { name: '', description: '', base_url: '', api_type: 'openai', model_name: '', api_key: '', enabled: true, advanced_options: { ...defaults } }); dialog.value = true }
-function openEdit(item: LLMConfig) { editing.value = item; Object.assign(form, { ...item, api_key: '', advanced_options: { ...defaults, ...item.advanced_options } }); dialog.value = true }
+async function load() {
+  loading.value = true
+  error.value = ''
+  try {
+    const [items, defaultOptions] = await Promise.all([listLLMConfigs(), getLLMDefaults()])
+    configs.value = items
+    Object.assign(defaults, defaultOptions)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '大模型配置加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+function openCreate() {
+  editing.value = null
+  advanced.value = false
+  Object.assign(form, { name: '', description: '', base_url: '', api_type: 'openai', model_name: '', api_key: '', enabled: true, advanced_options: { ...defaults } })
+  dialog.value = true
+}
+function openEdit(item: LLMConfig) {
+  editing.value = item
+  advanced.value = false
+  Object.assign(form, { ...item, api_key: '', advanced_options: { ...defaults, ...item.advanced_options } })
+  dialog.value = true
+}
 async function save() {
   saving.value = true
   try {
@@ -42,27 +66,30 @@ onMounted(() => void load())
 
 <template>
   <main class="content-page llm-page">
-    <header class="content-toolbar"><div class="content-toolbar-title"><h1>大模型配置</h1><span>仅当前用户可见</span></div><el-button type="primary" @click="openCreate">新增配置</el-button></header>
-    <el-tabs>
-      <el-tab-pane label="配置列表">
-        <div class="llm-grid">
+    <header class="content-toolbar"><div class="content-toolbar-title"><h1>大模型配置</h1><span>仅当前用户可见</span></div><el-button data-test="llm-create" type="primary" @click="openCreate">新增配置</el-button></header>
+    <section v-loading="loading" class="content-body llm-body">
+      <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
+      <el-tabs data-test="llm-tabs" class="llm-tabs">
+        <el-tab-pane label="配置列表">
+          <el-empty v-if="!configs.length && !error" data-test="llm-empty" class="llm-empty" description="还没有大模型配置" />
+          <div v-else class="llm-grid">
           <el-card v-for="item in configs" :key="item.id" :class="{ unavailable: !item.available }">
             <template #header><div class="card-title"><strong>{{ item.name }}</strong><el-tag :type="item.enabled ? 'success' : 'info'">{{ item.enabled ? '启用' : '停用' }}</el-tag></div></template>
             <p>{{ item.base_url }}</p><p>{{ item.api_type }} · {{ item.model_name }}</p><p>连接：{{ item.last_test_status }}<span v-if="item.last_test_latency_ms"> · {{ item.last_test_latency_ms }} ms</span></p>
-            <div class="card-actions"><el-button size="small" @click="test(item)">测试连接</el-button><el-button size="small" @click="openEdit(item)">编辑</el-button><el-button size="small" type="danger" @click="remove(item)">删除</el-button></div>
+            <div class="card-actions"><el-button size="small" @click="test(item)">测试连接</el-button><el-button :data-test="`llm-edit-${item.id}`" size="small" @click="openEdit(item)">编辑</el-button><el-button size="small" type="danger" @click="remove(item)">删除</el-button></div>
           </el-card>
-          <el-empty v-if="!configs.length" description="还没有大模型配置" />
-        </div>
-      </el-tab-pane>
-      <el-tab-pane label="大模型默认设置">
-        <el-form class="defaults-form" label-position="top"><el-form-item v-for="(_, key) in defaults" :key="key" :label="String(key)"><el-input-number v-model="defaults[key] as number" :min="0" :controls="false" /></el-form-item></el-form>
-        <el-button type="primary" @click="saveDefaultOptions">保存默认设置</el-button>
-      </el-tab-pane>
-    </el-tabs>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane label="大模型默认设置">
+          <el-form class="defaults-form" label-position="top"><el-form-item v-for="(_, key) in defaults" :key="key" :label="String(key)"><el-input-number v-model="defaults[key] as number" :min="0" :controls="false" /></el-form-item></el-form>
+          <el-button type="primary" @click="saveDefaultOptions">保存默认设置</el-button>
+        </el-tab-pane>
+      </el-tabs>
+    </section>
     <el-dialog v-model="dialog" :title="editing ? '编辑大模型配置' : '新增大模型配置'" width="560px">
       <el-form label-position="top">
         <el-form-item label="配置名称"><el-input v-model="form.name" /></el-form-item><el-form-item label="描述"><el-input v-model="form.description" type="textarea" /></el-form-item><el-form-item label="Base URL"><el-input v-model="form.base_url" placeholder="http://localhost:8444/v1" /></el-form-item>
-        <el-form-item label="API 类型"><el-select v-model="form.api_type"><el-option label="OpenAI-compatible" value="openai" /><el-option label="Anthropic" value="anthropic" /></el-select></el-form-item><el-form-item label="模型名"><el-input v-model="form.model_name" /></el-form-item><el-form-item label="API Key"><el-input v-model="form.api_key" type="password" show-password placeholder="留空表示保持原值" /></el-form-item>
+        <el-form-item label="API 类型"><el-select v-model="form.api_type"><el-option label="OpenAI-compatible" value="openai" /><el-option label="Anthropic" value="anthropic" /></el-select></el-form-item><el-form-item label="模型名"><el-input v-model="form.model_name" /></el-form-item><el-form-item label="API Key"><el-input v-model="form.api_key" data-test="llm-api-key" type="password" show-password :placeholder="editing ? '留空表示保持现有 API Key' : '无密钥服务可留空'" /><small v-if="editing?.masked_api_key" class="masked-key">已保存：{{ editing.masked_api_key }}</small></el-form-item>
         <el-checkbox v-model="form.enabled">启用</el-checkbox> <el-button text @click="advanced = !advanced">{{ advanced ? '收起高级选项' : '展开高级选项' }}</el-button>
         <div v-if="advanced" class="advanced-options"><el-form-item v-for="(_, key) in form.advanced_options" :key="key" :label="String(key)"><el-input-number v-model="form.advanced_options[key] as number" :min="0" :controls="false" /></el-form-item></div>
       </el-form>
@@ -72,8 +99,15 @@ onMounted(() => void load())
 </template>
 
 <style scoped>
+.llm-body { min-height: 0; overflow: auto; padding: 0 20px 20px; }
+.llm-tabs { width: 100%; }
+.llm-empty { min-height: 320px; }
 .llm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
 .llm-grid .unavailable { border-color: var(--el-color-danger); }
 .card-title, .card-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .defaults-form, .advanced-options { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 12px; }
+.masked-key { display: block; margin-top: 6px; color: var(--el-text-color-secondary); }
+@media (max-width: 760px) {
+  .defaults-form, .advanced-options { grid-template-columns: 1fr; }
+}
 </style>
