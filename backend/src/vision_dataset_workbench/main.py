@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from fastapi import FastAPI
 
 from .api.annotations import router as annotations_router
@@ -35,6 +37,7 @@ from .services.training import TrainingService
 from .services.xanylabeling_settings import XAnyLabelingSettingsService
 from .services.llm_configs import LLMConfigService
 from .setup.tokens import SetupToken
+from .security.credentials import resolve_credential_key
 from .storage.locator import WorkspaceLocator, default_locator_path
 
 
@@ -54,6 +57,13 @@ def create_app(
         and (candidate / "db" / "workbench.sqlite3").is_file()
         else None
     )
+    if workspace is not None:
+        resolved_settings = replace(
+            resolved_settings,
+            credential_encryption_key=resolve_credential_key(
+                resolved_settings.credential_encryption_key, workspace
+            ),
+        )
     token = setup_token or SetupToken.create()
 
     app = FastAPI(title="Vision Dataset Workbench", version="0.1.0")

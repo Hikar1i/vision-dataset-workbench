@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
@@ -13,6 +15,7 @@ from ..services.setup import SetupConflict, SetupService
 from ..services.xanylabeling_settings import XAnyLabelingSettingsService
 from ..services.llm_configs import LLMConfigService
 from ..setup.tokens import InvalidSetupToken
+from ..security.credentials import resolve_credential_key
 from ..storage.browser import create_home_directory, list_home_entries
 from ..storage.paths import HomePathResolver, UnsafePathError
 
@@ -102,6 +105,12 @@ def initialize(
     except (OSError, UnsafePathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     request.app.state.workspace = workspace
+    request.app.state.settings = replace(
+        request.app.state.settings,
+        credential_encryption_key=resolve_credential_key(
+            request.app.state.settings.credential_encryption_key, workspace
+        ),
+    )
     request.app.state.auth_service = build_auth_service(
         workspace, request.app.state.settings
     )

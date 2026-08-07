@@ -9,6 +9,7 @@ import signal
 import subprocess
 import threading
 import time
+from dataclasses import replace
 from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -38,6 +39,7 @@ from .models import (
 from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
 from .services.labels import automatic_label_color, normalize_label_name
 from .services.xanylabeling_settings import XAnyLabelingSettingsService
+from .security.credentials import resolve_credential_key
 from .services.llm_configs import LLMConfigService
 from .services.llm_annotation import LLMAnnotationError, predict as predict_llm
 from .storage.browser import VIDEO_EXTENSIONS
@@ -1158,6 +1160,12 @@ def main() -> None:
     args = parser.parse_args()
     settings = RuntimeSettings.from_env()
     workspace = _workspace(settings)
+    settings = replace(
+        settings,
+        credential_encryption_key=resolve_credential_key(
+            settings.credential_encryption_key, workspace
+        ),
+    )
     engine = make_engine(workspace / "db" / "workbench.sqlite3")
     worker = TaskWorker(engine, settings, workspace)
     if args.once:

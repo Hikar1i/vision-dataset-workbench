@@ -1,8 +1,38 @@
+import os
+from pathlib import Path
+
 from cryptography.fernet import Fernet, InvalidToken
 
 
 class CredentialEncryptionUnavailable(ValueError):
     pass
+
+
+def resolve_credential_key(configured: str | None, workspace: Path) -> str:
+    if configured:
+        return configured
+    directory = workspace / "config"
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    directory.chmod(0o700)
+    path = directory / "credential.key"
+    if not path.exists():
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            pass
+        else:
+            with os.fdopen(descriptor, "w") as stream:
+                stream.write(Fernet.generate_key().decode())
+    path.chmod(0o600)
+    key = path.read_text().strip()
+    CredentialCipher(key)
+    return key
+
+
+def mask_credential(value: str) -> str:
+    if len(value) <= 12:
+        return "*" * len(value)
+    return f"{value[:8]}******{value[-4:]}"
 
 
 class CredentialCipher:
