@@ -26,28 +26,30 @@ def predict(
 ) -> list[Detection]:
     image = base64.b64encode(image_path.read_bytes()).decode()
     prompt = PROMPT.format(categories=", ".join(categories) or "不限")
-    payload = {
-        "model": connection["model_name"],
-        "temperature": connection["advanced_options"].get("temperature", 0.2),
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}"}},
-            ],
-        }],
-    }
-    headers = {"Authorization": f"Bearer {connection['api_key']}"} if connection.get("api_key") else {}
+    content = [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}"}},
+    ]
+    if connection.get("api_type") == "anthropic":
+        payload = {"model": connection["model_name"], "max_tokens": 2048, "temperature": connection["advanced_options"].get("temperature", 0.2), "messages": [{"role": "user", "content": content}]}
+        headers = {"x-api-key": str(connection["api_key"])} if connection.get("api_key") else {}
+        headers["anthropic-version"] = "2023-06-01"
+        endpoint = f"{str(connection['base_url']).rstrip('/')}/messages"
+    else:
+        payload = {"model": connection["model_name"], "temperature": connection["advanced_options"].get("temperature", 0.2), "messages": [{"role": "user", "content": content}]}
+        headers = {"Authorization": f"Bearer {connection['api_key']}"} if connection.get("api_key") else {}
+        endpoint = f"{str(connection['base_url']).rstrip('/')}/chat/completions"
     timeout = float(connection["advanced_options"].get("inference_timeout_seconds", 120))
     try:
         response = httpx.post(
-            f"{str(connection['base_url']).rstrip('/')}/chat/completions",
+            endpoint,
             headers=headers,
             json=payload,
             timeout=timeout,
         )
         response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
+        body = response.json()
+        content = body["content"][0]["text"] if connection.get("api_type") == "anthropic" else body["choices"][0]["message"]["content"]
     except Exception as exc:
         raise LLMAnnotationError(f"在线模型请求失败: {exc}") from exc
     match = re.search(r"\[[\s\S]*\]", content)
