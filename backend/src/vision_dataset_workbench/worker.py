@@ -339,37 +339,44 @@ class TaskWorker:
     def _execute_auto_annotate(self, task_id: str) -> None:
         with self._session_factory() as database:
             task = database.get(Task, task_id)
-            if task is None or task.status != "running" or task.video_id is None:
+            if task is None or task.status != "running":
                 raise MediaToolError("active auto annotation task not found")
             payload = json.loads(task.payload)
-            video = database.get(Video, task.video_id)
+            video_ids = [str(item) for item in payload.get("video_ids", [])]
+            if not video_ids and task.video_id is not None:
+                video_ids = [task.video_id]
+            if not video_ids:
+                raise MediaToolError("auto annotation task has no videos")
             source = str(payload.get("source") or "local")
             model = (
                 database.get(InferenceModel, str(payload.get("model_id") or ""))
                 if source == "local"
                 else None
             )
-            if video is None or (
-                source == "local"
-                and (model is None or model.status != "ready" or not model.storage_path)
+            if source == "local" and (
+                model is None or model.status != "ready" or not model.storage_path
             ):
                 raise MediaToolError("auto annotation resources not ready")
             if source not in {"local", "xanylabeling"}:
                 raise MediaToolError("unsupported auto annotation source")
-            frames = list(
-                database.scalars(
-                    select(Frame)
-                    .where(Frame.video_id == video.id, Frame.enabled.is_(True))
-                    .order_by(Frame.sequence)
+            video_frames: list[tuple[Video, list[Frame]]] = []
+            for video_id in video_ids:
+                item = database.get(Video, video_id)
+                if item is None:
+                    continue
+                frames = list(
+                    database.scalars(
+                        select(Frame)
+                        .where(Frame.video_id == item.id, Frame.enabled.is_(True))
+                        .order_by(Frame.sequence)
+                    )
                 )
-            )
-            if not frames:
-                raise MediaToolError("video has no enabled sampled frames")
-            database.expunge(video)
+                database.expunge(item)
+                for frame in frames:
+                    database.expunge(frame)
+                video_frames.append((item, frames))
             if model is not None:
                 database.expunge(model)
-            for frame in frames:
-                database.expunge(frame)
             submitted_by_id = task.submitted_by_id
         model_path = self._managed_model_path(model) if model is not None else None
         remote_client = None
@@ -390,38 +397,74 @@ class TaskWorker:
                 raise MediaToolError(str(exc)) from exc
             if remote_option is None:
                 raise MediaToolError("remote model is no longer available")
+        total_frames = sum(len(frames) for _, frames in video_frames)
+        if total_frames == 0:
+            raise MediaToolError("videos have no enabled sampled frames")
+        completed_frames = 0
         total_annotations = 0
-        for index, frame in enumerate(frames, start=1):
-            if self._cancel_requested(task_id):
-                raise TaskCanceled("task canceled")
-            image_path = self._managed_frame_path(video, frame)
+        video_results: list[dict[str, object]] = []
+        for video, frames in video_frames:
+            video_annotations = 0
+            video_completed = 0
             try:
-                if source == "local":
-                    detections = self._inference_runner.predict(
-                        model,
-                        model_path,
-                        image_path,
-                        list(payload.get("categories") or []),
-                        float(payload.get("confidence", 0.25)),
-                        float(payload.get("iou", 0.45)),
+                for frame in frames:
+                    if self._cancel_requested(task_id):
+                        raise TaskCanceled("task canceled")
+                    image_path = self._managed_frame_path(video, frame)
+                    if source == "local":
+                        detections = self._inference_runner.predict(
+                            model,
+                            model_path,
+                            image_path,
+                            list(payload.get("categories") or []),
+                            float(payload.get("confidence", 0.25)),
+                            float(payload.get("iou", 0.45)),
+                        )
+                    else:
+                        detections = remote_client.predict(
+                            remote_option,
+                            image_path,
+                            list(payload.get("categories") or []),
+                            float(payload.get("confidence", 0.25)),
+                            float(payload.get("iou", 0.45)),
+                        )
+                    count = self._store_auto_detections(
+                        video,
+                        frame.id,
+                        detections,
+                        overwrite=bool(payload.get("overwrite", False)),
                     )
-                else:
-                    detections = remote_client.predict(
-                        remote_option,
-                        image_path,
-                        list(payload.get("categories") or []),
-                        float(payload.get("confidence", 0.25)),
-                        float(payload.get("iou", 0.45)),
-                    )
-            except (InferenceUnavailable, XAnyLabelingUnavailable) as exc:
-                raise MediaToolError(str(exc)) from exc
-            total_annotations += self._store_auto_detections(
-                video,
-                frame.id,
-                detections,
-                overwrite=bool(payload.get("overwrite", False)),
+                    video_annotations += count
+                    total_annotations += count
+                    completed_frames += 1
+                    video_completed += 1
+                    self._heartbeat(task_id, round(completed_frames * 100 / total_frames))
+            except TaskCanceled:
+                raise
+            except (InferenceUnavailable, XAnyLabelingUnavailable, MediaToolError) as exc:
+                video_results.append(
+                    {
+                        "video_id": video.id,
+                        "status": "failed",
+                        "frames": video_completed,
+                        "annotations": video_annotations,
+                        "error": str(exc),
+                    }
+                )
+                continue
+            video_results.append(
+                {
+                    "video_id": video.id,
+                    "status": "succeeded",
+                    "frames": len(frames),
+                    "annotations": video_annotations,
+                    "error": None,
+                }
             )
-            self._heartbeat(task_id, round(index * 100 / len(frames)))
+        successful = [item for item in video_results if item["status"] == "succeeded"]
+        if not successful:
+            errors = "; ".join(str(item["error"]) for item in video_results if item["error"])
+            raise MediaToolError(errors or "batch auto annotation failed")
         now = self._now()
         with self._session_factory() as database:
             task = database.get(Task, task_id)
@@ -430,7 +473,13 @@ class TaskWorker:
             task.status = "succeeded"
             task.progress = 100
             task.result = json.dumps(
-                {"outcome": "annotated", "frames": len(frames), "annotations": total_annotations}
+                {
+                    "outcome": "annotated" if len(successful) == len(video_results) else "partial",
+                    "videos": len(video_results),
+                    "frames": completed_frames,
+                    "annotations": total_annotations,
+                    "video_results": video_results,
+                }
             )
             task.error = None
             task.finished_at = now

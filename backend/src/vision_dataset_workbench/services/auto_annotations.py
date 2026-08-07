@@ -55,6 +55,13 @@ class AutoAnnotationModel:
     remote_task_id: str | None = None
 
 
+@dataclass(frozen=True)
+class AutoAnnotationBatchResult:
+    task: Task
+    accepted_video_ids: list[str]
+    rejected: list[dict[str, str]]
+
+
 class AutoAnnotationService:
     def __init__(
         self,
@@ -213,6 +220,108 @@ class AutoAnnotationService:
                 raise AutoAnnotationConflict("video already has an active task") from exc
             database.expunge(task)
             return task
+
+    def create_project_batch(
+        self,
+        actor: User,
+        project_id: str,
+        video_ids: list[str],
+        model_id: str,
+        categories: list[str],
+        confidence: float,
+        iou: float,
+        overwrite: bool,
+        scope: str = "all",
+        source: str = "local",
+        remote_task_id: str | None = None,
+    ) -> AutoAnnotationBatchResult:
+        if self.projects.get_project(actor, project_id).role == "viewer":
+            raise ProjectForbidden("project edit permission required")
+        if scope not in {"unannotated", "all"}:
+            raise AutoAnnotationConflict("invalid batch annotation scope")
+        if len(set(video_ids)) != len(video_ids):
+            raise AutoAnnotationConflict("video ids must be unique")
+        selection = AutoAnnotationModel(source, model_id, remote_task_id)
+        self._validate_model(actor, selection)
+        prompts = list(dict.fromkeys(normalize_label_name(item) for item in categories))
+        rejected: list[dict[str, str]] = []
+        accepted: list[str] = []
+        with self._session_factory() as database:
+            active_batch_video_ids: set[str] = set()
+            for active_task in database.scalars(
+                select(Task).where(
+                    Task.project_id == project_id,
+                    Task.type == "auto_annotate",
+                    Task.video_id.is_(None),
+                    Task.status.in_(("queued", "running")),
+                )
+            ):
+                active_batch_video_ids.update(json.loads(active_task.payload).get("video_ids", []))
+            for video_id in video_ids:
+                video = database.get(Video, video_id)
+                if video is None or video.project_id != project_id:
+                    rejected.append({"video_id": video_id, "reason": "video not found"})
+                    continue
+                if scope == "unannotated" and self.sampling._has_annotations(database, video_id):
+                    rejected.append({"video_id": video_id, "reason": "video already has annotations"})
+                    continue
+                if video_has_active_export(database, project_id, video_id):
+                    rejected.append({"video_id": video_id, "reason": "video is frozen by an active dataset export"})
+                    continue
+                if not video.enabled:
+                    rejected.append({"video_id": video_id, "reason": "video is disabled"})
+                    continue
+                enabled_frames = database.scalar(
+                    select(func.count())
+                    .select_from(Frame)
+                    .where(Frame.video_id == video_id, Frame.enabled.is_(True))
+                ) or 0
+                if enabled_frames == 0:
+                    rejected.append({"video_id": video_id, "reason": "video has no enabled sampled frames"})
+                    continue
+                active = database.scalar(
+                    select(Task.id).where(
+                        Task.video_id == video_id,
+                        Task.status.in_(("queued", "running")),
+                    )
+                )
+                if active is not None:
+                    rejected.append({"video_id": video_id, "reason": "video already has an active task"})
+                    continue
+                if video_id in active_batch_video_ids:
+                    rejected.append({"video_id": video_id, "reason": "video already has an active task"})
+                    continue
+                accepted.append(video_id)
+            if not accepted:
+                raise AutoAnnotationConflict("no videos are eligible for batch annotation")
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            task = Task(
+                id=str(uuid4()),
+                project_id=project_id,
+                submitted_by_id=actor.id,
+                video_id=None,
+                type="auto_annotate",
+                payload=json.dumps(
+                    {
+                        "video_ids": accepted,
+                        "source": source,
+                        "model_id": model_id,
+                        "remote_task_id": remote_task_id,
+                        "categories": prompts,
+                        "confidence": confidence,
+                        "iou": iou,
+                        "overwrite": overwrite,
+                        "batch": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            database.add(task)
+            database.commit()
+            database.expunge(task)
+            return AutoAnnotationBatchResult(task, accepted, rejected)
 
     def _predict(
         self,

@@ -238,3 +238,86 @@ def test_batch_inference_queues_one_video_task_and_rejects_viewer(tmp_path):
     assert response.json()["video_id"] == "video-id"
     assert viewer.post(batch_url, headers=ORIGIN, json=payload).status_code == 403
     assert owner.post(batch_url, headers=ORIGIN, json=payload).status_code == 409
+
+
+def test_project_batch_inference_queues_parent_task_and_reports_video_scope(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "owner")
+    with Session(app.state.auth_service.engine) as session:
+        session.add(
+            Video(
+                id="video-two",
+                project_id="project-id",
+                short_code="TESTV002",
+                source_type="local",
+                title="second",
+                status="ready",
+                width=1920,
+                height=1080,
+                enabled=True,
+            )
+        )
+        session.flush()
+        session.add(
+            SamplingPlan(
+                id="plan-two",
+                video_id="video-two",
+                mode="target_frames",
+                parameters="{}",
+                output_format="jpg",
+                output_quality=2,
+                expected_frames=1,
+                extracted_frames=1,
+                enabled_frames=1,
+            )
+        )
+        session.add(
+            Frame(
+                id="frame-two",
+                video_id="video-two",
+                generation=1,
+                sequence=1,
+                source_frame_index=0,
+                time_offset=0,
+                file_path="projects/project-id/frames/TESTV002/frame.jpg",
+                enabled=True,
+            )
+        )
+        session.commit()
+
+    response = owner.post(
+        "/api/v1/projects/project-id/auto-annotations/batch",
+        headers=ORIGIN,
+        json={
+            "video_ids": ["video-id", "video-two"],
+            "model_id": "model-id",
+            "categories": ["dog"],
+            "confidence": 0.25,
+            "iou": 0.45,
+            "scope": "unannotated",
+            "overwrite": False,
+        },
+    )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["accepted_video_ids"] == ["video-id", "video-two"]
+    assert body["rejected"] == []
+    assert body["task"]["video_id"] is None
+    with Session(app.state.auth_service.engine) as session:
+        task = session.get(Task, body["task"]["id"])
+        assert task is not None
+        assert json.loads(task.payload)["video_ids"] == ["video-id", "video-two"]
+
+    conflict = owner.post(
+        "/api/v1/projects/project-id/auto-annotations/batch",
+        headers=ORIGIN,
+        json={
+            "video_ids": ["video-id"],
+            "model_id": "model-id",
+            "categories": [],
+            "confidence": 0.25,
+            "iou": 0.45,
+            "scope": "all",
+        },
+    )
+    assert conflict.status_code == 409

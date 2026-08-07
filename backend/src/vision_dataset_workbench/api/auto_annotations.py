@@ -34,6 +34,11 @@ class RunBatchAutoAnnotationRequest(RunAutoAnnotationRequest):
     overwrite: bool = False
 
 
+class RunProjectBatchAutoAnnotationRequest(RunBatchAutoAnnotationRequest):
+    video_ids: list[str] = Field(min_length=1, max_length=999)
+    scope: Literal["unannotated", "all"] = "all"
+
+
 class DraftAnnotationResponse(AnnotationResponse):
     label_name: str
 
@@ -41,6 +46,17 @@ class DraftAnnotationResponse(AnnotationResponse):
 class AutoAnnotationResponse(BaseModel):
     items: list[DraftAnnotationResponse]
     created_labels: list[LabelResponse]
+
+
+class BatchAutoAnnotationNotice(BaseModel):
+    video_id: str
+    reason: str
+
+
+class BatchAutoAnnotationResponse(BaseModel):
+    task: TaskResponse
+    accepted_video_ids: list[str]
+    rejected: list[BatchAutoAnnotationNotice]
 
 
 def auto_annotation_service(request: Request) -> AutoAnnotationService:
@@ -147,3 +163,46 @@ def create_batch_auto_annotation(
     ) as exc:
         _raise_auto_error(exc)
     return _task_response(task)
+
+
+@router.post(
+    "/auto-annotations/batch",
+    response_model=BatchAutoAnnotationResponse,
+    status_code=202,
+)
+def create_project_batch_auto_annotation(
+    project_id: str,
+    payload: RunProjectBatchAutoAnnotationRequest,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> TaskResponse:
+    require_same_origin(request)
+    try:
+        result = auto_annotation_service(request).create_project_batch(
+            user,
+            project_id,
+            payload.video_ids,
+            payload.model_id,
+            payload.categories,
+            payload.confidence,
+            payload.iou,
+            payload.overwrite,
+            payload.scope,
+            payload.source,
+            payload.remote_task_id,
+        )
+    except (
+        ProjectNotFound,
+        ProjectForbidden,
+        ModelNotFound,
+        InvalidModel,
+        InvalidLabel,
+        AutoAnnotationUnavailable,
+        AutoAnnotationConflict,
+    ) as exc:
+        _raise_auto_error(exc)
+    return BatchAutoAnnotationResponse(
+        task=_task_response(result.task),
+        accepted_video_ids=result.accepted_video_ids,
+        rejected=[BatchAutoAnnotationNotice(**item) for item in result.rejected],
+    )
