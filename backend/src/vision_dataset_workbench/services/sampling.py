@@ -58,6 +58,18 @@ class ExtractionBatch:
 
 
 @dataclass(frozen=True)
+class AcceptedAnnotationEnable:
+    video_id: str
+    plan: SamplingPlan
+
+
+@dataclass(frozen=True)
+class AnnotationEnableBatch:
+    accepted: list[AcceptedAnnotationEnable]
+    rejected: list[SamplingNotice]
+
+
+@dataclass(frozen=True)
 class SamplingSummary:
     id: str
     state: str
@@ -584,3 +596,84 @@ class SamplingService:
             database.commit()
             database.expunge(plan)
             return plan
+
+    def set_videos_enabled_by_annotation(
+        self,
+        actor: User,
+        project_id: str,
+        video_ids: list[str],
+        *,
+        scope: str,
+        confirm_all: bool,
+        revisions: dict[str, int] | None = None,
+    ) -> AnnotationEnableBatch:
+        self._require_editor(actor, project_id)
+        if scope not in {"annotated-only", "all"}:
+            raise ValueError("annotation enable scope is invalid")
+        if len(set(video_ids)) != len(video_ids):
+            raise ValueError("video ids must be unique")
+        revisions = revisions or {}
+        with self._session_factory() as database:
+            status_rows = []
+            for video_id in video_ids:
+                video = self._video(database, project_id, video_id)
+                status_rows.append((video.id, self._has_annotations(database, video.id)))
+        if scope == "all" and any(not annotated for _, annotated in status_rows) and not confirm_all:
+            raise SamplingConflict(
+                "confirm_all is required when selected videos include videos without annotations",
+                "confirm_all_required",
+            )
+        selected = {
+            video_id
+            for video_id, annotated in status_rows
+            if scope == "all" or annotated
+        }
+        accepted: list[AcceptedAnnotationEnable] = []
+        rejected: list[SamplingNotice] = []
+        for video_id, annotated in status_rows:
+            if video_id not in selected:
+                rejected.append(
+                    SamplingNotice(video_id, "video has no annotations", "no_annotations")
+                )
+                continue
+            try:
+                with self._session_factory() as database:
+                    video = self._video(database, project_id, video_id)
+                    if video_has_active_export(database, project_id, video_id):
+                        raise SamplingConflict(
+                            "video is frozen by an active dataset export", "active_export"
+                        )
+                    if self._active_extraction(database, video_id):
+                        raise SamplingConflict(
+                            "frame changes are locked while extraction is active",
+                            "active_extraction",
+                        )
+                    plan = database.scalar(
+                        select(SamplingPlan).where(SamplingPlan.video_id == video_id)
+                    )
+                    if plan is None or plan.extracted_frames == 0:
+                        raise SamplingConflict("video has no sampled frames", "no_frames")
+                    expected_revision = revisions.get(video_id)
+                    if expected_revision is not None and plan.frame_revision != expected_revision:
+                        raise SamplingConflict("frame revision conflict", "revision_conflict")
+                    has_annotation = select(FrameAnnotation.id).where(
+                        FrameAnnotation.frame_id == Frame.id
+                    ).exists()
+                    database.execute(
+                        update(Frame)
+                        .where(Frame.video_id == video_id)
+                        .values(enabled=has_annotation)
+                    )
+                    plan.enabled_frames = database.scalar(
+                        select(func.count())
+                        .select_from(Frame)
+                        .where(Frame.video_id == video_id, Frame.enabled.is_(True))
+                    ) or 0
+                    plan.frame_revision += 1
+                    plan.updated_at = _utc_now()
+                    database.commit()
+                    database.expunge(plan)
+                    accepted.append(AcceptedAnnotationEnable(video_id, plan))
+            except (SamplingConflict, SamplingNotFound) as exc:
+                rejected.append(SamplingNotice(video_id, str(exc), getattr(exc, "code", "invalid_request")))
+        return AnnotationEnableBatch(accepted, rejected)

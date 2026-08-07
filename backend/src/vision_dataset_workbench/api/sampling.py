@@ -112,6 +112,23 @@ class SetFramesEnabledRequest(BaseModel):
         return changes
 
 
+class BatchEnabledByAnnotationRequest(BaseModel):
+    video_ids: list[str] = Field(min_length=1, max_length=999)
+    scope: Literal["annotated-only", "all"] = "annotated-only"
+    confirm_all: bool = False
+    revisions: dict[str, int] = Field(default_factory=dict)
+
+
+class AcceptedAnnotationEnableResponse(BaseModel):
+    video_id: str
+    sampling: SamplingSummaryResponse
+
+
+class AnnotationEnableBatchResponse(BaseModel):
+    accepted: list[AcceptedAnnotationEnableResponse]
+    rejected: list[SamplingNoticeResponse]
+
+
 class FrameAnnotationSummaryResponse(BaseModel):
     annotated_frame_ids: list[str]
 
@@ -370,3 +387,37 @@ def set_frames_enabled(
     ) as exc:
         _raise_sampling_error(exc)
     return _plan_response(plan)
+
+
+@router.post(
+    "/videos/batch-enabled-by-annotation",
+    response_model=AnnotationEnableBatchResponse,
+)
+def set_videos_enabled_by_annotation(
+    project_id: str,
+    payload: BatchEnabledByAnnotationRequest,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> AnnotationEnableBatchResponse:
+    require_same_origin(request)
+    try:
+        batch = sampling_service(request).set_videos_enabled_by_annotation(
+            user,
+            project_id,
+            payload.video_ids,
+            scope=payload.scope,
+            confirm_all=payload.confirm_all,
+            revisions=payload.revisions,
+        )
+    except (ProjectNotFound, ProjectForbidden, SamplingNotFound, SamplingConflict, ValueError) as exc:
+        _raise_sampling_error(exc)
+    return AnnotationEnableBatchResponse(
+        accepted=[
+            AcceptedAnnotationEnableResponse(
+                video_id=item.video_id,
+                sampling=_plan_response(item.plan),
+            )
+            for item in batch.accepted
+        ],
+        rejected=[SamplingNoticeResponse(**item.__dict__) for item in batch.rejected],
+    )
