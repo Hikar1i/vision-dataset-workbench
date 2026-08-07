@@ -18,7 +18,11 @@ def overview(request: Request, user: Annotated[User, Depends(current_user)]) -> 
         running_own = db.scalar(select(func.count()).select_from(TrainingTask).where(TrainingTask.created_by_id == user.id, TrainingTask.status == "running", TrainingTask.deleted_at.is_(None))) or 0
         running_global = db.scalar(select(func.count()).select_from(TrainingTask).where(TrainingTask.status == "running", TrainingTask.deleted_at.is_(None))) or 0
         return {
-            "projects": db.scalar(select(func.count()).select_from(Project).where(Project.deleted_at.is_(None), Project.creator_id == user.id)) or 0,
+            "projects": db.scalar(
+                select(func.count())
+                .select_from(Project)
+                .where(Project.creator_id == user.id)
+            ) or 0,
             "videos": db.scalar(select(func.count()).select_from(Video).where(Video.project_id.in_(own_project_ids))) or 0,
             "model_projects": db.scalar(select(func.count()).select_from(ModelProject).where(ModelProject.deleted_at.is_(None))) or 0,
             "training_tasks": db.scalar(select(func.count()).select_from(TrainingTask).where(TrainingTask.created_by_id == user.id, TrainingTask.deleted_at.is_(None))) or 0,
