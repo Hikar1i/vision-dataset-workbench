@@ -44,6 +44,8 @@ const extractionTargets = ref<Video[]>([])
 const extractionConfirmOpen = ref(false)
 const annotationOpen = ref(false)
 const annotationTargets = ref<Video[]>([])
+const annotationChoiceTargets = ref<Video[]>([])
+const annotationScope = ref<'unannotated' | 'all'>('unannotated')
 const enabledByAnnotationTargets = ref<Video[]>([])
 const changingEnabled = ref('')
 const error = ref('')
@@ -189,7 +191,20 @@ function openAnnotation(video: Video) {
 }
 
 function openBatchAnnotation() {
-  annotationTargets.value = selectedVideos.value
+  const targetVideos = selectedVideos.value
+  if (targetVideos.some((video) => video.has_annotations)) {
+    annotationChoiceTargets.value = targetVideos
+    return
+  }
+  openBatchAnnotationSettings(targetVideos, 'unannotated')
+}
+
+function openBatchAnnotationSettings(targetVideos: Video[], scope: 'unannotated' | 'all') {
+  annotationChoiceTargets.value = []
+  annotationTargets.value = scope === 'unannotated'
+    ? targetVideos.filter((video) => !video.has_annotations)
+    : targetVideos
+  annotationScope.value = scope
   annotationOpen.value = true
 }
 
@@ -549,8 +564,35 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
       v-model="annotationOpen"
       :project-id="projectId"
       :videos="annotationTargets"
+      :scope="annotationScope"
       @submitted="annotationSubmitted"
     />
+    <el-dialog
+      append-to-body
+      :model-value="annotationChoiceTargets.length > 0"
+      title="批量自动标注"
+      width="min(560px, calc(100vw - 32px))"
+      @update:model-value="!$event && (annotationChoiceTargets = [])"
+    >
+      <p>
+        选中的视频中有
+        {{ annotationChoiceTargets.filter((video) => video.has_annotations).length }} 个已有标注。
+        请选择本次处理范围。
+      </p>
+      <template #footer>
+        <el-button @click="annotationChoiceTargets = []">取消</el-button>
+        <el-button
+          data-test="annotation-unannotated-only"
+          :disabled="!annotationChoiceTargets.some((video) => !video.has_annotations)"
+          @click="openBatchAnnotationSettings(annotationChoiceTargets, 'unannotated')"
+        >仅处理 {{ annotationChoiceTargets.filter((video) => !video.has_annotations).length }} 个未标注视频</el-button>
+        <el-button
+          data-test="annotation-all"
+          type="danger"
+          @click="openBatchAnnotationSettings(annotationChoiceTargets, 'all')"
+        >处理全部 {{ annotationChoiceTargets.length }} 个视频</el-button>
+      </template>
+    </el-dialog>
     <el-dialog
       append-to-body
       :model-value="enabledByAnnotationTargets.length > 0"

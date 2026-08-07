@@ -303,4 +303,28 @@ describe('ProjectVideosView', () => {
     expect(body.get('[data-test="extract-unextracted"]').text()).toContain('1 个未抽帧视频')
     expect(body.get('[data-test="extract-all"]').text()).toContain('全部 2 个视频')
   })
+
+  it('chooses the batch annotation range before showing model settings', async () => {
+    const unannotated = { ...video, id: 'video-new', has_annotations: false }
+    const annotated = { ...video, id: 'video-old', has_annotations: true }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [unannotated, annotated], page: 1, page_size: 50, total: 2 }
+          : { ...project, role: 'editor' },
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="select-all"] input').setValue(true)
+    await wrapper.get('[data-test="batch-auto-annotate"]').trigger('click')
+    await flushPromises()
+    const body = new DOMWrapper(document.body)
+    expect(body.get('[data-test="annotation-unannotated-only"]').text()).toContain('1 个未标注视频')
+    expect(body.get('[data-test="annotation-all"]').text()).toContain('全部 2 个视频')
+    expect(body.get('[data-test="annotation-all"]').classes()).toContain('el-button--danger')
+  })
 })
