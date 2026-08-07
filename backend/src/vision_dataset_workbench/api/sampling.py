@@ -114,7 +114,7 @@ class SetFramesEnabledRequest(BaseModel):
 
 class BatchEnabledByAnnotationRequest(BaseModel):
     video_ids: list[str] = Field(min_length=1, max_length=999)
-    scope: Literal["annotated-only", "all"] = "annotated-only"
+    scope: Literal["unscreened-only", "all"] = "unscreened-only"
     confirm_all: bool = False
     revisions: dict[str, int] = Field(default_factory=dict)
 

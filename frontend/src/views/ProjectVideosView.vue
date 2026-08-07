@@ -47,6 +47,9 @@ const annotationTargets = ref<Video[]>([])
 const annotationChoiceTargets = ref<Video[]>([])
 const annotationScope = ref<'unannotated' | 'all'>('unannotated')
 const enabledByAnnotationTargets = ref<Video[]>([])
+const enabledByAnnotationConfirmTargets = ref<Video[]>([])
+const enabledByAnnotationCountdown = ref(3)
+let enabledByAnnotationTimer: number | undefined
 const changingEnabled = ref('')
 const error = ref('')
 
@@ -215,14 +218,51 @@ function annotationSubmitted(accepted: string[]) {
 
 function openEnabledByAnnotation() {
   const targetVideos = selectedVideos.value
-  if (targetVideos.some((video) => video.has_annotations)) {
-    enabledByAnnotationTargets.value = targetVideos
+  if (!targetVideos.some((video) => video.has_annotations)) {
+    ElMessage.warning('所选视频均无标注，按标注启停不会产生有效结果。')
     return
   }
-  void submitEnabledByAnnotation(targetVideos, 'annotated-only')
+  enabledByAnnotationTargets.value = targetVideos
 }
 
-async function submitEnabledByAnnotation(targetVideos: Video[], scope: 'annotated-only' | 'all') {
+function isScreened(video: Video) {
+  return (video.sampling?.frame_revision ?? 0) > 1
+}
+
+function clearEnabledByAnnotationTimer() {
+  if (enabledByAnnotationTimer !== undefined) window.clearInterval(enabledByAnnotationTimer)
+  enabledByAnnotationTimer = undefined
+}
+
+function closeEnabledByAnnotationConfirmation() {
+  clearEnabledByAnnotationTimer()
+  enabledByAnnotationConfirmTargets.value = []
+  enabledByAnnotationCountdown.value = 3
+}
+
+function confirmAllEnabledByAnnotation() {
+  enabledByAnnotationConfirmTargets.value = [...enabledByAnnotationTargets.value]
+  enabledByAnnotationTargets.value = []
+  enabledByAnnotationCountdown.value = 3
+  clearEnabledByAnnotationTimer()
+  enabledByAnnotationTimer = window.setInterval(() => {
+    if (enabledByAnnotationCountdown.value <= 1) {
+      enabledByAnnotationCountdown.value = 0
+      clearEnabledByAnnotationTimer()
+    } else {
+      enabledByAnnotationCountdown.value -= 1
+    }
+  }, 1000)
+}
+
+function submitUnscreenedEnabledByAnnotation() {
+  const targets = enabledByAnnotationTargets.value.filter(
+    (video) => video.has_annotations && !isScreened(video),
+  )
+  void submitEnabledByAnnotation(targets, 'unscreened-only')
+}
+
+async function submitEnabledByAnnotation(targetVideos: Video[], scope: 'unscreened-only' | 'all') {
   try {
     const result = await setVideosEnabledByAnnotation(
       projectId,
@@ -231,8 +271,14 @@ async function submitEnabledByAnnotation(targetVideos: Video[], scope: 'annotate
       scope === 'all',
       Object.fromEntries(targetVideos.map((video) => [video.id, video.version])),
     )
-    ElMessage.success(`已更新 ${result.accepted.length} 个视频的启停状态。`)
+    const ignored = result.rejected.filter((item) => item.code === 'no_annotations').length
+    ElMessage.success(
+      ignored
+        ? `已更新 ${result.accepted.length} 个视频，忽略 ${ignored} 个无标注视频。`
+        : `已更新 ${result.accepted.length} 个视频的启停状态。`,
+    )
     enabledByAnnotationTargets.value = []
+    closeEnabledByAnnotationConfirmation()
     selected.value = selected.value.filter((id) => !result.accepted.some((item) => item.video_id === id))
     await load(page.value, pageSize.value, true)
   } catch (reason) {
@@ -319,7 +365,10 @@ onMounted(() => {
   void load()
   window.addEventListener('vdm:tasks-settled', refreshAfterTask)
 })
-onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTask))
+onUnmounted(() => {
+  window.removeEventListener('vdm:tasks-settled', refreshAfterTask)
+  clearEnabledByAnnotationTimer()
+})
 </script>
 
 <template>
@@ -597,21 +646,58 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
       append-to-body
       :model-value="enabledByAnnotationTargets.length > 0"
       title="按标注启停"
-      width="min(540px, calc(100vw - 32px))"
+      width="min(620px, calc(100vw - 32px))"
       @update:model-value="!$event && (enabledByAnnotationTargets = [])"
     >
-      <p>选中的视频中有 {{ enabledByAnnotationTargets.filter((video) => video.has_annotations).length }} 个已有标注。</p>
+      <el-alert
+        title="无标注视频将被忽略"
+        description="无标注的视频即使已经手动筛帧，执行按标注启停也只会停用全部采样帧，因此不会处理。"
+        type="info"
+        show-icon
+        :closable="false"
+      />
+      <div class="annotation-scope-summary">
+        <div><strong>{{ enabledByAnnotationTargets.filter((video) => video.has_annotations && !isScreened(video)).length }}</strong><span>有标注 · 未筛帧</span></div>
+        <div><strong>{{ enabledByAnnotationTargets.filter((video) => video.has_annotations && isScreened(video)).length }}</strong><span>有标注 · 已筛帧</span></div>
+        <div><strong>{{ enabledByAnnotationTargets.filter((video) => !video.has_annotations && !isScreened(video)).length }}</strong><span>无标注 · 未筛帧</span></div>
+        <div><strong>{{ enabledByAnnotationTargets.filter((video) => !video.has_annotations && isScreened(video)).length }}</strong><span>无标注 · 已筛帧</span></div>
+      </div>
       <template #footer>
         <el-button @click="enabledByAnnotationTargets = []">取消</el-button>
         <el-button
-          data-test="enabled-by-annotation-only"
-          @click="submitEnabledByAnnotation(enabledByAnnotationTargets, 'annotated-only')"
-        >仅处理有标注视频</el-button>
+          data-test="enabled-by-annotation-unscreened"
+          :disabled="!enabledByAnnotationTargets.some((video) => video.has_annotations && !isScreened(video))"
+          @click="submitUnscreenedEnabledByAnnotation"
+        >仅处理 {{ enabledByAnnotationTargets.filter((video) => video.has_annotations && !isScreened(video)).length }} 个未筛帧视频</el-button>
         <el-button
           data-test="enabled-by-annotation-all"
-          type="warning"
-          @click="submitEnabledByAnnotation(enabledByAnnotationTargets, 'all')"
-        >处理全部视频</el-button>
+          type="danger"
+          @click="confirmAllEnabledByAnnotation"
+        >处理全部 {{ enabledByAnnotationTargets.filter((video) => video.has_annotations).length }} 个有标注视频</el-button>
+      </template>
+    </el-dialog>
+    <el-dialog
+      append-to-body
+      :model-value="enabledByAnnotationConfirmTargets.length > 0"
+      title="确认覆盖现有筛帧结果"
+      width="min(560px, calc(100vw - 32px))"
+      @update:model-value="!$event && closeEnabledByAnnotationConfirmation()"
+    >
+      <el-alert
+        title="此操作会覆盖已有的手动筛帧结果"
+        :description="`将对 ${enabledByAnnotationConfirmTargets.filter((video) => video.has_annotations).length} 个有标注视频重新按标注启停；${enabledByAnnotationConfirmTargets.filter((video) => !video.has_annotations).length} 个无标注视频仍会被忽略。`"
+        type="error"
+        show-icon
+        :closable="false"
+      />
+      <template #footer>
+        <el-button @click="closeEnabledByAnnotationConfirmation">取消</el-button>
+        <el-button
+          data-test="enabled-by-annotation-confirm"
+          type="danger"
+          :disabled="enabledByAnnotationCountdown > 0"
+          @click="submitEnabledByAnnotation(enabledByAnnotationConfirmTargets, 'all')"
+        >{{ enabledByAnnotationCountdown > 0 ? `确认覆盖（${enabledByAnnotationCountdown} 秒）` : '确认覆盖筛帧结果' }}</el-button>
       </template>
     </el-dialog>
     <el-dialog
@@ -675,6 +761,26 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 </template>
 
 <style scoped>
+.annotation-scope-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.annotation-scope-summary > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+
+.annotation-scope-summary strong { font: 700 22px var(--vdw-mono); }
+.annotation-scope-summary span { color: var(--el-text-color-secondary); font-size: 13px; }
+
 .workbench-shell {
   min-height: 100%;
   color: var(--vdw-ink);

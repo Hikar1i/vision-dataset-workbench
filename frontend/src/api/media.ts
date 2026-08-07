@@ -188,15 +188,14 @@ export const setVideoEnabled = (
   })
 
 export type BatchEnabledByAnnotationResult = {
-  accepted: Array<{ video_id: string; enabled: boolean }>
-  rejected: Array<{ video_id: string; reason: string }>
-  scope: 'annotated-only' | 'all'
+  accepted: Array<{ video_id: string; sampling: SamplingSummary }>
+  rejected: Array<{ input: string; reason: string; code: string }>
 }
 
 export const setVideosEnabledByAnnotation = (
   projectId: string,
   videoIds: string[],
-  scope: 'annotated-only' | 'all',
+  scope: 'unscreened-only' | 'all',
   confirmAll = false,
   revisions?: Record<string, number>,
 ) =>

@@ -338,25 +338,40 @@ def test_batch_enabled_by_annotation_supports_scope_and_mixed_results(tmp_path):
         )
         session.commit()
 
+    unscreened_only = editor.post(
+        "/api/v1/projects/project-id/videos/batch-enabled-by-annotation",
+        headers=ORIGIN,
+        json={
+            "video_ids": ["video-id", "video-two"],
+            "scope": "unscreened-only",
+            "revisions": {"video-id": 1, "video-two": 1},
+        },
+    )
+    assert unscreened_only.status_code == 200
+    assert [item["video_id"] for item in unscreened_only.json()["accepted"]] == ["video-id"]
+    assert unscreened_only.json()["rejected"][0]["code"] == "no_annotations"
+
+    repeated_unscreened = editor.post(
+        "/api/v1/projects/project-id/videos/batch-enabled-by-annotation",
+        headers=ORIGIN,
+        json={
+            "video_ids": ["video-id", "video-two"],
+            "scope": "unscreened-only",
+        },
+    )
+    assert repeated_unscreened.status_code == 200
+    assert repeated_unscreened.json()["accepted"] == []
+    assert {item["code"] for item in repeated_unscreened.json()["rejected"]} == {
+        "already_screened",
+        "no_annotations",
+    }
+
     rejected_confirmation = editor.post(
         "/api/v1/projects/project-id/videos/batch-enabled-by-annotation",
         headers=ORIGIN,
         json={"video_ids": ["video-id", "video-two"], "scope": "all"},
     )
     assert rejected_confirmation.status_code == 409
-
-    annotated_only = editor.post(
-        "/api/v1/projects/project-id/videos/batch-enabled-by-annotation",
-        headers=ORIGIN,
-        json={
-            "video_ids": ["video-id", "video-two"],
-            "scope": "annotated-only",
-            "revisions": {"video-id": 1, "video-two": 1},
-        },
-    )
-    assert annotated_only.status_code == 200
-    assert [item["video_id"] for item in annotated_only.json()["accepted"]] == ["video-id"]
-    assert annotated_only.json()["rejected"][0]["code"] == "no_annotations"
 
     all_videos = editor.post(
         "/api/v1/projects/project-id/videos/batch-enabled-by-annotation",
@@ -368,6 +383,8 @@ def test_batch_enabled_by_annotation_supports_scope_and_mixed_results(tmp_path):
         },
     )
     assert all_videos.status_code == 200
+    assert [item["video_id"] for item in all_videos.json()["accepted"]] == ["video-id"]
+    assert all_videos.json()["rejected"][0]["code"] == "no_annotations"
     with Session(app.state.auth_service.engine) as session:
         assert session.get(Frame, "annotated-frame").enabled is True
-        assert session.get(Frame, "empty-frame").enabled is False
+        assert session.get(Frame, "empty-frame").enabled is True

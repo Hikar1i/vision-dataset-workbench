@@ -608,32 +608,45 @@ class SamplingService:
         revisions: dict[str, int] | None = None,
     ) -> AnnotationEnableBatch:
         self._require_editor(actor, project_id)
-        if scope not in {"annotated-only", "all"}:
+        if scope not in {"unscreened-only", "all"}:
             raise ValueError("annotation enable scope is invalid")
         if len(set(video_ids)) != len(video_ids):
             raise ValueError("video ids must be unique")
         revisions = revisions or {}
         with self._session_factory() as database:
-            status_rows = []
+            status_rows: list[tuple[str, bool, bool]] = []
             for video_id in video_ids:
                 video = self._video(database, project_id, video_id)
-                status_rows.append((video.id, self._has_annotations(database, video.id)))
-        if scope == "all" and any(not annotated for _, annotated in status_rows) and not confirm_all:
+                plan = database.scalar(
+                    select(SamplingPlan).where(SamplingPlan.video_id == video.id)
+                )
+                status_rows.append(
+                    (
+                        video.id,
+                        self._has_annotations(database, video.id),
+                        plan is not None and plan.frame_revision > 1,
+                    )
+                )
+        if (
+            scope == "all"
+            and any(annotated and screened for _, annotated, screened in status_rows)
+            and not confirm_all
+        ):
             raise SamplingConflict(
-                "confirm_all is required when selected videos include videos without annotations",
+                "confirm_all is required when selected videos include screened videos",
                 "confirm_all_required",
             )
-        selected = {
-            video_id
-            for video_id, annotated in status_rows
-            if scope == "all" or annotated
-        }
         accepted: list[AcceptedAnnotationEnable] = []
         rejected: list[SamplingNotice] = []
-        for video_id, annotated in status_rows:
-            if video_id not in selected:
+        for video_id, annotated, screened in status_rows:
+            if not annotated:
                 rejected.append(
                     SamplingNotice(video_id, "video has no annotations", "no_annotations")
+                )
+                continue
+            if scope == "unscreened-only" and screened:
+                rejected.append(
+                    SamplingNotice(video_id, "video has already been screened", "already_screened")
                 )
                 continue
             try:
@@ -653,6 +666,19 @@ class SamplingService:
                     )
                     if plan is None or plan.extracted_frames == 0:
                         raise SamplingConflict("video has no sampled frames", "no_frames")
+                    if not self._has_annotations(database, video_id):
+                        raise SamplingConflict(
+                            "video has no annotations", "no_annotations"
+                        )
+                    if scope == "unscreened-only" and plan.frame_revision > 1:
+                        raise SamplingConflict(
+                            "video has already been screened", "already_screened"
+                        )
+                    if scope == "all" and plan.frame_revision > 1 and not confirm_all:
+                        raise SamplingConflict(
+                            "confirm_all is required for screened videos",
+                            "confirm_all_required",
+                        )
                     expected_revision = revisions.get(video_id)
                     if expected_revision is not None and plan.frame_revision != expected_revision:
                         raise SamplingConflict("frame revision conflict", "revision_conflict")
