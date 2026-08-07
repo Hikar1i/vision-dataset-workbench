@@ -16,6 +16,7 @@ from .api.sampling import router as sampling_router
 from .api.setup import router as setup_router
 from .api.training import router as training_router
 from .api.xanylabeling_settings import router as xanylabeling_settings_router
+from .api.llm_configs import router as llm_configs_router
 from .capabilities import SystemCapabilities, detect_capabilities
 from .config import RuntimeSettings
 from .services.auth import build_auth_service
@@ -31,6 +32,7 @@ from .services.sampling import SamplingService
 from .services.setup import SetupService
 from .services.training import TrainingService
 from .services.xanylabeling_settings import XAnyLabelingSettingsService
+from .services.llm_configs import LLMConfigService
 from .setup.tokens import SetupToken
 from .storage.locator import WorkspaceLocator, default_locator_path
 
@@ -101,6 +103,11 @@ def create_app(
         if auth_service is not None
         else None
     )
+    app.state.llm_config_service = (
+        LLMConfigService(auth_service.engine, resolved_settings)
+        if auth_service is not None
+        else None
+    )
     app.state.auto_annotation_service = (
         AutoAnnotationService(
             auth_service.engine,
@@ -111,6 +118,7 @@ def create_app(
             app.state.label_service,
             app.state.capabilities,
             app.state.xanylabeling_settings_service,
+            app.state.llm_config_service,
         )
         if auth_service is not None
         and workspace is not None
@@ -157,6 +165,7 @@ def create_app(
     app.include_router(hyperparameters_router)
     app.include_router(training_router)
     app.include_router(xanylabeling_settings_router)
+    app.include_router(llm_configs_router)
     app.include_router(global_task_router)
     app.include_router(media_router)
     app.include_router(sampling_router)

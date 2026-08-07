@@ -145,6 +145,12 @@ export function createAppRouter() {
             component: AdminUsersView,
             meta: { section: "系统管理", page: "用户管理" },
           },
+          {
+            path: "llm-configs",
+            name: "llm-configs",
+            component: () => import("./views/LLMConfigsView.vue"),
+            meta: { section: "系统", page: "大模型配置" },
+          },
         ],
       },
       {

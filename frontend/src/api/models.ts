@@ -53,7 +53,7 @@ export type XAnyLabelingSetting = {
 }
 
 export type AutoAnnotationConfig = {
-  source: 'local' | 'xanylabeling'
+  source: 'local' | 'xanylabeling' | 'online'
   model_id: string
   remote_task_id: string | null
   categories: string[]

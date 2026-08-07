@@ -24,6 +24,8 @@ from .models import ModelService
 from .projects import ProjectForbidden, ProjectService
 from .sampling import SamplingService
 from .xanylabeling_settings import XAnyLabelingSettingsService
+from .llm_configs import LLMConfigService
+from .llm_annotation import LLMAnnotationError, predict as predict_llm
 from .dataset_exports import video_has_active_export
 from ..xanylabeling import XAnyLabelingUnavailable
 
@@ -73,6 +75,7 @@ class AutoAnnotationService:
         labels: LabelService,
         capabilities: SystemCapabilities,
         remote_settings: XAnyLabelingSettingsService,
+        llm_configs: LLMConfigService | None = None,
         runner: InferenceRunner | None = None,
     ):
         self.workspace = workspace.resolve()
@@ -81,6 +84,7 @@ class AutoAnnotationService:
         self.labels = labels
         self.capabilities = capabilities
         self.remote_settings = remote_settings
+        self.llm_configs = llm_configs
         self.runner = runner or InferenceRunner()
         self.sampling = SamplingService(engine, settings, workspace)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
@@ -339,9 +343,11 @@ class AutoAnnotationService:
                 return self.runner.predict(
                     model, model_path, image_path, categories, confidence, iou
                 )
-            client, option = resolved
-            return client.predict(option, image_path, categories, confidence, iou)
-        except (InferenceUnavailable, XAnyLabelingUnavailable) as exc:
+            if selection.source == "xanylabeling":
+                client, option = resolved
+                return client.predict(option, image_path, categories, confidence, iou)
+            return predict_llm(resolved, image_path, categories, confidence)
+        except (InferenceUnavailable, XAnyLabelingUnavailable, LLMAnnotationError) as exc:
             raise AutoAnnotationUnavailable(str(exc)) from exc
 
     def _validate_model(
@@ -356,7 +362,12 @@ class AutoAnnotationService:
                 )
             return model, model_path
         if selection.source != "xanylabeling":
-            raise AutoAnnotationUnavailable("unsupported auto annotation source")
+            if selection.source != "online" or self.llm_configs is None:
+                raise AutoAnnotationUnavailable("unsupported auto annotation source")
+            try:
+                return self.llm_configs.connection(actor, selection.model_id)
+            except ValueError as exc:
+                raise AutoAnnotationUnavailable(str(exc)) from exc
         try:
             client = self.remote_settings.client_for(actor.id)
             option = next(

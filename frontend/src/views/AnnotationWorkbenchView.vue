@@ -52,6 +52,7 @@ import {
   type RemoteModelOption,
   type XAnyLabelingSetting,
 } from '../api/models'
+import { listLLMConfigs, type LLMConfig } from '../api/llm'
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
 import FrameAnnotationThumbnail from '../components/FrameAnnotationThumbnail.vue'
@@ -82,6 +83,7 @@ const labels = ref<ProjectLabel[]>([])
 const inferenceModels = ref<InferenceModel[]>([])
 const modelProjects = ref<ModelProject[]>([])
 const remoteModels = ref<RemoteModelOption[]>([])
+const llmConfigs = ref<LLMConfig[]>([])
 const xanylabelingSetting = ref<XAnyLabelingSetting | null>(null)
 const capabilities = ref<SystemCapabilities | null>(null)
 const currentUser = ref<CurrentUser | null>(null)
@@ -158,8 +160,13 @@ const selectedLocalModel = computed(() =>
 const selectedRemoteModel = computed(() =>
   remoteModels.value.find((model) => model.key === autoModel.value) ?? null,
 )
+const selectedOnlineModel = computed(() =>
+  llmConfigs.value.find((model) => model.id === autoModel.value) ?? null,
+)
 const selectedModelName = computed(() => selectedSource.value === 'xanylabeling'
   ? selectedRemoteModel.value?.name ?? ''
+  : selectedSource.value === 'online'
+    ? selectedOnlineModel.value?.name ?? ''
   : selectedLocalModel.value?.name ?? '')
 const batchActive = computed(() =>
   activeAutoTask.value?.type === 'auto_annotate'
@@ -171,6 +178,11 @@ const autoUnavailableReason = computed(() => {
     return xanylabelingSetting.value?.configured
       ? 'X-anylabeling-server 当前不可用'
       : '尚未配置 X-anylabeling-server'
+  }
+  if (selectedSource.value === 'online') {
+    return selectedOnlineModel.value?.enabled && selectedOnlineModel.value.available
+      ? ''
+      : '尚无可用的在线大模型配置'
   }
   if (readyModels.value.length) return ''
   return capabilities.value?.features.yolo_auto_annotation.reason
@@ -388,6 +400,11 @@ async function refreshSelectedModels() {
       autoModel.value = remoteModels.value[0]?.key ?? ''
       return
     }
+    if (selectedSource.value === 'online') {
+      llmConfigs.value = (await listLLMConfigs()).filter((item) => item.enabled)
+      autoModel.value = llmConfigs.value.find((item) => item.available)?.id ?? ''
+      return
+    }
     const modelProjectId = selectedModelProjectId()
     inferenceModels.value = modelProjectId
       ? await listModelProjectModels(modelProjectId)
@@ -437,7 +454,7 @@ async function saveXAnyLabelingSettings() {
 function autoConfig(): AutoAnnotationConfig | null {
   const local = selectedLocalModel.value
   const remote = selectedRemoteModel.value
-  if (selectedSource.value === 'xanylabeling' ? !remote : !local) {
+  if (selectedSource.value === 'xanylabeling' ? !remote : selectedSource.value === 'online' ? !selectedOnlineModel.value : !local) {
     ElMessage.warning('请先选择可用模型。')
     return null
   }
@@ -445,7 +462,9 @@ function autoConfig(): AutoAnnotationConfig | null {
     ? []
     : [...new Set(autoCategories.value.map((item) => item.trim().toLowerCase()).filter(Boolean))]
   return {
-    source: selectedSource.value === 'xanylabeling' ? 'xanylabeling' : 'local',
+    source: selectedSource.value === 'xanylabeling'
+      ? 'xanylabeling'
+      : selectedSource.value === 'online' ? 'online' : 'local',
     model_id: remote?.model_id ?? local?.id ?? '',
     remote_task_id: remote?.task_id ?? null,
     categories,
@@ -824,7 +843,7 @@ watch(reuseLabel, (reuse) => {
               X-anylabeling-server（{{ xanylabelingSetting?.available ? '可用' : '不可用' }}）
             </span>
           </el-option>
-          <el-option value="online" label="在线大模型（后续实现）" disabled />
+          <el-option value="online" label="在线大模型" />
           <el-option
             v-for="modelProject in modelProjects"
             :key="modelProject.id"
@@ -853,7 +872,12 @@ watch(reuseLabel, (reuse) => {
             <el-option v-for="model in remoteModels" :key="model.key" :label="model.name" :value="model.key" />
           </template>
           <template v-else>
-            <el-option v-for="model in readyModels" :key="model.id" :label="model.name" :value="model.id" />
+            <template v-if="selectedSource === 'online'">
+              <el-option v-for="model in llmConfigs" :key="model.id" :label="model.name" :value="model.id" />
+            </template>
+            <template v-else>
+              <el-option v-for="model in readyModels" :key="model.id" :label="model.name" :value="model.id" />
+            </template>
           </template>
         </el-select>
         <el-select

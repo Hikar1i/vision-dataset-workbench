@@ -345,6 +345,14 @@ onMounted(async () => {
           </span>
           <span class="app-sidebar-label">用户管理</span>
         </RouterLink>
+        <RouterLink
+          data-test="nav-llm-configs"
+          title="大模型配置"
+          to="/llm-configs"
+        >
+          <span class="app-sidebar-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16v12H4zM7 10h5M7 14h8M16 10h1" /></svg></span>
+          <span class="app-sidebar-label">大模型配置</span>
+        </RouterLink>
         <div class="app-sidebar-user" :title="user?.username">
           <span class="app-sidebar-icon"
             ><b>{{ user?.username.slice(0, 1).toUpperCase() }}</b></span

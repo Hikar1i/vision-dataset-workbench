@@ -423,6 +423,35 @@ class UserXAnyLabelingSetting(Base):
     )
 
 
+class UserLLMConfig(Base):
+    __tablename__ = "user_llm_configs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    base_url: Mapped[str] = mapped_column(Text)
+    api_type: Mapped[str] = mapped_column(String(16), default="openai")
+    model_name: Mapped[str] = mapped_column(String(256))
+    api_key_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    available: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_test_status: Mapped[str] = mapped_column(String(32), default="untested")
+    last_test_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    advanced_options: Mapped[str] = mapped_column(Text, default="{}")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class UserLLMDefaults(Base):
+    __tablename__ = "user_llm_defaults"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    options: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class HyperparameterTemplate(Base):
     __tablename__ = "hyperparameter_templates"
     __table_args__ = (

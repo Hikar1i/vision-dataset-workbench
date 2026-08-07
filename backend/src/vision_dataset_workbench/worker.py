@@ -38,6 +38,8 @@ from .models import (
 from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
 from .services.labels import automatic_label_color, normalize_label_name
 from .services.xanylabeling_settings import XAnyLabelingSettingsService
+from .services.llm_configs import LLMConfigService
+from .services.llm_annotation import LLMAnnotationError, predict as predict_llm
 from .storage.browser import VIDEO_EXTENSIONS
 from .storage.locator import WorkspaceLocator, default_locator_path
 from .storage.paths import HomePathResolver, UnsafePathError
@@ -120,6 +122,7 @@ class TaskWorker:
         self.worker_id = worker_id or str(uuid4())
         self._inference_runner = inference_runner or InferenceRunner()
         self._remote_settings = remote_settings or XAnyLabelingSettingsService(engine, settings)
+        self._llm_configs = LLMConfigService(engine, settings)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="vdw-task")
         self._futures: dict[str, Future[None]] = {}
@@ -357,7 +360,7 @@ class TaskWorker:
                 model is None or model.status != "ready" or not model.storage_path
             ):
                 raise MediaToolError("auto annotation resources not ready")
-            if source not in {"local", "xanylabeling"}:
+            if source not in {"local", "xanylabeling", "online"}:
                 raise MediaToolError("unsupported auto annotation source")
             video_frames: list[tuple[Video, list[Frame]]] = []
             for video_id in video_ids:
@@ -397,6 +400,14 @@ class TaskWorker:
                 raise MediaToolError(str(exc)) from exc
             if remote_option is None:
                 raise MediaToolError("remote model is no longer available")
+        llm_connection = None
+        if source == "online":
+            try:
+                llm_connection = self._llm_configs.connection(
+                    submitted_by_id, str(payload.get("model_id") or "")
+                )
+            except (ValueError, LLMAnnotationError) as exc:
+                raise MediaToolError(str(exc)) from exc
         total_frames = sum(len(frames) for _, frames in video_frames)
         if total_frames == 0:
             raise MediaToolError("videos have no enabled sampled frames")
@@ -420,13 +431,20 @@ class TaskWorker:
                             float(payload.get("confidence", 0.25)),
                             float(payload.get("iou", 0.45)),
                         )
-                    else:
+                    elif source == "xanylabeling":
                         detections = remote_client.predict(
                             remote_option,
                             image_path,
                             list(payload.get("categories") or []),
                             float(payload.get("confidence", 0.25)),
                             float(payload.get("iou", 0.45)),
+                        )
+                    else:
+                        detections = predict_llm(
+                            llm_connection,
+                            image_path,
+                            list(payload.get("categories") or []),
+                            float(payload.get("confidence", 0.25)),
                         )
                     count = self._store_auto_detections(
                         video,
@@ -441,7 +459,7 @@ class TaskWorker:
                     self._heartbeat(task_id, round(completed_frames * 100 / total_frames))
             except TaskCanceled:
                 raise
-            except (InferenceUnavailable, XAnyLabelingUnavailable, MediaToolError) as exc:
+            except (InferenceUnavailable, XAnyLabelingUnavailable, LLMAnnotationError, MediaToolError) as exc:
                 video_results.append(
                     {
                         "video_id": video.id,
