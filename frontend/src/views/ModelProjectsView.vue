@@ -8,6 +8,7 @@ import {
   createModelProject,
   deleteModelProject,
   listModelProjects,
+  listModelProjectTags,
   type ModelProject,
 } from '../api/models'
 import { forgetResource } from '../navigation/recentResources'
@@ -20,14 +21,21 @@ const deleting = ref('')
 const showCreate = ref(false)
 const name = ref('')
 const description = ref('')
+const tags = ref<string[]>(['未分类'])
+const availableTags = ref<string[]>([])
 const error = ref('')
-const valid = computed(() => name.value.trim().length > 0 && name.value.trim().length <= 128)
+const valid = computed(() =>
+  name.value.trim().length > 0 && name.value.trim().length <= 128 && tags.value.length > 0,
+)
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    projects.value = await listModelProjects()
+    ;[projects.value, availableTags.value] = await Promise.all([
+      listModelProjects(),
+      listModelProjectTags(),
+    ])
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '模型项目列表加载失败'
   } finally {
@@ -39,7 +47,7 @@ async function create() {
   if (!valid.value) return
   creating.value = true
   try {
-    const project = await createModelProject(name.value, description.value)
+    const project = await createModelProject(name.value, description.value, tags.value)
     await router.push(`/model-projects/${project.id}`)
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '模型项目创建失败'
@@ -93,15 +101,22 @@ onMounted(load)
             <p class="field-note">训练项目会在训练任务首次成功后自动同步，不能手工创建。</p>
           </el-form-item>
           <el-form-item label="描述"><el-input v-model="description" type="textarea" :rows="3" maxlength="2000" show-word-limit /></el-form-item>
+          <el-form-item label="标签">
+            <el-select v-model="tags" multiple filterable allow-create default-first-option style="width:100%" placeholder="选择或输入标签">
+              <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
+            </el-select>
+          </el-form-item>
           <el-button native-type="submit" type="primary" :loading="creating" :disabled="!valid">创建并打开</el-button>
         </el-form>
       </section>
       <section v-loading="loading" class="resource-index">
-        <header v-if="projects.length" class="index-row index-header"><span>项目</span><span>类型</span><span>权限</span><span>更新时间</span><span /></header>
+        <header v-if="projects.length" class="index-row index-header"><span>项目</span><span>标签</span><span>类型</span><span>权限</span><span>创建时间</span><span>更新时间</span><span /></header>
         <article v-for="project in projects" :key="project.id" class="index-row resource-row">
           <div class="resource-identity"><code>{{ project.id.slice(0, 8) }}</code><div><strong>{{ project.name }}</strong><p>{{ project.description || '暂无描述' }}</p></div></div>
+          <div class="project-tags"><el-tag v-for="tag in project.tags" :key="tag" size="small" effect="plain">{{ tag }}</el-tag></div>
           <el-tag :type="project.series_type === 'training' ? 'success' : 'info'" effect="plain">{{ project.series_type === 'training' ? '训练' : '归档' }}</el-tag>
           <span>{{ project.can_manage ? '可管理' : '只读' }}</span>
+          <time :datetime="project.created_at">{{ project.created_at.slice(0, 10) }}</time>
           <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
           <div class="row-actions"><router-link :to="`/model-projects/${project.id}`">打开</router-link><el-button v-if="project.can_manage" type="danger" link :loading="deleting === project.id" @click="remove(project)">删除</el-button></div>
         </article>
@@ -118,12 +133,13 @@ onMounted(load)
 .create-panel header { display: flex; flex-direction: column; gap: 10px; }
 .create-panel header span,.resource-identity code { color: #2563eb; font: 12px ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing: .08em; }
 .field-note,.resource-row p { margin: 6px 0 0; color: #687482; font-size: 13px; }
-.index-row { display: grid; grid-template-columns: minmax(280px,1fr) 90px 90px 120px 100px; gap: 20px; align-items: center; padding: 17px 22px; border-bottom: 1px solid #e5e9ef; }
+.index-row { display: grid; grid-template-columns: minmax(240px,1fr) minmax(120px,.6fr) 72px 72px 100px 100px 92px; gap: 16px; align-items: center; padding: 17px 22px; border-bottom: 1px solid #e5e9ef; }
 .index-header { color: #687482; font-size: 12px; background: #f8fafc; }
 .resource-identity { display: flex; gap: 16px; align-items: flex-start; min-width: 0; }
 .resource-identity strong { display: block; }
 .resource-identity p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-actions { display: flex; gap: 12px; align-items: center; }
+.project-tags { display:flex; gap:6px; flex-wrap:wrap; }
 .row-actions a { color: #2563eb; text-decoration: none; }
-@media (max-width: 900px) { .index-row { grid-template-columns: 1fr auto; } .index-row > :nth-child(3),.index-row > :nth-child(4),.index-header { display: none; } .create-panel { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .index-row { grid-template-columns: 1fr minmax(120px,.5fr) auto; } .index-row > :nth-child(3),.index-row > :nth-child(4),.index-row > :nth-child(5),.index-row > :nth-child(6),.index-header { display: none; } .create-panel { grid-template-columns: 1fr; } }
 </style>

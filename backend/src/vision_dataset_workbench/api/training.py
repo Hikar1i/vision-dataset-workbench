@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -27,6 +26,7 @@ from ..services.training import (
     TrainingService,
 )
 from ..training.telemetry import training_telemetry
+from ..training.events import terminal_snapshot
 from .auth import current_user, require_same_origin
 
 router = APIRouter(prefix="/api/v1", tags=["training"])
@@ -181,6 +181,8 @@ def model_response(svc: TrainingService, model: TrainingModel) -> dict[str, obje
         "runs": [run_response(run) for run in runs],
         "started_at": _time(model.started_at),
         "finished_at": _time(model.finished_at),
+        "created_at": _time(model.created_at),
+        "updated_at": _time(model.updated_at),
     }
 
 
@@ -209,6 +211,7 @@ def task_response(
         "finished_at": _time(task.finished_at),
         "created_at": _time(task.created_at),
         "updated_at": _time(task.updated_at),
+        "actions": svc.task_action_availability(task, models),
     }
     if details:
         value["models"] = [model_response(svc, row) for row in models]
@@ -233,7 +236,7 @@ def training_resources(
     svc = service(request)
     with svc._session_factory() as db:
         datasets = db.execute(
-            select(DatasetExport, Project.name)
+            select(DatasetExport, Project.id, Project.name)
             .join(Project, Project.id == DatasetExport.project_id)
             .where(DatasetExport.status == "ready", DatasetExport.deleted_at.is_(None))
             .order_by(DatasetExport.created_at.desc())
@@ -246,7 +249,7 @@ def training_resources(
             )
         )
         models = db.execute(
-            select(InferenceModel, ModelProject.name)
+            select(InferenceModel, ModelProject.id, ModelProject.name)
             .join(ModelProject, ModelProject.id == InferenceModel.model_project_id)
             .where(
                 InferenceModel.status == "ready",
@@ -257,8 +260,13 @@ def training_resources(
         ).all()
         return {
             "datasets": [
-                {"id": item.id, "name": item.name, "project_name": project_name}
-                for item, project_name in datasets
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "project_id": project_id,
+                    "project_name": project_name,
+                }
+                for item, project_id, project_name in datasets
             ],
             "templates": [
                 {
@@ -276,9 +284,10 @@ def training_resources(
                     "id": item.id,
                     "name": item.name,
                     "model_code": item.model_code,
+                    "project_id": project_id,
                     "project_name": project_name,
                 }
-                for item, project_name in models
+                for item, project_id, project_name in models
             ],
         }
 
@@ -387,6 +396,21 @@ def retry_failed(
         previous = svc.idempotent_result(user, action, idempotency_key)
         item = svc.get_task(user, previous[1]) if previous else svc.retry_failed(user, task_id)
         svc.remember_idempotent_result(user, action, idempotency_key, "task", item.id)
+    except (TrainingConflict, TrainingForbidden, TrainingNotFound) as exc:
+        _raise(exc)
+    return task_response(svc, user, item, True)
+
+
+@router.post("/training-tasks/{task_id}/resume-interrupted")
+def resume_interrupted(
+    task_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> dict[str, object]:
+    require_same_origin(request)
+    svc = service(request)
+    try:
+        item = svc.resume_interrupted(user, task_id)
     except (TrainingConflict, TrainingForbidden, TrainingNotFound) as exc:
         _raise(exc)
     return task_response(svc, user, item, True)
@@ -566,6 +590,7 @@ def metrics(
             "epoch": row.epoch,
             "box_loss": row.box_loss,
             "cls_loss": row.cls_loss,
+            "dfl_loss": row.dfl_loss,
             "learning_rate": row.learning_rate,
             "precision": row.precision,
             "recall": row.recall,
@@ -595,11 +620,8 @@ def log(
         path = svc.workspace / run.storage_path / "train.log"
     if not path.is_file():
         return {"content": "", "next_cursor": cursor}
-    with path.open("rb") as stream:
-        stream.seek(cursor)
-        content = stream.read(256_000)
-        next_cursor = stream.tell()
-    return {"content": content.decode("utf-8", errors="replace"), "next_cursor": next_cursor}
+    content, next_cursor = terminal_snapshot(path)
+    return {"content": content, "next_cursor": next_cursor}
 
 
 def _run_path(request: Request, run_id: str) -> tuple[TrainingRun, Path]:
@@ -627,22 +649,4 @@ def pr_curve(
             return json.loads(data.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pass
-    image = directory / "PR_curve.png"
-    if image.is_file():
-        return {
-            "version": 1,
-            "kind": "image",
-            "url": f"/api/v1/training-runs/{run_id}/pr-curve/image",
-        }
     return {"version": 1, "kind": "unavailable", "series": []}
-
-
-@router.get("/training-runs/{run_id}/pr-curve/image")
-def pr_curve_image(
-    run_id: str, request: Request, user: Annotated[User, Depends(current_user)]
-) -> FileResponse:
-    _, directory = _run_path(request, run_id)
-    image = directory / "PR_curve.png"
-    if not image.is_file():
-        raise HTTPException(404, "P-R curve image not found")
-    return FileResponse(image, media_type="image/png")

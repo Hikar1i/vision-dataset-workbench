@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import time
+import traceback
 from pathlib import Path
 
 from .events import EventWriter
@@ -24,6 +25,7 @@ def _fake(spec: dict[str, object], writer: EventWriter, output: Path) -> None:
             metrics={
                 "box_loss": 1 / epoch,
                 "cls_loss": 0.8 / epoch,
+                "dfl_loss": 0.6 / epoch,
                 "learning_rate": 0.01 * (1 - ratio),
                 "precision": ratio * 0.9,
                 "recall": ratio * 0.8,
@@ -55,33 +57,46 @@ def _real(spec: dict[str, object], writer: EventWriter, output: Path) -> None:
     writer.write("started", pid=os.getpid())
     model = YOLO(str(spec["base_model"]))
     parameters = dict(spec["parameters"])  # type: ignore[arg-type]
+    target_epochs = int(parameters["epochs"])
+    last_reported_epoch = 0
 
     def epoch_end(trainer) -> None:
-        epoch = int(trainer.epoch) + 1
-        source = dict(getattr(trainer, "metrics", {}) or {})
-        losses = getattr(trainer, "loss_items", None)
-        writer.write(
-            "epoch_end",
-            epoch=epoch,
-            metrics={
-                "box_loss": float(losses[0]) if losses is not None and len(losses) > 0 else None,
-                "cls_loss": float(losses[1]) if losses is not None and len(losses) > 1 else None,
-                "learning_rate": float(trainer.optimizer.param_groups[0]["lr"]),
-                "precision": source.get("metrics/precision(B)"),
-                "recall": source.get("metrics/recall(B)"),
-                "map50": source.get("metrics/mAP50(B)"),
-                "map50_95": source.get("metrics/mAP50-95(B)"),
-            },
-        )
+        nonlocal last_reported_epoch
+        try:
+            epoch = int(trainer.epoch) + 1
+            if epoch > target_epochs or epoch <= last_reported_epoch:
+                return
+            source = dict(getattr(trainer, "metrics", {}) or {})
+            losses = trainer.label_loss_items(trainer.tloss, prefix="train")
+            writer.write(
+                "epoch_end",
+                epoch=epoch,
+                metrics={
+                    "box_loss": losses.get("train/box_loss"),
+                    "cls_loss": losses.get("train/cls_loss"),
+                    "dfl_loss": losses.get("train/dfl_loss"),
+                    "learning_rate": float(trainer.optimizer.param_groups[0]["lr"]),
+                    "precision": source.get("metrics/precision(B)"),
+                    "recall": source.get("metrics/recall(B)"),
+                    "map50": source.get("metrics/mAP50(B)"),
+                    "map50_95": source.get("metrics/mAP50-95(B)"),
+                },
+            )
+            last_reported_epoch = epoch
+        except Exception as exc:
+            writer.write("warning", message=f"epoch metrics unavailable: {type(exc).__name__}: {exc}")
 
     model.add_callback("on_fit_epoch_end", epoch_end)
 
     def train_end(trainer) -> None:
-        payload = precision_recall_payload(getattr(trainer, "validator", None))
-        if payload:
-            (output / "pr-curve.json").write_text(
-                json.dumps(payload, ensure_ascii=False, allow_nan=False), encoding="utf-8"
-            )
+        try:
+            payload = precision_recall_payload(getattr(trainer, "validator", None))
+            if payload:
+                (output / "pr-curve.json").write_text(
+                    json.dumps(payload, ensure_ascii=False, allow_nan=False), encoding="utf-8"
+                )
+        except Exception as exc:
+            writer.write("warning", message=f"PR curve unavailable: {type(exc).__name__}: {exc}")
 
     model.add_callback("on_train_end", train_end)
     if spec.get("resume") is True:
@@ -115,8 +130,9 @@ def run(spec_path: Path, events_path: Path) -> int:
         else:
             _real(spec, writer, output)
         return 0
-    except BaseException as exc:
-        writer.write("failed", error=str(exc)[:2000])
+    except Exception as exc:
+        traceback.print_exc()
+        writer.write("failed", error=f"{type(exc).__name__}: {exc}"[:2000])
         return 1
 
 

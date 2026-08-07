@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.main import create_app
-from vision_dataset_workbench.models import User
+from vision_dataset_workbench.models import InferenceModel, User
 from vision_dataset_workbench.security.passwords import hash_password
 
 ORIGIN = {"Origin": "http://testserver"}
@@ -74,7 +74,7 @@ def test_admin_registers_models_and_members_list_them(tmp_path):
     created = admin.post(
         "/api/v1/model-projects",
         headers=ORIGIN,
-        json={"name": "Official YOLO", "description": "archive"},
+        json={"name": "Official YOLO", "description": "archive", "tags": ["官方", "GOAT"]},
     )
     assert created.status_code == 201
     model_project_id = created.json()["id"]
@@ -94,6 +94,8 @@ def test_admin_registers_models_and_members_list_them(tmp_path):
     assert projects.status_code == 200
     archive = next(item for item in projects.json() if item["id"] == model_project_id)
     assert archive["can_manage"] is False
+    assert archive["tags"] == ["GOAT", "官方"]
+    assert "created_at" in archive and "updated_at" in archive
     project_models = editor.get(
         f"/api/v1/model-projects/{model_project_id}/models"
     )
@@ -103,6 +105,19 @@ def test_admin_registers_models_and_members_list_them(tmp_path):
     assert listed.status_code == 200
     assert listed.json()[0]["name"] == "YOLO helmet"
     assert TestClient(_app).get("/api/v1/model-projects").status_code == 401
+    assert admin.get("/api/v1/model-project-tags").json() == ["GOAT", "官方", "未分类"]
+    model_id = response.json()["model"]["id"]
+    service = _app.state.model_service
+    target = service.workspace / "models" / model_id / "yolo.pt"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"downloadable-weights")
+    with service._session_factory() as database:
+        model = database.get(InferenceModel, model_id)
+        model.status = "ready"
+        model.storage_path = target.relative_to(service.workspace).as_posix()
+        database.commit()
+    downloaded = admin.get(f"/api/v1/models/{model_id}/download")
+    assert downloaded.status_code == 200 and downloaded.content == b"downloadable-weights"
 
 
 def test_model_registration_requires_admin_and_valid_source_shape(tmp_path):

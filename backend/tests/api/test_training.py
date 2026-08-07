@@ -123,6 +123,9 @@ def setup_app(tmp_path, monkeypatch):
 
 def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypatch):
     app, client, workspace = setup_app(tmp_path, monkeypatch)
+    resources = client.get("/api/v1/training/resources").json()
+    assert resources["datasets"][0]["project_id"] == "project-id"
+    assert resources["base_models"][0]["project_id"] == "base-project"
     created = client.post(
         "/api/v1/training-tasks",
         headers=ORIGIN,
@@ -136,12 +139,20 @@ def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypat
             "default_base_model_id": "base-model",
             "models": [
                 {"name": "small", "epochs_override": 2, "gpu_index": 0, "queue_order": 1},
-                {"name": "small-alt", "epochs_override": 2, "gpu_index": 1, "queue_order": 1},
+                {
+                    "name": "small-alt",
+                    "epochs_override": 2,
+                    "batch_mode_override": "fixed",
+                    "batch_value_override": 12.0,
+                    "gpu_index": 1,
+                    "queue_order": 1,
+                },
             ],
         },
     )
     assert created.status_code == 201, created.text
     task_id = created.json()["id"]
+    assert created.json()["actions"]["start"]["allowed"] is True
     started = client.post(f"/api/v1/training-tasks/{task_id}/start", headers=ORIGIN)
     assert started.status_code == 200, started.text
     assert started.json()["models"][0]["artifact_code"].startswith("firedet-")
@@ -158,7 +169,8 @@ def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypat
     assert detail["status"] == "succeeded", detail
     assert all(item["progress"] == 100 for item in detail["models"])
     run_id = detail["models"][0]["runs"][0]["id"]
-    assert len(client.get(f"/api/v1/training-runs/{run_id}/metrics").json()) == 2
+    metric_rows = client.get(f"/api/v1/training-runs/{run_id}/metrics").json()
+    assert len(metric_rows) == 2 and metric_rows[0]["dfl_loss"] is not None
     assert client.get(f"/api/v1/training-runs/{run_id}/pr-curve").json()["kind"] == "interactive"
     projects = client.get("/api/v1/model-projects").json()
     trained = next(item for item in projects if item["series_type"] == "training")
@@ -176,6 +188,36 @@ def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypat
     )
     assert first_retry.status_code == 200
     assert second_retry.json()["id"] == first_retry.json()["id"]
+
+
+def test_start_reports_resource_and_hyperparameter_errors_together(tmp_path, monkeypatch):
+    _, client, _ = setup_app(tmp_path, monkeypatch)
+    created = client.post(
+        "/api/v1/training-tasks",
+        headers=ORIGIN,
+        json={
+            "code": "invalid-start",
+            "name": "Invalid start",
+            "mode": "custom_sequence",
+            "default_dataset_export_id": "export-id",
+            "default_template_id": "00000000-0000-0000-0000-000000000002",
+            "models": [
+                {"name": "missing-base", "gpu_index": 0, "queue_order": 1},
+                {
+                    "name": "invalid-batch",
+                    "base_model_id": "base-model",
+                    "batch_mode_override": "fixed",
+                    "batch_value_override": 12.5,
+                    "gpu_index": 1,
+                    "queue_order": 1,
+                },
+            ],
+        },
+    ).json()
+    started = client.post(f"/api/v1/training-tasks/{created['id']}/start", headers=ORIGIN)
+    assert started.status_code == 422
+    assert "models[0].base_model is not ready" in started.text
+    assert "models[1].hyperparameters.batch" in started.text
 
 
 def test_same_gpu_models_are_strictly_serial_and_task_cancel_covers_queue(tmp_path, monkeypatch):

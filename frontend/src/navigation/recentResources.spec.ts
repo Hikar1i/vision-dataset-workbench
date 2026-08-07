@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { forgetResource, readRecentResources, rememberResource } from './recentResources'
+import {
+  forgetResource,
+  readRecentResources,
+  rememberResource,
+  resolveRecentResources,
+} from './recentResources'
 
 describe('recent resources', () => {
   beforeEach(() => localStorage.clear())
@@ -18,5 +23,12 @@ describe('recent resources', () => {
   it('ignores malformed storage', () => {
     localStorage.setItem('models', '{')
     expect(readRecentResources('models')).toEqual([])
+  })
+
+  it('fills recent shortcuts from available server resources', () => {
+    expect(resolveRecentResources(
+      [{ id: '2', name: 'recent' }, { id: 'gone', name: 'deleted' }],
+      Array.from({ length: 6 }, (_, index) => ({ id: String(index + 1), name: `item ${index + 1}` })),
+    ).map(({ id }) => id)).toEqual(['2', '1', '3', '4', '5'])
   })
 })

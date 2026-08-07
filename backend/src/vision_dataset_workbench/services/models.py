@@ -13,7 +13,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from ..config import RuntimeSettings
-from ..models import InferenceModel, ModelProject, Task, User
+from ..models import (
+    InferenceModel,
+    ModelProject,
+    ModelProjectTag,
+    ModelProjectTagLink,
+    Task,
+    User,
+)
 from ..storage.browser import MODEL_EXTENSIONS
 from ..storage.paths import HomePathResolver, UnsafePathError
 from .projects import ProjectService
@@ -115,7 +122,53 @@ class ModelService:
             database.expunge(project)
             return project
 
-    def create_project(self, actor: User, name: str, description: str) -> ModelProject:
+    def list_tags(self) -> list[ModelProjectTag]:
+        with self._session_factory() as database:
+            items = list(database.scalars(select(ModelProjectTag).order_by(ModelProjectTag.name)))
+            for item in items:
+                database.expunge(item)
+            return items
+
+    def project_tags(self, project_id: str) -> list[str]:
+        with self._session_factory() as database:
+            return list(
+                database.scalars(
+                    select(ModelProjectTag.name)
+                    .join(ModelProjectTagLink, ModelProjectTagLink.tag_id == ModelProjectTag.id)
+                    .where(ModelProjectTagLink.model_project_id == project_id)
+                    .order_by(ModelProjectTag.name)
+                )
+            )
+
+    @staticmethod
+    def _set_tags(database, project_id: str, names: list[str]) -> None:
+        clean_names = list(dict.fromkeys(_clean_text(name, 24, "tag", required=True) for name in names))
+        if not 1 <= len(clean_names) <= 20:
+            raise InvalidModel("model project requires 1-20 tags")
+        for link in database.scalars(
+            select(ModelProjectTagLink).where(ModelProjectTagLink.model_project_id == project_id)
+        ):
+            database.delete(link)
+        database.flush()
+        for name in clean_names:
+            normalized = name.lower()
+            tag = database.scalar(
+                select(ModelProjectTag).where(ModelProjectTag.name_normalized == normalized)
+            )
+            if tag is None:
+                tag = ModelProjectTag(
+                    id=str(uuid4()),
+                    name=name,
+                    name_normalized=normalized,
+                    created_at=_utc_now(),
+                )
+                database.add(tag)
+                database.flush()
+            database.add(ModelProjectTagLink(model_project_id=project_id, tag_id=tag.id))
+
+    def create_project(
+        self, actor: User, name: str, description: str, tags: list[str]
+    ) -> ModelProject:
         now = _utc_now()
         project = ModelProject(
             id=str(uuid4()),
@@ -131,6 +184,8 @@ class ModelService:
         with self._session_factory() as database:
             try:
                 database.add(project)
+                database.flush()
+                self._set_tags(database, project.id, tags)
                 database.commit()
             except IntegrityError as exc:
                 database.rollback()
@@ -145,6 +200,7 @@ class ModelService:
         *,
         name: str,
         description: str,
+        tags: list[str] | None,
         version: int,
     ) -> ModelProject:
         with self._session_factory() as database:
@@ -158,6 +214,8 @@ class ModelService:
             project.name = _clean_text(name, 128, "model project name", required=True)
             project.name_normalized = _normalized_name(name)
             project.description = _clean_text(description, 2000, "description")
+            if tags is not None:
+                self._set_tags(database, project.id, tags)
             project.version += 1
             project.updated_at = _utc_now()
             try:

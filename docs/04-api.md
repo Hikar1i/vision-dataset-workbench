@@ -63,8 +63,10 @@
 | `POST /api/v1/model-projects` | Session + same-origin | 创建归档模型项目；训练类型拒绝手工创建 |
 | `GET/PATCH/DELETE /api/v1/model-projects/{id}` | Session；写入需创建者或管理员 | 查看、版本化编辑或逻辑删除模型项目 |
 | `GET /api/v1/model-projects/{id}/models` | Session | 返回指定模型项目内模型 |
+| `GET /api/v1/model-project-tags` | Session | 返回工作区模型项目标签候选 |
 | `POST /api/v1/model-projects/{id}/models` | Session + same-origin；创建者或管理员 | 创建 `.pt` 模型导入任务 |
 | `GET/PATCH/DELETE /api/v1/models/{id}` | Session；写入需项目管理权 | 查看、编辑/移动或逻辑删除模型 |
+| `GET /api/v1/models/{id}/download` | Session | 下载 ready 且路径通过受管目录校验的 `.pt` 模型 |
 | `GET /api/v1/hyperparameter-catalog` | Session | 返回 Detect v1 参数目录、类型、默认值和约束 |
 | `POST /api/v1/hyperparameter-catalog/validate-raw` | Session | 严格校验完整 RAW YAML；失败不返回可应用配置 |
 | `GET/POST /api/v1/hyperparameter-templates` | Session；创建需同源 | 列出或创建工作区全局不可变模板，可指定派生来源 |
@@ -73,13 +75,13 @@
 | `GET /api/v1/training/resources` | Session | 返回工作区 ready 数据集导出、活动模板和 ready basemodel 候选 |
 | `GET/POST /api/v1/training-tasks` | Session；创建需同源 | 按最近训练倒序列出任务，或创建含 1–10 个模型的草稿 |
 | `GET/PATCH /api/v1/training-tasks/{id}` | Session；PATCH 需创建者/管理员与同源 | 查看任务详情；仅 draft 可按 `version` 修改且 code 不可变 |
-| `POST /api/v1/training-tasks/{id}/start|cancel` | 创建者/管理员 + 同源 | 原子预检并冻结排队，或整体取消 queued/running 模型 |
-| `POST /api/v1/training-tasks/{id}/retry-failed|derive` | 创建者/管理员 + 同源 | 重试未成功子项，或固定各模型数据集/basemodel 派生新草稿 |
+| `POST /api/v1/training-tasks/{id}/start|cancel` | 创建者/管理员 + 同源 | 原子预检并冻结排队，或整体取消 queued/running 模型；预检会将 JSON/数据库中的整数型浮点 batch（如 `12.0`）规范化为固定批量，并聚合返回各模型资源与超参错误 |
+| `POST /api/v1/training-tasks/{id}/retry-failed|resume-interrupted|derive` | 创建者/管理员 + 同源 | 重试未成功子项、恢复具备 last.pt 的中断子项，或固定各模型数据集/basemodel 派生新草稿 |
 | `DELETE /api/v1/training-tasks/{id}` | 创建者/管理员 + 同源 | 拒绝活动任务；归档运行目录并保留已发布模型 |
 | `POST /api/v1/training-models/{id}/cancel|retry|resume` | 创建者/管理员 + 同源 | 单模型取消、从 epoch 0 重试或基于 last.pt 恢复中断 |
 | `POST /api/v1/training-models/{id}/derive|extend` | 创建者/管理员 + 同源 | 固定原数据集/basemodel 改超参派生，或从 best/last 追加 epoch |
 | `DELETE /api/v1/training-models/{id}` | 创建者/管理员 + 同源 | 活动模型拒绝；已发布模型要求 `confirm_published_model=true` |
-| `GET /api/v1/training-runs/{id}/metrics|log|pr-curve` | Session | 增量 epoch 指标、游标日志和交互 P-R JSON/授权图片回退 |
+| `GET /api/v1/training-runs/{id}/metrics|log|pr-curve` | Session | epoch 指标、去 ANSI 且按回车覆盖语义还原的终端日志快照和交互 P-R JSON；不再提供静态图片降级 |
 | `POST /api/v1/projects/{id}/models` | 系统管理员 + 项目访问 + 同源 | 登记 `~` 内 `.pt` YOLO 并归入临时模型项目 |
 | `GET /api/v1/me/x-anylabeling-server` | Session | 返回当前用户脱敏远程配置，不返回 API 密钥 |
 | `PUT /api/v1/me/x-anylabeling-server` | Session + 同源 | 验证远程模型目录后保存 URL 和可选密钥 |
@@ -141,7 +143,7 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 
 单张自动标注在 API 同步线程池运行，只返回可编辑草稿，不修改当前标注。请求用 `source=local|xanylabeling`、`model_id` 和可空 `remote_task_id` 标识来源；本地模型使用进程内互斥锁，远程模型使用当前用户配置。`categories` 接受项目英文标签或临时英文类别，`All` 表示使用模型可提供的全部类别；只有实际检出的缺失类别会加入项目标签。批量接口拒绝停用视频，并把 Worker 开始执行时启用的帧作为处理范围；任务只保存来源和模型选择，不保存服务器 URL、API 密钥或图片。`overwrite=false` 追加模型框，`overwrite=true` 覆盖整帧已有框。活动远程任务期间修改该用户 X-AnyLabeling 配置返回 409。
 
-模型项目全局可见，所有认证用户可创建 archive 项目，创建者或系统管理员可管理；training 项目仅由后续训练发布服务创建。导入只接受 `.pt` YOLO，Worker 发布时记录大小和 SHA-256。项目和模型删除从普通查询隐藏数据库记录，并将受管文件移入 `.deleted`；临时项目只读。X-AnyLabeling 用户配置语义不变。
+模型项目全局可见，所有认证用户可创建 archive 项目，创建者或系统管理员可管理；training 项目仅由训练发布服务创建。项目创建/编辑接受 1–20 个标签名，未指定时使用“未分类”。导入只接受 `.pt` YOLO，Worker 发布时记录大小和 SHA-256。项目和模型删除从普通查询隐藏数据库记录，并将受管文件移入 `.deleted`；临时项目只读。ready 模型可经授权下载接口读取，接口拒绝任意路径。X-AnyLabeling 用户配置语义不变。
 
 超参数模板全局可见，所有认证用户可创建；模板创建后不可编辑，需要变更时从已有模板派生新资源。非系统模板仅创建者或系统管理员可逻辑删除。RAW 接口仅接受单文档、顶层 mapping、无锚点/别名/重复键的 YAML，未知键、系统控制键、嵌套值、类型或范围错误都会整体拒绝；只有 `valid=true` 的响应可覆盖客户端表单。
 

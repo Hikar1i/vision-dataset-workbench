@@ -4,6 +4,7 @@ from vision_dataset_workbench.training.hyperparameters import (
     HyperparameterValidationError,
     catalog_payload,
     parse_raw,
+    validate_values,
 )
 
 
@@ -13,6 +14,10 @@ def test_catalog_is_unique_and_defaults_are_valid():
     assert catalog["version"] == "detect-v1"
     assert len(keys) == len(set(keys))
     assert not {"epochs", "batch", "imgsz", "model", "data"}.intersection(keys)
+    lr0 = next(item for item in catalog["items"] if item["key"] == "lr0")
+    patience = next(item for item in catalog["items"] if item["key"] == "patience")
+    assert lr0["step"] == 0.001 and lr0["precision"] == 5
+    assert patience["maximum"] == 1000 and patience["controls"] is False
 
 
 def test_raw_parser_normalizes_core_and_extra_values():
@@ -26,6 +31,18 @@ def test_raw_parser_normalizes_core_and_extra_values():
     }
 
 
+def test_integral_float_batch_is_normalized_as_fixed_batch():
+    assert validate_values({"epochs": 5, "batch": 12.0, "imgsz": 640}) == {
+        "epochs": 5,
+        "batch_mode": "fixed",
+        "batch_value": 12.0,
+        "image_size": 640,
+        "extra_parameters": {},
+    }
+    with pytest.raises(HyperparameterValidationError):
+        validate_values({"epochs": 5, "batch": 12.5, "imgsz": 640})
+
+
 @pytest.mark.parametrize(
     ("raw", "code"),
     [
@@ -33,6 +50,7 @@ def test_raw_parser_normalizes_core_and_extra_values():
         ("epochs: 1\nbatch: -1\nimgsz: 640\nunknown: 1", "unknown_key"),
         ("epochs: 1\nbatch: -1\nimgsz: 640\ndevice: 0", "system_key"),
         ("epochs: 1\nbatch: -1\nimgsz: 641", "invalid_value"),
+        ("epochs: 1\nbatch: -1\nimgsz: 1312", "invalid_value"),
         ("epochs: 1\nbatch: -1\nimgsz: 640\nlr0: [1]", "nested_value"),
         ("epochs: &e 1\nbatch: -1\nimgsz: 640", "yaml_feature"),
     ],

@@ -20,7 +20,7 @@ def batch_code(mode: str, value: float | None) -> str:
     if mode == "auto":
         return "auto"
     if mode == "fraction":
-        return f"p{int(round((value or 0) * 100))}"
+        return f"{int(round((value or 0) * 100))}pct"
     return str(int(value or 0))
 
 

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { logout } from '../api/auth'
 import { getCapabilities } from '../api/capabilities'
+import { rememberResource } from '../navigation/recentResources'
 import AppShell from './AppShell.vue'
 
 vi.mock('../api/auth', () => ({
@@ -29,6 +30,18 @@ vi.mock('../api/projects', () => ({
 }))
 vi.mock('../api/capabilities', () => ({
   getCapabilities: vi.fn(),
+}))
+vi.mock('../api/models', () => ({
+  listModelProjects: vi.fn().mockResolvedValue([
+    { id: 'model-1', name: 'Model 1' },
+    { id: 'model-2', name: 'Model 2' },
+  ]),
+}))
+vi.mock('../api/training', () => ({
+  listTrainingTasks: vi.fn().mockResolvedValue([
+    { id: 'training-1', name: 'Training 1' },
+    { id: 'training-2', name: 'Training 2' },
+  ]),
 }))
 
 const readyCapabilities = {
@@ -67,6 +80,30 @@ async function mountShell() {
               template: '<div />',
             },
           },
+          {
+            path: 'model-projects/:id',
+            component: {
+              mounted() {
+                rememberResource('vdm.recent-model-projects', {
+                  id: String(this.$route.params.id),
+                  name: `Model ${String(this.$route.params.id).split('-')[1]}`,
+                })
+              },
+              template: '<div />',
+            },
+          },
+          {
+            path: 'training-tasks/:id',
+            component: {
+              mounted() {
+                rememberResource('vdm.recent-training-tasks', {
+                  id: String(this.$route.params.id),
+                  name: `Training ${String(this.$route.params.id).split('-')[1]}`,
+                })
+              },
+              template: '<div />',
+            },
+          },
           { path: 'account', component: { template: '<div />' } },
           { path: 'admin/users', component: { template: '<div />' } },
         ],
@@ -101,6 +138,8 @@ describe('AppShell', () => {
     expect(wrapper.get('[data-test="nav-model-projects"]').text()).toContain('模型项目')
     expect(wrapper.get('[data-test="nav-hyperparameter-templates"]').text()).toContain('超参数模板')
     expect(wrapper.get('[data-test="nav-training-tasks"]').text()).toContain('训练任务')
+    expect(wrapper.findAll('[data-test="recent-model-project"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-test="recent-training-task"]')).toHaveLength(2)
     for (const selector of [
       '[data-test="nav-projects"]',
       '[data-test="nav-model-projects"]',
@@ -141,6 +180,34 @@ describe('AppShell', () => {
     second.wrapper.unmount()
   })
 
+  it('keeps model and training shortcut order stable for the app shell session', async () => {
+    localStorage.setItem('vdm.recent-model-projects', JSON.stringify([
+      { id: 'model-2', name: 'Model 2', visited_at: 20 },
+      { id: 'model-1', name: 'Model 1', visited_at: 10 },
+    ]))
+    localStorage.setItem('vdm.recent-training-tasks', JSON.stringify([
+      { id: 'training-2', name: 'Training 2', visited_at: 20 },
+      { id: 'training-1', name: 'Training 1', visited_at: 10 },
+    ]))
+    const { router, wrapper } = await mountShell()
+
+    await router.push('/model-projects/model-1')
+    await flushPromises()
+    await router.push('/training-tasks/training-1')
+    await flushPromises()
+    await router.push('/projects')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-test="recent-model-project"]').map((item) => item.text()))
+      .toEqual(['Model 2', 'Model 1'])
+    expect(wrapper.findAll('[data-test="recent-training-task"]').map((item) => item.text()))
+      .toEqual(['Training 2', 'Training 1'])
+    expect(JSON.parse(localStorage.getItem('vdm.recent-model-projects') ?? '[]')[0].id)
+      .toBe('model-1')
+    expect(JSON.parse(localStorage.getItem('vdm.recent-training-tasks') ?? '[]')[0].id)
+      .toBe('training-1')
+  })
+
   it('persists sidebar and project group preferences', async () => {
     const { wrapper } = await mountShell()
 
@@ -154,6 +221,7 @@ describe('AppShell', () => {
 
     expect(localStorage.getItem('vdm.sidebar-collapsed')).toBe('true')
     expect(localStorage.getItem('vdm.nav-projects-open')).toBe('false')
+    expect(wrapper.get('[data-test="project-group-toggle"]').attributes('aria-expanded')).toBe('false')
   })
 
   it('removes a deleted project from the current sidebar and storage', async () => {

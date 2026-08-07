@@ -21,8 +21,12 @@ from ..models import (
     TrainingTask,
     User,
 )
-from ..training.actions import model_actions
-from ..training.hyperparameters import effective_parameters, validate_values
+from ..training.actions import model_actions, task_actions
+from ..training.hyperparameters import (
+    HyperparameterValidationError,
+    effective_parameters,
+    validate_values,
+)
 from ..training.naming import build_artifact_code, validate_task_code
 
 ACTIVE = {"queued", "running", "canceling"}
@@ -350,13 +354,12 @@ class TrainingService:
             issues: list[str] = []
             for index, row in enumerate(models):
                 issue_count = len(issues)
-                dataset = db.get(
-                    DatasetExport, row.dataset_export_id or task.default_dataset_export_id
-                )
-                template = db.get(
-                    HyperparameterTemplate, row.template_id or task.default_template_id
-                )
-                base = db.get(InferenceModel, row.base_model_id or task.default_base_model_id)
+                dataset_id = row.dataset_export_id or task.default_dataset_export_id
+                template_id = row.template_id or task.default_template_id
+                base_id = row.base_model_id or task.default_base_model_id
+                dataset = db.get(DatasetExport, dataset_id) if dataset_id else None
+                template = db.get(HyperparameterTemplate, template_id) if template_id else None
+                base = db.get(InferenceModel, base_id) if base_id else None
                 if (
                     dataset is None
                     or dataset.deleted_at is not None
@@ -393,7 +396,14 @@ class TrainingService:
                     )
                 if row.image_size_override is not None:
                     parameters["imgsz"] = row.image_size_override
-                normalized = validate_values(parameters)
+                try:
+                    normalized = validate_values(parameters)
+                except HyperparameterValidationError as exc:
+                    issues.extend(
+                        f"models[{index}].hyperparameters.{issue.key or 'value'}: {issue.message}"
+                        for issue in exc.issues
+                    )
+                    continue
                 parameters = effective_parameters(
                     normalized["epochs"],
                     normalized["batch_mode"],
@@ -653,6 +663,27 @@ class TrainingService:
             self.new_run(actor, row.id, "retry")
         return self.get_task(actor, task_id)
 
+    def resume_interrupted(self, actor: User, task_id: str) -> TrainingTask:
+        task = self.get_task(actor, task_id)
+        if not self.can_manage(actor, task) or task.status in ACTIVE or task.status == "draft":
+            raise TrainingConflict("training task cannot be resumed")
+        resumed = 0
+        for model in self.task_models(task_id):
+            latest = self.model_runs(model.id)
+            run = latest[0] if latest else None
+            if (
+                model.status in {"failed", "canceled"}
+                and run
+                and run.last_path
+                and run.current_epoch > 0
+                and (self.workspace / run.last_path).is_file()
+            ):
+                self.new_run(actor, model.id, "resume")
+                resumed += 1
+        if not resumed:
+            raise TrainingConflict("no interrupted model has an available last.pt")
+        return self.get_task(actor, task_id)
+
     def derive_task(
         self,
         actor: User,
@@ -820,5 +851,28 @@ class TrainingService:
             key: value.__dict__
             for key, value in model_actions(
                 model.status, has_last=has_last, has_best=has_best
+            ).items()
+        }
+
+    def task_action_availability(
+        self, task: TrainingTask, models: list[TrainingModel]
+    ) -> dict[str, object]:
+        has_resumable = False
+        for model in models:
+            runs = self.model_runs(model.id)
+            latest = runs[0] if runs else None
+            if (
+                model.status in {"failed", "canceled"}
+                and latest
+                and latest.last_path
+                and latest.current_epoch > 0
+                and (self.workspace / latest.last_path).is_file()
+            ):
+                has_resumable = True
+                break
+        return {
+            key: value.__dict__
+            for key, value in task_actions(
+                task.status, [model.status for model in models], has_resumable=has_resumable
             ).items()
         }

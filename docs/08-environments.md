@@ -23,6 +23,8 @@ uv run python -c "import torch, ultralytics; print(torch.cuda.is_available()); p
 
 本地自动标注和训练时 API 与 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理并为每个训练模型启动独立 Python/Ultralytics 子进程。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理或训练预检后由运行时确认。本系统不再安装或加载本地 ONNX、Transformers 或 GroundingDINO 模型。
 
+训练子进程的当前目录固定为 `<workspace>/cache/ultralytics/`。Ultralytics 首次 AMP 检查可能在此下载辅助权重（例如 `yolo26n.pt`）；这是运行缓存，不是用户选择的 basemodel，也不得出现在源码目录。训练运行会把导出数据集配置转换为带绝对路径的运行级 `dataset.yaml`。
+
 远程自动标注不要求本系统安装模型运行依赖。用户在标注页配置可由 API 和 Worker 访问的 X-AnyLabeling Server 地址及可选 API 密钥；客户端访问本机服务时应填写 `http://127.0.0.1:<port>`，`0.0.0.0` 只用于服务监听。当前只接收矩形结果，服务端点选、关键点、多边形等任务不会出现在可选模型列表中。
 
 安装与启动前端：

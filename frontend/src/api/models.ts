@@ -34,6 +34,7 @@ export type ModelProject = {
   can_manage: boolean
   created_at: string
   updated_at: string
+  tags: string[]
 }
 
 export type RemoteModelOption = {
@@ -73,11 +74,13 @@ export const listModelProjects = () => json<ModelProject[]>('/api/v1/model-proje
 export const getModelProject = (modelProjectId: string) =>
   json<ModelProject>(`/api/v1/model-projects/${modelProjectId}`)
 
-export const createModelProject = (name: string, description: string) =>
+export const listModelProjectTags = () => json<string[]>('/api/v1/model-project-tags')
+
+export const createModelProject = (name: string, description: string, tags: string[]) =>
   json<ModelProject>('/api/v1/model-projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description, series_type: 'archive' }),
+    body: JSON.stringify({ name, description, tags, series_type: 'archive' }),
   })
 
 export const updateModelProject = (
@@ -85,10 +88,11 @@ export const updateModelProject = (
   name: string,
   description: string,
   version: number,
+  tags: string[],
 ) => json<ModelProject>(`/api/v1/model-projects/${modelProjectId}`, {
   method: 'PATCH',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ name, description, version }),
+  body: JSON.stringify({ name, description, version, tags }),
 })
 
 export const deleteModelProject = (modelProjectId: string) =>
@@ -99,6 +103,8 @@ export const listModelProjectModels = (modelProjectId: string) =>
 
 export const getInferenceModel = (modelId: string) =>
   json<InferenceModel>(`/api/v1/models/${modelId}`)
+
+export const modelDownloadUrl = (modelId: string) => `/api/v1/models/${modelId}/download`
 
 export const updateInferenceModel = (
   modelId: string,

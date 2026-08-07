@@ -4,13 +4,16 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
 } from "@ant-design/icons-vue";
-import { computed, onMounted, ref, watch } from "vue";
+import { ArrowDown, ArrowRight } from "@element-plus/icons-vue";
+import { computed, onMounted, ref } from "vue";
 import { ElNotification } from "element-plus";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 
 import { getCurrentUser, logout, type CurrentUser } from "../api/auth";
 import { getCapabilities } from "../api/capabilities";
 import { listProjects, type Project } from "../api/projects";
+import { listModelProjects, type ModelProject } from "../api/models";
+import { listTrainingTasks, type TrainingTask } from "../api/training";
 import TaskCenterDrawer from "../components/TaskCenterDrawer.vue";
 import {
   forgetProject,
@@ -18,7 +21,10 @@ import {
   rememberProject,
   resolveProjectShortcuts,
 } from "../navigation/recentProjects";
-import { readRecentResources } from "../navigation/recentResources";
+import {
+  readRecentResources,
+  resolveRecentResources,
+} from "../navigation/recentResources";
 
 const route = useRoute();
 const router = useRouter();
@@ -35,12 +41,14 @@ const modelProjectGroupOpen = ref(
 const recentModelProjects = ref(
   readRecentResources("vdm.recent-model-projects"),
 );
+const fallbackModelProjects = ref<ModelProject[]>([]);
 const trainingTaskGroupOpen = ref(
   localStorage.getItem("vdm.nav-training-tasks-open") !== "false",
 );
 const recentTrainingTasks = ref(
   readRecentResources("vdm.recent-training-tasks"),
 );
+const fallbackTrainingTasks = ref<TrainingTask[]>([]);
 const savedCollapsed = localStorage.getItem("vdm.sidebar-collapsed");
 const collapsed = ref(
   savedCollapsed === null
@@ -68,10 +76,13 @@ const breadcrumbs = computed(() => {
   return items.filter(Boolean);
 });
 const modelProjectShortcuts = computed(() => {
-  return recentModelProjects.value.slice(0, 5);
+  return resolveRecentResources(
+    recentModelProjects.value,
+    fallbackModelProjects.value,
+  );
 });
 const trainingTaskShortcuts = computed(() =>
-  recentTrainingTasks.value.slice(0, 5),
+  resolveRecentResources(recentTrainingTasks.value, fallbackTrainingTasks.value),
 );
 const sidebarExpanded = computed(() =>
   window.innerWidth < 768 ? mobileOpen.value : !collapsed.value,
@@ -160,25 +171,18 @@ async function showCapabilityWarning() {
 }
 
 onMounted(async () => {
-  const [currentUser, projects] = await Promise.all([
+  const [currentUser, projects, modelProjects, trainingTasks] = await Promise.all([
     getCurrentUser(),
     listProjects(1, 5),
+    listModelProjects(),
+    listTrainingTasks(),
   ]);
   user.value = currentUser;
   fallbackProjects.value = projects.items;
+  fallbackModelProjects.value = modelProjects;
+  fallbackTrainingTasks.value = trainingTasks;
   await showCapabilityWarning();
 });
-watch(
-  () => route.fullPath,
-  () => {
-    recentModelProjects.value = readRecentResources(
-      "vdm.recent-model-projects",
-    );
-    recentTrainingTasks.value = readRecentResources(
-      "vdm.recent-training-tasks",
-    );
-  },
-);
 </script>
 
 <template>
@@ -219,11 +223,11 @@ watch(
             data-test="project-group-toggle"
             type="button"
             aria-label="展开或收起最近项目"
+            :aria-expanded="projectGroupOpen"
             @click="toggleProjectGroup"
           >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="m7 10 5 5 5-5" />
-            </svg>
+            <ArrowDown v-if="projectGroupOpen" aria-hidden="true" />
+            <ArrowRight v-else aria-hidden="true" />
           </button>
         </div>
         <Transition name="sidebar-list">
@@ -251,13 +255,14 @@ watch(
             <span class="app-sidebar-label">模型项目</span>
           </RouterLink>
           <button
+            data-test="model-project-group-toggle"
             type="button"
             aria-label="展开或收起最近模型项目"
+            :aria-expanded="modelProjectGroupOpen"
             @click="toggleModelProjectGroup"
           >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="m7 10 5 5 5-5" />
-            </svg>
+            <ArrowDown v-if="modelProjectGroupOpen" aria-hidden="true" />
+            <ArrowRight v-else aria-hidden="true" />
           </button>
         </div>
         <Transition name="sidebar-list">
@@ -299,13 +304,14 @@ watch(
             <span class="app-sidebar-label">训练任务</span>
           </RouterLink>
           <button
+            data-test="training-task-group-toggle"
             type="button"
             aria-label="展开或收起最近训练任务"
+            :aria-expanded="trainingTaskGroupOpen"
             @click="toggleTrainingTaskGroup"
           >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="m7 10 5 5 5-5" />
-            </svg>
+            <ArrowDown v-if="trainingTaskGroupOpen" aria-hidden="true" />
+            <ArrowRight v-else aria-hidden="true" />
           </button>
         </div>
         <Transition name="sidebar-list">

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from "element-plus";
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import PrecisionRecallChart from "../components/PrecisionRecallChart.vue";
 import TrainingMetricsChart from "../components/TrainingMetricsChart.vue";
+import MetricTrendChart from "../components/MetricTrendChart.vue";
 import {
   cancelTrainingModel,
   deleteTrainingModel,
@@ -27,6 +28,7 @@ const model = ref<TrainingModel>();
 const metrics = ref<TrainingMetric[]>([]);
 const prCurve = ref<PrCurve>({ version: 1, kind: "unavailable", series: [] });
 const log = ref("");
+const logView = ref<HTMLElement>();
 const dialog = ref<"derive" | "extend" | null>(null);
 const action = reactive({
   task_code: "",
@@ -46,6 +48,15 @@ const active = computed(
     model.value &&
     ["queued", "running", "canceling"].includes(model.value.status),
 );
+function formatTime(value: string | null | undefined) {
+  return value ? value.slice(0, 19).replace("T", " ") : "—";
+}
+function duration(start: string | null | undefined, end: string | null | undefined) {
+  if (!start) return "—";
+  const seconds = Math.max(0, Math.floor(((end ? Date.parse(end) : Date.now()) - Date.parse(start)) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  return `${hours ? `${hours}h ` : ""}${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
 async function load() {
   task.value = await getTrainingTask(String(route.params.id));
   model.value = task.value.models?.find(
@@ -57,6 +68,8 @@ async function load() {
     metrics.value = await getTrainingMetrics(run.id);
     prCurve.value = await getTrainingPrCurve(run.id);
     log.value = (await getTrainingLog(run.id)).content;
+    await nextTick();
+    if (logView.value) logView.value.scrollTop = logView.value.scrollHeight;
   }
 }
 async function cancel() {
@@ -162,6 +175,7 @@ onMounted(async () => {
   timer = window.setInterval(() => {
     if (active.value) void load();
   }, 1500);
+  if (route.query.action === "derive" || route.query.action === "extend") open(route.query.action);
 });
 onBeforeUnmount(() => clearInterval(timer));
 </script>
@@ -173,21 +187,23 @@ onBeforeUnmount(() => clearInterval(timer));
         <span>{{ model?.artifact_code || "未冻结产物名" }}</span>
       </div>
       <div v-if="model">
-        <el-button v-if="active" type="warning" @click="cancel">取消</el-button
-        ><el-button v-if="model.actions.retry?.allowed" @click="retry"
+        <el-button type="warning" :disabled="!model.actions.cancel?.allowed" :title="model.actions.cancel?.message || '取消当前模型训练'" @click="cancel">取消</el-button
+        ><el-button :disabled="!model.actions.retry?.allowed" :title="model.actions.retry?.message || '重新训练模型'" @click="retry"
           >重试</el-button
-        ><el-button v-if="model.actions.resume?.allowed" @click="resume"
+        ><el-button :disabled="!model.actions.resume?.allowed" :title="model.actions.resume?.message || '从 last.pt 恢复'" @click="resume"
           >恢复中断</el-button
-        ><el-button v-if="model.actions.derive?.allowed" @click="open('derive')"
+        ><el-button :disabled="!model.actions.derive?.allowed" :title="model.actions.derive?.message || '派生新训练配置'" @click="open('derive')"
           >派生</el-button
         ><el-button
-          v-if="model.actions.extend?.allowed"
           type="primary"
+          :disabled="!model.actions.extend?.allowed"
+          :title="model.actions.extend?.message || '基于 checkpoint 追加训练'"
           @click="open('extend')"
           >追加训练</el-button
         ><el-button
-          v-if="model.actions.delete?.allowed"
           type="danger"
+          :disabled="!model.actions.delete?.allowed"
+          :title="model.actions.delete?.message || '删除模型任务'"
           @click="remove"
           >删除</el-button
         >
@@ -216,6 +232,10 @@ onBeforeUnmount(() => clearInterval(timer));
         <div>
           <span>PID</span><strong>{{ latest?.pid || "—" }}</strong>
         </div>
+        <div><span>CREATED</span><strong>{{ formatTime(model.created_at) }}</strong></div>
+        <div><span>STARTED</span><strong>{{ formatTime(model.started_at) }}</strong></div>
+        <div><span>DURATION</span><strong>{{ duration(model.started_at, model.finished_at) }}</strong></div>
+        <div><span>FINISHED</span><strong>{{ formatTime(model.finished_at) }}</strong></div>
       </section>
       <el-alert
         v-if="latest?.error"
@@ -230,35 +250,31 @@ onBeforeUnmount(() => clearInterval(timer));
       />
       <section class="panel">
         <header>
-          <span>METRICS / LINKED AXIS</span>
+          <span>METRICS</span>
           <h2>训练指标</h2>
           <p>
-            悬浮任一列可联动查看 loss、学习率、precision、recall 与
-            mAP；支持滚轮和滑块缩放。
+            每项指标独立展示；悬浮指针可查看对应 epoch 的横纵轴数值。
           </p>
         </header>
         <TrainingMetricsChart :metrics="metrics" />
-        <div class="metric-table">
-          <span v-for="item in metrics.slice(-5)" :key="item.epoch"
-            >E{{ item.epoch }} · P {{ item.precision?.toFixed(3) ?? "—" }} · R
-            {{ item.recall?.toFixed(3) ?? "—" }} · mAP50
-            {{ item.map50?.toFixed(3) ?? "—" }}</span
-          >
-        </div>
       </section>
-      <section class="panel pr-panel">
+      <section class="panel">
         <header>
-          <span>P-R TRAJECTORY</span>
-          <h2>Precision–Recall 训练轨迹</h2>
+          <span>CURVES</span>
+          <h2>评估曲线</h2>
         </header>
-        <PrecisionRecallChart :curve="prCurve" />
+        <div class="curves-grid">
+          <article class="curve-card"><header><strong>PR curve</strong></header><PrecisionRecallChart :curve="prCurve" /></article>
+          <article class="curve-card"><header><strong>mAP50</strong><span>{{ metrics.at(-1)?.map50?.toFixed(5) ?? '—' }}</span></header><MetricTrendChart :metrics="metrics" value-key="map50" label="mAP50" color="#4d7c0f" score /></article>
+          <article class="curve-card"><header><strong>mAP50:95</strong><span>{{ metrics.at(-1)?.map50_95?.toFixed(5) ?? '—' }}</span></header><MetricTrendChart :metrics="metrics" value-key="map50_95" label="mAP50:95" color="#7c3aed" score /></article>
+        </div>
       </section>
       <section class="panel">
         <header>
           <span>RUN LOG</span>
           <h2>训练日志</h2>
         </header>
-        <pre>{{ log || "暂无日志输出" }}</pre>
+        <pre ref="logView">{{ log || "暂无日志输出" }}</pre>
       </section>
     </div>
     <el-dialog
@@ -355,6 +371,7 @@ onBeforeUnmount(() => clearInterval(timer));
   color: #687482;
   font-size: 13px;
 }
+.curves-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.curve-card{min-width:0;border:1px solid #e0e5eb;background:#fbfcfd}.curve-card>header{display:flex;justify-content:space-between;padding:12px 14px 0}.curve-card>header span{color:#687482;font:12px ui-monospace,monospace}
 .metric-table {
   display: flex;
   flex-wrap: wrap;
@@ -405,5 +422,6 @@ onBeforeUnmount(() => clearInterval(timer));
   .model-summary {
     grid-template-columns: 1fr 1fr;
   }
+  .curves-grid{grid-template-columns:1fr}
 }
 </style>

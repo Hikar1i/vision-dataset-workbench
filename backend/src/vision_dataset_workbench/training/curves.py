@@ -14,8 +14,9 @@ def _finite(values: Iterable[object]) -> list[float]:
 def precision_recall_payload(
     validator: object, *, maximum_points: int = 500
 ) -> dict[str, object] | None:
-    names = list(getattr(validator, "curves", []) or [])
-    results = list(getattr(validator, "curves_results", []) or [])
+    metrics = getattr(validator, "metrics", validator)
+    names = list(getattr(metrics, "curves", []) or [])
+    results = list(getattr(metrics, "curves_results", []) or [])
     for name, result in zip(names, results, strict=False):
         if "precision-recall" not in str(name).lower() and "pr" not in str(name).lower():
             continue
@@ -28,16 +29,18 @@ def precision_recall_payload(
             rows = [rows]
         series: list[dict[str, object]] = []
         step = max(1, len(recall) // maximum_points)
-        class_names = getattr(validator, "names", {}) or {}
+        class_names = getattr(validator, "names", {}) or getattr(metrics, "names", {}) or {}
+        class_indexes = list(getattr(metrics, "ap_class_index", []) or [])
         for index, row in enumerate(rows):
             precision = _finite(row)
             count = min(len(recall), len(precision))
             points = [[recall[i], precision[i]] for i in range(0, count, step)]
             if points:
+                class_index = class_indexes[index] if index < len(class_indexes) else index
                 label = (
-                    class_names.get(index, str(index))
+                    class_names.get(class_index, str(class_index))
                     if isinstance(class_names, dict)
-                    else str(index)
+                    else str(class_index)
                 )
                 series.append({"name": str(label), "points": points[:maximum_points]})
         if series:

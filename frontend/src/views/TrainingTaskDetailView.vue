@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from "element-plus";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
+  cancelTrainingModel,
   cancelTrainingTask,
+  deleteTrainingModel,
   deleteTrainingTask,
   deriveTrainingTask,
   getTrainingTask,
   retryFailedTrainingModels,
+  retryTrainingModel,
+  resumeInterruptedTrainingModels,
+  resumeTrainingModel,
+  startTrainingTask,
+  type TrainingModel,
   type TrainingTask,
 } from "../api/training";
 import {
@@ -19,6 +26,7 @@ const router = useRouter();
 const task = ref<TrainingTask>();
 const error = ref("");
 let timer: number | undefined;
+let loadVersion = 0;
 const active = computed(
   () =>
     task.value &&
@@ -45,12 +53,23 @@ const labels: Record<string, string> = {
   succeeded: "全部完成",
 };
 async function load() {
+  const version = ++loadVersion;
+  const id = String(route.params.id);
   try {
-    task.value = await getTrainingTask(String(route.params.id));
-    rememberResource("vdm.recent-training-tasks", task.value);
+    const nextTask = await getTrainingTask(id);
+    if (version !== loadVersion) return;
+    task.value = nextTask;
+    error.value = "";
+    rememberResource("vdm.recent-training-tasks", nextTask);
   } catch (e) {
+    if (version !== loadVersion) return;
     error.value = e instanceof Error ? e.message : "训练任务加载失败";
   }
+}
+function loadRouteTask() {
+  task.value = undefined;
+  error.value = "";
+  void load();
 }
 async function cancel() {
   try {
@@ -63,6 +82,42 @@ async function cancel() {
   } catch (e) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
+}
+async function start() {
+  if (!task.value) return;
+  try { task.value = await startTrainingTask(task.value.id); }
+  catch (e) { ElMessage.error(e instanceof Error ? e.message : "启动失败"); }
+}
+async function resumeInterrupted() {
+  if (!task.value) return;
+  try {
+    await ElMessageBox.confirm("仅恢复具有有效 last.pt 的中断模型。", "恢复中断模型");
+    task.value = await resumeInterruptedTrainingModels(task.value.id);
+  } catch (e) { if (e instanceof Error) ElMessage.error(e.message); }
+}
+async function modelAction(model: TrainingModel, action: "cancel" | "retry" | "resume" | "delete") {
+  try {
+    if (action === "cancel") await cancelTrainingModel(model.id);
+    else if (action === "resume") await resumeTrainingModel(model.id);
+    else if (action === "retry") {
+      let confirm = false;
+      if (model.status === "succeeded") {
+        await ElMessageBox.confirm("该模型已成功发布，重试成功后将覆盖当前发布模型。", "确认重试成功模型", { type: "warning" });
+        confirm = true;
+      }
+      await retryTrainingModel(model.id, confirm);
+    } else {
+      await ElMessageBox.confirm("删除会归档该模型运行目录；已发布模型也会逻辑删除。", "删除训练模型", { type: "warning" });
+      await deleteTrainingModel(model.id, model.status === "succeeded");
+    }
+    await load();
+  } catch (e) { if (e instanceof Error) ElMessage.error(e.message); }
+}
+function formatTime(value: string | null | undefined) { return value ? value.slice(0, 19).replace("T", " ") : "—"; }
+function duration(started: string | null | undefined, finished: string | null | undefined) {
+  if (!started) return "—";
+  const seconds = Math.max(0, Math.floor(((finished ? Date.parse(finished) : Date.now()) - Date.parse(started)) / 1000));
+  return `${Math.floor(seconds / 3600)}h ${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 async function remove() {
   try {
@@ -110,8 +165,8 @@ async function derive() {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
-onMounted(async () => {
-  await load();
+watch(() => route.params.id, loadRouteTask, { immediate: true });
+onMounted(() => {
   timer = window.setInterval(() => {
     if (active.value) void load();
   }, 1500);
@@ -126,33 +181,13 @@ onBeforeUnmount(() => clearInterval(timer));
         <span>{{ task?.code }}</span>
       </div>
       <div v-if="task">
-        <el-button
-          v-if="task.status === 'draft' && task.can_manage"
-          @click="router.push(`/training-tasks/${task.id}/edit`)"
-          >编辑草稿</el-button
-        ><el-button
-          v-if="!active && task.status !== 'draft' && task.can_manage"
-          @click="derive"
-          >派生任务</el-button
-        ><el-button
-          v-if="
-            ['failed', 'partial', 'canceled', 'start_failed'].includes(
-              task.status,
-            ) && task.can_manage
-          "
-          @click="retryFailed"
-          >重试未成功模型</el-button
-        ><el-button
-          v-if="active && task.can_manage"
-          type="warning"
-          @click="cancel"
-          >取消任务</el-button
-        ><el-button
-          v-if="!active && task.can_manage"
-          type="danger"
-          @click="remove"
-          >删除任务</el-button
-        >
+        <el-button :disabled="!task.can_manage || !task.actions.edit?.allowed" :title="task.actions.edit?.message || '编辑训练草稿'" @click="router.push(`/training-tasks/${task.id}/edit`)">编辑草稿</el-button>
+        <el-button type="primary" :disabled="!task.can_manage || !task.actions.start?.allowed" :title="task.actions.start?.message || '开始训练'" @click="start">开始训练</el-button>
+        <el-button :disabled="!task.can_manage || !task.actions.derive?.allowed" :title="task.actions.derive?.message || '派生任务'" @click="derive">派生任务</el-button>
+        <el-button :disabled="!task.can_manage || !task.actions.retry?.allowed" :title="task.actions.retry?.message || '重试未成功模型'" @click="retryFailed">重试未成功模型</el-button>
+        <el-button :disabled="!task.can_manage || !task.actions.resume?.allowed" :title="task.actions.resume?.message || '恢复中断模型'" @click="resumeInterrupted">恢复中断</el-button>
+        <el-button type="warning" :disabled="!task.can_manage || !task.actions.cancel?.allowed" :title="task.actions.cancel?.message || '取消任务'" @click="cancel">取消任务</el-button>
+        <el-button type="danger" :disabled="!task.can_manage || !task.actions.delete?.allowed" :title="task.actions.delete?.message || '删除任务'" @click="remove">删除任务</el-button>
       </div>
     </header>
     <div class="content-body">
@@ -183,11 +218,13 @@ onBeforeUnmount(() => clearInterval(timer));
           <div>
             <span>LAST RUN</span
             ><strong>{{
-              (task.last_run_at || task.created_at)
-                .slice(0, 19)
-                .replace("T", " ")
+              task.last_run_at ? formatTime(task.last_run_at) : "尚未开始"
             }}</strong>
           </div>
+          <div><span>CREATED</span><strong>{{ formatTime(task.created_at) }}</strong></div>
+          <div><span>STARTED</span><strong>{{ formatTime(task.started_at) }}</strong></div>
+          <div><span>DURATION</span><strong>{{ duration(task.started_at, task.finished_at) }}</strong></div>
+          <div><span>FINISHED</span><strong>{{ formatTime(task.finished_at) }}</strong></div>
           <el-progress
             :percentage="task.progress"
             :stroke-width="8"
@@ -241,13 +278,20 @@ onBeforeUnmount(() => clearInterval(timer));
             </div>
             <div class="run-meta">
               <span v-if="model.runs[0]?.pid">PID {{ model.runs[0].pid }}</span
-              ><span v-if="model.runs[0]?.started_at"
-                >{{ model.runs[0].started_at.slice(11, 19) }} 开始</span
-              >
+              ><span>创建 {{ formatTime(model.created_at) }}</span
+              ><span>开始 {{ formatTime(model.started_at) }}</span
+              ><span>持续 {{ duration(model.started_at, model.finished_at) }}</span
+              ><span>结束 {{ formatTime(model.finished_at) }}</span>
             </div>
-            <router-link :to="`/training-tasks/${task.id}/models/${model.id}`"
-              >训练详情</router-link
-            >
+            <div class="model-actions">
+              <router-link :to="`/training-tasks/${task.id}/models/${model.id}`">详情</router-link>
+              <el-button link :disabled="!model.actions.cancel?.allowed" :title="model.actions.cancel?.message || '取消'" @click="modelAction(model,'cancel')">取消</el-button>
+              <el-button link :disabled="!model.actions.retry?.allowed" :title="model.actions.retry?.message || '重试'" @click="modelAction(model,'retry')">重试</el-button>
+              <el-button link :disabled="!model.actions.resume?.allowed" :title="model.actions.resume?.message || '恢复中断'" @click="modelAction(model,'resume')">恢复</el-button>
+              <el-button link :disabled="!model.actions.derive?.allowed" :title="model.actions.derive?.message || '派生'" @click="router.push(`/training-tasks/${task.id}/models/${model.id}?action=derive`)">派生</el-button>
+              <el-button link :disabled="!model.actions.extend?.allowed" :title="model.actions.extend?.message || '追加训练'" @click="router.push(`/training-tasks/${task.id}/models/${model.id}?action=extend`)">追加</el-button>
+              <el-button link type="danger" :disabled="!model.actions.delete?.allowed" :title="model.actions.delete?.message || '删除'" @click="modelAction(model,'delete')">删除</el-button>
+            </div>
           </article>
         </section></template
       >
@@ -308,7 +352,7 @@ onBeforeUnmount(() => clearInterval(timer));
   display: grid;
   grid-template-columns:
     48px minmax(220px, 1.3fr) 92px minmax(170px, 0.7fr)
-    120px 80px;
+    minmax(180px,.7fr) minmax(260px,auto);
   gap: 14px;
   align-items: center;
   padding: 16px 20px;
@@ -342,10 +386,11 @@ onBeforeUnmount(() => clearInterval(timer));
 .run-meta {
   display: grid;
 }
-.model-run-card > a {
+.model-actions{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.model-actions a {
   color: #2563eb;
   text-decoration: none;
 }
+.model-actions a.disabled{color:#a8abb2;pointer-events:none}
 @media (max-width: 900px) {
   .run-hero {
     grid-template-columns: 1fr 1fr;

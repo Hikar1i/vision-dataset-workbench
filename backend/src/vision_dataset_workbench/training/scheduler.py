@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import psutil
+import yaml
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
@@ -16,6 +17,8 @@ from sqlalchemy.orm import sessionmaker
 from ..models import (
     InferenceModel,
     ModelProject,
+    ModelProjectTag,
+    ModelProjectTagLink,
     TrainingMetric,
     TrainingModel,
     TrainingRun,
@@ -130,6 +133,7 @@ class TrainingScheduler:
                         for source_key, target in (
                             ("box_loss", "box_loss"),
                             ("cls_loss", "cls_loss"),
+                            ("dfl_loss", "dfl_loss"),
                             ("learning_rate", "learning_rate"),
                             ("precision", "precision"),
                             ("recall", "recall"),
@@ -258,11 +262,25 @@ class TrainingScheduler:
                 base_path = self.workspace / chosen
             directory = self.workspace / run.storage_path
             directory.mkdir(parents=True, exist_ok=True)
+            dataset_directory = (self.workspace / dataset["storage_path"]).resolve()
+            source_yaml = dataset_directory / "dataset.yaml"
+            dataset_config = yaml.safe_load(source_yaml.read_text(encoding="utf-8"))
+            if not isinstance(dataset_config, dict):
+                raise ValueError("dataset.yaml must contain a mapping")
+            configured_root = Path(str(dataset_config.get("path") or "."))
+            if not configured_root.is_absolute():
+                configured_root = dataset_directory / configured_root
+            dataset_config["path"] = str(configured_root.resolve())
+            run_yaml = directory / "dataset.yaml"
+            run_yaml.write_text(
+                yaml.safe_dump(dataset_config, allow_unicode=True, sort_keys=False),
+                encoding="utf-8",
+            )
             spec = {
                 "run_id": run.id,
                 "token": run.run_token,
                 "gpu_index": run.gpu_index,
-                "dataset_yaml": str(self.workspace / dataset["storage_path"] / "dataset.yaml"),
+                "dataset_yaml": str(run_yaml),
                 "base_model": str(base_path),
                 "parameters": template["parameters"],
                 "output": str(directory),
@@ -275,6 +293,8 @@ class TrainingScheduler:
                 directory / "train.log",
             )
             spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+            cache_directory = self.workspace / "cache" / "ultralytics"
+            cache_directory.mkdir(parents=True, exist_ok=True)
             log = log_path.open("ab")
             process = self._popen(
                 [
@@ -289,6 +309,7 @@ class TrainingScheduler:
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
+                cwd=cache_directory,
             )
             log.close()
             run.pid = process.pid
@@ -349,6 +370,16 @@ class TrainingScheduler:
             )
             db.add(project)
             db.flush()
+            tag = db.scalar(
+                select(ModelProjectTag).where(ModelProjectTag.name_normalized == "训练")
+            )
+            if tag is None:
+                tag = ModelProjectTag(
+                    id=str(uuid4()), name="训练", name_normalized="训练", created_at=now
+                )
+                db.add(tag)
+                db.flush()
+            db.add(ModelProjectTagLink(model_project_id=project.id, tag_id=tag.id))
         published = db.scalar(
             select(InferenceModel).where(InferenceModel.training_model_id == model.id)
         )

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..models import InferenceModel, ModelProject, User
@@ -24,6 +25,7 @@ class CreateModelProjectRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str = Field(default="", max_length=2000)
     series_type: Literal["archive"] = "archive"
+    tags: list[str] = Field(default_factory=lambda: ["未分类"], min_length=1, max_length=20)
 
 
 class UpdateModelProjectRequest(BaseModel):
@@ -31,6 +33,7 @@ class UpdateModelProjectRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str = Field(default="", max_length=2000)
     version: int = Field(ge=1)
+    tags: list[str] | None = Field(default=None, min_length=1, max_length=20)
 
 
 class RegisterModelRequest(BaseModel):
@@ -59,6 +62,7 @@ class ModelProjectResponse(BaseModel):
     can_manage: bool
     created_at: str
     updated_at: str
+    tags: list[str]
 
 
 class InferenceModelResponse(BaseModel):
@@ -113,6 +117,7 @@ def _project_response(
         can_manage=service.can_manage(actor, project),
         created_at=_utc_text(project.created_at),
         updated_at=_utc_text(project.updated_at),
+        tags=service.project_tags(project.id),
     )
 
 
@@ -178,6 +183,19 @@ def get_model(
     return _model_response(service, user, model)
 
 
+@router.get("/models/{model_id}/download")
+def download_model(
+    model_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> FileResponse:
+    try:
+        model, path = model_service(request).ready_model(model_id)
+    except (ModelNotFound, InvalidModel) as exc:
+        _raise_model_error(exc)
+    return FileResponse(path, filename=f"{model.model_code}.pt", media_type="application/octet-stream")
+
+
 @router.patch("/models/{model_id}", response_model=InferenceModelResponse)
 def update_model(
     model_id: str,
@@ -230,10 +248,18 @@ def create_model_project(
     require_same_origin(request)
     service = model_service(request)
     try:
-        project = service.create_project(user, payload.name, payload.description)
+        project = service.create_project(user, payload.name, payload.description, payload.tags)
     except (ModelConflict, InvalidModel) as exc:
         _raise_model_error(exc)
     return _project_response(service, user, project)
+
+
+@router.get("/model-project-tags", response_model=list[str])
+def list_model_project_tags(
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> list[str]:
+    return [tag.name for tag in model_service(request).list_tags()]
 
 
 @router.get("/model-projects/{project_id}", response_model=ModelProjectResponse)

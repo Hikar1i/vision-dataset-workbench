@@ -28,3 +28,16 @@ export function forgetResource(key: string, id: string) {
   localStorage.setItem(key, JSON.stringify(next))
   return next
 }
+
+export function resolveRecentResources(
+  recent: Pick<RecentResource, 'id' | 'name'>[],
+  available: { id: string; name: string }[],
+) {
+  const availableIds = new Set(available.map(({ id }) => id))
+  const result = recent.filter(({ id }) => availableIds.has(id))
+  for (const resource of available) {
+    if (!result.some(({ id }) => id === resource.id)) result.push(resource)
+    if (result.length === 5) break
+  }
+  return result.slice(0, 5)
+}

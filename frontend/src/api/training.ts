@@ -25,6 +25,7 @@ export type TrainingMetric = {
   epoch: number;
   box_loss: number | null;
   cls_loss: number | null;
+  dfl_loss: number | null;
   learning_rate: number | null;
   precision: number | null;
   recall: number | null;
@@ -80,6 +81,8 @@ export type TrainingModel = {
   base_model_snapshot: Record<string, unknown>;
   actions: Record<string, ActionAvailability>;
   runs: TrainingRun[];
+  created_at: string;
+  updated_at: string;
   started_at: string | null;
   finished_at: string | null;
 };
@@ -104,6 +107,7 @@ export type TrainingTask = {
   finished_at: string | null;
   created_at: string;
   updated_at: string;
+  actions: Record<string, ActionAvailability>;
   models?: TrainingModel[];
 };
 export type GpuDevice = {
@@ -124,7 +128,7 @@ export type TrainingCapabilities = {
   host: Record<string, unknown>;
 };
 export type TrainingResources = {
-  datasets: { id: string; name: string; project_name: string }[];
+  datasets: { id: string; name: string; project_id: string; project_name: string }[];
   templates: {
     id: string;
     name: string;
@@ -137,6 +141,7 @@ export type TrainingResources = {
     id: string;
     name: string;
     model_code: string;
+    project_id: string;
     project_name: string;
   }[];
 };
@@ -196,6 +201,8 @@ export const retryFailedTrainingModels = (id: string) =>
   json<TrainingTask>(`/api/v1/training-tasks/${id}/retry-failed`, {
     method: "POST",
   });
+export const resumeInterruptedTrainingModels = (id: string) =>
+  json<TrainingTask>(`/api/v1/training-tasks/${id}/resume-interrupted`, { method: "POST" });
 export const deriveTrainingTask = (
   id: string,
   payload: { task_code: string; task_name: string; description: string },
@@ -257,7 +264,6 @@ export type PrCurve =
       kind: "interactive";
       series: { name: string; points: [number, number][] }[];
     }
-  | { version: number; kind: "image"; url: string }
   | { version: number; kind: "unavailable"; series: [] };
 export const getTrainingPrCurve = (runId: string) =>
   json<PrCurve>(`/api/v1/training-runs/${runId}/pr-curve`);

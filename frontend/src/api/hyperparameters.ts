@@ -9,6 +9,9 @@ export type ParameterDefinition = {
   minimum: number | null
   maximum: number | null
   choices: string[]
+  step: number
+  precision: number
+  controls: boolean
 }
 
 export type HyperparameterCatalog = { version: string; items: ParameterDefinition[] }

@@ -15,8 +15,10 @@ import {
   type TrainingResources,
   type TrainingTaskDraft,
 } from "../api/training";
+import { ApiError } from "../api/auth";
 import GpuSequenceEditor from "../components/GpuSequenceEditor.vue";
 import TrainingModelEditor from "../components/TrainingModelEditor.vue";
+import { groupedOptions, hasEffectiveResources } from "../components/trainingResources";
 
 const route = useRoute();
 const router = useRouter();
@@ -58,7 +60,7 @@ function row(index: number): TrainingModelDraft {
   };
 }
 function add() {
-  if (form.models.length < 10) form.models.push(row(form.models.length + 1));
+  if (canAdd.value) form.models.push(row(form.models.length + 1));
 }
 function applyMode(mode: string) {
   if (mode === "single_model" && form.models.length > 1) {
@@ -118,30 +120,35 @@ async function load() {
         })),
       });
       taskVersion.value = task.version;
-    } else add();
+    } else form.models.push(row(1));
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : "训练表单加载失败");
   } finally {
     loading.value = false;
   }
 }
+const modelsHaveResources = computed(() =>
+  form.models.every((item) => hasEffectiveResources(item, form)),
+);
+const canAdd = computed(() =>
+  form.models.length < 10 && form.mode !== "single_model" && modelsHaveResources.value,
+);
+const datasetOptions = computed(() => groupedOptions(resources.value.datasets));
+const baseModelOptions = computed(() => groupedOptions(resources.value.base_models));
+const cascaderProps = { emitPath: false };
 const valid = computed(
   () =>
     /^[a-z][a-z0-9-]{2,31}$/.test(form.code) &&
     form.name.trim() &&
     form.models.length >= 1 &&
     form.models.length <= 10 &&
-    form.models.every(
-      (item) =>
-        item.name.trim() &&
-        (item.dataset_export_id || form.default_dataset_export_id) &&
-        (item.template_id || form.default_template_id) &&
-        (item.base_model_id || form.default_base_model_id),
-    ),
+    modelsHaveResources.value &&
+    form.models.every((item) => item.name.trim()),
 );
 async function save(start: boolean) {
-  if (!valid.value) return;
+  if (!valid.value || saving.value) return;
   saving.value = true;
+  let saved = false;
   try {
     let task;
     if (editing.value)
@@ -159,6 +166,8 @@ async function save(start: boolean) {
         },
       );
     else task = await createTrainingTask({ ...form, models: form.models });
+    taskVersion.value = task.version;
+    saved = true;
     if (start) {
       if (!trainingAvailable.value)
         throw new Error(capabilityReason.value || "当前主机训练能力不可用");
@@ -167,7 +176,11 @@ async function save(start: boolean) {
     ElMessage.success(start ? "训练任务已提交" : "草稿已保存");
     await router.push(`/training-tasks/${task.id}`);
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : "保存失败");
+    if (e instanceof ApiError && e.status === 409)
+      ElMessage.error("草稿已被其他操作更新，请刷新页面后再保存。");
+    else if (saved && start)
+      ElMessage.error(`草稿已保存，但启动失败：${e instanceof Error ? e.message : "未知错误"}`);
+    else ElMessage.error(e instanceof Error ? e.message : "保存失败");
   } finally {
     saving.value = false;
   }
@@ -183,12 +196,12 @@ onMounted(load);
       </div>
       <div>
         <el-button @click="router.push('/training-tasks')">取消</el-button
-        ><el-button :loading="saving" :disabled="!valid" @click="save(false)"
+        ><el-button :loading="saving" :disabled="!valid || saving" @click="save(false)"
           >保存草稿</el-button
         ><el-button
           type="primary"
           :loading="saving"
-          :disabled="!valid || !trainingAvailable"
+          :disabled="!valid || !trainingAvailable || saving"
           @click="save(true)"
           >保存并启动</el-button
         >
@@ -242,19 +255,18 @@ onMounted(load);
       <section class="editor-section">
         <header>
           <span>02 / DEFAULTS</span>
-          <h2>整批默认资源</h2>
+          <h2>任务总体设置</h2>
         </header>
         <div class="form-grid three">
           <el-form-item label="默认数据集"
-            ><el-select
+            ><el-cascader
               v-model="form.default_dataset_export_id"
+              :options="datasetOptions"
+              :props="cascaderProps"
               filterable
               clearable
-              ><el-option
-                v-for="item in resources.datasets"
-                :key="item.id"
-                :label="`${item.project_name} / ${item.name}`"
-                :value="item.id" /></el-select></el-form-item
+              placeholder="数据集项目 / 导出数据集"
+            /></el-form-item
           ><el-form-item label="默认超参模板"
             ><el-select v-model="form.default_template_id" filterable clearable
               ><el-option
@@ -262,17 +274,16 @@ onMounted(load);
                 :key="item.id"
                 :label="item.name"
                 :value="item.id" /></el-select></el-form-item
-          ><el-form-item label="默认 Base model"
-            ><el-select
+          ><el-form-item label="默认 Base model">
+          <el-cascader
               v-model="form.default_base_model_id"
+              :options="baseModelOptions"
+              :props="cascaderProps"
               filterable
               clearable
-              ><el-option
-                v-for="item in resources.base_models"
-                :key="item.id"
-                :label="`${item.project_name} / ${item.name}`"
-                :value="item.id" /></el-select
-          ></el-form-item>
+              placeholder="模型项目 / BaseModel"
+            />
+          </el-form-item>
         </div>
         <p class="field-note">
           未设置默认资源时，每个模型行必须单独选择；模型行选择值会覆盖任务默认。
@@ -286,7 +297,8 @@ onMounted(load);
           </div>
           <el-button
             :icon="Plus"
-            :disabled="form.models.length >= 10 || form.mode === 'single_model'"
+            :disabled="!canAdd"
+            :title="modelsHaveResources ? '添加模型' : '请先补齐现有模型的数据集、超参模板和 BaseModel'"
             @click="add"
             >添加模型</el-button
           >
@@ -297,6 +309,7 @@ onMounted(load);
           :devices="devices"
           :mode="form.mode"
           :task-code="form.code"
+          :defaults="form"
           @change="form.models = $event"
         /><GpuSequenceEditor
           v-if="form.mode === 'custom_sequence'"

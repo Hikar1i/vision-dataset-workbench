@@ -6,6 +6,9 @@ import { useRouter } from "vue-router";
 import {
   deleteTrainingTask,
   listTrainingTasks,
+  retryFailedTrainingModels,
+  resumeInterruptedTrainingModels,
+  startTrainingTask,
   type TrainingTask,
 } from "../api/training";
 
@@ -53,6 +56,14 @@ async function remove(task: TrainingTask) {
     ElMessage.error(e instanceof Error ? e.message : "删除失败");
   }
 }
+async function runAction(task: TrainingTask, action: "start" | "retry" | "resume") {
+  try {
+    if (action === "start") await startTrainingTask(task.id);
+    else if (action === "retry") await retryFailedTrainingModels(task.id);
+    else await resumeInterruptedTrainingModels(task.id);
+    await load();
+  } catch (e) { ElMessage.error(e instanceof Error ? e.message : "操作失败"); }
+}
 onMounted(load);
 </script>
 <template>
@@ -77,7 +88,7 @@ onMounted(load);
       <section v-loading="loading" class="task-index">
         <header v-if="tasks.length" class="task-row task-head">
           <span>训练任务</span><span>模式</span><span>状态 / 进度</span
-          ><span>最近训练</span><span />
+          ><span>创建时间</span><span>最近训练</span><span />
         </header>
         <article v-for="task in tasks" :key="task.id" class="task-row">
           <div class="task-name">
@@ -112,22 +123,24 @@ onMounted(load);
               :stroke-width="5"
             />
           </div>
-          <time>{{
-            (task.last_run_at || task.created_at).slice(0, 16).replace("T", " ")
-          }}</time>
+          <time>{{ task.created_at.slice(0, 16).replace("T", " ") }}</time>
+          <time>{{ task.last_run_at ? task.last_run_at.slice(0, 16).replace("T", " ") : "尚未开始" }}</time>
           <div class="actions">
             <router-link :to="`/training-tasks/${task.id}`">详情</router-link
-            ><router-link
-              v-if="task.status === 'draft' && task.can_manage"
-              :to="`/training-tasks/${task.id}/edit`"
-              >编辑</router-link
             ><el-button
-              v-if="
-                task.can_manage &&
-                !['queued', 'running', 'canceling'].includes(task.status)
-              "
+              link
+              :disabled="!task.actions.edit?.allowed || !task.can_manage"
+              :title="task.actions.edit?.message || '编辑训练草稿'"
+              @click="router.push(`/training-tasks/${task.id}/edit`)"
+              >编辑</el-button
+            ><el-button link :disabled="!task.can_manage || !task.actions.start?.allowed" :title="task.actions.start?.message || '开始训练'" @click="runAction(task,'start')">开始</el-button
+            ><el-button link :disabled="!task.can_manage || !task.actions.retry?.allowed" :title="task.actions.retry?.message || '重试失败'" @click="runAction(task,'retry')">重试</el-button
+            ><el-button link :disabled="!task.can_manage || !task.actions.resume?.allowed" :title="task.actions.resume?.message || '恢复中断'" @click="runAction(task,'resume')">恢复</el-button
+            ><el-button
               type="danger"
               link
+              :disabled="!task.can_manage || !task.actions.delete?.allowed"
+              :title="task.actions.delete?.message || '删除任务'"
               @click="remove(task)"
               >删除</el-button
             >
@@ -153,10 +166,10 @@ onMounted(load);
 }
 .task-row {
   display: grid;
-  grid-template-columns: minmax(270px, 1.4fr) 120px minmax(
+  grid-template-columns: minmax(240px, 1.2fr) 105px minmax(
       180px,
       0.8fr
-    ) 145px 150px;
+    ) 125px 125px minmax(280px,auto);
   gap: 18px;
   align-items: center;
   padding: 16px 20px;
@@ -196,6 +209,7 @@ onMounted(load);
   color: #2563eb;
   text-decoration: none;
 }
+.actions a.disabled{color:#a8abb2;pointer-events:none}
 time {
   color: #687482;
   font-size: 12px;
@@ -206,6 +220,7 @@ time {
   }
   .task-row > :nth-child(2),
   .task-row > :nth-child(4),
+  .task-row > :nth-child(5),
   .task-head {
     display: none;
   }

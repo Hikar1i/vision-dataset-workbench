@@ -74,20 +74,11 @@ onBeforeUnmount(() => {
     role="img"
     aria-label="可交互 Precision Recall 曲线"
   />
-  <img
-    v-else-if="curve.kind === 'image'"
-    :src="curve.url"
-    alt="Precision Recall 曲线"
-  /><el-empty v-else description="本次运行没有可用的 P-R 曲线" />
+  <el-empty v-else description="本次运行没有可用的 P-R 曲线" />
 </template>
 <style scoped>
 .pr-chart {
   width: 100%;
-  height: 420px;
-}
-img {
-  display: block;
-  max-width: 100%;
-  margin: auto;
+  height: 230px;
 }
 </style>

@@ -13,7 +13,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加不可变超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果。当前 `users` 表为：
+Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加不可变超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系，并为已有项目回填“未分类”。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -147,6 +147,8 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 | `system_key` | 可空唯一系统标识；`temporary` 对应兼容登记入口 |
 | `created_at` | 创建时间 |
 
+`model_project_tags` 保存工作区全局标签名称，`model_project_tag_links` 以 `(model_project_id, tag_id)` 复合主键保存多对多关系。每个模型项目必须有 1–20 个标签；迁移为既有项目关联“未分类”，训练任务自动发布的项目关联“训练”。
+
 `inference_models` 表保存全局受管推理模型：
 
 | 字段 | 约束/含义 |
@@ -184,7 +186,7 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 | `training_tasks` | UUID 主键；`code` 全局唯一且逻辑删除后不复用；保存名称、模式、默认资源、聚合状态/进度、创建者、版本和训练时间 |
 | `training_models` | 一个任务 1–10 个模型；保存显式资源、三项核心覆盖、GPU、lane 顺序、冻结快照、产物 code，以及派生/追加来源 |
 | `training_runs` | 每次 initial/retry/resume/extend 独立一行；保存 attempt、GPU、PID、token、事件游标、epoch、路径、主机快照、租约和终态信息 |
-| `training_metrics` | `(training_run_id, epoch)` 复合主键；保存 box/cls loss、学习率、precision、recall、mAP50、mAP50-95 和可选 P-R 数据 |
+| `training_metrics` | `(training_run_id, epoch)` 复合主键；保存 box/cls/dfl loss、学习率、precision、recall、mAP50、mAP50-95 和可选 P-R 数据 |
 
 任务状态为 `draft/queued/running/canceling/canceled/start_failed/failed/partial/succeeded`；模型和运行不含 `partial`。`(task_id,gpu_index,queue_order)` 唯一，GPU lane 顺序从 1 开始；SQLite 部分唯一索引确保每张 GPU 最多一个 `running/canceling` run。任务进度是所有模型 epoch 进度的等权聚合，列表按 `last_run_at` 倒序。
 

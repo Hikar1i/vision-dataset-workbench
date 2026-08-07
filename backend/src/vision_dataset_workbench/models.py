@@ -329,6 +329,28 @@ class ModelProject(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ModelProjectTag(Base):
+    __tablename__ = "model_project_tags"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(24))
+    name_normalized: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class ModelProjectTagLink(Base):
+    __tablename__ = "model_project_tag_links"
+
+    model_project_id: Mapped[str] = mapped_column(
+        ForeignKey("model_projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[str] = mapped_column(
+        ForeignKey("model_project_tags.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
 class InferenceModel(Base):
     __tablename__ = "inference_models"
     __table_args__ = (
@@ -617,6 +639,7 @@ class TrainingMetric(Base):
     epoch: Mapped[int] = mapped_column(Integer, primary_key=True)
     box_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
     cls_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dfl_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
     learning_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     precision: Mapped[float | None] = mapped_column(Float, nullable=True)
     recall: Mapped[float | None] = mapped_column(Float, nullable=True)

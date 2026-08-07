@@ -4,7 +4,7 @@
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十八版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型项目管理、不可变超参数模板、本地/远程模型推理、数据集导出、GPU 实时遥测和独立 Worker 训练调度器。
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、二十版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、带标签的模型项目管理、不可变超参数模板、本地/远程模型推理、数据集导出、GPU 实时遥测和独立 Worker 训练调度器。
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -40,7 +40,7 @@ Vue setup/auth/admin/project/media pages
   ├─ /api/v1/.../frames/<id>/annotations → AnnotationService
   │    └─ original-pixel rectangles + stable display order + annotation revision
   ├─ /api/v1/model-projects|models → ModelService
-  │    ├─ 全局可见、创建者/管理员写入的归档项目
+  │    ├─ 全局可见、创建者/管理员写入的归档项目与多标签分类
   │    ├─ 后台 `.pt` 导入、归档项目间移动与乐观并发
   │    └─ `.deleted/model-projects|models` 逻辑删除
   ├─ /api/v1/hyperparameter-* → HyperparameterTemplateService
@@ -49,7 +49,7 @@ Vue setup/auth/admin/project/media pages
   ├─ /api/v1/training-* → TrainingService
   │    ├─ 全局草稿、冻结快照、生命周期操作与逻辑删除
   │    ├─ 单模型/单卡串行/多卡自定义序列
-  │    └─ 指标、日志、P-R 曲线和训练模型项目发布
+  │    └─ 独立指标/曲线、终端快照日志和训练模型项目发布
   ├─ /api/v1/me/x-anylabeling-server → XAnyLabelingSettingsService
   ├─ /api/v1/.../auto-annotations → AutoAnnotationService
        ├─ synchronous single-frame review draft
@@ -70,7 +70,8 @@ Independent Python Worker
   ├─ YOLO dataset hardlinks + labels/manifest + atomic publication
   └─ TrainingScheduler
        ├─ 每 GPU 一个非抢占 FIFO lane、跨 GPU 并行
-       ├─ 独立 Python/Ultralytics 子进程 + JSONL 事件
+       ├─ 独立 Python/Ultralytics 子进程 + JSONL 事件与回调故障隔离
+       ├─ 运行级绝对路径 dataset.yaml 与工作区 Ultralytics 缓存
        └─ checkpoint 保留、指标入库和模型原子发布
 ```
 
@@ -132,6 +133,7 @@ SQLite             Persistent Worker
 - 路由页面只组织用户流程，不直接实现业务算法。
 - 项目、媒体、帧、标注、模型、任务和导出使用独立的功能模块。
 - 服务端状态是任务与资源的事实来源；页面本地状态只保存交互状态和可丢弃缓存。
+- 侧栏最近资源在 `AppShell` 挂载时形成会话快照，访问只持久化时间而不实时重排；复用的详情路由监听资源 ID，并拒绝过期响应覆盖当前 URL。
 - 批量操作提交服务端任务，不在浏览器中制造 O(视频数 × 帧数) 的请求瀑布。
 - UI 追求高信息密度、清晰层级和键鼠高效操作，具体设计系统在前端实现前确认。
 
@@ -186,6 +188,7 @@ SQLite             Persistent Worker
 - Worker 与 API 读取同一 SQLite 和工作区。复制、下载、抽帧和批量自动标注各自全局并发 2，模型入库和数据集导出各自全局并发 1；同类型每用户并发 1。每个 FFmpeg 抽帧进程限制 2 个线程，当前只部署一个调度 Worker。
 - 项目媒体位于 `projects/<project UUID>/videos/<video short code>.<ext>`，缩略图位于 `projects/<project UUID>/thumbnails/<video short code>_thumbnail.jpg`，采样帧位于 `projects/<project UUID>/frames/<video short code>/<video short code>_frame_000001.<jpg|png>`；执行中输出位于顶层 `tmp/<task UUID>/`，验证后原子发布。短码在项目内唯一，帧文件可按原名平铺复制；每视频子目录仍是重采样原子替换边界。
 - 数据集导出位于 `projects/<project UUID>/exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；图像通过硬链接引用当前帧文件，类别和源数据快照、YOLO 标签、配置及统计清单随产物保存。下载按请求流式生成 ZIP，不在工作区保留额外压缩包。
+- 训练子进程在 `<workspace>/cache/ultralytics/` 运行；Ultralytics 的 AMP 辅助权重等运行缓存不会写入源码目录。每次运行在自身目录生成解析为绝对路径的 `dataset.yaml`，避免相对路径随子进程工作目录漂移。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
 - Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
 - Python 核心依赖不包含本地大模型运行库；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、torchvision 和 Ultralytics。远程模型依赖只存在于 X-AnyLabeling-Server。

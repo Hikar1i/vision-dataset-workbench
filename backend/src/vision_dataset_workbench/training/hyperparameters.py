@@ -61,7 +61,7 @@ CATALOG = (
     _number("lrf", "最终学习率系数", "优化", 0.01, 0, 1),
     _number("momentum", "动量", "优化", 0.937, 0, 1),
     _number("weight_decay", "权重衰减", "优化", 0.0005, 0, 1),
-    _number("warmup_epochs", "预热轮数", "优化", 3, 0, 10000),
+    _number("warmup_epochs", "预热轮数", "优化", 3, 0, 100),
     _number("warmup_momentum", "预热动量", "优化", 0.8, 0, 1),
     _number("warmup_bias_lr", "预热偏置学习率", "优化", 0.1, 0, 1),
     ParameterDefinition("nbs", "标称批量", "损失", "integer", 64, 1, 4096),
@@ -74,12 +74,12 @@ CATALOG = (
     ),
     ParameterDefinition("rect", "矩形训练", "数据加载", "boolean", False),
     _number("multi_scale", "多尺度幅度", "数据加载", 0, 0, 1),
-    ParameterDefinition("close_mosaic", "关闭 Mosaic 轮数", "数据加载", "integer", 10, 0, 100000),
+    ParameterDefinition("close_mosaic", "关闭 Mosaic 轮数", "数据加载", "integer", 10, 0, 1000),
     _number("fraction", "数据使用比例", "数据加载", 1, 0.000001, 1),
     ParameterDefinition("seed", "随机种子", "数据加载", "integer", 0, 0, 2147483647),
     ParameterDefinition("deterministic", "确定性训练", "数据加载", "boolean", True),
     ParameterDefinition("single_cls", "单类别训练", "数据加载", "boolean", False),
-    ParameterDefinition("freeze", "冻结层数", "数据加载", "integer_or_null", None, 0, 100000),
+    ParameterDefinition("freeze", "冻结层数", "数据加载", "integer_or_null", None, 0, 1000),
     _number("hsv_h", "色相增强", "图像增强", 0.015, 0, 1),
     _number("hsv_s", "饱和度增强", "图像增强", 0.7, 0, 1),
     _number("hsv_v", "亮度增强", "图像增强", 0.4, 0, 1),
@@ -92,12 +92,33 @@ CATALOG = (
     _number("fliplr", "左右翻转概率", "图像增强", 0.5, 0, 1),
     _number("mosaic", "Mosaic 概率", "图像增强", 1, 0, 1),
     _number("mixup", "MixUp 概率", "图像增强", 0, 0, 1),
-    ParameterDefinition("patience", "早停耐心值", "验证", "integer", 100, 0, 100000),
+    ParameterDefinition("patience", "早停耐心值", "验证", "integer", 100, 0, 1000),
     ParameterDefinition("cos_lr", "余弦学习率", "验证", "boolean", False),
     ParameterDefinition("amp", "混合精度", "验证", "boolean", True),
 )
 DEFINITIONS = {item.key: item for item in CATALOG}
 CORE_KEYS = {"epochs", "batch", "imgsz"}
+UI_HINTS = {
+    "lr0": {"step": 0.001, "precision": 5},
+    "lrf": {"step": 0.01, "precision": 4},
+    "momentum": {"step": 0.01, "precision": 4},
+    "weight_decay": {"step": 0.0001, "precision": 6},
+    "warmup_momentum": {"step": 0.01, "precision": 4},
+    "warmup_bias_lr": {"step": 0.01, "precision": 4},
+    "multi_scale": {"step": 0.05, "precision": 2},
+    "fraction": {"step": 0.05, "precision": 2},
+    "hsv_h": {"step": 0.005, "precision": 3},
+    "hsv_s": {"step": 0.05, "precision": 2},
+    "hsv_v": {"step": 0.05, "precision": 2},
+    "translate": {"step": 0.05, "precision": 2},
+    "scale": {"step": 0.05, "precision": 2},
+    "perspective": {"step": 0.0001, "precision": 4},
+    "flipud": {"step": 0.05, "precision": 2},
+    "fliplr": {"step": 0.05, "precision": 2},
+    "mosaic": {"step": 0.05, "precision": 2},
+    "mixup": {"step": 0.05, "precision": 2},
+}
+NO_STEP_CONTROLS = {"warmup_epochs", "close_mosaic", "freeze", "patience", "workers", "seed"}
 
 
 @dataclass(frozen=True)
@@ -147,7 +168,16 @@ _UniqueSafeLoader.add_constructor(
 def catalog_payload() -> dict[str, Any]:
     return {
         "version": CATALOG_VERSION,
-        "items": [{**asdict(item), "choices": list(item.choices)} for item in CATALOG],
+        "items": [
+            {
+                **asdict(item),
+                "choices": list(item.choices),
+                "step": UI_HINTS.get(item.key, {}).get("step", 1),
+                "precision": UI_HINTS.get(item.key, {}).get("precision", 0),
+                "controls": item.key not in NO_STEP_CONTROLS,
+            }
+            for item in CATALOG
+        ],
     }
 
 
@@ -205,17 +235,23 @@ def validate_values(
     if "imgsz" in values and (
         not isinstance(imgsz, int)
         or isinstance(imgsz, bool)
-        or not 32 <= imgsz <= 8192
+        or not 32 <= imgsz <= 1280
         or imgsz % 32
     ):
         issues.append(
-            _issue("invalid_value", "imgsz 必须是 32–8192 且为 32 的倍数", "imgsz", marks)
+            _issue("invalid_value", "imgsz 必须是 32–1280 且为 32 的倍数", "imgsz", marks)
         )
+    integral_float_batch = (
+        isinstance(batch, float)
+        and isfinite(batch)
+        and batch.is_integer()
+        and 1 <= batch <= 4096
+    )
     batch_valid = (
         isinstance(batch, int)
         and not isinstance(batch, bool)
         and (batch == -1 or 1 <= batch <= 4096)
-    ) or (isinstance(batch, float) and isfinite(batch) and 0 < batch <= 1)
+    ) or integral_float_batch or (isinstance(batch, float) and isfinite(batch) and 0 < batch <= 1)
     if "batch" in values and not batch_valid:
         issues.append(
             _issue("invalid_value", "batch 必须为 -1、1–4096 整数或 (0,1] 小数", "batch", marks)
@@ -239,6 +275,8 @@ def validate_values(
     if issues:
         raise HyperparameterValidationError(issues)
     assert isinstance(epochs, int) and isinstance(imgsz, int)
+    if integral_float_batch:
+        batch = int(batch)
     if batch == -1:
         batch_mode, batch_value = "auto", None
     elif isinstance(batch, int):
