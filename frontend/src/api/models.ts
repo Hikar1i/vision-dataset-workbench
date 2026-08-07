@@ -185,3 +185,22 @@ export const createBatchAutoAnnotation = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...config, overwrite }),
   })
+
+export type BatchAutoAnnotationResult = {
+  task: ProjectTask
+  accepted_video_ids: string[]
+  rejected: Array<{ video_id: string; reason: string }>
+}
+
+export const createProjectBatchAutoAnnotation = (
+  projectId: string,
+  videoIds: string[],
+  config: AutoAnnotationConfig,
+  scope: 'unannotated' | 'all',
+  overwrite = false,
+) =>
+  json<BatchAutoAnnotationResult>(`/api/v1/projects/${projectId}/auto-annotations/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...config, video_ids: videoIds, scope, overwrite }),
+  })

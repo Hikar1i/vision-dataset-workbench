@@ -8,6 +8,7 @@ import {
   createExtractions,
   listVideos,
   setVideoEnabled,
+  setVideosEnabledByAnnotation,
   videoContentUrl,
   videoThumbnailUrl,
   type ImportBatch,
@@ -15,6 +16,7 @@ import {
 } from '../api/media'
 import type { Project } from '../api/projects'
 import ExtractionConfirmDialog from '../components/ExtractionConfirmDialog.vue'
+import BatchAnnotationDialog from '../components/BatchAnnotationDialog.vue'
 import ExportDatasetDialog from '../components/ExportDatasetDialog.vue'
 import FramesDialog from '../components/FramesDialog.vue'
 import ImportVideosDialog from '../components/ImportVideosDialog.vue'
@@ -40,6 +42,9 @@ const configureChoiceTargets = ref<Video[]>([])
 const extractionChoiceTargets = ref<Video[]>([])
 const extractionTargets = ref<Video[]>([])
 const extractionConfirmOpen = ref(false)
+const annotationOpen = ref(false)
+const annotationTargets = ref<Video[]>([])
+const enabledByAnnotationTargets = ref<Video[]>([])
 const changingEnabled = ref('')
 const error = ref('')
 
@@ -183,6 +188,43 @@ function openAnnotation(video: Video) {
   void router.push(`/projects/${projectId}/videos/${video.id}/annotation`)
 }
 
+function openBatchAnnotation() {
+  annotationTargets.value = selectedVideos.value
+  annotationOpen.value = true
+}
+
+function annotationSubmitted(accepted: string[]) {
+  selected.value = selected.value.filter((id) => !accepted.includes(id))
+  void load(page.value, pageSize.value, true)
+}
+
+function openEnabledByAnnotation() {
+  const targetVideos = selectedVideos.value
+  if (targetVideos.some((video) => video.has_annotations)) {
+    enabledByAnnotationTargets.value = targetVideos
+    return
+  }
+  void submitEnabledByAnnotation(targetVideos, 'annotated-only')
+}
+
+async function submitEnabledByAnnotation(targetVideos: Video[], scope: 'annotated-only' | 'all') {
+  try {
+    const result = await setVideosEnabledByAnnotation(
+      projectId,
+      targetVideos.map((video) => video.id),
+      scope,
+      scope === 'all',
+      Object.fromEntries(targetVideos.map((video) => [video.id, video.version])),
+    )
+    ElMessage.success(`已更新 ${result.accepted.length} 个视频的启停状态。`)
+    enabledByAnnotationTargets.value = []
+    selected.value = selected.value.filter((id) => !result.accepted.some((item) => item.video_id === id))
+    await load(page.value, pageSize.value, true)
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '按标注启停失败')
+  }
+}
+
 async function samplingSubmitted(batch: { accepted: Array<{ video_id: string }> }) {
   ElMessage.success('采样方案已保存。')
   const accepted = new Set(batch.accepted.map((item) => item.video_id))
@@ -301,6 +343,8 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
             <div>
             <el-button data-test="batch-configure" @click="configure(selected)">批量配置采样</el-button>
             <el-button data-test="batch-extract" @click="extract(selected)">批量抽帧</el-button>
+            <el-button data-test="batch-auto-annotate" @click="openBatchAnnotation">批量自动标注</el-button>
+            <el-button data-test="batch-enabled-by-annotation" @click="openEnabledByAnnotation">按标注启停</el-button>
             </div>
           </template>
           <template v-else>
@@ -500,6 +544,34 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
       :videos="samplingTargets"
       @submitted="samplingSubmitted"
     />
+    <BatchAnnotationDialog
+      v-if="canEdit"
+      v-model="annotationOpen"
+      :project-id="projectId"
+      :videos="annotationTargets"
+      @submitted="annotationSubmitted"
+    />
+    <el-dialog
+      append-to-body
+      :model-value="enabledByAnnotationTargets.length > 0"
+      title="按标注启停"
+      width="min(540px, calc(100vw - 32px))"
+      @update:model-value="!$event && (enabledByAnnotationTargets = [])"
+    >
+      <p>选中的视频中有 {{ enabledByAnnotationTargets.filter((video) => video.has_annotations).length }} 个已有标注。</p>
+      <template #footer>
+        <el-button @click="enabledByAnnotationTargets = []">取消</el-button>
+        <el-button
+          data-test="enabled-by-annotation-only"
+          @click="submitEnabledByAnnotation(enabledByAnnotationTargets, 'annotated-only')"
+        >仅处理有标注视频</el-button>
+        <el-button
+          data-test="enabled-by-annotation-all"
+          type="warning"
+          @click="submitEnabledByAnnotation(enabledByAnnotationTargets, 'all')"
+        >处理全部视频</el-button>
+      </template>
+    </el-dialog>
     <el-dialog
       append-to-body
       :model-value="configureChoiceTargets.length > 0"

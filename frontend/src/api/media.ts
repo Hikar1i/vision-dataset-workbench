@@ -187,6 +187,25 @@ export const setVideoEnabled = (
     body: JSON.stringify({ enabled, version }),
   })
 
+export type BatchEnabledByAnnotationResult = {
+  accepted: Array<{ video_id: string; enabled: boolean }>
+  rejected: Array<{ video_id: string; reason: string }>
+  scope: 'annotated-only' | 'all'
+}
+
+export const setVideosEnabledByAnnotation = (
+  projectId: string,
+  videoIds: string[],
+  scope: 'annotated-only' | 'all',
+  confirmAll = false,
+  revisions?: Record<string, number>,
+) =>
+  json<BatchEnabledByAnnotationResult>(`${projectPath(projectId)}/videos/batch-enabled-by-annotation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ video_ids: videoIds, scope, confirm_all: confirmAll, revisions }),
+  })
+
 export const listTasks = (projectId: string, page = 1) =>
   json<TaskPage>(`${projectPath(projectId)}/tasks?page=${page}`)
 
