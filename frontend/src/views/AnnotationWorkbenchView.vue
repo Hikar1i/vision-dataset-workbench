@@ -1241,16 +1241,16 @@ watch(reuseLabel, (reuse) => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  color: #dce5eb;
-  background: #111820;
+  color: var(--vdw-focus-ink);
+  background: var(--vdw-focus-canvas);
 }
 .annotation-workbench.filmstrip-hidden { grid-template-rows: 50px minmax(0, 1fr) 0; }
 
-.auto-bar { grid-column: 1 / -1; gap: 14px; justify-content: space-between; min-width: 0; padding: 0 10px; overflow: hidden; background: #1d2933; border-bottom: 1px solid #33414c; }
+.auto-bar { grid-column: 1 / -1; gap: 14px; justify-content: space-between; min-width: 0; padding: 0 10px; overflow: hidden; background: var(--vdw-focus-panel); border-bottom: 1px solid var(--vdw-focus-rule); }
 .auto-controls,
 .frame-controls { gap: 10px; min-width: 0; white-space: nowrap; }
 .auto-controls label,
-.frame-controls label { display: flex; align-items: center; gap: 5px; color: #aebbc4; font-size: 12px; }
+.frame-controls label { display: flex; align-items: center; gap: 5px; color: var(--vdw-focus-muted); font-size: 14px; }
 .model-project-select { width: 210px; }
 .model-select { width: 230px; }
 .remote-source-available { color: #16866f; }
@@ -1266,7 +1266,7 @@ watch(reuseLabel, (reuse) => {
 .auto-bar button.primary-action:hover:not(:disabled),
 .focus-actions button.primary-action:hover:not(:disabled) { background: #137762; border-color: #137762; }
 .auto-bar button.primary-action:disabled { color: #7f9d94; background: #28473f; border-color: #365c52; }
-.auto-warning { width: 84px; overflow: hidden; color: #d7a85b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.auto-warning { width: 96px; overflow: hidden; color: #e0b869; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 
 .tool-rail { display: flex; grid-row: 2 / 4; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; overflow-y: auto; background: #1a252e; border-right: 1px solid #33414c; }
 .tool-rail button { display: grid; place-items: center; flex: 0 0 40px; width: 40px; padding: 0; color: #b9c6cf; font: 700 20px var(--vdw-mono); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; transition: background 150ms ease, border-color 150ms ease, color 150ms ease; }
