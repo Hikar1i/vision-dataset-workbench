@@ -12,6 +12,7 @@ import {
   type Project,
   type ProjectMember,
 } from '../api/projects'
+import PageHeader from '../components/PageHeader.vue'
 
 const props = defineProps<{ project: Project }>()
 const emit = defineEmits<{ 'project-updated': [project: Project] }>()
@@ -125,6 +126,9 @@ onMounted(() => {
 
 <template>
   <main class="settings-shell">
+    <PageHeader title="项目设置">
+      <template #meta><span data-test="page-stat">{{ members.length }} 位成员</span></template>
+    </PageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
 
     <div v-loading="loading" class="settings-grid">
@@ -229,18 +233,21 @@ onMounted(() => {
 <style scoped>
 .settings-shell {
   min-height: 100%;
-  padding: 18px;
-  color: #17212b;
-  background: #f4f7fa;
+  padding: 22px;
+  color: var(--vdw-ink);
+  background: var(--vdw-canvas);
+}
+.settings-shell :deep(.page-header) {
+  margin: -22px -22px 22px;
 }
 .section-code {
-  color: #76dfc2;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  color: var(--vdw-teal);
+  font-family: var(--vdw-mono);
+  font-size: 13px;
   letter-spacing: 0.1em;
 }
 .panel .section-code {
-  color: #2563eb;
+  color: var(--vdw-info);
 }
 
 .settings-grid {

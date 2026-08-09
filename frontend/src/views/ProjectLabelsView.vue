@@ -14,6 +14,7 @@ import {
   type ProjectLabel,
 } from '../api/labels'
 import type { Project } from '../api/projects'
+import PageHeader from '../components/PageHeader.vue'
 import {
   randomLabelColor,
   readLabelColorCandidate,
@@ -184,12 +185,9 @@ onMounted(load)
 
 <template>
   <main class="content-page labels-shell">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title">
-        <h1>标签管理</h1>
-        <span>{{ labels.length }} 个类别</span>
-      </div>
-    </header>
+    <PageHeader title="标签管理">
+      <template #meta><span data-test="page-stat">{{ labels.length }} 个类别</span></template>
+    </PageHeader>
 
     <div class="content-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />

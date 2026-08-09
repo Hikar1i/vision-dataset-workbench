@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArrowLeft } from '@element-plus/icons-vue'
 import { ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 
@@ -35,6 +36,9 @@ watch(() => route.params.id, load, { immediate: true })
   <section class="project-shell">
     <header v-if="project" class="project-context" data-test="project-context">
       <div class="project-context-identity">
+        <RouterLink class="project-context-back" to="/projects" aria-label="返回数据集项目" title="返回数据集项目">
+          <el-icon><ArrowLeft /></el-icon>
+        </RouterLink>
         <code>PROJECT / {{ project.id.slice(0, 6).toUpperCase() }}</code>
         <strong :title="project.name">{{ project.name }}</strong>
         <span>{{ roleLabels[project.role] }}</span>
@@ -75,8 +79,8 @@ watch(() => route.params.id, load, { immediate: true })
   justify-content: space-between;
   gap: 18px;
   height: var(--vdm-project-context-height);
-  padding: 0 18px;
-  background: white;
+  padding: 0 24px;
+  background: var(--vdw-surface-raised);
   border-bottom: 1px solid var(--vdw-rule);
 }
 
@@ -89,37 +93,73 @@ watch(() => route.params.id, load, { immediate: true })
   white-space: nowrap;
 }
 
+.project-context-back {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: var(--vdw-muted);
+  text-decoration: none;
+  background: var(--vdw-surface);
+  border: 1px solid var(--vdw-rule);
+  border-radius: var(--vdm-radius-control);
+  transition: color var(--vdm-motion-fast) ease, border-color var(--vdm-motion-fast) ease, background-color var(--vdm-motion-fast) ease;
+}
+
+.project-context-back:hover {
+  color: var(--vdw-teal-hover);
+  background: #f0f7f5;
+  border-color: #9fc9bf;
+}
+
 .project-context-identity code {
   color: var(--vdw-teal);
-  font: 12px var(--vdw-mono);
+  font: 13px var(--vdw-mono);
 }
 
 .project-context-identity strong {
   overflow: hidden;
-  font-size: 15px;
+  font-size: 16px;
   text-overflow: ellipsis;
 }
 
 .project-context-identity span {
   color: var(--vdw-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .project-context nav {
-  align-self: stretch;
+  align-self: center;
+  gap: 4px;
+  padding: 4px;
+  background: #edf3f6;
+  border: 1px solid #d8e3e8;
+  border-radius: var(--vdm-radius-card);
 }
 
 .project-context nav a {
   display: grid;
   place-items: center;
+  min-height: 38px;
+  padding: 0 14px;
   color: var(--vdw-muted);
   font-size: 14px;
+  font-weight: 600;
   text-decoration: none;
-  border-bottom: 2px solid transparent;
+  border: 1px solid transparent;
+  border-radius: var(--vdm-radius-control);
+  transition: color var(--vdm-motion-fast) ease, background-color var(--vdm-motion-fast) ease, border-color var(--vdm-motion-fast) ease, box-shadow var(--vdm-motion-fast) ease;
+}
+
+.project-context nav a:hover {
+  color: var(--vdw-ink);
+  background: rgb(255 255 255 / 60%);
 }
 
 .project-context nav a.router-link-active {
-  color: var(--vdw-teal);
-  border-bottom-color: var(--vdw-teal);
+  color: var(--vdw-teal-hover);
+  background: var(--vdw-surface-raised);
+  border-color: #c8d8df;
+  box-shadow: 0 2px 7px rgb(24 43 55 / 10%);
 }
 </style>

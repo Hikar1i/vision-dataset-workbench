@@ -20,6 +20,7 @@ import BatchAnnotationDialog from '../components/BatchAnnotationDialog.vue'
 import ExportDatasetDialog from '../components/ExportDatasetDialog.vue'
 import FramesDialog from '../components/FramesDialog.vue'
 import ImportVideosDialog from '../components/ImportVideosDialog.vue'
+import PageHeader from '../components/PageHeader.vue'
 import SamplingDialog from '../components/SamplingDialog.vue'
 import { videoWorkflowStatus } from './videoStatus'
 
@@ -374,12 +375,10 @@ onUnmounted(() => {
 <template>
   <main class="workbench-shell">
     <section class="workspace">
-        <header class="workspace-toolbar">
-          <div class="workspace-toolbar-title">
-            <h1>视频资料库</h1>
-            <span>{{ total }} 个视频</span>
-          </div>
-          <div v-if="canEdit" class="workspace-toolbar-actions" data-test="video-toolbar-actions">
+        <PageHeader title="视频资料库">
+          <template #meta><span data-test="page-stat">{{ total }} 个视频</span></template>
+          <template v-if="canEdit" #actions>
+            <div class="workspace-toolbar-actions" data-test="video-toolbar-actions">
             <el-button
               data-test="import-videos"
               type="primary"
@@ -392,8 +391,9 @@ onUnmounted(() => {
             <el-button data-test="export-dataset" @click="exportOpen = true">
               导出数据集
             </el-button>
-          </div>
-        </header>
+            </div>
+          </template>
+        </PageHeader>
 
         <section class="video-action-lane" data-test="video-action-lane">
           <template v-if="canEdit && selected.length">
@@ -792,18 +792,8 @@ onUnmounted(() => {
   padding: 0 18px 26px;
 }
 
-.workspace-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 62px;
-  border-bottom: 1px solid var(--vdw-rule);
-}
-
-.workspace-toolbar-title {
-  display: flex;
-  align-items: baseline;
-  gap: 11px;
+.workspace :deep(.page-header) {
+  margin: 0 -18px 18px;
 }
 
 .workspace-toolbar-actions {
@@ -814,22 +804,6 @@ onUnmounted(() => {
 
 .workspace-toolbar-actions :deep(.el-button + .el-button) {
   margin-left: 0;
-}
-
-.workspace-toolbar h1 {
-  margin: 0;
-  font: 700 22px var(--vdw-title);
-  letter-spacing: -0.02em;
-}
-
-.workspace-toolbar span {
-  color: var(--vdw-muted);
-  font: 13px var(--vdw-mono);
-}
-
-.workspace-toolbar :deep(.el-button) {
-  height: var(--vdm-control-height);
-  border-radius: 2px;
 }
 
 .video-action-lane {

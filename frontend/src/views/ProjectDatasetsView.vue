@@ -12,6 +12,7 @@ import {
   type DatasetExportStatus,
 } from '../api/datasetExports'
 import type { Project } from '../api/projects'
+import PageHeader from '../components/PageHeader.vue'
 
 const props = defineProps<{ project: Project }>()
 const items = ref<DatasetExport[]>([])
@@ -120,9 +121,9 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 <template>
   <main class="datasets-view">
-    <header class="workspace-toolbar">
-      <div><h1>数据集管理</h1><span>{{ total }} 个导出产物</span></div>
-    </header>
+    <PageHeader title="数据集管理">
+      <template #meta><span data-test="page-stat">{{ total }} 个导出产物</span></template>
+    </PageHeader>
 
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <section v-loading="loading" class="datasets-table">
@@ -274,9 +275,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 <style scoped>
 .datasets-view { min-height: 100%; padding: 18px; background: var(--vdw-canvas); }
-.workspace-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.workspace-toolbar h1 { margin: 0; font-size: 20px; }
-.workspace-toolbar span { color: var(--vdw-muted); font-size: 13px; }
+.datasets-view :deep(.page-header) { margin: -20px -20px 20px; }
 .datasets-table { min-height: 260px; background: white; border: 1px solid var(--vdw-rule); }
 .frame-summary { display: grid; grid-template-columns: repeat(3, minmax(42px, 1fr)); gap: 8px; }
 .frame-summary span { display: grid; gap: 2px; min-width: 0; }
