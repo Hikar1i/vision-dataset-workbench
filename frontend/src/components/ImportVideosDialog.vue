@@ -107,6 +107,7 @@ watch(tab, () => {
     append-to-body
     :model-value="modelValue"
     title="导入视频"
+    top="3vh"
     width="min(1040px, calc(100vw - 32px))"
     @update:model-value="emit('update:modelValue', $event)"
   >

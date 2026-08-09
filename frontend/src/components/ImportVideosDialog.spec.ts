@@ -13,9 +13,9 @@ function mountDialog() {
       plugins: [ElementPlus],
       stubs: {
         ElDialog: {
-          props: ['modelValue'],
+          props: ['modelValue', 'top'],
           emits: ['update:modelValue'],
-          template: '<section v-if="modelValue"><slot /><slot name="footer" /></section>',
+          template: '<section v-if="modelValue" data-test="import-dialog" :data-top="top"><slot /><slot name="footer" /></section>',
         },
         ServerFilePicker: {
           emits: ['update:modelValue', 'update:selectedDirectory'],
@@ -39,6 +39,7 @@ describe('ImportVideosDialog', () => {
     const wrapper = mountDialog()
     await flushPromises()
 
+    expect(wrapper.get('[data-test="import-dialog"]').attributes('data-top')).toBe('3vh')
     expect(wrapper.find('[data-test="preview-local"]').exists()).toBe(false)
     await wrapper.get('[data-test="pick-files"]').trigger('click')
     expect(wrapper.text()).toContain('导入选中的 2 个视频')

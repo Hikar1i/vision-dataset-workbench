@@ -338,6 +338,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .server-file-picker {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
   border: 1px solid #d8dee6;
   border-radius: 8px;
@@ -416,8 +419,7 @@ onBeforeUnmount(() => {
 }
 
 .entry-body {
-  min-height: 320px;
-  max-height: 420px;
+  height: clamp(180px, 28vh, 300px);
   overflow: auto;
 }
 
