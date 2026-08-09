@@ -964,7 +964,7 @@ onUnmounted(() => {
   bottom: 2px;
   padding: 1px 2px;
   color: #c9fff0;
-  font: 9px var(--vdw-mono);
+  font: 12px var(--vdw-mono);
   background: rgb(13 23 32 / 72%);
 }
 
@@ -991,7 +991,7 @@ onUnmounted(() => {
   width: fit-content;
   padding: 2px 4px;
   color: #315d78;
-  font: 11px var(--vdw-mono);
+  font: 14px var(--vdw-mono);
   border: 1px solid #a8bfcd;
 }
 
