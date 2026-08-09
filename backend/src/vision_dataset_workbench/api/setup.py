@@ -1,6 +1,7 @@
 from dataclasses import replace
+from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from ..services.auth import build_auth_service
@@ -51,6 +52,7 @@ def list_directories(
     path: str = ".",
     page: int = 1,
     page_size: int = 100,
+    search: Annotated[str, Query(max_length=128)] = "",
     x_setup_token: str | None = Header(default=None),
 ) -> dict[str, object]:
     require_token(request, x_setup_token)
@@ -65,6 +67,7 @@ def list_directories(
             page=page,
             page_size=page_size,
             hidden_root=request.app.state.workspace,
+            search=search,
         )
     except (OSError, UnsafePathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1,10 +1,14 @@
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from ..models import User
-from ..storage.browser import create_home_directory, list_home_entries
+from ..storage.browser import (
+    create_home_directory,
+    list_home_entries,
+    normalize_extensions,
+)
 from ..storage.paths import HomePathResolver, UnsafePathError
 from .auth import current_user, require_same_origin
 
@@ -21,11 +25,16 @@ def list_entries(
     request: Request,
     _user: Annotated[User, Depends(current_user)],
     path: str = ".",
-    kind: Literal["directory", "video", "model"] = "video",
+    extensions: Annotated[list[str] | None, Query()] = None,
+    search: Annotated[str, Query(max_length=128)] = "",
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> dict[str, object]:
     resolver = HomePathResolver(request.app.state.settings.home)
+    try:
+        allowed_extensions = normalize_extensions(extensions or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         return list_home_entries(
             resolver,
@@ -33,8 +42,8 @@ def list_entries(
             page=page,
             page_size=page_size,
             hidden_root=request.app.state.workspace,
-            include_video_files=kind == "video",
-            include_model_files=kind == "model",
+            extensions=allowed_extensions,
+            search=search,
         )
     except (OSError, UnsafePathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

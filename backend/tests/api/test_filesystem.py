@@ -51,12 +51,14 @@ def test_authenticated_video_browser_filters_and_hides_workspace(tmp_path):
 
     assert client.get("/api/v1/filesystem").status_code == 401
     assert login(client).status_code == 200
-    response = client.get("/api/v1/filesystem", params={"path": ".", "kind": "video"})
+    response = client.get(
+        "/api/v1/filesystem",
+        params=[("path", "."), ("extensions", "mp4"), ("search", "ONE")],
+    )
 
     assert response.status_code == 200
     assert [(item["name"], item["type"]) for item in response.json()["items"]] == [
-        ("clips", "directory"),
-        ("one.MP4", "file"),
+        ("one.MP4", "mp4"),
     ]
     assert all(".vision-dataset-workbench" not in item["path"] for item in response.json()["items"])
     assert all(not item["path"].startswith("/") for item in response.json()["items"])
@@ -95,13 +97,28 @@ def test_browser_rejects_escapes_and_creates_directory(tmp_path):
     assert (home / "new").is_dir()
 
 
-def test_model_browser_includes_model_files_and_hides_dot_directories(tmp_path):
+def test_browser_filters_multiple_extensions_before_pagination(tmp_path):
     client, _home, _workspace = make_client(tmp_path)
     assert login(client).status_code == 200
 
-    response = client.get("/api/v1/filesystem", params={"path": ".", "kind": "model"})
+    response = client.get(
+        "/api/v1/filesystem",
+        params=[("extensions", "mp4"), ("extensions", "pt")],
+    )
 
     assert response.status_code == 200
-    names = [item["name"] for item in response.json()["items"]]
-    assert "detector.pt" in names
-    assert ".hidden-models" not in names
+    assert [(item["name"], item["type"]) for item in response.json()["items"]] == [
+        ("clips", "dir"),
+        ("detector.pt", "pt"),
+        ("one.MP4", "mp4"),
+    ]
+    filtered = client.get(
+        "/api/v1/filesystem",
+        params={"extensions": "pt", "search": "TECT", "page_size": 1},
+    )
+    assert filtered.status_code == 200
+    assert filtered.json()["total"] == 1
+    assert filtered.json()["items"][0]["name"] == "detector.pt"
+    assert client.get(
+        "/api/v1/filesystem", params={"extensions": "env"}
+    ).status_code == 422
