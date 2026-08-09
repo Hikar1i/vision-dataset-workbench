@@ -2,7 +2,7 @@
 import { Edit, Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 import {
   deleteInferenceModel,
@@ -17,10 +17,10 @@ import {
 } from '../api/models'
 import { MODEL_EXTENSIONS } from '../api/filesystem'
 import ServerFilePicker from '../components/ServerFilePicker.vue'
+import PageHeader from '../components/PageHeader.vue'
 import { rememberResource } from '../navigation/recentResources'
 
 const route = useRoute()
-const router = useRouter()
 const projectId = computed(() => String(route.params.id))
 const project = ref<ModelProject>()
 const models = ref<InferenceModel[]>([])
@@ -129,10 +129,10 @@ watch(projectId, loadRouteProject, { immediate: true })
 
 <template>
   <main class="content-page model-detail-page">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title"><el-button link @click="router.push('/model-projects')">模型项目 /</el-button><h1>{{ project?.name || '加载中' }}</h1><span>{{ readyCount }} / {{ models.length }} 个可用</span></div>
-      <div class="toolbar-actions"><el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button><el-button v-if="project?.can_manage" :icon="Edit" @click="openEdit">编辑项目</el-button><el-button v-if="project?.can_manage && project.series_type === 'archive'" type="primary" :icon="Plus" @click="importOpen = true">导入模型</el-button></div>
-    </header>
+    <PageHeader :title="project?.name || '加载中'" back-to="/model-projects" back-label="返回模型项目">
+      <template #meta><span data-test="page-stat">{{ readyCount }} / {{ models.length }} 个可用</span></template>
+      <template #actions><div class="toolbar-actions"><el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button><el-button v-if="project?.can_manage" :icon="Edit" @click="openEdit">编辑项目</el-button><el-button v-if="project?.can_manage && project.series_type === 'archive'" type="primary" :icon="Plus" @click="importOpen = true">导入模型</el-button></div></template>
+    </PageHeader>
     <div v-loading="loading" class="content-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
       <section v-if="project" class="project-summary">

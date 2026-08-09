@@ -17,6 +17,7 @@ import {
   type TrainingModel,
   type TrainingTask,
 } from "../api/training";
+import PageHeader from "../components/PageHeader.vue";
 import {
   forgetResource,
   rememberResource,
@@ -175,12 +176,9 @@ onBeforeUnmount(() => clearInterval(timer));
 </script>
 <template>
   <main class="content-page training-detail-page">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title">
-        <h1>{{ task?.name || "训练任务" }}</h1>
-        <span>{{ task?.code }}</span>
-      </div>
-      <div v-if="task">
+    <PageHeader :title="task?.name || '训练任务'" back-to="/training-tasks" back-label="返回训练任务">
+      <template #meta><span>{{ task?.code }}</span></template>
+      <template v-if="task" #actions><div>
         <el-button :disabled="!task.can_manage || !task.actions.edit?.allowed" :title="task.actions.edit?.message || '编辑训练草稿'" @click="router.push(`/training-tasks/${task.id}/edit`)">编辑草稿</el-button>
         <el-button type="primary" :disabled="!task.can_manage || !task.actions.start?.allowed" :title="task.actions.start?.message || '开始训练'" @click="start">开始训练</el-button>
         <el-button :disabled="!task.can_manage || !task.actions.derive?.allowed" :title="task.actions.derive?.message || '派生任务'" @click="derive">派生任务</el-button>
@@ -188,8 +186,8 @@ onBeforeUnmount(() => clearInterval(timer));
         <el-button :disabled="!task.can_manage || !task.actions.resume?.allowed" :title="task.actions.resume?.message || '恢复中断模型'" @click="resumeInterrupted">恢复中断</el-button>
         <el-button type="warning" :disabled="!task.can_manage || !task.actions.cancel?.allowed" :title="task.actions.cancel?.message || '取消任务'" @click="cancel">取消任务</el-button>
         <el-button type="danger" :disabled="!task.can_manage || !task.actions.delete?.allowed" :title="task.actions.delete?.message || '删除任务'" @click="remove">删除任务</el-button>
-      </div>
-    </header>
+      </div></template>
+    </PageHeader>
     <div class="content-body">
       <el-alert
         v-if="error"

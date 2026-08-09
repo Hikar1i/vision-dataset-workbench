@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import PrecisionRecallChart from "../components/PrecisionRecallChart.vue";
 import TrainingMetricsChart from "../components/TrainingMetricsChart.vue";
 import MetricTrendChart from "../components/MetricTrendChart.vue";
+import PageHeader from "../components/PageHeader.vue";
 import {
   cancelTrainingModel,
   deleteTrainingModel,
@@ -181,12 +182,9 @@ onBeforeUnmount(() => clearInterval(timer));
 </script>
 <template>
   <main class="content-page training-model-page">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title">
-        <h1>{{ model?.name || "训练模型" }}</h1>
-        <span>{{ model?.artifact_code || "未冻结产物名" }}</span>
-      </div>
-      <div v-if="model">
+    <PageHeader :title="model?.name || '训练模型'" :back-to="`/training-tasks/${route.params.id}`" back-label="返回训练任务">
+      <template #meta><span>{{ model?.artifact_code || "未冻结产物名" }}</span></template>
+      <template v-if="model" #actions><div>
         <el-button type="warning" :disabled="!model.actions.cancel?.allowed" :title="model.actions.cancel?.message || '取消当前模型训练'" @click="cancel">取消</el-button
         ><el-button :disabled="!model.actions.retry?.allowed" :title="model.actions.retry?.message || '重新训练模型'" @click="retry"
           >重试</el-button
@@ -207,8 +205,8 @@ onBeforeUnmount(() => clearInterval(timer));
           @click="remove"
           >删除</el-button
         >
-      </div>
-    </header>
+      </div></template>
+    </PageHeader>
     <div class="content-body" v-if="model">
       <section class="model-summary">
         <div>

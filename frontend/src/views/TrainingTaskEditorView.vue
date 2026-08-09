@@ -18,6 +18,7 @@ import {
 import { ApiError } from "../api/auth";
 import GpuSequenceEditor from "../components/GpuSequenceEditor.vue";
 import TrainingModelEditor from "../components/TrainingModelEditor.vue";
+import PageHeader from "../components/PageHeader.vue";
 import { groupedOptions, hasEffectiveResources } from "../components/trainingResources";
 
 const route = useRoute();
@@ -189,12 +190,9 @@ onMounted(load);
 </script>
 <template>
   <main v-loading="loading" class="content-page training-editor-page">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title">
-        <h1>{{ editing ? "编辑训练草稿" : "新建训练任务" }}</h1>
-        <span>仅 YOLO Detect 轴对齐矩形框模型</span>
-      </div>
-      <div>
+    <PageHeader :title="editing ? '编辑训练草稿' : '新建训练任务'" back-to="/training-tasks" back-label="返回训练任务">
+      <template #meta><span>仅 YOLO Detect 轴对齐矩形框模型</span></template>
+      <template #actions><div>
         <el-button @click="router.push('/training-tasks')">取消</el-button
         ><el-button :loading="saving" :disabled="!valid || saving" @click="save(false)"
           >保存草稿</el-button
@@ -205,8 +203,8 @@ onMounted(load);
           @click="save(true)"
           >保存并启动</el-button
         >
-      </div>
-    </header>
+      </div></template>
+    </PageHeader>
     <div class="content-body">
       <el-alert
         v-if="!trainingAvailable"
