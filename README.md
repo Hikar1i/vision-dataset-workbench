@@ -87,6 +87,8 @@ GPU 服务器将后端安装命令改为 `uv sync --python 3.12 --dev --extra gp
 - [部署](docs/07-deployment.md)
 - [环境与启动](docs/08-environments.md)
 - [已知问题](docs/09-known-issues.md)
+- [UI/UX 设计系统](docs/10-ui-ux-design-system.md)
+- [UI/UX 整体重构设计](docs/11-ui-ux-refactor-design.md)
 
 ## 本地 AI 工作区
 
