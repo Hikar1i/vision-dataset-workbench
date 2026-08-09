@@ -2,8 +2,9 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { initializeWorkspace } from '../api/setup'
-import ServerDirectoryPicker from '../components/ServerDirectoryPicker.vue'
+import type { CreateFilesystemDirectory, LoadFilesystemEntries } from '../api/filesystem'
+import { createSetupDirectory, initializeWorkspace, listSetupDirectories } from '../api/setup'
+import ServerFilePicker from '../components/ServerFilePicker.vue'
 
 const router = useRouter()
 const step = ref(0)
@@ -18,6 +19,9 @@ const workspaceDisplay = computed(() => {
   const prefix = parent.value === '.' ? '~' : `~/${parent.value}`
   return `${prefix}/.vision-dataset-workbench`
 })
+const loadDirectories: LoadFilesystemEntries = (query) => listSetupDirectories(token.value, query)
+const createDirectory: CreateFilesystemDirectory = (directory, name) =>
+  createSetupDirectory(token.value, directory, name)
 
 async function initialize() {
   submitting.value = true
@@ -101,7 +105,13 @@ async function initialize() {
           <h2>选择工作区父目录</h2>
           <p>系统将在所选位置创建 <code>.vision-dataset-workbench</code>。</p>
         </div>
-        <ServerDirectoryPicker v-model="parent" :token="token" />
+        <ServerFilePicker
+          v-model="parent"
+          mode="directory"
+          allow-create-directory
+          :load-entries="loadDirectories"
+          :create-directory="createDirectory"
+        />
 
         <div class="admin-heading">
           <h2>创建首个管理员</h2>

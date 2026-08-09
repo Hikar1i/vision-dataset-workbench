@@ -152,7 +152,11 @@ watch(search, () => {
   searchTimer = setTimeout(() => void load(current.value, 1), 250)
 })
 
-onMounted(() => load('.'))
+onMounted(() => load(
+  props.mode === 'directory' && typeof props.modelValue === 'string'
+    ? props.modelValue || '.'
+    : '.',
+))
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer)
   requestId += 1

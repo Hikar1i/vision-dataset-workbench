@@ -17,7 +17,7 @@ function mountDialog() {
           emits: ['update:modelValue'],
           template: '<section v-if="modelValue"><slot /><slot name="footer" /></section>',
         },
-        ServerVideoPicker: {
+        ServerFilePicker: {
           emits: ['update:modelValue', 'update:selectedDirectory'],
           template: `
             <div>

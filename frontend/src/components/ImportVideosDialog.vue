@@ -9,7 +9,8 @@ import {
   type ImportBatch,
   type RemotePreview,
 } from '../api/media'
-import ServerVideoPicker from './ServerVideoPicker.vue'
+import { VIDEO_EXTENSIONS } from '../api/filesystem'
+import ServerFilePicker from './ServerFilePicker.vue'
 
 const props = defineProps<{ modelValue: boolean; projectId: string }>()
 const emit = defineEmits<{
@@ -106,17 +107,17 @@ watch(tab, () => {
     append-to-body
     :model-value="modelValue"
     title="导入视频"
-    width="min(860px, calc(100vw - 32px))"
+    width="min(1040px, calc(100vw - 32px))"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <el-tabs v-model="tab">
       <el-tab-pane label="本地文件" name="local">
         <p class="instruction">直接选择一个或多个视频，或选择一个目录导入其第一层视频。</p>
-        <ServerVideoPicker
+        <ServerFilePicker
           v-model="selectedLocalFiles"
           v-model:selected-directory="selectedLocalDirectory"
-          multiple
-          :allow-create="false"
+          mode="multiple-files-or-directory"
+          :allowed-extensions="VIDEO_EXTENSIONS"
         />
       </el-tab-pane>
       <el-tab-pane label="远程 URL" name="remote">

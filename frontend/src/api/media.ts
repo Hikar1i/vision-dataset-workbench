@@ -97,22 +97,6 @@ export type GlobalTaskPage = {
   latest_terminal_at: string | null
 }
 
-export type FilesystemItem = {
-  name: string
-  path: string
-  type: 'directory' | 'file'
-  size: number | null
-}
-
-export type FilesystemPage = {
-  path: string
-  parent: string | null
-  items: FilesystemItem[]
-  page: number
-  page_size: number
-  total: number
-}
-
 export type LocalPreview = { path: string; name: string; size: number }
 export type RemotePreview = {
   title: string
@@ -215,22 +199,6 @@ export const listGlobalTasks = (page = 1, pageSize = 50) =>
       page_size: String(pageSize),
     })}`,
   )
-
-export const listFilesystem = (
-  path = '.',
-  page = 1,
-  kind: 'video' | 'model' = 'video',
-) =>
-  json<FilesystemPage>(
-    `/api/v1/filesystem?${new URLSearchParams({ path, kind, page: String(page) })}`,
-  )
-
-export const createFilesystemDirectory = (parent: string, name: string) =>
-  json<{ path: string; display_path: string }>('/api/v1/filesystem/directories', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ parent, name }),
-  })
 
 export const previewLocal = (projectId: string, path: string) =>
   json<LocalPreview[]>(`${projectPath(projectId)}/imports/local/preview`, {
