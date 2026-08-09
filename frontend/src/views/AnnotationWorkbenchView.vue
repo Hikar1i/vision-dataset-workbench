@@ -1285,48 +1285,48 @@ watch(reuseLabel, (reuse) => {
 .panel-overlay { position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; color: #afbdc6; background: rgb(12 18 23 / 62%); }
 .panel-overlay--passive { pointer-events: none; background: rgb(12 18 23 / 22%); }
 
-.info-panel { display: grid; grid-column: 3; grid-row: 2; grid-template-rows: auto minmax(0, 1fr) 200px; min-height: 0; background: #f6f8f9; border-left: 1px solid #33414c; color: #24313a; }
+.info-panel { display: grid; grid-column: 3; grid-row: 2; grid-template-rows: auto minmax(0, 1fr) 200px; min-height: 0; color: var(--vdw-focus-ink); background: var(--vdw-focus-panel); border-left: 1px solid var(--vdw-focus-rule); }
 .image-info,
 .object-list,
 .minimap { min-width: 0; }
-.image-info { padding: 5px 10px 10px 10px; border-bottom: 1px solid #d2dae0; }
+.image-info { padding: 5px 10px 10px 10px; border-bottom: 1px solid var(--vdw-focus-rule); }
 .image-info header,
 .object-list > header,
 .minimap header { justify-content: space-between; height: 27px; }
 .info-heading-actions { display: flex; align-items: center; gap: 6px; }
-.info-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #5f6e78; background: transparent; border: 0; cursor: pointer; }
-.info-heading-actions button:hover { color: #16866f; background: #e4eeeb; }
+.info-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: var(--vdw-focus-muted); background: transparent; border: 0; cursor: pointer; }
+.info-heading-actions button:hover { color: var(--vdw-focus-primary); background: #223b46; }
 .object-heading-actions { display: flex; align-items: center; gap: 3px; }
-.object-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #5f6e78; background: transparent; border: 0; cursor: pointer; }
-.object-heading-actions button:hover:not(:disabled) { color: #16866f; background: #e4eeeb; }
-.object-heading-actions button:disabled { color: #b0bac0; cursor: not-allowed; }
+.object-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: var(--vdw-focus-muted); background: transparent; border: 0; cursor: pointer; }
+.object-heading-actions button:hover:not(:disabled) { color: var(--vdw-focus-primary); background: #223b46; }
+.object-heading-actions button:disabled { color: #61717a; cursor: not-allowed; }
 .image-info header strong,
 .object-list header strong,
 .minimap header strong { font-size: 13px; }
 .image-info header span,
 .object-list header span,
-.minimap header span { color: #74818b; font: 13px var(--vdw-mono); }
-.image-info dl { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 5px 8px; margin: 5px 0 0; font-size: 12px; }
-.image-info dt { color: #7a8790; }
+.minimap header span { color: var(--vdw-focus-muted); font: 13px var(--vdw-mono); }
+.image-info dl { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 5px 8px; margin: 5px 0 0; font-size: 14px; }
+.image-info dt { color: var(--vdw-focus-muted); }
 .image-info dd { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .object-list { overflow-y: auto; padding: 5px 10px; scrollbar-width: none; }
 .object-list::-webkit-scrollbar { display: none; }
-.empty-copy { margin: 20px 0; color: #84919a; font-size: 12px; text-align: center; }
-.object-group { margin-top: 5px; border: 1px solid #d4dce1; background: white; }
+.empty-copy { margin: 20px 0; color: var(--vdw-focus-muted); font-size: 14px; text-align: center; }
+.object-group { margin-top: 5px; background: #1d303a; border: 1px solid var(--vdw-focus-rule); }
 .object-group-row { display: grid; grid-template-columns: 15px minmax(0, 1fr) 36px 36px 36px; align-items: center; min-height: 45px; padding: 0 5px 0 8px; }
 .object-group-row i { width: 15px; height: 15px; border-radius: 50%; }
-.object-group-row button { display: grid; place-items: center; height: 34px; padding: 0; color: #4c5b65; background: transparent; border: 0; cursor: pointer; }
+.object-group-row button { display: grid; place-items: center; height: 34px; padding: 0; color: var(--vdw-focus-ink); background: transparent; border: 0; cursor: pointer; }
 .object-group-row button:not(.group-name) { font-size: 15px; }
 .object-group-row .group-name { display: block; overflow: hidden; width: 100%; padding-left: 7px; font-weight: 650; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.object-group-row span { color: #70808b; font: 14px var(--vdw-mono); text-align: center; }
-.box-list { border-top: 1px solid #e0e5e9; }
-.box-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; min-height: 30px; background: #fafcfc; border-bottom: 1px solid #edf0f2; }
-.box-item.selected { color: #116d5b; background: #e2f2ed; }
+.object-group-row span { color: var(--vdw-focus-muted); font: 14px var(--vdw-mono); text-align: center; }
+.box-list { border-top: 1px solid var(--vdw-focus-rule); }
+.box-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; min-height: 30px; background: #16262f; border-bottom: 1px solid var(--vdw-focus-rule); }
+.box-item.selected { color: var(--vdw-focus-primary); background: #203d3a; }
 .box-item > button { display: grid; place-items: center; min-width: 0; padding: 0; color: inherit; background: transparent; border: 0; cursor: pointer; }
 .box-item > button:disabled { color: #a8b1b7; cursor: not-allowed; }
 .box-item .box-select { grid-template-columns: 27px minmax(0, 1fr); padding: 0 7px; text-align: left; }
 .box-list code { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.minimap { padding: 8px 10px 10px; border-top: 1px solid #d2dae0; }
+.minimap { padding: 8px 10px 10px; border-top: 1px solid var(--vdw-focus-rule); }
 .minimap-image { position: relative; height: 155px; overflow: hidden; background: #17212b; }
 .minimap-svg { display: block; width: 100%; height: 100%; }
 .viewport-box { fill: rgb(120 210 184 / 8%); stroke: #78d2b8; stroke-width: 2px; filter: drop-shadow(0 0 1px rgb(23 33 43 / 75%)); pointer-events: none; }
