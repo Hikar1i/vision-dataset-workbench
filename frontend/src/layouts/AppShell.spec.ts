@@ -79,6 +79,7 @@ async function mountShell() {
               },
               template: '<div />',
             },
+            meta: { section: '数据集项目', page: '原始数据' },
           },
           {
             path: 'model-projects/:id',
@@ -213,10 +214,10 @@ describe('AppShell', () => {
 
     const sidebarToggle = wrapper.get('[data-test="sidebar-toggle"]')
     expect(sidebarToggle.attributes('aria-label')).toBe('收起侧栏')
-    expect(sidebarToggle.find('.anticon-menu-fold').exists()).toBe(true)
+    expect(sidebarToggle.find('.el-icon').exists()).toBe(true)
     await sidebarToggle.trigger('click')
     expect(sidebarToggle.attributes('aria-label')).toBe('展开侧栏')
-    expect(sidebarToggle.find('.anticon-menu-unfold').exists()).toBe(true)
+    expect(sidebarToggle.find('.el-icon').exists()).toBe(true)
     await wrapper.get('[data-test="project-group-toggle"]').trigger('click')
 
     expect(localStorage.getItem('vdm.sidebar-collapsed')).toBe('true')
@@ -243,13 +244,28 @@ describe('AppShell', () => {
     const { wrapper } = await mountShell()
 
     expect(wrapper.get('[data-test="brand"] .app-sidebar-icon').text()).toBe('VDM')
-    expect(wrapper.find('[data-test="nav-projects"] .app-sidebar-icon svg').exists()).toBe(true)
-    expect(wrapper.find('[data-test="nav-admin-users"] .app-sidebar-icon svg').exists()).toBe(true)
+    expect(wrapper.find('[data-test="nav-projects"] .app-sidebar-icon .el-icon').exists()).toBe(true)
+    expect(wrapper.find('[data-test="nav-admin-users"] .app-sidebar-icon .el-icon').exists()).toBe(true)
 
     await wrapper.get('[data-test="sidebar-toggle"]').trigger('click')
 
     expect(wrapper.get('.app-shell').classes()).toContain('app-shell--collapsed')
     expect(wrapper.get('[data-test="brand"] .app-sidebar-icon').text()).toBe('VDM')
+  })
+
+  it('renders real links for navigable breadcrumb levels', async () => {
+    const { router, wrapper } = await mountShell()
+
+    expect(wrapper.get('[data-test="breadcrumb-section"]').attributes('href')).toBe('/projects')
+    expect(wrapper.get('[data-test="breadcrumb-page"]').text()).toBe('全部项目')
+
+    await router.push('/projects/project-1/videos')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="breadcrumb-section"]').attributes('href')).toBe('/projects')
+    expect(wrapper.get('.app-breadcrumb a[href="/projects/project-1/videos"]').text()).toBe('Project 1')
+    expect(wrapper.get('[data-test="breadcrumb-page"]').text()).toBe('原始数据')
+    expect(wrapper.find('.app-sidebar-backdrop').exists()).toBe(false)
   })
 
   it('routes and signs out through the overlay user menu commands', async () => {

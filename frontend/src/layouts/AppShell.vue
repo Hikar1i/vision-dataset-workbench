@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import {
-  ExperimentOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-} from "@ant-design/icons-vue";
-import { ArrowDown, ArrowRight } from "@element-plus/icons-vue";
+  ArrowDown,
+  ArrowRight,
+  Box,
+  Cpu,
+  DataAnalysis,
+  Expand,
+  Files,
+  Fold,
+  Operation,
+  Setting,
+  User,
+} from "@element-plus/icons-vue";
 import { computed, onMounted, ref } from "vue";
 import { ElNotification } from "element-plus";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
@@ -49,13 +56,9 @@ const recentTrainingTasks = ref(
   readRecentResources("vdm.recent-training-tasks"),
 );
 const fallbackTrainingTasks = ref<TrainingTask[]>([]);
-const savedCollapsed = localStorage.getItem("vdm.sidebar-collapsed");
 const collapsed = ref(
-  savedCollapsed === null
-    ? window.innerWidth >= 768 && window.innerWidth < 1200
-    : savedCollapsed === "true",
+  localStorage.getItem("vdm.sidebar-collapsed") === "true",
 );
-const mobileOpen = ref(false);
 const taskCenterOpen = ref(false);
 const taskCenterUnread = ref(false);
 type UserMenuCommand = "account" | "admin" | "logout";
@@ -64,16 +67,30 @@ const capabilityNoticeKey = "vdm.gpu-capability-notice-shown";
 const shortcuts = computed(() =>
   resolveProjectShortcuts(recentProjects.value, fallbackProjects.value),
 );
+const sectionDestinations: Record<string, string> = {
+  Overview: "/overview",
+  数据集项目: "/projects",
+  模型项目: "/model-projects",
+  超参数模板: "/hyperparameter-templates",
+  训练任务: "/training-tasks",
+  系统管理: "/admin/users",
+};
 const breadcrumbs = computed(() => {
-  const items = [String(route.meta.section ?? "")];
+  const section = String(route.meta.section ?? "");
+  const items: Array<{ label: string; to?: string }> = [];
+  if (section) items.push({ label: section, to: sectionDestinations[section] });
   if (
     route.path.startsWith("/projects/") &&
     route.params.id &&
     activeProject.value
   )
-    items.push(activeProject.value.name);
-  items.push(String(route.meta.page ?? ""));
-  return items.filter(Boolean);
+    items.push({
+      label: activeProject.value.name,
+      to: `/projects/${route.params.id}/videos`,
+    });
+  const page = String(route.meta.page ?? "");
+  if (page && page !== section) items.push({ label: page });
+  return items;
 });
 const modelProjectShortcuts = computed(() => {
   return resolveRecentResources(
@@ -84,15 +101,9 @@ const modelProjectShortcuts = computed(() => {
 const trainingTaskShortcuts = computed(() =>
   resolveRecentResources(recentTrainingTasks.value, fallbackTrainingTasks.value),
 );
-const sidebarExpanded = computed(() =>
-  window.innerWidth < 768 ? mobileOpen.value : !collapsed.value,
-);
+const sidebarExpanded = computed(() => !collapsed.value);
 
 function toggleSidebar() {
-  if (window.innerWidth < 768) {
-    mobileOpen.value = !mobileOpen.value;
-    return;
-  }
   collapsed.value = !collapsed.value;
   localStorage.setItem("vdm.sidebar-collapsed", String(collapsed.value));
 }
@@ -190,23 +201,15 @@ onMounted(async () => {
     class="app-shell"
     :class="{
       'app-shell--collapsed': collapsed,
-      'app-shell--mobile-open': mobileOpen,
     }"
   >
-    <button
-      v-if="mobileOpen"
-      class="app-sidebar-backdrop"
-      type="button"
-      aria-label="关闭导航"
-      @click="mobileOpen = false"
-    />
     <aside class="app-sidebar">
       <RouterLink class="app-brand" data-test="brand" to="/overview">
         <span class="app-sidebar-icon">VDM</span>
       </RouterLink>
       <nav class="app-nav" aria-label="主导航">
         <RouterLink class="app-nav-entry" data-test="nav-overview" title="Overview" to="/overview">
-          <span class="app-sidebar-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h4v7H4zM10 4h4v16h-4zM16 9h4v11h-4z" /></svg></span>
+          <span class="app-sidebar-icon"><el-icon><DataAnalysis /></el-icon></span>
           <span class="app-sidebar-label">Overview</span>
         </RouterLink>
         <div class="app-nav-group">
@@ -217,9 +220,7 @@ onMounted(async () => {
             to="/projects"
           >
             <span class="app-sidebar-icon">
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5" />
-              </svg>
+              <el-icon><Files /></el-icon>
             </span>
             <span class="app-sidebar-label">数据集项目</span>
           </RouterLink>
@@ -230,8 +231,7 @@ onMounted(async () => {
             :aria-expanded="projectGroupOpen"
             @click="toggleProjectGroup"
           >
-            <ArrowDown v-if="projectGroupOpen" aria-hidden="true" />
-            <ArrowRight v-else aria-hidden="true" />
+            <el-icon><ArrowDown v-if="projectGroupOpen" /><ArrowRight v-else /></el-icon>
           </button>
         </div>
         <Transition name="sidebar-list">
@@ -253,9 +253,7 @@ onMounted(async () => {
             to="/model-projects"
           >
             <span class="app-sidebar-icon"
-              ><svg aria-hidden="true" viewBox="0 0 24 24">
-                <path d="M4 7h16v12H4zM8 7V4h8v3M8 12h8M8 16h5" /></svg
-            ></span>
+              ><el-icon><Box /></el-icon></span>
             <span class="app-sidebar-label">模型项目</span>
           </RouterLink>
           <button
@@ -265,8 +263,7 @@ onMounted(async () => {
             :aria-expanded="modelProjectGroupOpen"
             @click="toggleModelProjectGroup"
           >
-            <ArrowDown v-if="modelProjectGroupOpen" aria-hidden="true" />
-            <ArrowRight v-else aria-hidden="true" />
+            <el-icon><ArrowDown v-if="modelProjectGroupOpen" /><ArrowRight v-else /></el-icon>
           </button>
         </div>
         <Transition name="sidebar-list">
@@ -290,9 +287,7 @@ onMounted(async () => {
           to="/hyperparameter-templates"
         >
           <span class="app-sidebar-icon"
-            ><svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M5 5h14v14H5zM8 9h8M8 13h5M15 16h1" /></svg
-          ></span>
+            ><el-icon><Operation /></el-icon></span>
           <span class="app-sidebar-label">超参数模板</span>
         </RouterLink>
         <div class="app-nav-group">
@@ -303,8 +298,7 @@ onMounted(async () => {
             to="/training-tasks"
           >
             <span class="app-sidebar-icon"
-              ><ExperimentOutlined aria-hidden="true"
-            /></span>
+              ><el-icon><Cpu /></el-icon></span>
             <span class="app-sidebar-label">训练任务</span>
           </RouterLink>
           <button
@@ -314,8 +308,7 @@ onMounted(async () => {
             :aria-expanded="trainingTaskGroupOpen"
             @click="toggleTrainingTaskGroup"
           >
-            <ArrowDown v-if="trainingTaskGroupOpen" aria-hidden="true" />
-            <ArrowRight v-else aria-hidden="true" />
+            <el-icon><ArrowDown v-if="trainingTaskGroupOpen" /><ArrowRight v-else /></el-icon>
           </button>
         </div>
         <Transition name="sidebar-list">
@@ -341,11 +334,7 @@ onMounted(async () => {
           to="/admin/users"
         >
           <span class="app-sidebar-icon">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path
-                d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM5 21a7 7 0 0 1 14 0"
-              />
-            </svg>
+            <el-icon><User /></el-icon>
           </span>
           <span class="app-sidebar-label">用户管理</span>
         </RouterLink>
@@ -354,7 +343,7 @@ onMounted(async () => {
           title="大模型配置"
           to="/llm-configs"
         >
-          <span class="app-sidebar-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16v12H4zM7 10h5M7 14h8M16 10h1" /></svg></span>
+          <span class="app-sidebar-icon"><el-icon><Setting /></el-icon></span>
           <span class="app-sidebar-label">大模型配置</span>
         </RouterLink>
         <div class="app-sidebar-user" :title="user?.username">
@@ -374,11 +363,21 @@ onMounted(async () => {
           :aria-label="sidebarExpanded ? '收起侧栏' : '展开侧栏'"
           @click="toggleSidebar"
         >
-          <MenuFoldOutlined v-if="sidebarExpanded" aria-hidden="true" />
-          <MenuUnfoldOutlined v-else aria-hidden="true" />
+          <el-icon><Fold v-if="sidebarExpanded" /><Expand v-else /></el-icon>
         </button>
         <nav class="app-breadcrumb" aria-label="面包屑">
-          <span v-for="item in breadcrumbs" :key="item">{{ item }}</span>
+          <template v-for="(item, index) in breadcrumbs" :key="`${item.label}-${index}`">
+            <RouterLink
+              v-if="item.to && index < breadcrumbs.length - 1"
+              :data-test="index === 0 ? 'breadcrumb-section' : undefined"
+              :to="item.to"
+            >{{ item.label }}</RouterLink>
+            <span
+              v-else
+              :data-test="index === breadcrumbs.length - 1 ? 'breadcrumb-page' : undefined"
+              aria-current="page"
+            >{{ item.label }}</span>
+          </template>
         </nav>
         <button
           class="task-center-trigger"
@@ -400,9 +399,7 @@ onMounted(async () => {
         >
           <button class="user-menu-trigger" data-test="user-menu" type="button">
             <span>{{ user?.username }}</span>
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="m7 10 5 5 5-5" />
-            </svg>
+            <el-icon><ArrowDown /></el-icon>
           </button>
           <template #dropdown>
             <el-dropdown-menu>
