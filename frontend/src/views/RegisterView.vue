@@ -45,7 +45,7 @@ async function submit() {
 <template>
   <main class="utility-shell">
     <header class="utility-topbar">
-      <span class="utility-brand">VDW</span>
+      <span class="utility-brand">VISION DATASET WORKBENCH</span>
       <router-link to="/login">返回登录</router-link>
     </header>
 

@@ -117,15 +117,15 @@ async function submit() {
 
 <style scoped>
 .access-shell {
-  --ink: #17212b;
-  --muted: #687482;
-  --line: #d8dee6;
-  --signal: #2563eb;
-  --mint: #76dfc2;
+  --ink: var(--vdw-rail);
+  --muted: var(--vdw-muted);
+  --line: var(--vdw-rule);
+  --signal: var(--vdw-teal);
+  --mint: var(--vdw-mint);
   display: grid;
   grid-template-columns: minmax(340px, 42%) minmax(0, 1fr);
   min-height: 100vh;
-  background: #f4f7fa;
+  background: var(--vdw-canvas);
 }
 
 .instance-panel {
@@ -151,8 +151,8 @@ async function submit() {
 .frame-label,
 .section-code,
 .instance-readout {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-family: var(--vdw-mono);
+  font-size: 13px;
   letter-spacing: 0.11em;
 }
 
@@ -173,10 +173,7 @@ async function submit() {
   aspect-ratio: 1.55;
   margin: clamp(56px, 10vh, 112px) 0 44px;
   border: 1px solid #3a4652;
-  background:
-    linear-gradient(#26323e 1px, transparent 1px),
-    linear-gradient(90deg, #26323e 1px, transparent 1px);
-  background-size: 25% 25%;
+  background: #213b49;
 }
 
 .vision-frame::before,
@@ -236,7 +233,7 @@ async function submit() {
 
 .instance-copy h1 {
   margin: 0;
-  font-family: Bahnschrift, "Arial Narrow", "Noto Sans SC", sans-serif;
+  font-family: var(--vdw-title);
   font-size: clamp(40px, 4vw, 64px);
   font-stretch: condensed;
   font-weight: 600;
@@ -293,7 +290,7 @@ async function submit() {
 .login-box h2 {
   margin: 15px 0 9px;
   color: var(--ink);
-  font-size: 33px;
+  font: 700 34px var(--vdw-title);
   letter-spacing: -0.035em;
 }
 
@@ -301,7 +298,7 @@ async function submit() {
 .login-box footer {
   margin: 0;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 16px;
 }
 
 form,
@@ -338,34 +335,6 @@ form > .el-button {
 
 .login-box footer a:hover {
   text-decoration: underline;
-}
-
-@media (max-width: 820px) {
-  .access-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .instance-panel {
-    min-height: auto;
-    padding: 26px;
-  }
-
-  .vision-frame,
-  .instance-copy p,
-  .instance-readout {
-    display: none;
-  }
-
-  .instance-copy h1 {
-    margin-top: 31px;
-    font-size: 33px;
-    line-height: 1.05;
-  }
-
-  .login-panel {
-    min-height: auto;
-    padding: 44px 22px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

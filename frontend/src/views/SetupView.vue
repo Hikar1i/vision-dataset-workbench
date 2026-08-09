@@ -163,14 +163,14 @@ async function initialize() {
 
 <style scoped>
 .setup-shell {
-  --ink: #17212b;
-  --muted: #687482;
-  --line: #d8dee6;
-  --signal: #2563eb;
+  --ink: var(--vdw-rail);
+  --muted: var(--vdw-muted);
+  --line: var(--vdw-rule);
+  --signal: var(--vdw-teal);
   display: grid;
   grid-template-columns: minmax(260px, 32%) minmax(0, 1fr);
   min-height: 100vh;
-  background: #f4f7fa;
+  background: var(--vdw-canvas);
 }
 
 .setup-context {
@@ -184,20 +184,20 @@ async function initialize() {
 .eyebrow,
 .step-label,
 .path-preview span {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--vdw-mono);
   font-size: 13px;
   letter-spacing: 0.1em;
 }
 
 .eyebrow {
   margin: 0 0 62px;
-  color: #76dfc2;
+  color: var(--vdw-mint);
 }
 
 .setup-context h1 {
   max-width: 396px;
   margin: 0;
-  font-size: clamp(40px, 5vw, 70px);
+  font: 700 clamp(40px, 5vw, 70px) var(--vdw-title);
   line-height: 0.98;
   letter-spacing: -0.05em;
 }
@@ -227,7 +227,7 @@ async function initialize() {
 }
 
 .steps li span {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--vdw-mono);
   font-size: 13px;
 }
 
@@ -237,7 +237,7 @@ async function initialize() {
 }
 
 .steps li.active span {
-  color: #76dfc2;
+  color: var(--vdw-mint);
 }
 
 .path-preview {
@@ -253,7 +253,7 @@ async function initialize() {
 
 .path-preview code {
   overflow-wrap: anywhere;
-  color: #76dfc2;
+  color: var(--vdw-mint);
 }
 
 .setup-panel {
@@ -288,7 +288,7 @@ async function initialize() {
 h2 {
   margin: 0 0 8px;
   color: var(--ink);
-  font-size: 26px;
+  font: 700 26px var(--vdw-title);
   letter-spacing: -0.02em;
 }
 
@@ -316,38 +316,4 @@ h2 {
   border-top: 1px solid var(--line);
 }
 
-@media (max-width: 800px) {
-  .setup-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .setup-context {
-    min-height: auto;
-    padding: 31px 26px;
-  }
-
-  .eyebrow,
-  .context-copy,
-  .steps {
-    display: none;
-  }
-
-  .setup-context h1 {
-    font-size: 37px;
-  }
-
-  .path-preview {
-    padding-top: 26px;
-  }
-
-  .setup-panel {
-    width: min(100% - 35px, 1012px);
-    padding: 35px 0;
-  }
-
-  .password-grid {
-    grid-template-columns: 1fr;
-    gap: 0;
-  }
-}
 </style>
