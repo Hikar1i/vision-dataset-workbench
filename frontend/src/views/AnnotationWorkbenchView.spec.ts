@@ -230,7 +230,6 @@ describe('AnnotationWorkbenchView', () => {
       global: {
         stubs: {
           AnnotationCanvas: CanvasStub,
-          ServerVideoPicker: true,
           ElSelect: true,
           ElOption: true,
           ElInputNumber: true,
@@ -421,7 +420,6 @@ describe('AnnotationWorkbenchView', () => {
       global: {
         stubs: {
           AnnotationCanvas: CanvasStub,
-          ServerVideoPicker: true,
           ElSelect: true,
           ElOption: true,
           ElInputNumber: true,
