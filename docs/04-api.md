@@ -17,7 +17,7 @@
 | `GET /api/v1/health` | 无 | 进程存活检查，返回 `{"status":"ok"}` |
 | `GET /api/v1/capabilities` | Session | 返回缓存的 GPU、PyTorch CUDA、Ultralytics 与功能能力 |
 | `GET /api/v1/setup/status` | 无 | 返回工作区是否已初始化 |
-| `GET /api/v1/setup/directories` | `X-Setup-Token` | 分页浏览启动用户 `~` 内目录 |
+| `GET /api/v1/setup/directories` | `X-Setup-Token` | 分页浏览启动用户 `~` 内目录；支持当前目录 `search` 包含过滤 |
 | `POST /api/v1/setup/directories` | `X-Setup-Token` | 在受控父目录中新建目录 |
 | `POST /api/v1/setup/initialize` | `X-Setup-Token` | 创建工作区和首个管理员 |
 | `GET /api/v1/auth/status` | 无 | 返回 `multi/single` 运行模式和注册开关 |
@@ -42,7 +42,7 @@
 | `PATCH /api/v1/projects/{id}/labels/{label_id}` | owner/editor + 同源 | 按 `version` 修改名称、中文描述、颜色或启用状态 |
 | `PUT /api/v1/projects/{id}/labels/order` | owner/editor + 同源 | 原子提交项目全部标签 ID 的新顺序 |
 | `DELETE /api/v1/projects/{id}/labels/{label_id}` | owner/editor + 同源 | 删除未使用标签，返回 204 |
-| `GET /api/v1/filesystem` | Session | 按 `kind=directory/video/model` 浏览 `~` 内目录和受支持文件 |
+| `GET /api/v1/filesystem` | Session | 按重复的 `extensions` 参数浏览 `~` 内目录和受支持文件；支持当前目录 `search` 包含过滤 |
 | `POST /api/v1/filesystem/directories` | Session + 同源 | 在 `~` 边界内新建目录 |
 | `GET /api/v1/projects/{id}/videos` | 项目成员 | 分页读取视频、采样摘要和各视频最新任务；`page_size` 最大 999 |
 | `PUT /api/v1/projects/{id}/videos/{video_id}/enabled` | owner/editor + 同源 | 按 `version` 修改视频整体启用状态 |
@@ -109,7 +109,7 @@
 | `GET /api/v1/projects/{id}/dataset-exports/{export_id}/download` | 项目成员 | 流式下载 ready 产物 ZIP |
 | `DELETE /api/v1/projects/{id}/dataset-exports/{export_id}` | owner/editor + 同源 | 逻辑删除非活动导出，返回 204 |
 
-目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接，并从列表隐藏当前工作区。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户、项目和任务列表最大页大小 200，视频列表最大页大小 999，帧列表保持自身接口约束。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
+目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接，并从列表隐藏当前工作区。`GET /filesystem` 的 `extensions` 可重复传入，当前只接受服务端白名单中的视频扩展名和 `pt`；不传扩展名时只返回目录。返回条目的 `type` 为小写真实类型：目录是 `dir`，文件是去掉点号的扩展名。`search` 是不区分大小写的当前目录文件名包含匹配，在分页前执行且不递归。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户、项目和任务列表最大页大小 200，视频列表最大页大小 999，帧列表保持自身接口约束。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
 
 认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误、状态或模式限制。禁用账号立即撤销其会话，且不能禁用最后一个有效系统管理员。
 
