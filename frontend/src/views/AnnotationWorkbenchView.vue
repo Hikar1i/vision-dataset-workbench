@@ -11,6 +11,8 @@ import {
   QuestionFilled,
   Rank,
   Refresh,
+  RefreshLeft,
+  RefreshRight,
   Right,
   View,
   ZoomIn,
@@ -911,7 +913,7 @@ watch(reuseLabel, (reuse) => {
     </section>
 
     <aside class="tool-rail" aria-label="标注工具">
-      <button data-test="pan-tool" :class="{ active: mode === 'pan' }" type="button" title="拖拽（按住 Space）" @click="mode = mode === 'pan' ? 'select' : 'pan'">
+      <button data-test="pan-tool" :class="{ active: mode === 'pan' }" type="button" title="拖拽（按住 Space）" :aria-pressed="mode === 'pan'" @click="mode = mode === 'pan' ? 'select' : 'pan'">
         <el-icon><Rank /></el-icon>
       </button>
       <button data-test="previous-frame" type="button" title="上一张（A）" :disabled="currentIndex === 0" @click="switchFrame(currentIndex - 1)">
@@ -920,7 +922,7 @@ watch(reuseLabel, (reuse) => {
       <button data-test="next-frame" type="button" title="下一张（D）" :disabled="currentIndex >= frames.length - 1" @click="switchFrame(currentIndex + 1)">
         <el-icon><Right /></el-icon>
       </button>
-      <button :class="{ active: mode === 'draw' }" type="button" title="新建矩形框（R）" :disabled="batchActive" @click="mode = 'draw'">
+      <button :class="{ active: mode === 'draw' }" type="button" title="新建矩形框（R）" :aria-pressed="mode === 'draw'" :disabled="batchActive" @click="mode = 'draw'">
         <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 18 18" width="1em" height="1em" aria-hidden="true" focusable="false" class=""><g clip-path="url(#rectangle_svg__a)"><path d="M17.196 4.598a.304.304 0 0 0 .304-.303V.804A.304.304 0 0 0 17.196.5h-3.49a.304.304 0 0 0-.304.304v1.062H4.598V.804A.304.304 0 0 0 4.295.5H.804A.304.304 0 0 0 .5.804v3.49c0 .168.137.304.304.304h1.062v8.804H.804a.304.304 0 0 0-.304.303v3.492c0 .166.137.303.304.303h3.49a.304.304 0 0 0 .304-.303v-1.063h8.804v1.063c0 .166.136.303.303.303h3.491a.304.304 0 0 0 .304-.303v-3.492a.304.304 0 0 0-.304-.303h-1.062V4.598zm-2.58-2.884h1.67v1.67h-1.67zM1.714 3.384v-1.67h1.67v1.67zm1.67 12.902h-1.67v-1.67h1.67zm12.902-1.67v1.67h-1.67v-1.67zm-1.518-1.214h-1.063a.304.304 0 0 0-.303.303v1.063H4.598v-1.063a.304.304 0 0 0-.303-.303H3.232V4.598h1.063a.304.304 0 0 0 .303-.303V3.232h8.804v1.063c0 .167.136.303.303.303h1.063z"></path></g><defs><clipPath id="rectangle_svg__a"><path fill="#fff" d="M0 0h18v18H0z"></path></clipPath></defs></svg>
       </button>
       <button data-test="toggle-all-boxes" type="button" :title="allBoxesHidden ? '显示全部标注框' : '隐藏全部标注框'" @click="toggleAllBoxes">
@@ -930,10 +932,10 @@ watch(reuseLabel, (reuse) => {
         <el-icon><DeleteFilled /></el-icon>
       </button>
       <button type="button" title="撤销（Ctrl+Z）" :disabled="batchActive || !history.canUndo()" @click="undo">
-        <svg xmlns="http://www.w3.org/2000/svg" class="" viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false"><path d="M296.704 145.28 100.608 341.376l196.096 196.117 60.352-60.352L263.893 384h365.44a202.667 202.667 0 0 1 0 405.333H362.667v85.334h266.666c159.062 0 288-128.939 288-288s-128.938-288-288-288H264l93.035-93.056z"></path></svg>
+        <el-icon><RefreshLeft /></el-icon>
       </button>
       <button type="button" title="重做（Ctrl+Shift+Z）" :disabled="batchActive || !history.canRedo()" @click="redo">
-        <svg xmlns="http://www.w3.org/2000/svg" class="" viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false"><path d="m727.296 145.28 196.096 196.096-196.096 196.117-60.352-60.352L760.107 384h-365.44a202.667 202.667 0 0 0 0 405.333h266.666v85.334H394.667c-159.062 0-288-128.939-288-288s128.938-288 288-288H760l-93.056-93.056z"></path></svg>
+        <el-icon><RefreshRight /></el-icon>
       </button>
       <span class="tool-separator" />
       <button type="button" title="展示全图" @click="canvasRef?.resetView()">
@@ -982,16 +984,16 @@ watch(reuseLabel, (reuse) => {
           <strong>图像信息</strong>
           <div class="info-heading-actions">
             <span>#{{ currentFrame?.sequence ?? 0 }}</span>
-            <button data-test="image-info-toggle" type="button" :title="imageInfoExpanded ? '收起图像信息' : '展开图像信息'" @click="imageInfoExpanded = !imageInfoExpanded">
+            <button data-test="image-info-toggle" type="button" aria-controls="image-info-details" :aria-expanded="imageInfoExpanded" :title="imageInfoExpanded ? '收起图像信息' : '展开图像信息'" @click="imageInfoExpanded = !imageInfoExpanded">
               <el-icon><ArrowUpBold v-if="imageInfoExpanded" /><ArrowDownBold v-else /></el-icon>
             </button>
           </div>
         </header>
-        <dl v-if="imageInfoExpanded">
+        <Transition name="info-expand"><dl v-if="imageInfoExpanded" id="image-info-details">
           <dt>文件名</dt><dd :title="frameFileName">{{ frameFileName }}</dd>
           <dt>尺寸</dt><dd>{{ video?.width ?? 0 }} × {{ video?.height ?? 0 }}</dd>
           <dt>大小</dt><dd>{{ ((currentFrame?.file_size ?? 0) / 1024).toFixed(1) }} KB</dd>
-        </dl>
+        </dl></Transition>
       </section>
       <section class="object-list">
         <header>
@@ -1266,20 +1268,20 @@ watch(reuseLabel, (reuse) => {
 .auto-bar button.primary-action:hover:not(:disabled),
 .focus-actions button.primary-action:hover:not(:disabled) { background: #137762; border-color: #137762; }
 .auto-bar button.primary-action:disabled { color: #7f9d94; background: #28473f; border-color: #365c52; }
-.auto-warning { width: 96px; overflow: hidden; color: #e0b869; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.auto-warning { width: 96px; overflow: hidden; color: #e0b869; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 
 .tool-rail { display: flex; grid-row: 2 / 4; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; overflow-y: auto; background: #1a252e; border-right: 1px solid #33414c; }
 .tool-rail button { display: grid; place-items: center; flex: 0 0 40px; width: 40px; padding: 0; color: #b9c6cf; font: 700 20px var(--vdw-mono); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; transition: background 150ms ease, border-color 150ms ease, color 150ms ease; }
 .tool-rail button:hover:not(:disabled),
 .tool-rail button.active { color: #9de0cc; background: #233740; border-color: #3d665d; }
 .tool-rail button:disabled { color: #52616c; cursor: not-allowed; }
-.tool-rail output { width: 48px; color: #91a0ab; font: 11px var(--vdw-mono); text-align: center; }
+.tool-rail output { width: 48px; color: #91a0ab; font: 13px var(--vdw-mono); text-align: center; }
 .tool-separator { flex: 0 0 1px; width: 34px; margin: 2px 0; background: #34424d; }
 
 .canvas-panel { position: relative; grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
 .category-scrim { position: fixed; inset: 0; z-index: 3000; background: rgb(4 8 11 / 52%); }
 .category-picker { position: fixed; z-index: 3001; top: 50%; left: 50%; display: grid; grid-template-columns: minmax(170px, 1fr) auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: #f7fafb; border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(-50%, -50%); }
-.category-picker label { display: grid; gap: 3px; color: #51606b; font-size: 11px; }
+.category-picker label { display: grid; gap: 3px; color: #51606b; font-size: 14px; }
 .category-picker select { min-width: 140px; height: 29px; }
 .category-picker button { align-self: end; height: 29px; }
 .panel-overlay { position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; color: #afbdc6; background: rgb(12 18 23 / 62%); }
@@ -1302,11 +1304,13 @@ watch(reuseLabel, (reuse) => {
 .object-heading-actions button:disabled { color: #61717a; cursor: not-allowed; }
 .image-info header strong,
 .object-list header strong,
-.minimap header strong { font-size: 13px; }
+.minimap header strong { font-size: 14px; }
 .image-info header span,
 .object-list header span,
 .minimap header span { color: var(--vdw-focus-muted); font: 13px var(--vdw-mono); }
 .image-info dl { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 5px 8px; margin: 5px 0 0; font-size: 14px; }
+.info-expand-enter-active, .info-expand-leave-active { overflow: hidden; transition: opacity var(--vdm-motion-base) ease; }
+.info-expand-enter-from, .info-expand-leave-to { opacity: 0; }
 .image-info dt { color: var(--vdw-focus-muted); }
 .image-info dd { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .object-list { overflow-y: auto; padding: 5px 10px; scrollbar-width: none; }
@@ -1325,7 +1329,7 @@ watch(reuseLabel, (reuse) => {
 .box-item > button { display: grid; place-items: center; min-width: 0; padding: 0; color: inherit; background: transparent; border: 0; cursor: pointer; }
 .box-item > button:disabled { color: #a8b1b7; cursor: not-allowed; }
 .box-item .box-select { grid-template-columns: 27px minmax(0, 1fr); padding: 0 7px; text-align: left; }
-.box-list code { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.box-list code { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .minimap { padding: 8px 10px 10px; border-top: 1px solid var(--vdw-focus-rule); }
 .minimap-image { position: relative; height: 155px; overflow: hidden; background: #17212b; }
 .minimap-svg { display: block; width: 100%; height: 100%; }
@@ -1343,11 +1347,11 @@ watch(reuseLabel, (reuse) => {
 .filmstrip-actions button { display: grid; place-items: center; padding: 0; color: #b8c5ce; background: #22303a; border: 0; cursor: pointer; }
 .filmstrip-actions button + button { border-top: 1px solid #34434e; }
 .restore-filmstrip { position: absolute; z-index: 12; bottom: 0; left: calc(50% + 29px); display: flex; align-items: center; gap: 5px; height: 25px; padding: 0 11px; color: #b8c5ce; background: #22303a; border: 1px solid #41515d; border-bottom: 0; border-radius: 4px 4px 0 0; cursor: pointer; transform: translateX(-50%); }
-.restore-filmstrip span { font-size: 11px; }
+.restore-filmstrip span { font-size: 14px; }
 
 .frame-grid-overlay { position: absolute; inset: 0; z-index: 20; display: grid; grid-template-rows: 48px minmax(0, 1fr); background: #152029; }
 .frame-grid-overlay > header { gap: 12px; padding: 0 14px; background: #1e2c36; border-bottom: 1px solid #3a4a56; }
-.frame-grid-overlay > header span { color: #91a0ab; font-size: 12px; }
+.frame-grid-overlay > header span { color: #91a0ab; font-size: 14px; }
 .frame-grid-overlay > header button { display: flex; align-items: center; gap: 5px; margin-left: auto; height: 30px; color: #dbe5eb; background: #283843; border: 1px solid #41515d; }
 .frame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); grid-auto-rows: max-content; gap: 9px; align-content: start; min-height: 0; padding: 12px; overflow: auto; }
 .frame-grid button { position: relative; overflow: hidden; padding: 0; color: #d7e0e6; text-align: left; background: #111820; border: 2px solid transparent; }
@@ -1366,27 +1370,23 @@ watch(reuseLabel, (reuse) => {
 @keyframes save-spinner { to { transform: rotate(360deg); } }
 .shortcut-list { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 9px 15px; margin: 0; }
 .shortcut-list dt { font: 12px var(--vdw-mono); }
-.shortcut-list dd { margin: 0; color: #687482; }
+.shortcut-list dd { margin: 0; color: var(--vdw-muted); }
 .stats-summary { display: grid; gap: 0; margin: 0; }
 .stats-summary > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 20px; min-height: 46px; padding: 9px 4px; border-bottom: 1px solid #e1e6e9; }
 .stats-summary > div:last-child { border-bottom: 0; }
-.stats-summary dt { color: #687482; }
+.stats-summary dt { color: var(--vdw-muted); }
 .stats-summary dd { margin: 0; color: var(--vdw-teal); font: 700 20px var(--vdw-mono); }
 .model-registration-form { display: grid; gap: 14px; }
 .model-registration-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 12px; }
-.model-registration-form > label > span { color: #5f6c76; font-size: 13px; }
-.model-registration-form > p { margin: 0; color: #687482; font-size: 13px; }
+.model-registration-form > label > span { color: #5f6c76; font-size: 14px; }
+.model-registration-form > p { margin: 0; color: var(--vdw-muted); font-size: 14px; }
 .xanylabeling-settings-form { display: grid; gap: 16px; }
 .xanylabeling-settings-form > label { display: grid; gap: 7px; }
-.xanylabeling-settings-form > label > span { color: #5f6c76; font-size: 13px; }
-
-@media (max-width: 1180px) {
-  .annotation-workbench { grid-template-columns: 54px minmax(0, 1fr) 250px; }
-  .auto-controls label { display: none; }
-  .category-select { width: 260px; }
-}
+.xanylabeling-settings-form > label > span { color: #5f6c76; font-size: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
+  .info-expand-enter-active,
+  .info-expand-leave-active,
   .annotation-workbench *,
   .annotation-focus-tools * { scroll-behavior: auto !important; transition: none !important; }
   .save-overlay,

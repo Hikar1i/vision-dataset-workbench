@@ -113,6 +113,14 @@ describe('FramesDialog', () => {
     expect(wrapper.get('[data-test="frames-grid"]').attributes('style')).toContain('--frame-card-width: 270px')
   })
 
+  it('exposes the active range-selection state', async () => {
+    const { wrapper } = mountDialog(true)
+    await flushPromises()
+    expect(wrapper.get('[data-test="enter-range"]').attributes('aria-pressed')).toBe('false')
+    await wrapper.get('[data-test="enter-range"]').trigger('click')
+    expect(wrapper.get('[data-test="exit-range"]').attributes('aria-pressed')).toBe('true')
+  })
+
   it('keeps viewer access read-only while allowing large-image inspection', async () => {
     const { wrapper } = mountDialog(false)
     await flushPromises()

@@ -91,8 +91,8 @@ onMounted(() => void load())
       <el-form label-position="top">
         <el-form-item label="配置名称"><el-input v-model="form.name" autocomplete="off" /></el-form-item><el-form-item label="描述"><el-input v-model="form.description" type="textarea" /></el-form-item><el-form-item label="Base URL"><el-input v-model="form.base_url" autocomplete="off" placeholder="http://localhost:8444/v1" /></el-form-item>
         <el-form-item label="API 类型"><el-select v-model="form.api_type"><el-option label="OpenAI-compatible" value="openai" /><el-option label="Anthropic" value="anthropic" /></el-select></el-form-item><el-form-item label="模型名"><el-input v-model="form.model_name" autocomplete="off" /></el-form-item><el-form-item label="API Key"><el-input v-model="form.api_key" data-test="llm-api-key" type="password" show-password autocomplete="new-password" :placeholder="editing ? '留空表示保持现有 API Key' : '无密钥服务可留空'" /><small v-if="editing?.masked_api_key" class="masked-key">已保存：{{ editing.masked_api_key }}</small></el-form-item>
-        <el-checkbox v-model="form.enabled">启用</el-checkbox> <el-button text @click="advanced = !advanced">{{ advanced ? '收起高级选项' : '展开高级选项' }}</el-button>
-        <div v-if="advanced" class="advanced-options"><el-form-item v-for="(_, key) in form.advanced_options" :key="key" :label="String(key)"><el-input-number v-model="form.advanced_options[key] as number" :min="0" :controls="false" /></el-form-item></div>
+        <el-checkbox v-model="form.enabled">启用</el-checkbox> <el-button data-test="llm-advanced-toggle" text aria-controls="llm-advanced-options" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起高级选项' : '展开高级选项' }}</el-button>
+        <Transition name="panel-expand"><div v-if="advanced" id="llm-advanced-options" class="advanced-options"><el-form-item v-for="(_, key) in form.advanced_options" :key="key" :label="String(key)"><el-input-number v-model="form.advanced_options[key] as number" :min="0" :controls="false" /></el-form-item></div></Transition>
       </el-form>
       <template #footer><el-button @click="dialog = false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!form.name || !form.base_url || !form.model_name" @click="save">保存</el-button></template>
     </el-dialog>
@@ -106,9 +106,10 @@ onMounted(() => void load())
 .llm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
 .llm-grid .unavailable { border-color: var(--el-color-danger); }
 .card-title, .card-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.card-actions :deep(.el-button) { min-height: var(--el-component-size-small); font-size: 14px; transition-duration: var(--vdm-motion-fast); }
 .defaults-form, .advanced-options { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 12px; }
 .masked-key { display: block; margin-top: 6px; color: var(--el-text-color-secondary); }
-@media (max-width: 760px) {
-  .defaults-form, .advanced-options { grid-template-columns: 1fr; }
-}
+.panel-expand-enter-active, .panel-expand-leave-active { transition: opacity var(--vdm-motion-base) ease; }
+.panel-expand-enter-from, .panel-expand-leave-to { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .panel-expand-enter-active, .panel-expand-leave-active { transition: none; } }
 </style>

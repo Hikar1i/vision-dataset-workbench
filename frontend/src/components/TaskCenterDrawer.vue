@@ -159,7 +159,7 @@ onUnmounted(stopPolling)
 .task-center-row footer { display: flex; align-items: center; }
 .task-center-row header { justify-content: space-between; gap: 13px; margin-bottom: 11px; }
 .task-center-row header > div { gap: 9px; }
-.task-center-row header span { color: var(--vdw-muted); font-size: 13px; }
-.task-center-row p { color: #a33e39; font-size: 13px; }
+.task-center-row header span { color: var(--vdw-muted); font-size: 14px; }
+.task-center-row p { color: var(--vdw-danger); font-size: 14px; }
 .task-center-row footer { justify-content: flex-end; }
 </style>

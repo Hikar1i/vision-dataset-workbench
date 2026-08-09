@@ -779,7 +779,7 @@ onUnmounted(() => {
 }
 
 .annotation-scope-summary strong { font: 700 22px var(--vdw-mono); }
-.annotation-scope-summary span { color: var(--el-text-color-secondary); font-size: 13px; }
+.annotation-scope-summary span { color: var(--el-text-color-secondary); font-size: 14px; }
 
 .workbench-shell {
   min-height: 100%;
@@ -838,6 +838,7 @@ onUnmounted(() => {
 
 .selection-summary small {
   color: var(--vdw-muted);
+  font-size: 14px;
   font-weight: 400;
 }
 
@@ -869,7 +870,7 @@ onUnmounted(() => {
 .ledger-head {
   height: 32px;
   color: var(--vdw-muted);
-  font-size: 11px;
+  font-size: 14px;
   background: #f5f7f9;
   border-bottom: 1px solid var(--vdw-rule);
 }
@@ -928,7 +929,7 @@ onUnmounted(() => {
 
 .readonly-enabled {
   color: var(--vdw-muted);
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .readonly-enabled[data-enabled='false'] {
@@ -983,7 +984,7 @@ onUnmounted(() => {
 .media-identity p {
   margin: 0;
   color: var(--vdw-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .source-mark {
@@ -1002,7 +1003,7 @@ onUnmounted(() => {
 
 .media-spec small {
   color: var(--vdw-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .frame-count {
@@ -1013,7 +1014,7 @@ onUnmounted(() => {
   width: fit-content;
   padding: 2px 5px;
   color: var(--vdw-muted);
-  font-size: 11px;
+  font-size: 14px;
   border: 1px solid #c8d0d7;
 }
 
@@ -1034,7 +1035,7 @@ onUnmounted(() => {
   overflow: hidden;
   gap: 4px;
   color: #53616d;
-  font-size: 11px;
+  font-size: 14px;
   white-space: nowrap;
 }
 
@@ -1082,7 +1083,7 @@ onUnmounted(() => {
   min-width: 0;
   color: #284c5f;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   background: #fff;
   border: 0;
   border-right: 1px solid #d7dde2;
@@ -1099,6 +1100,10 @@ onUnmounted(() => {
 .row-actions > button:hover:not(:disabled) {
   color: white;
   background: var(--vdw-teal);
+}
+
+.row-actions > button:active:not(:disabled) {
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 22%);
 }
 
 .row-actions > button:disabled,
@@ -1122,7 +1127,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 7px;
   color: var(--vdw-muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .ledger-footer select {
@@ -1146,7 +1151,7 @@ onUnmounted(() => {
 .empty-state p {
   margin: 0 0 16px;
   color: var(--vdw-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 video {
@@ -1156,44 +1161,4 @@ video {
   background: #0d171f;
 }
 
-@media (max-width: 760px) {
-  .project-layout {
-    display: block;
-  }
-
-  .project-rail {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .project-identity {
-    border-bottom: 0;
-  }
-
-  .project-rail nav {
-    display: flex;
-    align-items: center;
-    padding: 9px;
-  }
-
-  .project-rail nav a {
-    padding: 9px 11px;
-    border-bottom: 2px solid transparent;
-    border-left: 0;
-  }
-
-  .project-rail nav a.active {
-    border-bottom-color: var(--vdw-mint);
-  }
-
-  .project-capacity {
-    grid-column: 1 / -1;
-    margin-top: 0;
-    padding: 8px 15px;
-  }
-
-  .workspace {
-    padding: 0 9px 18px;
-  }
-}
 </style>

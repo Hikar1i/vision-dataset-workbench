@@ -86,7 +86,7 @@ defineProps<{
   z-index: 1;
   padding: 2px 5px;
   color: #f3f7f8;
-  font: 10px var(--vdw-mono);
+  font: 12px var(--vdw-mono);
 }
 
 .timestamp { top: 4px; right: 4px; background: rgb(7 12 16 / 78%); }

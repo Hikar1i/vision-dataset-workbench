@@ -47,6 +47,11 @@ describe('LLMConfigsView', () => {
     const secret = wrapper.get('input[data-test="llm-api-key"]')
     expect((secret.element as HTMLInputElement).value).toBe('')
     expect(secret.attributes('placeholder')).toContain('留空')
+    const advancedToggle = wrapper.get('[data-test="llm-advanced-toggle"]')
+    expect(advancedToggle.attributes('aria-expanded')).toBe('false')
+    await advancedToggle.trigger('click')
+    expect(advancedToggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.find('#llm-advanced-options').exists()).toBe(true)
   })
 
   it('shows the masked key when editing without filling the secret input', async () => {

@@ -199,7 +199,9 @@ describe('AnnotationWorkbenchView', () => {
       x: '100', y: '200', width: '800', height: '500',
     })
     expect(wrapper.get('[data-test="toggle-all-boxes"]').attributes('title')).toBe('隐藏全部标注框')
+    expect(wrapper.get('[data-test="image-info-toggle"]').attributes('aria-expanded')).toBe('true')
     await wrapper.get('[data-test="image-info-toggle"]').trigger('click')
+    expect(wrapper.get('[data-test="image-info-toggle"]').attributes('aria-expanded')).toBe('false')
     expect(wrapper.find('.image-info dl').exists()).toBe(false)
     await wrapper.get('[data-test="canvas-change"]').trigger('click')
     await wrapper.get('[data-test="next-frame"]').trigger('click')
@@ -356,8 +358,10 @@ describe('AnnotationWorkbenchView', () => {
     await flushPromises()
 
     const panTool = wrapper.get('[data-test="pan-tool"]')
+    expect(panTool.attributes('aria-pressed')).toBe('false')
     await panTool.trigger('click')
     expect(panTool.classes()).toContain('active')
+    expect(panTool.attributes('aria-pressed')).toBe('true')
     await panTool.trigger('click')
     expect(panTool.classes()).not.toContain('active')
 

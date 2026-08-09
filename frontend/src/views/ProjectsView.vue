@@ -187,19 +187,34 @@ onMounted(() => load())
 
 <style scoped>
 .projects-shell {
-  color: #17212b;
-  background: #f4f7fa;
+  color: var(--vdw-ink);
+  background: var(--vdw-canvas);
 }
 .section-code,
 .project-identity code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.1em;
 }
 
 .project-actions a {
-  color: #76a7ff;
+  padding: 7px 9px;
+  color: var(--vdw-teal-hover);
   text-decoration: none;
+  border: 1px solid transparent;
+  border-radius: var(--vdm-radius-control);
+  transition: color var(--vdm-motion-fast) ease, background-color var(--vdm-motion-fast) ease, border-color var(--vdm-motion-fast) ease, box-shadow var(--vdm-motion-fast) ease;
+}
+
+.project-actions a:hover {
+  color: var(--vdw-ink);
+  background: #edf7f4;
+  border-color: #9fc9bf;
+  box-shadow: 0 3px 9px rgb(24 43 55 / 10%);
+}
+
+.project-actions a:active {
+  box-shadow: inset 0 2px 4px rgb(24 43 55 / 16%);
 }
 
 .project-actions {
@@ -209,20 +224,21 @@ onMounted(() => load())
 }
 
 .section-code {
-  color: #2563eb;
+  color: var(--vdw-teal);
 }
 
 .project-row p,
 .empty-state p {
   margin: 0;
-  color: #687482;
+  color: var(--vdw-muted);
 }
 
 .create-panel,
 .project-index {
   margin-top: 24px;
-  background: white;
-  border: 1px solid #d8dee6;
+  background: var(--vdw-surface-raised);
+  border: 1px solid var(--vdw-rule);
+  border-radius: var(--vdm-radius-card);
 }
 
 .create-panel {
@@ -252,15 +268,15 @@ onMounted(() => load())
 
 .index-header {
   padding: 13px 22px;
-  color: #687482;
-  font-size: 13px;
-  background: #f8fafc;
-  border-bottom: 1px solid #d8dee6;
+  color: var(--vdw-muted);
+  font-size: 14px;
+  background: var(--vdw-surface);
+  border-bottom: 1px solid var(--vdw-rule);
 }
 
 .project-row {
   padding: 20px 22px;
-  border-bottom: 1px solid #e6eaf0;
+  border-bottom: 1px solid var(--vdw-rule);
 }
 
 .project-row:last-of-type {
@@ -275,7 +291,8 @@ onMounted(() => load())
 }
 
 .project-identity code {
-  color: #16866f;
+  color: var(--vdw-teal);
+  font-size: 12px;
 }
 
 .project-identity strong {
@@ -293,20 +310,20 @@ onMounted(() => load())
 .role-mark {
   width: fit-content;
   padding: 4px 8px;
-  color: #3f4c59;
+  color: var(--vdw-muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
-  border: 1px solid #cbd3dd;
+  font-size: 14px;
+  border: 1px solid var(--vdw-rule);
 }
 
 .role-mark[data-role='owner'] {
-  color: #0f6c59;
-  border-color: #78cdb6;
+  color: var(--vdw-teal-hover);
+  border-color: var(--vdw-mint);
 }
 
 .project-row time,
 .project-row > span {
-  color: #687482;
+  color: var(--vdw-muted);
   font-size: 14px;
 }
 
@@ -327,36 +344,6 @@ onMounted(() => load())
 .el-pagination {
   justify-content: flex-end;
   padding: 22px;
-  border-top: 1px solid #d8dee6;
-}
-
-@media (max-width: 760px) {
-  .topbar,
-  .page-heading,
-  nav {
-    align-items: flex-start;
-  }
-
-  .topbar,
-  .page-heading {
-    flex-direction: column;
-  }
-
-  .topbar {
-    padding-top: 18px;
-    padding-bottom: 18px;
-  }
-
-  nav {
-    flex-wrap: wrap;
-  }
-
-  .create-panel {
-    grid-template-columns: 1fr;
-  }
-
-  .project-index {
-    overflow-x: auto;
-  }
+  border-top: 1px solid var(--vdw-rule);
 }
 </style>

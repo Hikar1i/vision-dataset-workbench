@@ -1,6 +1,7 @@
 :root {
   --vdw-ink: #182b37;
   --vdw-muted: #526773;
+  --vdw-subtle: #71838d;
   --vdw-rail: #1c3442;
   --vdw-canvas: #eef3f6;
   --vdw-surface: #f9fbfc;
@@ -30,6 +31,8 @@
   --vdm-row-height: 52px;
   --vdm-radius-control: 6px;
   --vdm-radius-card: 8px;
+  --vdm-shadow-card: 0 4px 14px rgb(24 43 55 / 8%);
+  --vdm-focus-ring: 0 0 0 3px rgb(15 137 117 / 24%);
   --vdm-motion-fast: 160ms;
   --vdm-motion-base: 220ms;
   --vdm-motion-expand: 260ms;
