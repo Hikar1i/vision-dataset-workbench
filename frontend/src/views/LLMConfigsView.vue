@@ -5,6 +5,7 @@ import {
   createLLMConfig, deleteLLMConfig, getLLMDefaults, listLLMConfigs, saveLLMDefaults,
   testLLMConfig, updateLLMConfig, type LLMConfig,
 } from '../api/llm'
+import PageHeader from '../components/PageHeader.vue'
 
 const configs = ref<LLMConfig[]>([])
 const defaults = reactive<Record<string, unknown>>({})
@@ -66,7 +67,7 @@ onMounted(() => void load())
 
 <template>
   <main class="content-page llm-page">
-    <header class="content-toolbar"><div class="content-toolbar-title"><h1>大模型配置</h1><span>仅当前用户可见</span></div><el-button data-test="llm-create" type="primary" @click="openCreate">新增配置</el-button></header>
+    <PageHeader title="大模型配置"><template #meta><span data-test="page-stat">{{ configs.length }} 个配置 · 仅当前用户可见</span></template><template #actions><el-button data-test="llm-create" type="primary" @click="openCreate">新增配置</el-button></template></PageHeader>
     <section v-loading="loading" class="content-body llm-body">
       <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
       <el-tabs data-test="llm-tabs" class="llm-tabs">

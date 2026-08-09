@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 
 import { ApiError } from '../api/auth'
 import { createProject, deleteProject, listProjects, type Project } from '../api/projects'
+import PageHeader from '../components/PageHeader.vue'
 
 const emit = defineEmits<{ 'project-deleted': [id: string] }>()
 const router = useRouter()
@@ -89,15 +90,10 @@ onMounted(() => load())
 
 <template>
   <main class="content-page projects-shell">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title">
-        <h1 data-test="page-title">数据集项目</h1>
-        <span>{{ total }} 个项目</span>
-      </div>
-      <el-button data-test="show-create" type="primary" @click="showCreate = !showCreate">
-        {{ showCreate ? '取消新建' : '新建项目' }}
-      </el-button>
-    </header>
+    <PageHeader title="数据集项目">
+      <template #meta><span data-test="page-stat">{{ total }} 个项目</span></template>
+      <template #actions><el-button data-test="show-create" type="primary" @click="showCreate = !showCreate">{{ showCreate ? '取消新建' : '新建项目' }}</el-button></template>
+    </PageHeader>
 
     <div class="content-body">
 

@@ -23,7 +23,7 @@ withDefaults(defineProps<{
       </RouterLink>
       <div class="page-header__identity">
         <div class="page-header__title-line">
-          <h1>{{ title }}</h1>
+          <h1 data-test="page-title">{{ title }}</h1>
           <div v-if="$slots.meta" class="page-header__meta"><slot name="meta" /></div>
         </div>
       </div>

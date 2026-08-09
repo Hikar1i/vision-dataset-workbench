@@ -7,6 +7,7 @@ import {
   type ManagedUser,
   type UserAction,
 } from '../api/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const users = ref<ManagedUser[]>([])
 const statusFilter = ref('')
@@ -59,12 +60,9 @@ onMounted(() => load())
 
 <template>
   <main class="content-page users-shell">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title">
-        <h1 data-test="page-title">用户与注册审批</h1>
-        <span>审批与登录状态管理</span>
-      </div>
-    </header>
+    <PageHeader title="用户与注册审批">
+      <template #meta><span data-test="page-stat">{{ total }} 位用户 · 审批与登录状态管理</span></template>
+    </PageHeader>
 
     <div class="content-body">
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />

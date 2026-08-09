@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as echarts from 'echarts'
 import { getOverview, type Overview } from '../api/overview'
+import PageHeader from '../components/PageHeader.vue'
 
 const data = ref<Overview | null>(null)
 const error = ref('')
@@ -33,7 +34,7 @@ onBeforeUnmount(() => chartInstance?.dispose())
 
 <template>
   <main class="content-page overview-page">
-    <header class="content-toolbar"><div class="content-toolbar-title"><h1>Overview</h1><span>系统运行总览</span></div><el-button data-test="overview-refresh" :loading="loading" @click="load">刷新</el-button></header>
+    <PageHeader title="Overview"><template #meta><span data-test="page-stat">系统运行总览</span></template><template #actions><el-button data-test="overview-refresh" :loading="loading" @click="load">刷新</el-button></template></PageHeader>
     <div v-loading="loading" class="content-body overview-body">
       <el-alert v-if="error" data-test="overview-error" :title="error" type="error" :closable="false" />
       <template v-else-if="data">

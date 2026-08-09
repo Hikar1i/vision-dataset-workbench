@@ -12,6 +12,7 @@ import {
   type ModelProject,
 } from '../api/models'
 import { forgetResource } from '../navigation/recentResources'
+import PageHeader from '../components/PageHeader.vue'
 
 const router = useRouter()
 const projects = ref<ModelProject[]>([])
@@ -84,12 +85,10 @@ onMounted(load)
 
 <template>
   <main class="content-page model-projects-page">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title"><h1>模型项目</h1><span>{{ projects.length }} 个项目</span></div>
-      <el-button type="primary" :icon="Plus" @click="showCreate = !showCreate">
-        {{ showCreate ? '取消新建' : '新建模型项目' }}
-      </el-button>
-    </header>
+    <PageHeader title="模型项目">
+      <template #meta><span data-test="page-stat">{{ projects.length }} 个项目</span></template>
+      <template #actions><el-button type="primary" :icon="Plus" @click="showCreate = !showCreate">{{ showCreate ? '取消新建' : '新建模型项目' }}</el-button></template>
+    </PageHeader>
     <div class="content-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
       <section v-if="showCreate" class="create-panel">

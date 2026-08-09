@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { changePassword } from '../api/auth'
+import PageHeader from '../components/PageHeader.vue'
 
 const router = useRouter()
 const currentPassword = ref('')
@@ -34,12 +35,9 @@ async function submit() {
 
 <template>
   <main class="content-page">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title">
-        <h1 data-test="page-title">账号设置</h1>
-        <span>修改登录密码</span>
-      </div>
-    </header>
+    <PageHeader title="账号设置">
+      <template #meta><span data-test="page-stat">修改登录密码</span></template>
+    </PageHeader>
     <div class="content-body">
     <section class="utility-card account-card">
       <header class="utility-heading">

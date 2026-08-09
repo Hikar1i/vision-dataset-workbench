@@ -11,6 +11,7 @@ import {
   startTrainingTask,
   type TrainingTask,
 } from "../api/training";
+import PageHeader from "../components/PageHeader.vue";
 
 const router = useRouter();
 const tasks = ref<TrainingTask[]>([]);
@@ -68,12 +69,9 @@ onMounted(load);
 </script>
 <template>
   <main class="content-page training-tasks-page">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title">
-        <h1>训练任务</h1>
-        <span>{{ tasks.length }} 个任务 · 最近训练优先</span>
-      </div>
-      <div>
+    <PageHeader title="训练任务">
+      <template #meta><span data-test="page-stat">{{ tasks.length }} 个任务 · 最近训练优先</span></template>
+      <template #actions><div>
         <el-button :icon="Refresh" @click="load">刷新</el-button
         ><el-button
           type="primary"
@@ -81,8 +79,8 @@ onMounted(load);
           @click="router.push('/training-tasks/new')"
           >新建训练任务</el-button
         >
-      </div>
-    </header>
+      </div></template>
+    </PageHeader>
     <div class="content-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <section v-loading="loading" class="task-index">
