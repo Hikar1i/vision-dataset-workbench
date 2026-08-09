@@ -1,0 +1,341 @@
+/* ============================================================================
+   AppShell：侧栏 + 顶栏。所有页面共享的外框。
+   ========================================================================== */
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--vdw-sidebar-width) minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
+  color: var(--vdw-ink);
+  background: var(--vdw-app);
+  transition: grid-template-columns var(--vdw-motion-expand) var(--vdw-ease);
+}
+
+.app-shell--collapsed {
+  grid-template-columns: var(--vdw-sidebar-collapsed-width) minmax(0, 1fr);
+}
+
+/* --- 侧栏 ----------------------------------------------------------------- */
+.app-sidebar {
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  color: var(--vdw-rail-ink);
+  background: var(--vdw-rail);
+}
+
+.app-brand {
+  display: grid;
+  grid-template-columns: var(--vdw-sidebar-collapsed-width) minmax(0, 1fr);
+  align-items: center;
+  height: var(--vdw-topbar-height);
+  color: #fff;
+  font: 500 13px/1 var(--vdw-mono);
+  letter-spacing: 0.14em;
+  text-decoration: none;
+  border-bottom: 1px solid var(--vdw-rail-line);
+}
+
+.app-nav {
+  padding: 8px 0;
+}
+
+.app-nav-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+}
+
+.app-nav-entry,
+.app-sidebar-footer > a,
+.app-sidebar-user {
+  display: grid;
+  grid-template-columns: var(--vdw-sidebar-collapsed-width) minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  min-height: 38px;
+  color: var(--vdw-rail-ink-2);
+  font-size: 14px;
+  text-decoration: none;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid transparent;
+  transition: color var(--vdw-motion-fast) var(--vdw-ease),
+    background-color var(--vdw-motion-fast) var(--vdw-ease),
+    border-color var(--vdw-motion-fast) var(--vdw-ease);
+}
+
+.app-nav-entry:hover,
+.app-sidebar-footer > a:hover {
+  color: #fff;
+  background: #18242a;
+}
+
+.app-nav a.router-link-active,
+.app-sidebar-footer > a.router-link-active {
+  color: #fff;
+  background: #1a262d;
+  border-left-color: var(--vdw-accent);
+}
+
+.app-nav-group > button {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 0;
+  color: var(--vdw-rail-ink-2);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color var(--vdw-motion-fast) var(--vdw-ease);
+}
+
+.app-nav-group > button:hover {
+  color: #fff;
+}
+
+/* 深色侧栏上只靠阴影表达焦点几乎看不见。用亮青描边，和浅色区的 2px
+   实线焦点环保持同一语言（侧栏底色深，这里换成 focus-accent 才够亮）。 */
+.app-nav-group > button:focus-visible {
+  color: #fff;
+  outline: 2px solid var(--vdw-focus-accent);
+  outline-offset: -2px;
+}
+
+.app-sidebar-icon {
+  display: grid;
+  place-items: center;
+  width: var(--vdw-sidebar-collapsed-width);
+  min-width: var(--vdw-sidebar-collapsed-width);
+  height: 100%;
+}
+
+.app-sidebar-label {
+  min-width: 0;
+  overflow: hidden;
+  padding-right: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity var(--vdw-motion-fast) var(--vdw-ease),
+    visibility var(--vdw-motion-fast) var(--vdw-ease);
+}
+
+.app-sidebar svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* 最近资源子项：等宽小字，与主项区分 */
+.app-nav-children {
+  display: grid;
+}
+
+.app-nav-children a {
+  overflow: hidden;
+  padding: 7px 14px 7px var(--vdw-sidebar-collapsed-width);
+  color: #7b8b93;
+  font-size: 13px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-left: 2px solid transparent;
+  transition: color var(--vdw-motion-fast) var(--vdw-ease),
+    background-color var(--vdw-motion-fast) var(--vdw-ease);
+}
+
+.app-nav-children a:hover {
+  color: var(--vdw-rail-ink);
+  background: #18242a;
+}
+
+.app-nav-children a.router-link-active {
+  color: #fff;
+  background: #18242a;
+  border-left-color: var(--vdw-rail-line);
+}
+
+.app-sidebar-footer {
+  margin-top: auto;
+  padding: 6px 0;
+  border-top: 1px solid var(--vdw-rail-line);
+}
+
+.app-sidebar-user {
+  min-height: 46px;
+  color: var(--vdw-rail-ink);
+}
+
+.app-sidebar-user b {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: var(--vdw-focus-accent);
+  font: 500 13px/1 var(--vdw-mono);
+  border: 1px solid #3d4f58;
+  border-radius: 50%;
+}
+
+.app-sidebar-user .app-sidebar-label {
+  font-size: 13px;
+}
+
+.app-shell--collapsed .app-nav-group {
+  grid-template-columns: var(--vdw-sidebar-collapsed-width);
+}
+
+.app-shell--collapsed .app-nav-group > button {
+  display: none;
+}
+
+.app-shell--collapsed .app-sidebar-label {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.sidebar-list-enter-active,
+.sidebar-list-leave-active {
+  display: grid;
+  overflow: hidden;
+  transition: grid-template-rows var(--vdw-motion-expand) var(--vdw-ease),
+    opacity var(--vdw-motion-expand) var(--vdw-ease);
+  grid-template-rows: 1fr;
+}
+
+.sidebar-list-enter-from,
+.sidebar-list-leave-to {
+  opacity: 0;
+  grid-template-rows: 0fr;
+}
+
+.sidebar-list-enter-active > *,
+.sidebar-list-leave-active > * {
+  min-height: 0;
+}
+
+/* --- 右侧框架 ------------------------------------------------------------- */
+.app-frame {
+  display: grid;
+  grid-template-rows: var(--vdw-topbar-height) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.app-topbar {
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 0 6px;
+  background: var(--vdw-surface);
+  border-bottom: 1px solid var(--vdw-line);
+}
+
+.app-topbar > button:first-child {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  color: var(--vdw-ink-2);
+  background: transparent;
+  border: 0;
+  border-radius: var(--vdw-radius-control);
+  cursor: pointer;
+  transition: color var(--vdw-motion-fast) var(--vdw-ease),
+    background-color var(--vdw-motion-fast) var(--vdw-ease);
+}
+
+.app-topbar > button:first-child:hover {
+  color: var(--vdw-ink);
+  background: var(--vdw-surface-3);
+}
+
+.app-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--vdw-ink-3);
+  font-size: 14px;
+}
+
+.app-breadcrumb > * {
+  color: var(--vdw-ink-2);
+  text-decoration: none;
+}
+
+.app-breadcrumb > * + *::before {
+  margin-right: 8px;
+  color: var(--vdw-line-2);
+  content: '/';
+}
+
+.app-breadcrumb a:hover {
+  color: var(--vdw-accent);
+}
+
+.app-breadcrumb > [aria-current='page'] {
+  color: var(--vdw-ink);
+  font-weight: 500;
+}
+
+.task-center-trigger,
+.user-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 11px;
+  color: var(--vdw-ink-2);
+  font-size: 14px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--vdw-radius-control);
+  cursor: pointer;
+  transition: color var(--vdw-motion-fast) var(--vdw-ease),
+    background-color var(--vdw-motion-fast) var(--vdw-ease);
+}
+
+.task-center-trigger {
+  position: relative;
+  margin-left: auto;
+}
+
+.task-center-trigger:hover,
+.user-menu-trigger:hover {
+  color: var(--vdw-ink);
+  background: var(--vdw-surface-3);
+}
+
+.notification-dot {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  background: var(--vdw-danger);
+  border: 1px solid var(--vdw-surface);
+  border-radius: 50%;
+}
+
+.user-menu-trigger svg {
+  width: 14px;
+  height: 14px;
+  color: var(--vdw-ink-3);
+}
+
+.el-dropdown__popper .el-dropdown-menu__item {
+  min-width: 150px;
+  font-size: 14px;
+}
+
+.app-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}

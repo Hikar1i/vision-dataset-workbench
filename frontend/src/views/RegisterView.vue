@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { getAuthStatus, register } from '../api/auth'
+import VButton from '../ui/VButton.vue'
 
 const router = useRouter()
 const username = ref('')
@@ -56,7 +57,7 @@ async function submit() {
         <p>
           账号 <strong>{{ submittedUsername }}</strong> 已提交。管理员批准后即可登录当前实例。
         </p>
-        <el-button type="primary" @click="router.replace('/login')">返回登录</el-button>
+        <VButton variant="primary" @click="router.replace('/login')">返回登录</VButton>
       </template>
 
       <template v-else>
@@ -98,14 +99,11 @@ async function submit() {
               />
             </el-form-item>
           </el-form>
-          <el-button
-            native-type="submit"
-            type="primary"
+          <VButton variant="secondary" type="submit"
             :loading="submitting"
-            :disabled="!valid"
-          >
+            :disabled="!valid">
             提交注册申请
-          </el-button>
+          </VButton>
         </form>
       </template>
     </section>

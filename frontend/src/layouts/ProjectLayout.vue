@@ -1,9 +1,22 @@
 <script setup lang="ts">
-import { ArrowLeft } from '@element-plus/icons-vue'
+/**
+ * 数据集项目外框。
+ *
+ * 重构前这里渲染一层"项目身份 + 页签"横栏，四个子页各自再渲染一个 PageHeader，
+ * 于是项目页有两层头部，而其它页面只有一层——这是布局割裂最明显的一处。
+ *
+ * 现在本布局渲染**唯一**的 PageHeader：项目身份进 eyebrow，项目名是 h1，
+ * 四个页签在头部底边（与全系统同位置）。子页通过 Teleport 把自己的统计与
+ * 操作按钮送进这个头部，不再自建头部。
+ */
 import { ref, watch } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 
 import { getProject, type Project } from '../api/projects'
+import PageHeader from '../components/PageHeader.vue'
+import { provideProjectHeaderHost } from '../ui/projectHeaderHost'
+
+provideProjectHeaderHost()
 
 const route = useRoute()
 const emit = defineEmits<{ 'project-loaded': [project: Project] }>()
@@ -33,23 +46,43 @@ watch(() => route.params.id, load, { immediate: true })
 </script>
 
 <template>
-  <section class="project-shell">
-    <header v-if="project" class="project-context" data-test="project-context">
-      <div class="project-context-identity">
-        <RouterLink class="project-context-back" to="/projects" aria-label="返回数据集项目" title="返回数据集项目">
-          <el-icon><ArrowLeft /></el-icon>
+  <section class="content-page project-shell">
+    <PageHeader
+      v-if="project"
+      data-test="project-context"
+      :title="project.name"
+      kind="project"
+      :code="project.id.slice(0, 6).toUpperCase()"
+      back-to="/projects"
+      back-label="返回数据集项目"
+    >
+      <template #eyebrow>
+        <span class="project-role">{{ roleLabels[project.role] }}</span>
+      </template>
+      <template #meta>
+        <!-- 子页把当前页的统计送到这里 -->
+        <span id="project-page-meta" class="project-slot" />
+      </template>
+      <template #actions>
+        <!-- 子页把当前页的操作按钮送到这里 -->
+        <span id="project-page-actions" class="project-slot" />
+      </template>
+      <template #tabs>
+        <RouterLink data-test="project-tab-videos" :to="`/projects/${project.id}/videos`">
+          原始数据
         </RouterLink>
-        <code>PROJECT / {{ project.id.slice(0, 6).toUpperCase() }}</code>
-        <strong :title="project.name">{{ project.name }}</strong>
-        <span>{{ roleLabels[project.role] }}</span>
-      </div>
-      <nav aria-label="项目页面">
-        <RouterLink data-test="project-tab-videos" :to="`/projects/${project.id}/videos`">原始数据</RouterLink>
-        <RouterLink data-test="project-tab-labels" :to="`/projects/${project.id}/labels`">标签管理</RouterLink>
-        <RouterLink data-test="project-tab-datasets" :to="`/projects/${project.id}/datasets`">数据集管理</RouterLink>
-        <RouterLink data-test="project-tab-settings" :to="`/projects/${project.id}/settings`">项目设置</RouterLink>
-      </nav>
-    </header>
+        <RouterLink data-test="project-tab-labels" :to="`/projects/${project.id}/labels`">
+          标签管理
+        </RouterLink>
+        <RouterLink data-test="project-tab-datasets" :to="`/projects/${project.id}/datasets`">
+          数据集管理
+        </RouterLink>
+        <RouterLink data-test="project-tab-settings" :to="`/projects/${project.id}/settings`">
+          项目设置
+        </RouterLink>
+      </template>
+    </PageHeader>
+
     <div v-if="loading" class="state-panel">正在加载项目…</div>
     <div v-else-if="error" class="state-panel state-panel--error">{{ error }}</div>
     <RouterView v-else-if="project" v-slot="{ Component }">
@@ -70,96 +103,18 @@ watch(() => route.params.id, load, { immediate: true })
   min-height: 100%;
 }
 
-.project-context {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  height: var(--vdm-project-context-height);
-  padding: 0 24px;
-  background: var(--vdw-surface-raised);
-  border-bottom: 1px solid var(--vdw-rule);
+.project-role {
+  padding: 2px 7px;
+  color: var(--vdw-ink-2);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  background: var(--vdw-surface-3);
+  border: 1px solid var(--vdw-line);
+  border-radius: 999px;
 }
 
-.project-context-identity,
-.project-context nav {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  min-width: 0;
-  white-space: nowrap;
-}
-
-.project-context-back {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  color: var(--vdw-muted);
-  text-decoration: none;
-  background: var(--vdw-surface);
-  border: 1px solid var(--vdw-rule);
-  border-radius: var(--vdm-radius-control);
-  transition: color var(--vdm-motion-fast) ease, border-color var(--vdm-motion-fast) ease, background-color var(--vdm-motion-fast) ease;
-}
-
-.project-context-back:hover {
-  color: var(--vdw-teal-hover);
-  background: #f0f7f5;
-  border-color: #9fc9bf;
-}
-
-.project-context-identity code {
-  color: var(--vdw-teal);
-  font: 13px var(--vdw-mono);
-}
-
-.project-context-identity strong {
-  overflow: hidden;
-  font-size: 16px;
-  text-overflow: ellipsis;
-}
-
-.project-context-identity span {
-  color: var(--vdw-muted);
-  font-size: 14px;
-}
-
-.project-context nav {
-  align-self: center;
-  gap: 4px;
-  padding: 4px;
-  background: #edf3f6;
-  border: 1px solid #d8e3e8;
-  border-radius: var(--vdm-radius-card);
-}
-
-.project-context nav a {
-  display: grid;
-  place-items: center;
-  min-height: 38px;
-  padding: 0 14px;
-  color: var(--vdw-muted);
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-  border: 1px solid transparent;
-  border-radius: var(--vdm-radius-control);
-  transition: color var(--vdm-motion-fast) ease, background-color var(--vdm-motion-fast) ease, border-color var(--vdm-motion-fast) ease, box-shadow var(--vdm-motion-fast) ease;
-}
-
-.project-context nav a:hover {
-  color: var(--vdw-ink);
-  background: rgb(255 255 255 / 60%);
-}
-
-.project-context nav a.router-link-active {
-  color: var(--vdw-teal-hover);
-  background: var(--vdw-surface-raised);
-  border-color: #c8d8df;
-  box-shadow: 0 2px 7px rgb(24 43 55 / 10%);
+/* 目标容器本身不占空间，内容由子页 Teleport 填充 */
+.project-slot {
+  display: contents;
 }
 </style>

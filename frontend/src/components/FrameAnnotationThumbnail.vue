@@ -40,7 +40,7 @@ defineProps<{
         :y="item.y_min"
         :width="Math.max(1, item.x_max - item.x_min)"
         :height="Math.max(1, item.y_max - item.y_min)"
-        :stroke="labelColors[item.label_id] ?? '#ffca3a'"
+        :stroke="labelColors[item.label_id] ?? 'var(--vdw-warn)'"
         vector-effect="non-scaling-stroke"
       />
     </svg>
@@ -56,7 +56,7 @@ defineProps<{
   width: 100%;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  background: #111820;
+  background: var(--vdw-focus-canvas);
 }
 
 .frame-thumbnail img,
@@ -85,13 +85,20 @@ defineProps<{
   position: absolute;
   z-index: 1;
   padding: 2px 5px;
-  color: #f3f7f8;
-  font: 12px var(--vdw-mono);
+  color: var(--vdw-surface-3);
+  font: 13px var(--vdw-mono);
 }
 
 .timestamp { top: 4px; right: 4px; background: rgb(7 12 16 / 78%); }
 .sequence { right: 4px; bottom: 4px; background: rgb(7 12 16 / 78%); }
 .frame-status { bottom: 4px; left: 4px; }
-.frame-status.is-enabled { background: #16866f; }
-.frame-status.is-disabled { background: #c83f49; }
+
+/* 青色亮度高，承载不了白字（实测 2.06:1）。青底必须配深字：这里 8.1:1。
+   停用的红底白字本身有 4.9:1，保持不变，两者形状一致、都达标。 */
+.frame-status.is-enabled {
+  color: var(--vdw-focus-canvas);
+  background: var(--vdw-focus-accent);
+}
+
+.frame-status.is-disabled { background: var(--vdw-danger); }
 </style>

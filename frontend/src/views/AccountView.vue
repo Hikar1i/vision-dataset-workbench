@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 
 import { changePassword } from '../api/auth'
 import PageHeader from '../components/PageHeader.vue'
+import VButton from '../ui/VButton.vue'
 
 const router = useRouter()
 const currentPassword = ref('')
@@ -79,15 +80,11 @@ async function submit() {
             />
           </el-form-item>
         </el-form>
-        <el-button
-          data-test="save-password"
-          native-type="submit"
-          type="primary"
+        <VButton variant="secondary" data-test="save-password" type="submit"
           :loading="submitting"
-          :disabled="!valid"
-        >
+          :disabled="!valid">
           保存新密码
-        </el-button>
+        </VButton>
       </form>
     </section>
     </div>

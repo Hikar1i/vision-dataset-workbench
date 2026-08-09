@@ -1,230 +1,57 @@
-:root {
-  --vdw-ink: #182b37;
-  --vdw-muted: #526773;
-  --vdw-subtle: #71838d;
-  --vdw-rail: #1c3442;
-  --vdw-canvas: #eef3f6;
-  --vdw-surface: #f9fbfc;
-  --vdw-surface-raised: #ffffff;
-  --vdw-rule: #d2dee4;
-  --vdw-teal: #0f8975;
-  --vdw-teal-hover: #0b7262;
-  --vdw-mint: #8ddec7;
-  --vdw-info: #376e9a;
-  --vdw-warning: #c78122;
-  --vdw-danger: #c84c4c;
-  --vdw-focus-canvas: #0f1d25;
-  --vdw-focus-panel: #182b36;
-  --vdw-focus-rule: #30444f;
-  --vdw-focus-ink: #e6eef2;
-  --vdw-focus-muted: #a8b7bf;
-  --vdw-focus-primary: #5dd0b0;
-  --vdw-title: Bahnschrift, "Noto Sans CJK SC", sans-serif;
-  --vdw-body: Inter, "Noto Sans CJK SC", system-ui, sans-serif;
-  --vdw-mono: "Noto Sans Mono CJK SC", ui-monospace, monospace;
-  --vdm-sidebar-width: 256px;
-  --vdm-sidebar-collapsed-width: 72px;
-  --vdm-topbar-height: 64px;
-  --vdm-project-context-height: 64px;
-  --vdm-content-toolbar-height: 88px;
-  --vdm-control-height: 40px;
-  --vdm-row-height: 52px;
-  --vdm-radius-control: 6px;
-  --vdm-radius-card: 8px;
-  --vdm-shadow-card: 0 4px 14px rgb(24 43 55 / 8%);
-  --vdm-focus-ring: 0 0 0 3px rgb(15 137 117 / 24%);
-  --vdm-motion-fast: 160ms;
-  --vdm-motion-base: 220ms;
-  --vdm-motion-expand: 260ms;
-  --el-color-primary: #0f8975;
-  --el-color-danger: #c84c4c;
-  --el-color-warning: #c78122;
-  --el-color-info: #376e9a;
-  --el-font-size-base: 16px;
-  --el-font-size-small: 14px;
-  --el-font-size-extra-small: 13px;
-  --el-component-size: 40px;
-  --el-component-size-small: 34px;
-  --el-transition-duration: 220ms;
-  --el-transition-duration-fast: 160ms;
+/* 自托管字体：不依赖本机已装字体，不请求外网。
+   Inter 与 Bahnschrift 在目标机器上均未安装，旧版声明实际全部回落到
+   Noto Sans CJK SC，文档描述的字体层次从未真实渲染。 */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "./tokens.css";
+@import "./shell.css";
+@import "./utility.css";
 
-  color: var(--vdw-ink);
-  background: var(--vdw-canvas);
-  font-family: var(--vdw-body);
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
-* {
-  box-sizing: border-box;
+html {
+  background: var(--vdw-app);
 }
 
 body {
   margin: 0;
-  font-size: 16px;
-  line-height: 1.5;
-}
-
-.app-shell {
-  display: grid;
-  grid-template-columns: var(--vdm-sidebar-width) minmax(0, 1fr);
-  height: 100dvh;
-  overflow: hidden;
   color: var(--vdw-ink);
-  background: var(--vdw-canvas);
-  transition: grid-template-columns var(--vdm-motion-base) ease-out;
+  font: 400 15px/1.5 var(--vdw-sans);
+  /* 表格同列数字必须严格对齐，这是台账界面能否快速扫读的关键 */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
 }
 
-.app-shell--collapsed {
-  grid-template-columns: var(--vdm-sidebar-collapsed-width) minmax(0, 1fr);
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
 
-.app-sidebar {
-  z-index: 41;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  color: #dce5ed;
-  background: var(--vdw-rail);
+code,
+kbd,
+samp,
+pre,
+time,
+.vdw-num {
+  font-family: var(--vdw-mono);
+  font-variant-numeric: tabular-nums;
 }
 
-.app-brand {
-  display: grid;
-  grid-template-columns: var(--vdm-sidebar-collapsed-width) minmax(0, 1fr);
-  height: var(--vdm-topbar-height);
-  padding: 0;
-  color: var(--vdw-mint);
-  font: 700 16px var(--vdw-mono);
-  letter-spacing: 0.12em;
-  text-decoration: none;
-  background: var(--vdw-ink);
-}
-
-.app-nav { padding: 11px 0; }
-.app-nav-group { display: grid; grid-template-columns: minmax(0, 1fr) 40px; }
-.app-nav-entry,
-.app-sidebar-footer > a,
-.app-sidebar-user {
-  display: grid;
-  grid-template-columns: var(--vdm-sidebar-collapsed-width) minmax(0, 1fr);
-  align-items: center;
-  min-width: 0;
-  min-height: 42px;
-  padding: 0;
-  color: #c4ced6;
-  text-decoration: none;
-  background: transparent;
-  border: 0;
-  font-size: 16px;
-}
-
-.app-nav-group > button {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  color: #c4ced6;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  transition: color var(--vdm-motion-fast) ease;
-}
-.app-sidebar-icon {
-  display: grid;
-  place-items: center;
-  width: var(--vdm-sidebar-collapsed-width);
-  min-width: var(--vdm-sidebar-collapsed-width);
-  height: 100%;
-}
-.app-sidebar-label {
-  min-width: 0;
-  overflow: hidden;
-  opacity: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: opacity var(--vdm-motion-fast) ease, visibility var(--vdm-motion-fast) ease;
-}
-.app-sidebar svg,
-.app-topbar svg { width: 20px; height: 20px; }
-.app-nav-children { display: grid; }
-.app-nav-children a {
-  overflow: hidden;
-  padding: 9px 20px 9px var(--vdm-sidebar-collapsed-width);
-  color: #9fadb8;
-  font-size: 14px;
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.app-nav a.router-link-active { color: white; background: #18252e; }
-.app-sidebar-footer { margin-top: auto; border-top: 1px solid rgb(255 255 255 / 10%); }
-.app-sidebar-user { min-height: 53px; }
-.app-sidebar-user b { display: grid; place-items: center; width: 29px; height: 29px; color: var(--vdw-mint); border: 1px solid #587080; border-radius: 50%; }
-.app-sidebar-user .app-sidebar-label { font-size: 14px; }
-.app-shell--collapsed .app-nav-group { grid-template-columns: var(--vdm-sidebar-collapsed-width); }
-.app-shell--collapsed .app-nav-group > button { display: none; }
-.app-shell--collapsed .app-sidebar-label { visibility: hidden; opacity: 0; }
-.sidebar-list-enter-active,
-.sidebar-list-leave-active { transition: opacity var(--vdm-motion-fast) ease, transform var(--vdm-motion-fast) ease; }
-.sidebar-list-enter-from,
-.sidebar-list-leave-to { opacity: 0; transform: translateY(-4px); }
-
-.app-frame { display: grid; grid-template-rows: var(--vdm-topbar-height) minmax(0, 1fr); min-width: 0; min-height: 0; }
-.app-topbar { z-index: 30; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto auto; align-items: center; gap: 9px; padding: 0 18px; background: white; border-bottom: 1px solid var(--vdw-rule); }
-.app-topbar > button { display: grid; place-items: center; min-width: var(--vdm-control-height); min-height: var(--vdm-control-height); background: transparent; border: 0; cursor: pointer; }
-.app-breadcrumb { display: flex; gap: 9px; min-width: 0; color: var(--vdw-muted); font-size: 14px; }
-.app-breadcrumb > * { color: inherit; text-decoration: none; }
-.app-breadcrumb > * + *::before { margin-right: 8px; color: #91a2ab; content: '/'; }
-.app-breadcrumb a:hover { color: var(--vdw-teal); }
-.task-center-trigger { position: relative; width: auto !important; padding: 0 11px; color: var(--vdw-ink); font-size: 14px; transition: background var(--vdm-motion-fast) ease; }
-.task-center-trigger:hover,
-.user-menu-trigger:hover { background: #eef3f5; }
-.notification-dot { position: absolute; top: 5px; right: 2px; width: 8px; height: 8px; background: #d94742; border: 1px solid white; border-radius: 50%; }
-.user-menu { font-size: 14px; }
-.user-menu-trigger {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: var(--vdm-control-height);
-  padding: 0 10px;
-  color: var(--vdw-ink);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  transition: background var(--vdm-motion-fast) ease;
-}
-.user-menu-trigger svg { width: 16px; height: 16px; }
-.el-dropdown__popper .el-dropdown-menu__item { min-width: 150px; font-size: 14px; }
-.app-content { min-width: 0; min-height: 0; overflow: auto; }
-.state-panel { padding: 48px 20px; color: var(--vdw-muted); text-align: center; }
-.state-panel--error { color: #a33e39; }
-.content-page { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 100%; }
-.content-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 0 18px; background: white; border-bottom: 1px solid var(--vdw-rule); }
-.content-toolbar-title { display: flex; align-items: baseline; gap: 11px; min-width: 0; }
-.content-toolbar h1 { margin: 0; font: 700 26px var(--vdw-title); letter-spacing: -0.02em; }
-.content-toolbar-title span { color: var(--vdw-muted); font-size: 14px; }
-.content-body { min-width: 0; padding: 24px; }
-.page-fade-enter-active {
-  transition: opacity var(--vdm-motion-base) ease-out;
-}
-.page-fade-leave-active {
-  transition: opacity var(--vdm-motion-fast) ease-in;
-}
-.page-fade-enter-from,
-.page-fade-leave-to { opacity: 0; }
-
-@media (hover: hover) {
-  .el-button:not(.is-disabled):not(.is-text):not(.is-link) {
-    transition: color 160ms ease, border-color 160ms ease,
-      background-color 160ms ease, box-shadow 160ms ease;
-  }
-
-  .el-button:not(.is-disabled):not(.is-text):not(.is-link):hover {
-    box-shadow: 0 3px 10px rgb(24 43 55 / 10%);
-  }
-
-  .el-button:not(.is-disabled):not(.is-text):not(.is-link):active {
-    box-shadow: inset 0 1px 2px rgb(24 43 55 / 18%);
-  }
+/* small 的浏览器默认是 0.8em，会随父级字号一路缩到 11.67px，跌破 13px 下限。
+   钉成 13px：字号下限必须由这里保证，而不是依赖每个页面各自记得写。 */
+small {
+  font-size: 13px;
 }
 
 button,
@@ -234,13 +61,241 @@ textarea {
   font: inherit;
 }
 
-a:focus-visible,
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid var(--vdw-teal);
+a {
+  color: var(--vdw-accent);
+}
+
+:focus-visible {
+  outline: 0;
+  box-shadow: var(--vdw-ring);
+}
+
+a:focus-visible {
+  outline: 2px solid var(--vdw-accent);
   outline-offset: 2px;
+}
+
+/* ============================================================================
+   签名元素：准星角标。来自本产品自己的标注画布，只标记当前焦点对象。
+   除此之外界面上没有装饰。
+   ========================================================================== */
+.vdw-reticle {
+  position: relative;
+}
+
+.vdw-reticle::before,
+.vdw-reticle::after {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-color: var(--vdw-accent);
+  border-style: solid;
+  border-width: 0;
+  content: '';
+  pointer-events: none;
+}
+
+.vdw-reticle::before {
+  top: -1px;
+  left: -1px;
+  border-top-width: 2px;
+  border-left-width: 2px;
+}
+
+.vdw-reticle::after {
+  right: -1px;
+  bottom: -1px;
+  border-right-width: 2px;
+  border-bottom-width: 2px;
+}
+
+/* ============================================================================
+   页面骨架
+   ========================================================================== */
+.content-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100%;
+}
+
+.content-body {
+  min-width: 0;
+  padding: 20px 24px 32px;
+}
+
+.state-panel {
+  padding: 48px 20px;
+  color: var(--vdw-ink-2);
+  text-align: center;
+}
+
+.state-panel--error {
+  color: var(--vdw-danger);
+}
+
+/* 页面切换：只做透明度，不做位移，避免整页入场感 */
+.page-fade-enter-active {
+  transition: opacity var(--vdw-motion-base) var(--vdw-ease);
+}
+
+.page-fade-leave-active {
+  transition: opacity var(--vdw-motion-fast) var(--vdw-ease);
+}
+
+.page-fade-enter-from,
+.page-fade-leave-to {
+  opacity: 0;
+}
+
+/* 展开收起：过渡真实高度而不是只淡入淡出。旧实现只有 opacity 过渡，
+   内容瞬间占位，这是"展开收起不自然"的直接原因。 */
+.vdw-expand-enter-active,
+.vdw-expand-leave-active {
+  display: grid;
+  overflow: hidden;
+  transition: grid-template-rows var(--vdw-motion-expand) var(--vdw-ease),
+    opacity var(--vdw-motion-expand) var(--vdw-ease);
+  grid-template-rows: 1fr;
+}
+
+.vdw-expand-enter-from,
+.vdw-expand-leave-to {
+  opacity: 0;
+  grid-template-rows: 0fr;
+}
+
+.vdw-expand-enter-active > *,
+.vdw-expand-leave-active > * {
+  min-height: 0;
+}
+
+/* ============================================================================
+   Element Plus 对齐：让残留的 EP 控件继承本设计系统，而不是反过来
+   ========================================================================== */
+:root {
+  --el-color-primary: #00738f;
+  --el-color-success: #167c55;
+  --el-color-warning: #9a6206;
+  --el-color-danger: #c0362c;
+  --el-color-info: #55646b;
+  --el-text-color-primary: #0f1518;
+  --el-text-color-regular: #55646b;
+  --el-text-color-secondary: #637177;
+  --el-border-color: #d9e0e3;
+  --el-border-color-light: #d9e0e3;
+  --el-border-color-lighter: #eef2f3;
+  --el-fill-color-light: #f6f8f8;
+  --el-fill-color-blank: #ffffff;
+  --el-bg-color: #ffffff;
+  --el-font-family: var(--vdw-sans);
+  --el-font-size-base: 15px;
+  --el-font-size-small: 14px;
+  --el-font-size-extra-small: 13px;
+  --el-component-size: 38px;
+  --el-component-size-small: 30px;
+  --el-border-radius-base: 5px;
+  --el-transition-duration: 200ms;
+  --el-transition-duration-fast: 130ms;
+}
+
+.el-dialog {
+  --el-dialog-border-radius: var(--vdw-radius-card);
+
+  border: 1px solid var(--vdw-line);
+  box-shadow: var(--vdw-shadow-pop);
+}
+
+.el-dialog__title {
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.015em;
+}
+
+.el-form-item__label {
+  color: var(--vdw-ink-2);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.el-table {
+  font-size: 14px;
+}
+
+.el-table th.el-table__cell {
+  color: var(--vdw-ink-3);
+  font-weight: 500;
+  background: var(--vdw-surface-2);
+}
+
+/* inline-prompt 开关把"启用/停用"塞在轨道里，EP 默认 12px，跌破字号下限。
+   字号声明在最内层的 span 上，所以要连同后代一起抬到 13px，并放宽轨道，
+   否则中文会被截断。 */
+.el-switch .el-switch__inner,
+.el-switch .el-switch__inner * {
+  font-size: 13px;
+}
+
+.el-switch .el-switch__core {
+  min-width: 54px;
+}
+
+/* ============================================================================
+   深色专注区里的按钮
+   ----------------------------------------------------------------------------
+   标注与筛帧工作区的容器加 .vdw-dark，内部 VButton 自动换成深色配色。
+   否则白底 secondary 与红底 danger 会在深色面板上变成抢眼的亮块，
+   和画面里的标注框争夺注意力。
+   ========================================================================== */
+.vdw-dark .vdw-btn--secondary {
+  color: var(--vdw-focus-ink);
+  background: var(--vdw-focus-panel-2);
+  border-color: var(--vdw-focus-line);
+}
+
+.vdw-dark .vdw-btn--secondary:not(:disabled):hover {
+  color: var(--vdw-focus-canvas);
+  background: var(--vdw-focus-accent);
+  border-color: var(--vdw-focus-accent);
+}
+
+.vdw-dark .vdw-btn--quiet {
+  color: var(--vdw-focus-ink-2);
+}
+
+.vdw-dark .vdw-btn--quiet:not(:disabled):hover {
+  color: var(--vdw-focus-ink);
+  background: var(--vdw-focus-panel-2);
+}
+
+.vdw-dark .vdw-btn--primary {
+  color: var(--vdw-focus-canvas);
+  background: var(--vdw-focus-accent);
+  border-color: var(--vdw-focus-accent);
+}
+
+.vdw-dark .vdw-btn--primary:not(:disabled):hover {
+  background: #55c9e4;
+  border-color: #55c9e4;
+}
+
+/* 深色区的危险操作用描边而非实心：实心红在缩略图网格里会盖过画面 */
+.vdw-dark .vdw-btn--danger {
+  color: #ff9b93;
+  background: transparent;
+  border-color: #7e4347;
+}
+
+.vdw-dark .vdw-btn--danger:not(:disabled):hover {
+  color: #fff;
+  background: var(--vdw-danger);
+  border-color: var(--vdw-danger);
+}
+
+.vdw-dark .vdw-btn:disabled {
+  color: var(--vdw-focus-ink-2);
+  background: transparent;
+  border-color: var(--vdw-focus-line);
+  opacity: 0.55;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -252,83 +307,4 @@ textarea:focus-visible {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
-}
-
-.center-card {
-  width: min(792px, calc(100% - 35px));
-  margin: 70px auto;
-  padding: 35px;
-  background: var(--vdw-surface-raised);
-  border: 1px solid var(--vdw-rule);
-  border-radius: var(--vdm-radius-card);
-}
-
-.utility-shell {
-  min-height: 100vh;
-  color: var(--vdw-ink);
-  background: var(--vdw-canvas);
-}
-
-.utility-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 70px;
-  padding: 0 clamp(22px, 4vw, 62px);
-  background: var(--vdw-rail);
-  border-bottom: 2px solid var(--vdw-mint);
-}
-
-.utility-topbar a {
-  color: #dce5ed;
-  font-size: 16px;
-  text-decoration: none;
-}
-
-.utility-brand,
-.utility-code {
-  font-family: var(--vdw-mono);
-  font-size: 13px;
-  letter-spacing: 0.11em;
-}
-
-.utility-brand {
-  color: var(--vdw-mint);
-}
-
-.utility-code {
-  color: var(--vdw-info);
-}
-
-.utility-card {
-  display: grid;
-  gap: 31px;
-  width: min(616px, calc(100% - 35px));
-  margin: clamp(44px, 8vh, 97px) auto;
-  padding: clamp(31px, 5vw, 53px);
-  background: var(--vdw-surface-raised);
-  border: 1px solid var(--vdw-rule);
-  border-radius: var(--vdm-radius-card);
-}
-
-.utility-heading {
-  padding-bottom: 26px;
-  border-bottom: 1px solid #d8dee6;
-}
-
-.utility-card h1 {
-  margin: 15px 0 9px;
-  font: 700 34px var(--vdw-title);
-  letter-spacing: -0.035em;
-}
-
-.utility-card p {
-  margin: 0;
-  color: var(--vdw-muted);
-  line-height: 1.65;
-}
-
-.utility-card form,
-.utility-card form > .el-button {
-  width: 100%;
 }

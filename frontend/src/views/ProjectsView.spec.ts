@@ -125,11 +125,11 @@ describe('ProjectsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('12345678')
+    // 短标识统一为 6 位大写，与模型项目、训练任务一致
+    expect(wrapper.text()).toContain('123456')
     expect(wrapper.text()).toContain('所有者')
-    expect(wrapper.get('[data-test="open-12345678-project"]').attributes('href')).toBe(
-      '/projects/12345678-project/videos',
-    )
+    await wrapper.get('[data-test="open-12345678-project"]').trigger('click')
+    expect(push).toHaveBeenCalledWith('/projects/12345678-project/videos')
   })
 
   it('lets only the owner confirm and delete a project', async () => {

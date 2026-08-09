@@ -13,6 +13,7 @@ import {
   type RemoteModelOption,
 } from '../api/models'
 import type { Video } from '../api/media'
+import VButton from '../ui/VButton.vue'
 
 const props = defineProps<{
   modelValue: boolean
@@ -170,8 +171,8 @@ async function submit() {
       <p v-if="error" class="form-error">{{ error }}</p>
     </div>
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button data-test="annotation-create-task" type="primary" :loading="loading" :disabled="!valid || settingsDisabled" @click="submit">创建任务</el-button>
+      <VButton variant="secondary" @click="emit('update:modelValue', false)">取消</VButton>
+      <VButton variant="primary" data-test="annotation-create-task" :loading="loading" :disabled="!valid || settingsDisabled" @click="submit">创建任务</VButton>
     </template>
   </el-dialog>
 </template>

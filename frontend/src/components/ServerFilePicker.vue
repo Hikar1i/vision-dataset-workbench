@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowUp, Refresh, Search } from '@element-plus/icons-vue'
+import { Search } from "@element-plus/icons-vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import {
@@ -9,6 +9,7 @@ import {
   type FilesystemEntry,
   type LoadFilesystemEntries,
 } from '../api/filesystem'
+import VButton from '../ui/VButton.vue'
 
 export type ServerFilePickerMode = 'single-file' | 'multiple-files-or-directory' | 'directory'
 
@@ -168,7 +169,7 @@ onBeforeUnmount(() => {
     <header class="picker-toolbar">
       <el-breadcrumb separator="/" class="picker-breadcrumbs">
         <el-breadcrumb-item v-for="crumb in breadcrumbs" :key="crumb.path">
-          <el-button link @click="load(crumb.path, 1)">{{ crumb.label }}</el-button>
+          <VButton variant="quiet" @click="load(crumb.path, 1)">{{ crumb.label }}</VButton>
         </el-breadcrumb-item>
       </el-breadcrumb>
       <div class="toolbar-actions">
@@ -180,19 +181,13 @@ onBeforeUnmount(() => {
           aria-label="搜索当前目录"
           placeholder="搜索当前目录"
         />
-        <el-button
-          :icon="ArrowUp"
-          :disabled="parent === null"
+        <VButton variant="secondary" :disabled="parent === null"
           title="返回上一级"
           aria-label="返回上一级"
-          @click="parent !== null && load(parent, 1)"
-        />
-        <el-button
-          :icon="Refresh"
-          title="刷新当前目录"
+          @click="parent !== null && load(parent, 1)"/>
+        <VButton variant="secondary" title="刷新当前目录"
           aria-label="刷新当前目录"
-          @click="load(current, page)"
-        />
+          @click="load(current, page)"/>
       </div>
     </header>
 
@@ -251,32 +246,21 @@ onBeforeUnmount(() => {
           </button>
           <div class="entry-actions action-cell">
             <template v-if="item.type === 'dir'">
-              <el-button
-                link
-                :data-test="`open-directory-${item.path}`"
-                @click="load(item.path, 1)"
-              >
+              <VButton variant="quiet" :data-test="`open-directory-${item.path}`"
+                @click="load(item.path, 1)">
                 打开
-              </el-button>
-              <el-button
-                v-if="multiple"
-                link
-                type="primary"
+              </VButton>
+              <VButton variant="primary" v-if="multiple"
                 :data-test="`select-directory-${item.path}`"
-                @click="selectDirectory(item.path)"
-              >
+                @click="selectDirectory(item.path)">
                 选择目录
-              </el-button>
+              </VButton>
             </template>
-            <el-button
-              v-else-if="mode !== 'directory'"
-              link
-              type="primary"
+            <VButton variant="primary" v-else-if="mode !== 'directory'"
               :data-test="`choose-file-${item.path}`"
-              @click="chooseFile(item)"
-            >
+              @click="chooseFile(item)">
               {{ isFileSelected(item) ? '已选择' : '选择' }}
-            </el-button>
+            </VButton>
           </div>
         </div>
         <el-empty v-if="!loading && items.length === 0" description="当前目录没有可选内容" />
@@ -295,20 +279,16 @@ onBeforeUnmount(() => {
     <footer class="picker-footer">
       <span>当前位置：{{ displayPath }}</span>
       <div class="footer-actions">
-        <el-button
-          v-if="multiple"
+        <VButton variant="secondary" v-if="multiple"
           data-test="select-current-directory"
-          @click="selectDirectory(current)"
-        >
+          @click="selectDirectory(current)">
           选择当前目录
-        </el-button>
-        <el-button
-          v-if="allowCreateDirectory"
+        </VButton>
+        <VButton variant="secondary" v-if="allowCreateDirectory"
           data-test="new-directory"
-          @click="creating = true; createError = ''"
-        >
+          @click="creating = true; createError = ''">
           新建目录
-        </el-button>
+        </VButton>
       </div>
     </footer>
 
@@ -322,15 +302,12 @@ onBeforeUnmount(() => {
       />
       <p v-if="createError" class="create-error">{{ createError }}</p>
       <template #footer>
-        <el-button @click="creating = false">取消</el-button>
-        <el-button
-          data-test="create-directory"
-          type="primary"
+        <VButton variant="secondary" @click="creating = false">取消</VButton>
+        <VButton variant="primary" data-test="create-directory"
           :disabled="!directoryName.trim()"
-          @click="createDirectoryEntry"
-        >
+          @click="createDirectoryEntry">
           创建并进入
-        </el-button>
+        </VButton>
       </template>
     </el-dialog>
   </section>
@@ -342,7 +319,7 @@ onBeforeUnmount(() => {
   width: 100%;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #d8dee6;
+  border: 1px solid var(--vdw-line);
   border-radius: 8px;
   background: #fff;
 }
@@ -354,11 +331,11 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 18px;
   padding: 12px 15px;
-  background: #f8fafc;
+  background: var(--vdw-surface-2);
 }
 
 .picker-toolbar {
-  border-bottom: 1px solid #d8dee6;
+  border-bottom: 1px solid var(--vdw-line);
 }
 
 .picker-breadcrumbs {
@@ -380,16 +357,16 @@ onBeforeUnmount(() => {
 .status-strip {
   min-height: 34px;
   padding: 8px 15px;
-  color: #687482;
-  font-size: 12px;
+  color: var(--vdw-ink-2);
+  font-size: 13px;
   background: #fff;
-  border-bottom: 1px solid #edf0f4;
+  border-bottom: 1px solid var(--vdw-surface-3);
 }
 
 .status-strip.failed,
 .create-error {
-  color: #c0392b;
-  background: #fff5f3;
+  color: var(--vdw-danger);
+  background: var(--vdw-danger-soft);
 }
 
 .entry-table {
@@ -407,15 +384,15 @@ onBeforeUnmount(() => {
   gap: 12px;
   min-height: 46px;
   padding: 0 15px;
-  border-bottom: 1px solid #edf0f4;
+  border-bottom: 1px solid var(--vdw-surface-3);
 }
 
 .entry-header {
   min-height: 40px;
-  color: #536170;
-  font-size: 12px;
+  color: var(--vdw-ink-2);
+  font-size: 13px;
   font-weight: 650;
-  background: #f8fafc;
+  background: var(--vdw-surface-2);
 }
 
 .entry-body {
@@ -425,7 +402,7 @@ onBeforeUnmount(() => {
 
 .entry-row:not(.entry-header):hover,
 .entry-row.selected {
-  background: #eef7f5;
+  background: var(--vdw-accent-soft);
 }
 
 .selection-cell {
@@ -434,16 +411,16 @@ onBeforeUnmount(() => {
 }
 
 .entry-type {
-  color: #16866f;
+  color: var(--vdw-accent);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .entry-name {
   min-width: 0;
   overflow: hidden;
   padding: 13px 0;
-  color: #17212b;
+  color: var(--vdw-ink);
   font-weight: 650;
   text-align: left;
   text-overflow: ellipsis;
@@ -463,9 +440,9 @@ onBeforeUnmount(() => {
 
 .picker-footer {
   min-height: 54px;
-  color: #687482;
+  color: var(--vdw-ink-2);
   font-size: 13px;
-  border-top: 1px solid #d8dee6;
+  border-top: 1px solid var(--vdw-line);
 }
 
 .create-error {

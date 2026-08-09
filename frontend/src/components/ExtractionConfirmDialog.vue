@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 
 import type { Video } from '../api/media'
+import VButton from '../ui/VButton.vue'
 
 const props = defineProps<{ modelValue: boolean; videos: Video[] }>()
 const emit = defineEmits<{
@@ -73,15 +74,14 @@ onUnmounted(clearTimer)
       <p v-else>当前目标没有已保存标注或筛帧变更。</p>
     </div>
     <template #footer>
-      <el-button @click="close">取消</el-button>
-      <el-button
-        data-test="confirm-overwrite"
-        :type="destructive ? 'danger' : 'primary'"
-        :disabled="countdown > 0"
+      <VButton variant="secondary" @click="close">取消</VButton>
+      <VButton data-test="confirm-overwrite"
+        :variant="destructive ? 'danger' : 'primary'"
+        :disabled="countdown> 0"
         @click="confirm"
       >
         {{ countdown > 0 ? `确认覆盖（${countdown}）` : '确认覆盖并抽帧' }}
-      </el-button>
+      </VButton>
     </template>
   </el-dialog>
 </template>
@@ -95,8 +95,8 @@ onUnmounted(clearTimer)
 .overwrite-warning.destructive {
   padding: 14px 16px;
   color: #8f2f35;
-  background: #fff3f3;
-  border: 1px solid #e8b4b7;
+  background: var(--vdw-danger-soft);
+  border: 1px solid var(--vdw-danger-line);
 }
 
 .overwrite-warning p {

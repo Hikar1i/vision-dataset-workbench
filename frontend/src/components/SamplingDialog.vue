@@ -7,6 +7,7 @@ import {
   type SamplingConfig,
   type Video,
 } from '../api/media'
+import VButton from '../ui/VButton.vue'
 
 const props = defineProps<{ modelValue: boolean; projectId: string; videos: Video[] }>()
 const emit = defineEmits<{
@@ -151,20 +152,20 @@ async function submit() {
       <li v-for="item in result.rejected" :key="item.input">{{ item.input }}：{{ item.reason }}</li>
     </ul>
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button data-test="save-sampling" type="primary" :loading="submitting" :disabled="!videos.length || locked" @click="submit">
+      <VButton variant="secondary" @click="emit('update:modelValue', false)">取消</VButton>
+      <VButton variant="primary" data-test="save-sampling" :loading="submitting" :disabled="!videos.length || locked" @click="submit">
         {{ hasExisting ? '覆盖保存' : '保存方案' }}
-      </el-button>
+      </VButton>
     </template>
   </el-dialog>
 </template>
 
 <style scoped>
-.scope { margin-top: 0; color: #687482; }
+.scope { margin-top: 0; color: var(--vdw-ink-2); }
 .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; min-width: 0; margin: 14px 0 0; padding: 0; border: 0; }
 .force-switch { display: flex; grid-column: 1 / -1; grid-template-columns: auto 1fr; align-items: center; margin-top: 14px; }
 label { display: grid; gap: 7px; color: #4c5967; font-size: 14px; }
-input, select { box-sizing: border-box; width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #cbd3dd; background: white; }
+input, select { box-sizing: border-box; width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--vdw-line-2); background: white; }
 .rejected { color: #c2413b; font-size: 13px; }
 @media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
 </style>

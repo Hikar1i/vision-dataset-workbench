@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import type { CreateFilesystemDirectory, LoadFilesystemEntries } from '../api/filesystem'
 import { createSetupDirectory, initializeWorkspace, listSetupDirectories } from '../api/setup'
 import ServerFilePicker from '../components/ServerFilePicker.vue'
+import VButton from '../ui/VButton.vue'
 
 const router = useRouter()
 const step = ref(0)
@@ -90,14 +91,11 @@ async function initialize() {
             />
           </el-form-item>
         </el-form>
-        <el-button
-          data-test="continue"
-          type="primary"
+        <VButton variant="primary" data-test="continue"
           :disabled="!token"
-          @click="step = 1"
-        >
+          @click="step = 1">
           验证并选择目录
-        </el-button>
+        </VButton>
       </section>
 
       <section v-else class="form-section wide">
@@ -143,18 +141,15 @@ async function initialize() {
           </div>
         </el-form>
         <footer class="actions">
-          <el-button @click="step = 0">返回</el-button>
-          <el-button
-            data-test="initialize"
-            type="primary"
+          <VButton variant="secondary" @click="step = 0">返回</VButton>
+          <VButton variant="primary" data-test="initialize"
             :loading="submitting"
             :disabled="
               username.length < 3 || password.length < 12 || password !== passwordConfirmation
             "
-            @click="initialize"
-          >
+            @click="initialize">
             创建工作区
-          </el-button>
+          </VButton>
         </footer>
       </section>
     </section>
@@ -164,20 +159,20 @@ async function initialize() {
 <style scoped>
 .setup-shell {
   --ink: var(--vdw-rail);
-  --muted: var(--vdw-muted);
-  --line: var(--vdw-rule);
-  --signal: var(--vdw-teal);
+  --muted: var(--vdw-ink-2);
+  --line: var(--vdw-line);
+  --signal: var(--vdw-accent);
   display: grid;
   grid-template-columns: minmax(260px, 32%) minmax(0, 1fr);
   min-height: 100vh;
-  background: var(--vdw-canvas);
+  background: var(--vdw-app);
 }
 
 .setup-context {
   display: flex;
   flex-direction: column;
   padding: clamp(35px, 6vw, 79px);
-  color: #f6f9fc;
+  color: var(--vdw-focus-ink);
   background: var(--ink);
 }
 
@@ -191,21 +186,22 @@ async function initialize() {
 
 .eyebrow {
   margin: 0 0 62px;
-  color: var(--vdw-mint);
+  color: var(--vdw-focus-accent);
 }
 
 .setup-context h1 {
   max-width: 396px;
   margin: 0;
-  font: 700 clamp(40px, 5vw, 70px) var(--vdw-title);
-  line-height: 0.98;
-  letter-spacing: -0.05em;
+  font-size: clamp(34px, 4vw, 52px);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
 }
 
 .context-copy {
   max-width: 462px;
   margin: 31px 0 53px;
-  color: #b8c3ce;
+  color: var(--vdw-focus-ink-2);
   line-height: 1.7;
 }
 
@@ -222,8 +218,8 @@ async function initialize() {
   gap: 18px;
   align-items: center;
   padding: 13px 0;
-  color: #7f8d9b;
-  border-bottom: 1px solid #2d3945;
+  color: var(--vdw-rail-ink-2);
+  border-bottom: 1px solid var(--vdw-rail-line);
 }
 
 .steps li span {
@@ -233,11 +229,11 @@ async function initialize() {
 
 .steps li.active,
 .steps li.complete {
-  color: white;
+  color: #fff;
 }
 
 .steps li.active span {
-  color: var(--vdw-mint);
+  color: var(--vdw-focus-accent);
 }
 
 .path-preview {
@@ -248,12 +244,12 @@ async function initialize() {
 }
 
 .path-preview span {
-  color: #7f8d9b;
+  color: var(--vdw-rail-ink-2);
 }
 
 .path-preview code {
   overflow-wrap: anywhere;
-  color: var(--vdw-mint);
+  color: var(--vdw-focus-accent);
 }
 
 .setup-panel {
@@ -288,7 +284,8 @@ async function initialize() {
 h2 {
   margin: 0 0 8px;
   color: var(--ink);
-  font: 700 26px var(--vdw-title);
+  font-size: 22px;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 

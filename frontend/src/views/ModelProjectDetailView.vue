@@ -19,6 +19,15 @@ import { MODEL_EXTENSIONS } from '../api/filesystem'
 import ServerFilePicker from '../components/ServerFilePicker.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { rememberResource } from '../navigation/recentResources'
+import VButton from '../ui/VButton.vue'
+import VCellName from '../ui/VCellName.vue'
+import VChip from '../ui/VChip.vue'
+import VEmpty from '../ui/VEmpty.vue'
+import VField from '../ui/VField.vue'
+import VPanel from '../ui/VPanel.vue'
+import VRow from '../ui/VRow.vue'
+import VTable from '../ui/VTable.vue'
+import VTag from '../ui/VTag.vue'
 
 const route = useRoute()
 const projectId = computed(() => String(route.params.id))
@@ -39,6 +48,27 @@ const saving = ref(false)
 const importing = ref(false)
 const readyCount = computed(() => models.value.filter((model) => model.status === 'ready').length)
 let loadVersion = 0
+
+const COLUMNS = 'minmax(230px, 1.4fr) 104px 92px 104px 104px 176px'
+
+/** 模型入库状态 → 语气与中文。后端只给英文码。 */
+const MODEL_STATUS: Record<string, { tone: 'ok' | 'warn' | 'danger'; label: string }> = {
+  ready: { tone: 'ok', label: '可用' },
+  failed: { tone: 'danger', label: '入库失败' },
+}
+const modelStatus = (status: string) =>
+  MODEL_STATUS[status] ?? { tone: 'warn' as const, label: '入库中' }
+
+const summary = computed(() => {
+  const value = project.value
+  if (!value) return []
+  return [
+    { key: '项目类型', text: value.series_type === 'training' ? '训练' : '归档' },
+    { key: '权限', text: value.can_manage ? '可管理' : '只读' },
+    { key: '创建时间', text: value.created_at.slice(0, 16).replace('T', ' ') },
+    { key: '更新时间', text: value.updated_at.slice(0, 16).replace('T', ' ') },
+  ]
+})
 
 async function load() {
   const version = ++loadVersion
@@ -128,41 +158,273 @@ watch(projectId, loadRouteProject, { immediate: true })
 </script>
 
 <template>
-  <main class="content-page model-detail-page">
-    <PageHeader :title="project?.name || '加载中'" back-to="/model-projects" back-label="返回模型项目">
-      <template #meta><span data-test="page-stat">{{ readyCount }} / {{ models.length }} 个可用</span></template>
-      <template #actions><div class="toolbar-actions"><el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button><el-button v-if="project?.can_manage" :icon="Edit" @click="openEdit">编辑项目</el-button><el-button v-if="project?.can_manage && project.series_type === 'archive'" type="primary" :icon="Plus" @click="importOpen = true">导入模型</el-button></div></template>
+  <main class="content-page">
+    <PageHeader
+      :title="project?.name || '加载中'"
+      kind="model project"
+      :code="project ? project.id.slice(0, 6).toUpperCase() : undefined"
+      back-to="/model-projects"
+      back-label="返回模型项目"
+    >
+      <template #meta>
+        <span data-test="page-stat">{{ readyCount }} / {{ models.length }} 个可用</span>
+      </template>
+      <template #actions>
+        <VButton :loading="loading" @click="load">
+          <template #icon><el-icon><Refresh /></el-icon></template>
+          刷新
+        </VButton>
+        <VButton v-if="project?.can_manage" @click="openEdit">
+          <template #icon><el-icon><Edit /></el-icon></template>
+          编辑项目
+        </VButton>
+        <VButton
+          v-if="project?.can_manage && project.series_type === 'archive'"
+          variant="primary"
+          @click="importOpen = true"
+        >
+          <template #icon><el-icon><Plus /></el-icon></template>
+          导入模型
+        </VButton>
+      </template>
     </PageHeader>
-    <div v-loading="loading" class="content-body">
+
+    <div v-loading="loading" class="content-body detail-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-      <section v-if="project" class="project-summary">
-        <div><span>项目类型</span><strong>{{ project.series_type === 'training' ? '训练' : '归档' }}</strong></div>
-        <div><span>权限</span><strong>{{ project.can_manage ? '可管理' : '只读' }}</strong></div>
-        <div><span>创建时间</span><strong>{{ project.created_at.slice(0, 16).replace('T', ' ') }}</strong></div>
-        <div><span>更新时间</span><strong>{{ project.updated_at.slice(0, 16).replace('T', ' ') }}</strong></div>
-        <div class="summary-tags"><span>标签</span><p><el-tag v-for="tag in project.tags" :key="tag" size="small" effect="plain">{{ tag }}</el-tag></p></div>
-        <p class="summary-description">{{ project.description || '暂无项目描述' }}</p>
-      </section>
-      <el-alert v-if="project?.series_type === 'training'" title="训练项目由训练任务同步，不能手工导入或移动模型。" type="info" :closable="false" show-icon />
-      <el-alert v-if="project?.system_key" title="临时模型项目为历史兼容资源，已设为只读。" type="warning" :closable="false" show-icon />
-      <section class="model-table">
-        <header class="model-row"><span>模型</span><span>状态</span><span>文件</span><span>添加时间</span><span>更新时间</span><span /></header>
-        <article v-for="model in models" :key="model.id" class="model-row">
-          <div><strong>{{ model.name }}</strong><code>{{ model.model_code }}</code><p>{{ model.description || '暂无描述' }}</p></div>
-          <el-tag :type="model.status === 'ready' ? 'success' : model.status === 'failed' ? 'danger' : 'warning'" effect="plain">{{ model.status === 'ready' ? '可用' : model.status === 'failed' ? '失败' : '导入中' }}</el-tag>
-          <span>{{ model.file_size == null ? '—' : `${(model.file_size / 1024 / 1024).toFixed(1)} MB` }}</span>
-          <time>{{ model.created_at.slice(0, 10) }}</time>
-          <time>{{ model.updated_at.slice(0, 10) }}</time>
-          <div><router-link :to="`/model-projects/${projectId}/models/${model.id}`">详情</router-link><a v-if="model.status === 'ready'" :href="modelDownloadUrl(model.id)">下载</a><el-button v-if="model.can_manage" type="danger" link @click="removeModel(model)">删除</el-button></div>
-        </article>
-        <el-empty v-if="!loading && !models.length" description="该项目还没有模型" />
-      </section>
+      <el-alert
+        v-if="project?.series_type === 'training'"
+        title="训练项目由训练任务同步，不能手工导入或移动模型。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+      <el-alert
+        v-if="project?.system_key"
+        title="临时模型项目为历史兼容资源，已设为只读。"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+
+      <VPanel v-if="project" title="项目信息">
+        <dl class="fact-grid">
+          <div v-for="item in summary" :key="item.key">
+            <dt>{{ item.key }}</dt>
+            <dd>{{ item.text }}</dd>
+          </div>
+          <div class="fact-grid__wide">
+            <dt>标签</dt>
+            <dd class="fact-tags">
+              <VChip v-for="tag in project.tags" :key="tag">{{ tag }}</VChip>
+            </dd>
+          </div>
+          <div class="fact-grid__wide">
+            <dt>描述</dt>
+            <dd>{{ project.description || '暂无项目描述' }}</dd>
+          </div>
+        </dl>
+      </VPanel>
+
+      <VPanel flush>
+        <VTable
+          :columns="COLUMNS"
+          :headers="['模型', '状态', '文件', '添加时间', '更新时间', '操作']"
+        >
+          <VRow v-for="model in models" :key="model.id" :columns="COLUMNS">
+            <VCellName :name="model.name">
+              <template #sub>
+                <span class="model-code">{{ model.model_code }}</span>
+              </template>
+            </VCellName>
+            <VTag :tone="modelStatus(model.status).tone">
+              {{ modelStatus(model.status).label }}
+            </VTag>
+            <span class="vdw-num cell-num">
+              {{ model.file_size == null ? '—' : `${(model.file_size / 1024 / 1024).toFixed(1)} MB` }}
+            </span>
+            <time>{{ model.created_at.slice(0, 10) }}</time>
+            <time>{{ model.updated_at.slice(0, 10) }}</time>
+            <div class="row-actions">
+              <VButton
+                variant="secondary"
+                size="sm"
+                @click="$router.push(`/model-projects/${projectId}/models/${model.id}`)"
+              >详情</VButton>
+              <VButton
+                v-if="model.status === 'ready'"
+                variant="quiet"
+                size="sm"
+                :href="modelDownloadUrl(model.id)"
+              >下载</VButton>
+              <VButton
+                v-if="model.can_manage"
+                variant="quiet"
+                size="sm"
+                @click="removeModel(model)"
+              >删除</VButton>
+            </div>
+          </VRow>
+
+          <template #empty>
+            <VEmpty
+              v-if="!loading && !models.length"
+              title="该项目还没有模型"
+              :note="project?.series_type === 'training'
+                ? '训练任务成功后，产出模型会自动同步到这里。'
+                : '导入 .pt 权重文件后即可用于自动标注。'"
+            >
+              <VButton
+                v-if="project?.can_manage && project.series_type === 'archive'"
+                variant="primary"
+                @click="importOpen = true"
+              >导入模型</VButton>
+            </VEmpty>
+          </template>
+        </VTable>
+      </VPanel>
     </div>
-    <el-dialog v-model="editOpen" title="编辑模型项目" width="520px"><el-form label-position="top"><el-form-item label="项目名称"><el-input v-model="name" maxlength="128" /></el-form-item><el-form-item label="标签"><el-select v-model="tags" multiple filterable allow-create default-first-option style="width:100%"><el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" /></el-select></el-form-item><el-form-item label="描述"><el-input v-model="description" type="textarea" :rows="4" maxlength="2000" /></el-form-item></el-form><template #footer><el-button @click="editOpen = false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!name.trim() || !tags.length" @click="saveProject">保存更改</el-button></template></el-dialog>
-    <el-dialog v-model="importOpen" title="导入 YOLO 模型" top="3vh" width="min(1040px, calc(100vw - 32px))"><el-form label-position="top"><el-form-item label="模型名称"><el-input v-model="importName" maxlength="128" /></el-form-item><el-form-item label="模型描述"><el-input v-model="importDescription" type="textarea" :rows="2" maxlength="2000" /></el-form-item><el-form-item label=".pt 文件"><ServerFilePicker v-model="sourcePath" mode="single-file" :allowed-extensions="MODEL_EXTENSIONS" /></el-form-item></el-form><template #footer><el-button @click="importOpen = false">取消</el-button><el-button type="primary" :loading="importing" :disabled="!importName.trim() || !sourcePath" @click="importModel">创建导入任务</el-button></template></el-dialog>
+
+    <el-dialog v-model="editOpen" title="编辑模型项目" width="560px">
+      <div class="dialog-form">
+        <VField label="项目名称" required>
+          <template #default="{ id }">
+            <el-input :id="id" v-model="name" maxlength="128" />
+          </template>
+        </VField>
+        <VField label="标签" required>
+          <template #default="{ id }">
+            <el-select
+              :id="id"
+              v-model="tags"
+              multiple
+              filterable
+              allow-create
+              default-first-option
+            >
+              <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
+            </el-select>
+          </template>
+        </VField>
+        <VField label="描述">
+          <template #default="{ id }">
+            <el-input :id="id" v-model="description" type="textarea" :rows="4" maxlength="2000" />
+          </template>
+        </VField>
+      </div>
+      <template #footer>
+        <VButton variant="quiet" @click="editOpen = false">取消</VButton>
+        <VButton
+          variant="primary"
+          :loading="saving"
+          :disabled="!name.trim() || !tags.length"
+          @click="saveProject"
+        >保存更改</VButton>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="importOpen"
+      title="导入 YOLO 模型"
+      top="3vh"
+      width="min(1040px, calc(100vw - 32px))"
+    >
+      <div class="dialog-form">
+        <VField label="模型名称" required>
+          <template #default="{ id }">
+            <el-input :id="id" v-model="importName" maxlength="128" />
+          </template>
+        </VField>
+        <VField label="模型描述">
+          <template #default="{ id }">
+            <el-input
+              :id="id"
+              v-model="importDescription"
+              type="textarea"
+              :rows="2"
+              maxlength="2000"
+            />
+          </template>
+        </VField>
+        <VField label=".pt 文件" required>
+          <template #default>
+            <ServerFilePicker
+              v-model="sourcePath"
+              mode="single-file"
+              :allowed-extensions="MODEL_EXTENSIONS"
+            />
+          </template>
+        </VField>
+      </div>
+      <template #footer>
+        <VButton variant="quiet" @click="importOpen = false">取消</VButton>
+        <VButton
+          variant="primary"
+          :loading="importing"
+          :disabled="!importName.trim() || !sourcePath"
+          @click="importModel"
+        >创建导入任务</VButton>
+      </template>
+    </el-dialog>
   </main>
 </template>
 
 <style scoped>
-.model-detail-page { color:var(--vdw-ink); background:var(--vdw-canvas); }.toolbar-actions,.model-row>div:last-child { display:flex; gap:10px; align-items:center; }.project-summary { margin:24px 0 16px; padding:22px; display:grid; grid-template-columns:repeat(4,minmax(120px,1fr)); gap:20px; background:var(--vdw-surface-raised); border:1px solid var(--vdw-rule); border-radius:var(--vdm-radius-card); box-shadow:var(--vdm-shadow-card); }.project-summary div { display:flex; flex-direction:column; gap:5px; }.project-summary span { color:var(--vdw-muted); font-size:14px; }.project-summary p { margin:0; }.summary-tags,.summary-description{grid-column:1/-1}.summary-tags p{display:flex;gap:6px;flex-wrap:wrap}.model-table { margin-top:16px; overflow:hidden; background:var(--vdw-surface-raised); border:1px solid var(--vdw-rule); border-radius:var(--vdm-radius-card); }.model-row { display:grid; grid-template-columns:minmax(230px,1fr) 78px 84px 96px 96px 146px; gap:14px; align-items:center; min-height:var(--vdm-row-height); padding:12px 20px; border-bottom:1px solid var(--vdw-rule); }.model-row>div:first-child { min-width:0; }.model-row code { display:block; margin-top:4px; color:var(--vdw-teal); }.model-row p { margin:4px 0 0; color:var(--vdw-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.model-row a { color:var(--vdw-teal-hover); text-decoration:none; transition:color var(--vdm-motion-fast) ease; }.model-row a:hover { color:var(--vdw-ink); text-decoration:underline; text-underline-offset:3px; }.model-table>header { color:var(--vdw-muted); font-size:14px; font-weight:600; background:var(--vdw-surface); }
+.detail-body {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.fact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px 20px;
+  margin: 0;
+}
+
+.fact-grid__wide {
+  grid-column: 1 / -1;
+}
+
+.fact-grid dt {
+  color: var(--vdw-ink-3);
+  font-size: 13px;
+}
+
+.fact-grid dd {
+  margin: 5px 0 0;
+  font-size: 14px;
+}
+
+.fact-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.model-code {
+  font-family: var(--vdw-mono);
+}
+
+.cell-num,
+time {
+  color: var(--vdw-ink-2);
+  font-size: 14px;
+}
+
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.dialog-form {
+  display: grid;
+  gap: 16px;
+}
+
+.dialog-form :deep(.el-select),
+.dialog-form :deep(.el-input) {
+  width: 100%;
+}
 </style>

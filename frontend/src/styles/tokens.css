@@ -1,0 +1,85 @@
+/* ============================================================================
+   Instrument Bench 设计令牌
+   ----------------------------------------------------------------------------
+   界面框架去色，颜色只用于承载数据含义（状态、进度、标签）。
+   所有前景/背景组合已核验 >= WCAG AA 4.5:1。
+   详见 docs/12-ui-ux-rebuild-design.md。
+   ========================================================================== */
+:root {
+  /* --- 文字 ------------------------------------------------------------- */
+  --vdw-ink: #0f1518;
+  --vdw-ink-2: #55646b;
+  /* ink-3 在 --vdw-surface 与 --vdw-surface-2 上均为 4.5:1。它承载 13-14px 的
+     标签与表格副文本，这些永远不属于 WCAG large text，因此不能更浅。 */
+  --vdw-ink-3: #637177;
+
+  /* --- 表面 ------------------------------------------------------------- */
+  --vdw-app: #edf0f1;
+  --vdw-surface: #ffffff;
+  --vdw-surface-2: #f6f8f8;
+  --vdw-surface-3: #eef2f3;
+  --vdw-line: #d9e0e3;
+  --vdw-line-2: #bcc7cc;
+
+  /* --- 侧栏 ------------------------------------------------------------- */
+  --vdw-rail: #101a1f;
+  --vdw-rail-ink: #c9d6dc;
+  --vdw-rail-ink-2: #8b9ba3;
+  --vdw-rail-line: #26343b;
+
+  /* --- 数据着色：唯一允许使用彩色的地方 ---------------------------------- */
+  --vdw-accent: #00738f;
+  --vdw-accent-ink: #005a71;
+  --vdw-accent-soft: #e1f0f4;
+  --vdw-accent-line: #b3d8e2;
+
+  /* 主按钮用近黑，把青色留给数据；否则表格里的"进行中"会和按钮混淆 */
+  --vdw-solid: #16232a;
+  --vdw-solid-hover: #24343d;
+  --vdw-solid-active: #0d181d;
+
+  --vdw-ok: #167c55;
+  --vdw-ok-soft: #e2f4ec;
+  --vdw-ok-line: #bfe3d3;
+  --vdw-warn: #9a6206;
+  --vdw-warn-soft: #fbf0dc;
+  --vdw-warn-line: #e8cf9f;
+  --vdw-danger: #c0362c;
+  --vdw-danger-soft: #fbe9e7;
+  --vdw-danger-line: #eec4bf;
+  --vdw-danger-hover: #a52c23;
+
+  /* --- 深色专注工作区（标注 / 筛帧） ------------------------------------- */
+  --vdw-focus-canvas: #0b1216;
+  --vdw-focus-panel: #141f25;
+  --vdw-focus-panel-2: #1b282f;
+  --vdw-focus-line: #2b3a42;
+  --vdw-focus-ink: #e4edf1;
+  --vdw-focus-ink-2: #9fb0b8;
+  --vdw-focus-accent: #3bb8d8;
+
+  /* --- 字体 ------------------------------------------------------------- */
+  --vdw-sans: "IBM Plex Sans", "Noto Sans CJK SC", system-ui, sans-serif;
+  --vdw-mono: "JetBrains Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+
+  /* --- 尺寸 ------------------------------------------------------------- */
+  --vdw-sidebar-width: 236px;
+  --vdw-sidebar-collapsed-width: 60px;
+  --vdw-topbar-height: 48px;
+  --vdw-control-height: 38px;
+  --vdw-control-height-sm: 30px;
+  --vdw-row-height: 64px;
+  --vdw-radius-control: 5px;
+  --vdw-radius-card: 7px;
+
+  --vdw-shadow: 0 1px 2px rgb(15 21 24 / 6%), 0 6px 18px rgb(15 21 24 / 7%);
+  --vdw-shadow-pop: 0 4px 12px rgb(15 21 24 / 10%), 0 16px 40px rgb(15 21 24 / 12%);
+  --vdw-ring: 0 0 0 3px rgb(0 115 143 / 22%);
+
+  /* --- 动效 ------------------------------------------------------------- */
+  /* 统一一条曲线。浏览器默认的 ease 收尾偏软，是"生硬"感的来源之一。 */
+  --vdw-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --vdw-motion-fast: 130ms;
+  --vdw-motion-base: 200ms;
+  --vdw-motion-expand: 240ms;
+}

@@ -52,7 +52,7 @@ describe('BatchAnnotationDialog', () => {
     expect(wrapper.text()).toContain('将处理 1 个未标注视频')
     expect(wrapper.find('[data-test="annotation-risk-confirm"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="annotation-overwrite"]').classes()).toContain('is-disabled')
-    expect(wrapper.get('[data-test="annotation-create-task"]').classes()).not.toContain('is-disabled')
+    expect(wrapper.get('[data-test="annotation-create-task"]').attributes('disabled')).toBeUndefined()
   })
 
   it('gates all settings until the user confirms annotated-video risk', async () => {
@@ -60,9 +60,9 @@ describe('BatchAnnotationDialog', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('其中 1 个已有标注')
-    expect(wrapper.get('[data-test="annotation-create-task"]').classes()).toContain('is-disabled')
+    expect(wrapper.get('[data-test="annotation-create-task"]').attributes('disabled')).toBeDefined()
     await wrapper.get('[data-test="annotation-risk-confirm"] input').setValue(true)
     await flushPromises()
-    expect(wrapper.get('[data-test="annotation-create-task"]').classes()).not.toContain('is-disabled')
+    expect(wrapper.get('[data-test="annotation-create-task"]').attributes('disabled')).toBeUndefined()
   })
 })

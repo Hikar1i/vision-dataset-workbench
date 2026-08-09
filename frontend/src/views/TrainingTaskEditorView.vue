@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Plus } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -20,6 +19,7 @@ import GpuSequenceEditor from "../components/GpuSequenceEditor.vue";
 import TrainingModelEditor from "../components/TrainingModelEditor.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { groupedOptions, hasEffectiveResources } from "../components/trainingResources";
+import VButton from '../ui/VButton.vue'
 
 const route = useRoute();
 const router = useRouter();
@@ -193,15 +193,11 @@ onMounted(load);
     <PageHeader :title="editing ? '编辑训练草稿' : '新建训练任务'" back-to="/training-tasks" back-label="返回训练任务">
       <template #meta><span>仅 YOLO Detect 轴对齐矩形框模型</span></template>
       <template #actions><div>
-        <el-button @click="router.push('/training-tasks')">取消</el-button
-        ><el-button :loading="saving" :disabled="!valid || saving" @click="save(false)"
-          >保存草稿</el-button
-        ><el-button
-          type="primary"
-          :loading="saving"
+        <VButton variant="secondary" @click="router.push('/training-tasks')">取消</VButton
+        ><VButton variant="secondary" :loading="saving" :disabled="!valid || saving" @click="save(false)">保存草稿</VButton
+        ><VButton variant="primary" :loading="saving"
           :disabled="!valid || !trainingAvailable || saving"
-          @click="save(true)"
-          >保存并启动</el-button
+          @click="save(true)">保存并启动</VButton
         >
       </div></template>
     </PageHeader>
@@ -293,12 +289,9 @@ onMounted(load);
             <span>03 / MODELS</span>
             <h2>训练模型与执行顺序</h2>
           </div>
-          <el-button
-            :icon="Plus"
-            :disabled="!canAdd"
+          <VButton variant="secondary" :disabled="!canAdd"
             :title="modelsHaveResources ? '添加模型' : '请先补齐现有模型的数据集、超参模板和 BaseModel'"
-            @click="add"
-            >添加模型</el-button
+            @click="add">添加模型</VButton
           >
         </header>
         <TrainingModelEditor
@@ -322,21 +315,21 @@ onMounted(load);
 </template>
 <style scoped>
 .training-editor-page {
-  background: #f4f7fa;
+  background: var(--vdw-app);
 }
 .editor-section {
   margin: 20px 0;
   padding: 24px;
   background: #fff;
-  border: 1px solid #d8dee6;
+  border: 1px solid var(--vdw-line);
 }
 .editor-section > header {
   margin-bottom: 20px;
 }
 .editor-section > header span {
-  color: #16866f;
+  color: var(--vdw-accent);
   font:
-    12px ui-monospace,
+    13px ui-monospace,
     monospace;
   letter-spacing: 0.08em;
 }
@@ -353,8 +346,8 @@ onMounted(load);
 }
 .field-note {
   margin: 5px 0 0;
-  color: #687482;
-  font-size: 12px;
+  color: var(--vdw-ink-2);
+  font-size: 13px;
 }
 .model-section-title {
   display: flex;

@@ -13,6 +13,15 @@ import {
 } from '../api/models'
 import { forgetResource } from '../navigation/recentResources'
 import PageHeader from '../components/PageHeader.vue'
+import VButton from '../ui/VButton.vue'
+import VCellName from '../ui/VCellName.vue'
+import VChip from '../ui/VChip.vue'
+import VEmpty from '../ui/VEmpty.vue'
+import VField from '../ui/VField.vue'
+import VPanel from '../ui/VPanel.vue'
+import VRow from '../ui/VRow.vue'
+import VTable from '../ui/VTable.vue'
+import VTag from '../ui/VTag.vue'
 
 const router = useRouter()
 const projects = ref<ModelProject[]>([])
@@ -25,6 +34,10 @@ const description = ref('')
 const tags = ref<string[]>(['未分类'])
 const availableTags = ref<string[]>([])
 const error = ref('')
+
+const COLUMNS =
+  'minmax(240px, 1.4fr) minmax(130px, 0.7fr) 92px 84px 106px 106px 132px'
+
 const valid = computed(() =>
   name.value.trim().length > 0 && name.value.trim().length <= 128 && tags.value.length > 0,
 )
@@ -84,61 +97,175 @@ onMounted(load)
 </script>
 
 <template>
-  <main class="content-page model-projects-page">
-    <PageHeader title="模型项目">
+  <main class="content-page">
+    <PageHeader title="模型项目" kind="model projects">
       <template #meta><span data-test="page-stat">{{ projects.length }} 个项目</span></template>
-      <template #actions><el-button type="primary" :icon="Plus" @click="showCreate = !showCreate">{{ showCreate ? '取消新建' : '新建模型项目' }}</el-button></template>
+      <template #actions>
+        <VButton
+          :variant="showCreate ? 'secondary' : 'primary'"
+          @click="showCreate = !showCreate"
+        >
+          <template v-if="!showCreate" #icon><el-icon><Plus /></el-icon></template>
+          {{ showCreate ? '取消新建' : '新建模型项目' }}
+        </VButton>
+      </template>
     </PageHeader>
-    <div class="content-body">
+
+    <div class="content-body model-projects-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-      <section v-if="showCreate" class="create-panel">
-        <header><span>NEW / MODEL PROJECT</span><strong>创建归档模型项目</strong></header>
-        <el-form label-position="top" @submit.prevent="create">
-          <el-form-item label="项目名称"><el-input v-model="name" maxlength="128" show-word-limit /></el-form-item>
-          <el-form-item label="项目类型">
-            <el-select model-value="archive" disabled><el-option label="归档" value="archive" /></el-select>
-            <p class="field-note">训练项目会在训练任务首次成功后自动同步，不能手工创建。</p>
-          </el-form-item>
-          <el-form-item label="描述"><el-input v-model="description" type="textarea" :rows="3" maxlength="2000" show-word-limit /></el-form-item>
-          <el-form-item label="标签">
-            <el-select v-model="tags" multiple filterable allow-create default-first-option style="width:100%" placeholder="选择或输入标签">
-              <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
-            </el-select>
-          </el-form-item>
-          <el-button native-type="submit" type="primary" :loading="creating" :disabled="!valid">创建并打开</el-button>
-        </el-form>
-      </section>
-      <section v-loading="loading" class="resource-index">
-        <header v-if="projects.length" class="index-row index-header"><span>项目</span><span>标签</span><span>类型</span><span>权限</span><span>创建时间</span><span>更新时间</span><span /></header>
-        <article v-for="project in projects" :key="project.id" class="index-row resource-row">
-          <div class="resource-identity"><code>{{ project.id.slice(0, 8) }}</code><div><strong>{{ project.name }}</strong><p>{{ project.description || '暂无描述' }}</p></div></div>
-          <div class="project-tags"><el-tag v-for="tag in project.tags" :key="tag" size="small" effect="plain">{{ tag }}</el-tag></div>
-          <el-tag :type="project.series_type === 'training' ? 'success' : 'info'" effect="plain">{{ project.series_type === 'training' ? '训练' : '归档' }}</el-tag>
-          <span>{{ project.can_manage ? '可管理' : '只读' }}</span>
-          <time :datetime="project.created_at">{{ project.created_at.slice(0, 10) }}</time>
-          <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
-          <div class="row-actions"><router-link :to="`/model-projects/${project.id}`">打开</router-link><el-button v-if="project.can_manage" type="danger" link :loading="deleting === project.id" @click="remove(project)">删除</el-button></div>
-        </article>
-        <el-empty v-if="!loading && !projects.length" description="还没有模型项目"><el-button type="primary" @click="showCreate = true">新建模型项目</el-button></el-empty>
-      </section>
+
+      <Transition name="vdw-expand">
+        <div v-if="showCreate">
+          <VPanel title="创建归档模型项目">
+            <form class="create-form" @submit.prevent="create">
+              <VField label="项目名称" required>
+                <template #default="{ id }">
+                  <el-input :id="id" v-model="name" maxlength="128" show-word-limit />
+                </template>
+              </VField>
+              <VField
+                label="项目类型"
+                note="训练项目会在训练任务首次成功后自动同步，不能手工创建。"
+              >
+                <template #default="{ id }">
+                  <el-select :id="id" model-value="archive" disabled>
+                    <el-option label="归档" value="archive" />
+                  </el-select>
+                </template>
+              </VField>
+              <VField label="标签" required>
+                <template #default="{ id }">
+                  <el-select
+                    :id="id"
+                    v-model="tags"
+                    multiple
+                    filterable
+                    allow-create
+                    default-first-option
+                    placeholder="选择或输入标签"
+                  >
+                    <el-option v-for="tag in availableTags" :key="tag" :label="tag" :value="tag" />
+                  </el-select>
+                </template>
+              </VField>
+              <VField label="描述" class="create-form__wide">
+                <template #default="{ id }">
+                  <el-input
+                    :id="id"
+                    v-model="description"
+                    type="textarea"
+                    :rows="3"
+                    maxlength="2000"
+                    show-word-limit
+                  />
+                </template>
+              </VField>
+              <div class="create-form__actions">
+                <VButton type="submit" variant="primary" :loading="creating" :disabled="!valid">
+                  创建并打开
+                </VButton>
+              </div>
+            </form>
+          </VPanel>
+        </div>
+      </Transition>
+
+      <VPanel v-loading="loading" flush>
+        <VTable
+          :columns="COLUMNS"
+          :headers="['项目', '标签', '类型', '权限', '创建时间', '更新时间', '操作']"
+        >
+          <VRow v-for="project in projects" :key="project.id" :columns="COLUMNS">
+            <VCellName :name="project.name" :sub="project.description || '暂无描述'">
+              <template #badge>
+                <VChip variant="id">{{ project.id.slice(0, 6).toUpperCase() }}</VChip>
+              </template>
+            </VCellName>
+            <div class="project-tags">
+              <VChip v-for="tag in project.tags" :key="tag">{{ tag }}</VChip>
+            </div>
+            <VTag :tone="project.series_type === 'training' ? 'run' : 'idle'">
+              {{ project.series_type === 'training' ? '训练' : '归档' }}
+            </VTag>
+            <span class="cell-muted">{{ project.can_manage ? '可管理' : '只读' }}</span>
+            <time :datetime="project.created_at">{{ project.created_at.slice(0, 10) }}</time>
+            <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
+            <div class="row-actions">
+              <VButton
+                variant="secondary"
+                size="sm"
+                @click="router.push(`/model-projects/${project.id}`)"
+              >打开</VButton>
+              <VButton
+                v-if="project.can_manage"
+                variant="quiet"
+                size="sm"
+                :loading="deleting === project.id"
+                @click="remove(project)"
+              >删除</VButton>
+            </div>
+          </VRow>
+
+          <template #empty>
+            <VEmpty
+              v-if="!loading && !projects.length"
+              title="还没有模型项目"
+              note="归档模型项目用于收纳外部导入的权重；训练产出的项目会自动出现在这里。"
+            >
+              <VButton variant="primary" @click="showCreate = true">新建模型项目</VButton>
+            </VEmpty>
+          </template>
+        </VTable>
+      </VPanel>
     </div>
   </main>
 </template>
 
 <style scoped>
-.model-projects-page { color: #17212b; background: #f4f7fa; }
-.create-panel,.resource-index { margin-top: 24px; background: #fff; border: 1px solid #d8dee6; }
-.create-panel { display: grid; grid-template-columns: minmax(180px,.55fr) minmax(300px,1fr); gap: 44px; padding: 31px; }
-.create-panel header { display: flex; flex-direction: column; gap: 10px; }
-.create-panel header span,.resource-identity code { color: #2563eb; font: 12px ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing: .08em; }
-.field-note,.resource-row p { margin: 6px 0 0; color: #687482; font-size: 13px; }
-.index-row { display: grid; grid-template-columns: minmax(240px,1fr) minmax(120px,.6fr) 72px 72px 100px 100px 92px; gap: 16px; align-items: center; padding: 17px 22px; border-bottom: 1px solid #e5e9ef; }
-.index-header { color: #687482; font-size: 12px; background: #f8fafc; }
-.resource-identity { display: flex; gap: 16px; align-items: flex-start; min-width: 0; }
-.resource-identity strong { display: block; }
-.resource-identity p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-actions { display: flex; gap: 12px; align-items: center; }
-.project-tags { display:flex; gap:6px; flex-wrap:wrap; }
-.row-actions a { color: #2563eb; text-decoration: none; }
-@media (max-width: 1100px) { .index-row { grid-template-columns: 1fr minmax(120px,.5fr) auto; } .index-row > :nth-child(3),.index-row > :nth-child(4),.index-row > :nth-child(5),.index-row > :nth-child(6),.index-header { display: none; } .create-panel { grid-template-columns: 1fr; } }
+.model-projects-body {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.create-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 18px;
+}
+
+.create-form__wide {
+  grid-column: 1 / -1;
+}
+
+.create-form :deep(.el-select),
+.create-form :deep(.el-input) {
+  width: 100%;
+}
+
+.create-form__actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.project-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.cell-muted,
+time {
+  color: var(--vdw-ink-2);
+  font-size: 14px;
+}
+
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
 </style>

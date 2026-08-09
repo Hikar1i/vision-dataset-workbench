@@ -37,6 +37,7 @@ import {
   type BoxBounds,
   type Point,
 } from '../views/annotationGeometry'
+import VButton from '../ui/VButton.vue'
 
 type PageSize = 50 | 100 | 200 | 'all'
 
@@ -231,10 +232,10 @@ function colorWithAlpha(color: string, alpha: number) {
 
 function contrastText(color: string) {
   const value = color.match(/^#([0-9a-f]{6})$/i)?.[1]
-  if (!value) return '#111820'
+  if (!value) return 'var(--vdw-focus-canvas)'
   const [red, green, blue] = [0, 2, 4]
     .map((offset) => Number.parseInt(value.slice(offset, offset + 2), 16))
-  return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#111820' : '#ffffff'
+  return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? 'var(--vdw-focus-canvas)' : '#ffffff'
 }
 
 function annotationTitle(item: FrameAnnotation, index: number) {
@@ -579,7 +580,7 @@ onBeforeUnmount(() => {
       </header>
     </template>
 
-    <main class="frames-workbench" :class="{ 'range-mode': rangeMode }">
+    <main class="frames-workbench vdw-dark" :class="{ 'range-mode': rangeMode }">
       <section class="frames-toolbar">
         <div class="toolbar-left">
           <label>每页
@@ -607,20 +608,20 @@ onBeforeUnmount(() => {
             <output data-test="grid-scale-value">{{ gridScaleInput.toFixed(2) }}×</output>
           </label>
           <template v-if="canEdit">
-            <el-button v-if="!rangeMode" data-test="enter-range" :aria-pressed="false" @click="enterRangeMode">范围多选</el-button>
+            <VButton variant="secondary" v-if="!rangeMode" data-test="enter-range" :aria-pressed="false" @click="enterRangeMode">范围多选</VButton>
             <template v-else>
-              <el-button data-test="exit-range" :aria-pressed="true" @click="exitRangeMode">退出多选</el-button>
-              <el-button :disabled="!selected.size" @click="clearSelection">取消选中</el-button>
-              <el-button type="success" plain :disabled="!selected.size" @click="setSelectedEnabled(true)">批量启用</el-button>
-              <el-button type="danger" plain :disabled="!selected.size" @click="setSelectedEnabled(false)">批量停用</el-button>
+              <VButton variant="secondary" data-test="exit-range" :aria-pressed="true" @click="exitRangeMode">退出多选</VButton>
+              <VButton variant="secondary" :disabled="!selected.size" @click="clearSelection">取消选中</VButton>
+              <VButton variant="secondary" :disabled="!selected.size" @click="setSelectedEnabled(true)">批量启用</VButton>
+              <VButton variant="danger" :disabled="!selected.size" @click="setSelectedEnabled(false)">批量停用</VButton>
             </template>
-            <el-button @click="patternOpen = true">启停模板</el-button>
-            <el-button v-if="!rangeMode" type="danger" plain :loading="analyzing" @click="enableByAnnotation">按标注启停</el-button>
+            <VButton variant="secondary" @click="patternOpen = true">启停模板</VButton>
+            <VButton variant="danger" v-if="!rangeMode" :loading="analyzing" @click="enableByAnnotation">按标注启停</VButton>
           </template>
         </div>
         <div v-if="canEdit" class="toolbar-right">
           <span v-if="changes.length">{{ changes.length }} 项待保存</span>
-          <el-button data-test="save-changes" type="primary" :loading="saving" :disabled="!changes.length" @click="saveChanges">保存更改</el-button>
+          <VButton variant="primary" data-test="save-changes" :loading="saving" :disabled="!changes.length" @click="saveChanges">保存更改</VButton>
         </div>
       </section>
 
@@ -680,13 +681,13 @@ onBeforeUnmount(() => {
             </button>
             <footer>
               <span :title="frameFileName(frame)">{{ frameFileName(frame) }}</span>
-              <button
+              <VButton
                 v-if="canEdit"
                 :data-test="`toggle-${frame.id}`"
-                type="button"
-                :class="draft[frame.id] ? 'disable-button' : 'enable-button'"
+                size="sm"
+                :variant="draft[frame.id] ? 'danger' : 'secondary'"
                 @click="toggleDraft(frame.id)"
-              >{{ draft[frame.id] ? '停用' : '启用' }}</button>
+              >{{ draft[frame.id] ? '停用' : '启用' }}</VButton>
             </footer>
           </article>
         </div>
@@ -711,27 +712,28 @@ onBeforeUnmount(() => {
         <div class="pattern-row">
           <span>启停序列</span>
           <div>
-            <button
+            <VButton
               v-for="(_, index) in pattern"
               :key="index"
-              type="button"
-              :class="pattern[index] ? 'pattern-enabled' : 'pattern-disabled'"
+              size="sm"
+              :variant="pattern[index] ? 'primary' : 'secondary'"
+              :aria-pressed="pattern[index] ? 'true' : 'false'"
               @click="togglePattern(index)"
-            >{{ pattern[index] ? '启用' : '停用' }}</button>
+            >{{ pattern[index] ? '启用' : '停用' }}</VButton>
           </div>
         </div>
         <el-alert title="仅修改前端状态，需点击“保存更改”才会写入数据库。" type="warning" :closable="false" show-icon />
       </div>
       <template #footer>
-        <el-button @click="patternOpen = false">取消</el-button>
-        <el-button type="primary" :disabled="rangeMode && !selected.size" @click="applyPattern">
+        <VButton variant="secondary" @click="patternOpen = false">取消</VButton>
+        <VButton variant="primary" :disabled="rangeMode && !selected.size" @click="applyPattern">
           {{ rangeMode ? `应用到选中的 ${selected.size} 帧` : `应用到全部 ${frames.length} 帧` }}
-        </el-button>
+        </VButton>
       </template>
     </el-dialog>
 
     <Transition name="preview-fade">
-      <section v-if="previewFrame" data-test="frame-preview" class="frame-preview" @wheel="handlePreviewWheel">
+      <section v-if="previewFrame" data-test="frame-preview" class="frame-preview vdw-dark" @wheel="handlePreviewWheel">
         <header>
           <div class="preview-info">
             <strong>#{{ previewFrame.sequence }} · {{ previewFileName }}</strong>
@@ -771,8 +773,8 @@ onBeforeUnmount(() => {
                   :y="item.y_min"
                   :width="Math.max(1, item.x_max - item.x_min)"
                   :height="Math.max(1, item.y_max - item.y_min)"
-                  :stroke="labelColors[item.label_id] ?? '#ffca3a'"
-                  :fill="colorWithAlpha(labelColors[item.label_id] ?? '#ffca3a', 0.12)"
+                  :stroke="labelColors[item.label_id] ?? 'var(--vdw-warn)'"
+                  :fill="colorWithAlpha(labelColors[item.label_id] ?? 'var(--vdw-warn)', 0.12)"
                   vector-effect="non-scaling-stroke"
                 />
                 <g :transform="`translate(${item.x_min} ${item.y_min - annotationLabelSize(item, index).height})`">
@@ -780,14 +782,14 @@ onBeforeUnmount(() => {
                     class="preview-label-background"
                     :width="annotationLabelSize(item, index).width"
                     :height="annotationLabelSize(item, index).height"
-                    :fill="labelColors[item.label_id] ?? '#ffca3a'"
+                    :fill="labelColors[item.label_id] ?? 'var(--vdw-warn)'"
                   />
                   <text
                     :x="annotationLabelSize(item, index).fontSize * 0.34"
                     :y="annotationLabelSize(item, index).fontSize"
                     :font-size="annotationLabelSize(item, index).fontSize"
                     font-weight="700"
-                    :fill="contrastText(labelColors[item.label_id] ?? '#ffca3a')"
+                    :fill="contrastText(labelColors[item.label_id] ?? 'var(--vdw-warn)')"
                   >{{ annotationTitle(item, index) }}</text>
                 </g>
               </g>
@@ -814,14 +816,14 @@ onBeforeUnmount(() => {
           </aside>
         </div>
         <footer>
-          <el-button v-if="canEdit" data-test="preview-toggle-enabled" :type="draft[previewFrame.id] ? 'danger' : 'success'" @click="toggleDraft(previewFrame.id)">{{ draft[previewFrame.id] ? '停用采样帧' : '启用采样帧' }} · S</el-button>
-          <el-button :disabled="previewIndex === 0" @click="movePreview(-1)"><el-icon><ArrowLeftBold /></el-icon>上一张 · A</el-button>
-          <el-button :disabled="previewIndex === frames.length - 1" @click="movePreview(1)">下一张 · D<el-icon><ArrowRightBold /></el-icon></el-button>
-          <el-button title="缩小" @click="zoomPreview(-0.1)"><el-icon><ZoomOut /></el-icon></el-button>
+          <VButton v-if="canEdit" data-test="preview-toggle-enabled" :variant="draft[previewFrame.id] ? 'danger' : 'secondary'" @click="toggleDraft(previewFrame.id)">{{ draft[previewFrame.id] ? '停用采样帧' : '启用采样帧' }} · S</VButton>
+          <VButton variant="secondary" :disabled="previewIndex === 0" @click="movePreview(-1)"><el-icon><ArrowLeftBold /></el-icon>上一张 · A</VButton>
+          <VButton variant="secondary" :disabled="previewIndex === frames.length - 1" @click="movePreview(1)">下一张 · D<el-icon><ArrowRightBold /></el-icon></VButton>
+          <VButton variant="secondary" title="缩小" @click="zoomPreview(-0.1)"><el-icon><ZoomOut /></el-icon></VButton>
           <span>{{ Math.round(previewZoom * 100) }}%</span>
-          <el-button data-test="preview-zoom-in" title="放大" @click="zoomPreview(0.1)"><el-icon><ZoomIn /></el-icon></el-button>
-          <el-button @click="resetPreviewView"><el-icon><Refresh /></el-icon>重置 · R</el-button>
-          <el-button @click="boxesVisible = !boxesVisible"><el-icon><Hide v-if="boxesVisible" /><View v-else /></el-icon>{{ boxesVisible ? '隐藏标注框' : '显示标注框' }} · H</el-button>
+          <VButton variant="secondary" data-test="preview-zoom-in" title="放大" @click="zoomPreview(0.1)"><el-icon><ZoomIn /></el-icon></VButton>
+          <VButton variant="secondary" @click="resetPreviewView"><el-icon><Refresh /></el-icon>重置 · R</VButton>
+          <VButton variant="secondary" @click="boxesVisible = !boxesVisible"><el-icon><Hide v-if="boxesVisible" /><View v-else /></el-icon>{{ boxesVisible ? '隐藏标注框' : '显示标注框' }} · H</VButton>
         </footer>
       </section>
     </Transition>
@@ -840,76 +842,74 @@ onBeforeUnmount(() => {
 .preview-info,
 .frame-preview > footer { display: flex; align-items: center; }
 
-.focus-header { justify-content: space-between; height: 52px; padding: 0 14px; color: var(--vdw-focus-ink); background: var(--vdw-focus-panel); border-bottom: 1px solid var(--vdw-focus-rule); }
+.focus-header { justify-content: space-between; height: 52px; padding: 0 14px; color: var(--vdw-focus-ink); background: var(--vdw-focus-panel); border-bottom: 1px solid var(--vdw-focus-line); }
 .focus-title { gap: 12px; min-width: 0; }
-.focus-title > span { color: var(--vdw-mint); font: 700 13px var(--vdw-mono); letter-spacing: .12em; }
-.focus-title strong { max-width: 58vw; overflow: hidden; font: 650 16px var(--vdw-title); text-overflow: ellipsis; white-space: nowrap; }
-.focus-title code { color: #92a2ae; font: 12px var(--vdw-mono); }
+.focus-title > span { color: var(--vdw-focus-accent); font: 700 13px var(--vdw-mono); letter-spacing: .12em; }
+.focus-title strong { max-width: 58vw; overflow: hidden; font: 650 16px var(--vdw-sans); text-overflow: ellipsis; white-space: nowrap; }
+.focus-title code { color: var(--vdw-focus-ink-2); font: 13px var(--vdw-mono); }
 .focus-header > button,
-.frame-preview > header > button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; color: #d3dde3; background: #263641; border: 1px solid #41515d; border-radius: 3px; cursor: pointer; }
+.frame-preview > header > button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; color: #d3dde3; background: var(--vdw-focus-panel-2); border: 1px solid var(--vdw-focus-line); border-radius: 3px; cursor: pointer; }
 
 .frames-workbench { display: grid; grid-template-rows: 54px 42px minmax(0, 1fr) 47px; height: calc(100dvh - 52px); overflow: hidden; color: var(--vdw-focus-ink); background: var(--vdw-focus-canvas); }
-.frames-toolbar { justify-content: space-between; gap: 16px; min-width: 0; padding: 0 14px; background: #1d2933; border-bottom: 1px solid #33414c; }
+.frames-toolbar { justify-content: space-between; gap: 16px; min-width: 0; padding: 0 14px; background: #1d2933; border-bottom: 1px solid var(--vdw-focus-line); }
 .toolbar-left,
 .toolbar-right { gap: 8px; min-width: 0; white-space: nowrap; }
 .toolbar-left { overflow-x: auto; scrollbar-width: none; }
 .toolbar-left::-webkit-scrollbar { display: none; }
-.toolbar-left label { display: flex; align-items: center; gap: 7px; color: var(--vdw-focus-muted); font-size: 14px; }
+.toolbar-left label { display: flex; align-items: center; gap: 7px; color: var(--vdw-focus-ink-2); font-size: 14px; }
 .page-size-select { width: 92px; }
 .grid-scale-control { min-width: 210px; }
 .grid-scale-control :deep(.el-slider) { width: 112px; }
 .grid-scale-control output { width: 46px; color: #b8c5cd; font: 13px var(--vdw-mono); text-align: right; }
-.toolbar-right span { color: #f3c76d; font: 14px var(--vdw-mono); }
-.frames-toolbar :deep(.el-button) { height: 30px; padding: 0 11px; color: #dce5eb; background: #263641; border-color: #41515d; border-radius: 3px; }
-.frames-toolbar :deep(.el-button:hover:not(:disabled)) { color: #9de0cc; background: #2d414b; border-color: #507165; }
-.frames-toolbar :deep(.el-button--primary) { color: white; background: #16866f; border-color: #16866f; }
-.frames-toolbar :deep(.el-button--danger) { color: #ffcaca; background: #40282d; border-color: #7e4347; }
-.frames-toolbar :deep(.el-button--success) { color: #dff8ef; background: #244d43; border-color: #397261; }
-.page-size-select :deep(.el-select__wrapper) { min-height: 30px; color: #dce5eb; background: #263641; box-shadow: 0 0 0 1px #41515d inset; }
+.toolbar-right span { color: var(--vdw-warn); font: 14px var(--vdw-mono); }
+.page-size-select :deep(.el-select__wrapper) { min-height: 30px; color: var(--vdw-focus-ink); background: var(--vdw-focus-panel-2); box-shadow: 0 0 0 1px var(--vdw-focus-line) inset; }
 
-.frames-stats { gap: 30px; min-width: 0; overflow-x: auto; padding: 0 16px; white-space: nowrap; background: #18232c; border-bottom: 1px solid #2e3d47; scrollbar-width: none; }
+.frames-stats { gap: 30px; min-width: 0; overflow-x: auto; padding: 0 16px; white-space: nowrap; background: var(--vdw-focus-panel); border-bottom: 1px solid #2e3d47; scrollbar-width: none; }
 .frames-stats::-webkit-scrollbar { display: none; }
-.stats-cluster { display: flex; align-items: center; align-self: stretch; gap: 17px; min-width: max-content; padding-right: 30px; border-right: 1px solid #34434e; }
+.stats-cluster { display: flex; align-items: center; align-self: stretch; gap: 17px; min-width: max-content; padding-right: 30px; border-right: 1px solid var(--vdw-focus-line); }
 .stats-cluster:last-child { border-right: 0; }
 .stats-cluster > div { display: flex; align-items: center; gap: 8px; height: 100%; }
-.stats-cluster > div span { color: var(--vdw-focus-muted); font-size: 14px; }
+.stats-cluster > div span { color: var(--vdw-focus-ink-2); font-size: 14px; }
 .stats-cluster strong { font: 700 16px var(--vdw-mono); line-height: 1; }
 .stats-title { color: #8c9ca6; font: 700 14px var(--vdw-mono); letter-spacing: .08em; }
 .stats-actions { margin-left: auto; }
-.enabled-text { color: #78d2b8; }.disabled-text { color: #ff8a8a; }.pending-text { color: #f3c76d; }
+.enabled-text { color: var(--vdw-focus-accent); }.disabled-text { color: var(--vdw-danger); }.pending-text { color: var(--vdw-warn); }
 
-.frames-grid-shell { position: relative; min-height: 0; overflow: auto; padding: 12px 14px 18px; scrollbar-color: #16866f #0b1117; scrollbar-width: thin; }
-.frames-grid-shell::-webkit-scrollbar { width: 10px; }.frames-grid-shell::-webkit-scrollbar-track { background: #0b1117; }.frames-grid-shell::-webkit-scrollbar-thumb { background: #16866f; border: 2px solid #0b1117; border-radius: 6px; }
+.frames-grid-shell { position: relative; min-height: 0; overflow: auto; padding: 12px 14px 18px; scrollbar-color: var(--vdw-focus-accent) var(--vdw-focus-canvas); scrollbar-width: thin; }
+.frames-grid-shell::-webkit-scrollbar { width: 10px; }.frames-grid-shell::-webkit-scrollbar-track { background: var(--vdw-focus-canvas); }.frames-grid-shell::-webkit-scrollbar-thumb { background: var(--vdw-focus-accent); border: 2px solid var(--vdw-focus-canvas); border-radius: 6px; }
 .frames-error { position: sticky; z-index: 8; top: 0; margin-bottom: 10px; }
 .frames-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--frame-card-width, 180px)), 1fr)); gap: 9px; align-content: start; }
-.frame-card { min-width: 0; overflow: hidden; background: #1b252e; border: 1px solid #34434e; border-radius: 3px; transition: border-color 150ms ease, box-shadow 150ms ease; }
+.frame-card { min-width: 0; overflow: hidden; background: #1b252e; border: 1px solid var(--vdw-focus-line); border-radius: 3px; transition: border-color 150ms ease, box-shadow 150ms ease; }
 .frame-card:hover { border-color: #567063; box-shadow: 0 6px 18px rgb(0 0 0 / 24%); }
-.frame-card.selected { border-color: #78d2b8; box-shadow: 0 0 0 1px #16866f; }
-.frame-thumb { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; padding: 0; color: inherit; background: #111820; border: 0; cursor: pointer; }
-.selection-box { position: absolute; z-index: 4; top: 6px; left: 6px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; color: white; font: 12px var(--vdw-mono); background: #17212b; border: 1px solid #7b8a94; border-radius: 3px; }
-.selected .selection-box { background: #16866f; border-color: #78d2b8; }
-.frame-card footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; min-height: 52px; padding: 6px 7px 6px 10px; border-top: 1px solid #34434e; }
+.frame-card.selected { border-color: var(--vdw-focus-accent); box-shadow: 0 0 0 1px var(--vdw-focus-accent); }
+.frame-thumb { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; padding: 0; color: inherit; background: var(--vdw-focus-canvas); border: 0; cursor: pointer; }
+.selection-box { position: absolute; z-index: 4; top: 6px; left: 6px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; color: white; font: 12px var(--vdw-mono); background: var(--vdw-focus-panel); border: 1px solid var(--vdw-focus-ink-2); border-radius: 3px; }
+.selected .selection-box { background: var(--vdw-focus-accent); border-color: var(--vdw-focus-accent); }
+.frame-card footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; min-height: 52px; padding: 6px 7px 6px 10px; border-top: 1px solid var(--vdw-focus-line); }
 .frame-card footer > span { display: -webkit-box; overflow: hidden; color: #c6d1d8; font: 14px/18px var(--vdw-mono); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.frame-card footer button { min-width: 52px; height: 34px; padding: 0 10px; color: white; font-size: 14px; border-radius: 3px; cursor: pointer; }
-.disable-button { background: #6a3034; border: 1px solid #95464d; }.enable-button { background: #245a4c; border: 1px solid #397a68; }
+/* 卡片脚注里的启停按钮只定宽度，配色交给 .vdw-dark 下的 VButton：
+   实心红绿会在缩略图网格里连成一片色块，盖过画面本身。 */
+.frame-card footer :deep(.vdw-btn) { min-width: 54px; }
 .empty-state { display: grid; min-height: 240px; place-items: center; color: #8797a2; }
 .range-mode { user-select: none; }
 
-.frames-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; background: #17212b; border-top: 1px solid #33414c; }
+.frames-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; background: var(--vdw-focus-panel); border-top: 1px solid var(--vdw-focus-line); }
 .frames-pagination > span { color: #9bacb6; font: 14px var(--vdw-mono); }
-.frames-pagination :deep(.el-pagination) { --el-pagination-bg-color: #263641; --el-pagination-button-color: #b9c6cf; --el-pagination-hover-color: #78d2b8; }
+.frames-pagination :deep(.el-pagination) { --el-pagination-bg-color: var(--vdw-focus-panel-2); --el-pagination-button-color: var(--vdw-focus-ink-2); --el-pagination-hover-color: var(--vdw-focus-accent); }
 .frames-pagination :deep(.el-pager li),
 .frames-pagination :deep(.btn-prev),
-.frames-pagination :deep(.btn-next) { color: #b9c6cf; background: #263641; border: 1px solid #354752; border-radius: 3px; }
-.frames-pagination :deep(.el-pager li.is-active) { color: white; background: #16866f; border-color: #16866f; }
+.frames-pagination :deep(.btn-next) { color: var(--vdw-focus-ink-2); background: var(--vdw-focus-panel-2); border: 1px solid #354752; border-radius: 3px; }
+.frames-pagination :deep(.el-pager li.is-active) { color: white; background: var(--vdw-focus-accent); border-color: var(--vdw-focus-accent); }
 
 .pattern-form { display: grid; gap: 18px; }.pattern-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; }.pattern-form label > span,
-.pattern-row > span { color: var(--vdw-muted); font-size: 14px; }.pattern-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; }.pattern-row > div { display: flex; flex-wrap: wrap; gap: 7px; }
-.pattern-row button { min-width: 54px; height: 32px; color: white; border-radius: 3px; cursor: pointer; }.pattern-enabled { background: #16866f; border: 1px solid #0f705d; }.pattern-disabled { background: #c83f49; border: 1px solid #a9343d; }
+.pattern-row > span { color: var(--vdw-ink-2); font-size: 14px; }.pattern-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; }.pattern-row > div { display: flex; flex-wrap: wrap; gap: 7px; }
+/* 启停序列是一排二态开关，用 primary/secondary 表达按下与未按下，
+   不再用绿/红实心——弹窗在浅色层，红绿实心会盖过它上方的说明 */
+.pattern-row :deep(.vdw-btn) { min-width: 58px; }
 
-.frame-preview { position: fixed; inset: 0; z-index: 3100; display: grid; grid-template-rows: 54px minmax(0, 1fr) 62px; color: #dce5eb; background: rgb(2 6 9 / 80%); }
-.frame-preview > header { justify-content: space-between; gap: 18px; padding: 0 18px; background: rgb(23 33 43 / 94%); border-bottom: 1px solid #40505c; }
-.preview-info { gap: 14px; min-width: 0; }.preview-info strong { overflow: hidden; font: 650 15px var(--vdw-title); text-overflow: ellipsis; white-space: nowrap; }.preview-info span { color: #99a9b4; font: 12px var(--vdw-mono); white-space: nowrap; }.preview-info b { padding: 3px 7px; font-size: 14px; border-radius: 2px; white-space: nowrap; }.enabled-status { color: #dff8ef; background: #245a4c; }.disabled-status { color: white; background: #c83f49; }
+.frame-preview { position: fixed; inset: 0; z-index: 3100; display: grid; grid-template-rows: 54px minmax(0, 1fr) 62px; color: var(--vdw-focus-ink); background: rgb(2 6 9 / 80%); }
+.frame-preview > header { justify-content: space-between; gap: 18px; padding: 0 18px; background: rgb(23 33 43 / 94%); border-bottom: 1px solid var(--vdw-focus-line); }
+.preview-info { gap: 14px; min-width: 0; }.preview-info strong { overflow: hidden; font: 650 15px var(--vdw-sans); text-overflow: ellipsis; white-space: nowrap; }.preview-info span { color: var(--vdw-focus-ink-2); font: 13px var(--vdw-mono); white-space: nowrap; }.preview-info b { padding: 3px 7px; font-size: 14px; border-radius: 2px; white-space: nowrap; }.enabled-status { color: var(--vdw-ok-soft); background: var(--vdw-ok); }.disabled-status { color: white; background: var(--vdw-danger); }
 .preview-stage { position: relative; min-height: 0; overflow: hidden; background: rgb(2 6 9 / 22%); cursor: default; touch-action: none; }
 .preview-stage.pannable { cursor: grab; }
 .preview-stage.dragging { cursor: grabbing; }
@@ -920,24 +920,14 @@ onBeforeUnmount(() => {
 .preview-loading { position: absolute; z-index: 4; top: 50%; left: 50%; padding: 8px 12px; color: #c9d4da; background: rgb(14 22 28 / 72%); transform: translate(-50%, -50%); }
 .preview-minimap { position: absolute; z-index: 5; right: 14px; bottom: 14px; width: 240px; padding: 8px; color: #24313a; background: rgb(246 248 249 / 88%); border: 1px solid #70818c; box-shadow: 0 8px 24px rgb(0 0 0 / 38%); backdrop-filter: blur(5px); }
 .preview-minimap header { display: flex; align-items: center; justify-content: space-between; height: 24px; }
-.preview-minimap header strong { font-size: 14px; }.preview-minimap header span { color: #687782; font: 12px var(--vdw-mono); }
-.preview-minimap svg { display: block; width: 100%; aspect-ratio: 16 / 9; background: #17212b; }
-.preview-viewport-box { fill: rgb(120 210 184 / 10%); stroke: #78d2b8; stroke-width: 2px; filter: drop-shadow(0 0 1px rgb(23 33 43 / 80%)); }
-.frame-preview > footer { justify-content: center; gap: 8px; padding: 0 14px; overflow-x: auto; white-space: nowrap; background: rgb(23 33 43 / 94%); border-top: 1px solid #40505c; }.frame-preview > footer > span { color: #9eafb9; font: 12px var(--vdw-mono); }
-.frame-preview > footer :deep(.el-button) { height: 31px; padding: 0 11px; color: #dce5eb; background: #263641; border-color: #41515d; border-radius: 3px; }
-.frame-preview > footer :deep(.el-button:hover:not(:disabled)) { color: #9de0cc; background: #2d414b; border-color: #507165; }
-.frame-preview > footer :deep(.el-button--danger) { color: #ffcaca; background: #6a3034; border-color: #95464d; }
-.frame-preview > footer :deep(.el-button--success) { color: #dff8ef; background: #245a4c; border-color: #397a68; }
+.preview-minimap header strong { font-size: 14px; }.preview-minimap header span { color: #687782; font: 13px var(--vdw-mono); }
+.preview-minimap svg { display: block; width: 100%; aspect-ratio: 16 / 9; background: var(--vdw-focus-panel); }
+.preview-viewport-box { fill: rgb(120 210 184 / 10%); stroke: var(--vdw-focus-accent); stroke-width: 2px; filter: drop-shadow(0 0 1px rgb(23 33 43 / 80%)); }
+.frame-preview > footer { justify-content: center; gap: 8px; padding: 0 14px; overflow-x: auto; white-space: nowrap; background: rgb(23 33 43 / 94%); border-top: 1px solid var(--vdw-focus-line); }.frame-preview > footer > span { color: var(--vdw-focus-ink-2); font: 13px var(--vdw-mono); }
 .preview-fade-enter-active,
 .preview-fade-leave-active { transition: opacity 180ms ease; }.preview-fade-enter-from,
 .preview-fade-leave-to { opacity: 0; }
 
-@media (hover: hover) {
-  .frames-workbench :deep(.el-button:not(.is-disabled):not(.is-text):not(.is-link):hover),
-  .frames-workbench :deep(.el-button:not(.is-disabled):not(.is-text):not(.is-link):active),
-  .frame-preview :deep(.el-button:not(.is-disabled):not(.is-text):not(.is-link):hover),
-  .frame-preview :deep(.el-button:not(.is-disabled):not(.is-text):not(.is-link):active) { transform: none; }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .frame-card,
@@ -948,9 +938,9 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
-.frames-workbench-dialog { margin: 0 !important; padding: 0 !important; background: #111820 !important; }
+.frames-workbench-dialog { margin: 0 !important; padding: 0 !important; background: var(--vdw-focus-canvas) !important; }
 .frames-workbench-dialog > .el-dialog__header { height: 52px; padding: 0 !important; margin: 0 !important; }
 .frames-workbench-dialog > .el-dialog__body { height: calc(100dvh - 52px); padding: 0 !important; overflow: hidden; }
-.frame-filter-confirm { border: 1px solid #9ba9b2; box-shadow: 0 20px 60px rgb(0 0 0 / 45%); }
-.frame-pattern-dialog { border: 1px solid #9ba9b2; }
+.frame-filter-confirm { border: 1px solid var(--vdw-focus-ink-2); box-shadow: 0 20px 60px rgb(0 0 0 / 45%); }
+.frame-pattern-dialog { border: 1px solid var(--vdw-focus-ink-2); }
 </style>

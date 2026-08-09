@@ -14,12 +14,13 @@ import {
   type ProjectLabel,
 } from '../api/labels'
 import type { Project } from '../api/projects'
-import PageHeader from '../components/PageHeader.vue'
+import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 import {
   randomLabelColor,
   readLabelColorCandidate,
   writeLabelColorCandidate,
 } from './labelColor'
+import VButton from '../ui/VButton.vue'
 
 const props = defineProps<{ project: Project }>()
 const labels = ref<ProjectLabel[]>([])
@@ -181,13 +182,15 @@ async function remove(label: ProjectLabel) {
 }
 
 onMounted(load)
+
+const headerHost = useProjectHeaderHost()
 </script>
 
 <template>
   <main class="content-page labels-shell">
-    <PageHeader title="标签管理">
-      <template #meta><span data-test="page-stat">{{ labels.length }} 个类别</span></template>
-    </PageHeader>
+    <Teleport defer :disabled="!headerHost" to="#project-page-meta">
+      <span data-test="page-stat">{{ labels.length }} 个标签类别</span>
+    </Teleport>
 
     <div class="content-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
@@ -223,13 +226,9 @@ onMounted(load)
               placeholder="可选，例如 安全帽"
             />
           </label>
-          <el-button
-            data-test="add-label"
-            native-type="submit"
-            type="primary"
+          <VButton variant="secondary" data-test="add-label" type="submit"
             :loading="saving === 'new'"
-            :disabled="!newName.trim() || !newColor"
-          >添加</el-button>
+            :disabled="!newName.trim() || !newColor">添加</VButton>
         </form>
 
         <header
@@ -283,26 +282,16 @@ onMounted(load)
 
           <div class="action-cell">
             <template v-if="canEdit">
-              <el-button
-                :data-test="`move-up-${label.id}`"
-                text
+              <VButton variant="quiet" size="sm" :data-test="`move-up-${label.id}`"
                 aria-label="上移"
                 :disabled="index === 0 || Boolean(saving)"
-                @click="move(index, -1)"
-              ><el-icon><Top /></el-icon></el-button>
-              <el-button
-                :data-test="`move-down-${label.id}`"
-                text
+                @click="move(index, -1)"><el-icon><Top /></el-icon></VButton>
+              <VButton variant="quiet" size="sm" :data-test="`move-down-${label.id}`"
                 aria-label="下移"
                 :disabled="index === labels.length - 1 || Boolean(saving)"
-                @click="move(index, 1)"
-              ><el-icon><Bottom /></el-icon></el-button>
-              <el-button
-                text
-                type="danger"
-                :loading="saving === label.id"
-                @click="remove(label)"
-              >删除</el-button>
+                @click="move(index, 1)"><el-icon><Bottom /></el-icon></VButton>
+              <VButton variant="quiet" size="sm" :loading="saving === label.id"
+                @click="remove(label)">删除</VButton>
             </template>
           </div>
         </article>
@@ -319,13 +308,13 @@ onMounted(load)
 <style scoped>
 .labels-shell {
   color: var(--vdw-ink);
-  background: var(--vdw-canvas);
+  background: var(--vdw-app);
 }
 
 .label-index {
   overflow-x: auto;
   background: white;
-  border: 1px solid var(--vdw-rule);
+  border: 1px solid var(--vdw-line);
 }
 
 .label-create {
@@ -334,8 +323,8 @@ onMounted(load)
   gap: 11px;
   align-items: center;
   padding: 14px 18px;
-  background: #f8fafc;
-  border-bottom: 1px solid var(--vdw-rule);
+  background: var(--vdw-surface-2);
+  border-bottom: 1px solid var(--vdw-line);
 }
 
 .create-field {
@@ -347,7 +336,7 @@ onMounted(load)
 
 .create-field > span {
   flex: none;
-  color: var(--vdw-muted);
+  color: var(--vdw-ink-2);
   font-size: 13px;
 }
 
@@ -361,9 +350,12 @@ onMounted(load)
   gap: 18px;
   align-items: center;
   min-width: 1040px;
-  min-height: 57px;
+  /* 与 VRow 保持一致 */
+  min-height: var(--vdw-row-height);
+  padding-top: 12px;
+  padding-bottom: 12px;
   padding: 9px 18px;
-  border-bottom: 1px solid #e6eaf0;
+  border-bottom: 1px solid var(--vdw-line);
 }
 
 .label-row:last-child {
@@ -373,9 +365,9 @@ onMounted(load)
 .label-header {
   min-height: 42px;
   padding-block: 0;
-  color: var(--vdw-muted);
+  color: var(--vdw-ink-2);
   font-size: 13px;
-  background: #f8fafc;
+  background: var(--vdw-surface-2);
 }
 
 .action-cell {
@@ -389,12 +381,12 @@ onMounted(load)
   height: 30px;
   padding: 2px;
   background: white;
-  border: 1px solid var(--vdw-rule);
+  border: 1px solid var(--vdw-line);
   cursor: pointer;
 }
 
 .mapping-order {
-  color: var(--vdw-muted);
+  color: var(--vdw-ink-2);
   font: 16px var(--vdw-mono);
   justify-self: center;
 }
@@ -416,18 +408,13 @@ onMounted(load)
 
 .label-color code {
   overflow: hidden;
-  color: var(--vdw-muted);
-  font: 12px var(--vdw-mono);
+  color: var(--vdw-ink-2);
+  font: 13px var(--vdw-mono);
   text-overflow: ellipsis;
 }
 
-.action-cell .el-button {
-  margin: 0;
-  padding-inline: 5px;
-}
-
 .description-text {
-  color: var(--vdw-muted);
+  color: var(--vdw-ink-2);
 }
 
 .label-empty {
@@ -435,7 +422,7 @@ onMounted(load)
   gap: 7px;
   place-items: center;
   padding: 64px 20px;
-  color: var(--vdw-muted);
+  color: var(--vdw-ink-2);
 }
 
 .label-empty strong {

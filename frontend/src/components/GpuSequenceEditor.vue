@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp } from "@element-plus/icons-vue";
 import { computed } from "vue";
 import type { GpuDevice, TrainingModelDraft } from "../api/training";
+import VButton from '../ui/VButton.vue'
+import VTag from '../ui/VTag.vue'
 
 const props = defineProps<{
   models: TrainingModelDraft[];
@@ -43,16 +44,15 @@ function changeGpu(model: TrainingModelDraft, gpu: number) {
       <header>
         <strong>GPU {{ lane.device.index }}</strong
         ><span>{{ lane.device.name }}</span
-        ><el-tag
-          :type="
+        ><VTag
+          :tone="
             lane.device.level === 'green'
-              ? 'success'
+              ? 'ok'
               : lane.device.level === 'orange'
-                ? 'warning'
+                ? 'warn'
                 : 'danger'
           "
-          effect="plain"
-          >显存 {{ lane.device.memory_percent }}%</el-tag
+          >显存 {{ lane.device.memory_percent }}%</VTag
         >
       </header>
       <article
@@ -71,19 +71,11 @@ function changeGpu(model: TrainingModelDraft, gpu: number) {
             :label="`GPU ${gpu.index}`"
             :value="gpu.index"
         /></el-select>
-        <el-button
-          :icon="ArrowUp"
-          circle
-          title="上移"
+        <VButton variant="secondary" title="上移"
           aria-label="上移"
-          @click="move(model, -1)"
-        /><el-button
-          :icon="ArrowDown"
-          circle
-          title="下移"
+          @click="move(model, -1)"/><VButton variant="secondary" title="下移"
           aria-label="下移"
-          @click="move(model, 1)"
-        />
+          @click="move(model, 1)"/>
       </article>
       <el-empty
         v-if="!lane.models.length"
@@ -101,20 +93,20 @@ function changeGpu(model: TrainingModelDraft, gpu: number) {
   gap: 14px;
 }
 .gpu-lane {
-  border: 1px solid #d8dee6;
-  background: #f8fafc;
+  border: 1px solid var(--vdw-line);
+  background: var(--vdw-surface-2);
 }
 .gpu-lane header {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 12px;
-  border-bottom: 1px solid #d8dee6;
+  border-bottom: 1px solid var(--vdw-line);
 }
 .gpu-lane header span {
   overflow: hidden;
-  color: #687482;
-  font-size: 12px;
+  color: var(--vdw-ink-2);
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -124,9 +116,9 @@ function changeGpu(model: TrainingModelDraft, gpu: number) {
   gap: 7px;
   align-items: center;
   padding: 9px 12px;
-  border-bottom: 1px solid #e5e9ef;
+  border-bottom: 1px solid var(--vdw-line);
 }
 .gpu-lane code {
-  color: #16866f;
+  color: var(--vdw-accent);
 }
 </style>

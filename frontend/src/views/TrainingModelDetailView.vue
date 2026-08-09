@@ -6,6 +6,12 @@ import PrecisionRecallChart from "../components/PrecisionRecallChart.vue";
 import TrainingMetricsChart from "../components/TrainingMetricsChart.vue";
 import MetricTrendChart from "../components/MetricTrendChart.vue";
 import PageHeader from "../components/PageHeader.vue";
+import VBar from "../ui/VBar.vue";
+import VButton from "../ui/VButton.vue";
+import VChip from "../ui/VChip.vue";
+import VPanel from "../ui/VPanel.vue";
+import VTag from "../ui/VTag.vue";
+import { trainingStatus } from "../ui/status";
 import {
   cancelTrainingModel,
   deleteTrainingModel,
@@ -167,6 +173,19 @@ async function submitAction() {
     ElMessage.error(e instanceof Error ? e.message : "操作失败");
   }
 }
+const summary = computed(() => {
+  if (!model.value) return [];
+  const value = model.value;
+  return [
+    { key: "GPU / 顺序", text: `GPU ${value.gpu_index} / q${String(value.queue_order).padStart(2, "0")}` },
+    { key: "epoch", text: `${latest.value?.current_epoch || 0} / ${latest.value?.target_epochs || "—"}` },
+    { key: "PID", text: String(latest.value?.pid || "—") },
+    { key: "创建", text: formatTime(value.created_at) },
+    { key: "开始", text: formatTime(value.started_at) },
+    { key: "持续", text: duration(value.started_at, value.finished_at) },
+    { key: "结束", text: formatTime(value.finished_at) },
+  ];
+});
 onMounted(async () => {
   try {
     await load();
@@ -181,245 +200,278 @@ onMounted(async () => {
 onBeforeUnmount(() => clearInterval(timer));
 </script>
 <template>
-  <main class="content-page training-model-page">
-    <PageHeader :title="model?.name || '训练模型'" :back-to="`/training-tasks/${route.params.id}`" back-label="返回训练任务">
-      <template #meta><span>{{ model?.artifact_code || "未冻结产物名" }}</span></template>
-      <template v-if="model" #actions><div>
-        <el-button type="warning" :disabled="!model.actions.cancel?.allowed" :title="model.actions.cancel?.message || '取消当前模型训练'" @click="cancel">取消</el-button
-        ><el-button :disabled="!model.actions.retry?.allowed" :title="model.actions.retry?.message || '重新训练模型'" @click="retry"
-          >重试</el-button
-        ><el-button :disabled="!model.actions.resume?.allowed" :title="model.actions.resume?.message || '从 last.pt 恢复'" @click="resume"
-          >恢复中断</el-button
-        ><el-button :disabled="!model.actions.derive?.allowed" :title="model.actions.derive?.message || '派生新训练配置'" @click="open('derive')"
-          >派生</el-button
-        ><el-button
-          type="primary"
+  <main class="content-page">
+    <PageHeader
+      :title="model?.name || '训练模型'"
+      kind="training model"
+      :code="model?.artifact_code || undefined"
+      :back-to="`/training-tasks/${route.params.id}`"
+      back-label="返回训练任务"
+    >
+      <template v-if="model" #meta>
+        <span>{{ task?.name }} · GPU {{ model.gpu_index }}</span>
+      </template>
+      <template v-if="model" #actions>
+        <VButton
+          :disabled="!model.actions.retry?.allowed"
+          :title="model.actions.retry?.message || '重新训练模型'"
+          @click="retry"
+        >重试</VButton>
+        <VButton
+          :disabled="!model.actions.resume?.allowed"
+          :title="model.actions.resume?.message || '从 last.pt 恢复'"
+          @click="resume"
+        >恢复中断</VButton>
+        <VButton
+          :disabled="!model.actions.derive?.allowed"
+          :title="model.actions.derive?.message || '派生新训练配置'"
+          @click="open('derive')"
+        >派生</VButton>
+        <VButton
+          variant="primary"
           :disabled="!model.actions.extend?.allowed"
           :title="model.actions.extend?.message || '基于 checkpoint 追加训练'"
           @click="open('extend')"
-          >追加训练</el-button
-        ><el-button
-          type="danger"
+        >追加训练</VButton>
+        <VButton
+          variant="quiet"
+          :disabled="!model.actions.cancel?.allowed"
+          :title="model.actions.cancel?.message || '取消当前模型训练'"
+          @click="cancel"
+        >取消</VButton>
+        <VButton
+          variant="quiet"
           :disabled="!model.actions.delete?.allowed"
           :title="model.actions.delete?.message || '删除模型任务'"
           @click="remove"
-          >删除</el-button
-        >
-      </div></template>
+        >删除</VButton>
+      </template>
     </PageHeader>
-    <div class="content-body" v-if="model">
-      <section class="model-summary">
-        <div>
-          <span>STATUS</span><strong>{{ model.status }}</strong>
+
+    <div v-if="model" class="content-body detail-body">
+      <VPanel>
+        <div class="run-hero">
+          <div class="run-hero__state">
+            <VTag :tone="trainingStatus(model.status).tone">
+              {{ trainingStatus(model.status).label }}
+            </VTag>
+            <b class="vdw-num">{{ model.progress.toFixed(1) }}%</b>
+            <VChip>q{{ String(model.queue_order).padStart(2, '0') }}</VChip>
+          </div>
+          <VBar
+            :value="model.progress"
+            :tone="trainingStatus(model.status).tone"
+            label="模型训练进度"
+          />
+          <dl class="run-summary">
+            <div v-for="item in summary" :key="item.key">
+              <dt>{{ item.key }}</dt>
+              <dd>{{ item.text }}</dd>
+            </div>
+          </dl>
         </div>
-        <div>
-          <span>GPU / ORDER</span
-          ><strong
-            >GPU {{ model.gpu_index }} / q{{
-              String(model.queue_order).padStart(2, "0")
-            }}</strong
-          >
-        </div>
-        <div>
-          <span>EPOCH</span
-          ><strong
-            >{{ latest?.current_epoch || 0 }} /
-            {{ latest?.target_epochs || "—" }}</strong
-          >
-        </div>
-        <div>
-          <span>PID</span><strong>{{ latest?.pid || "—" }}</strong>
-        </div>
-        <div><span>CREATED</span><strong>{{ formatTime(model.created_at) }}</strong></div>
-        <div><span>STARTED</span><strong>{{ formatTime(model.started_at) }}</strong></div>
-        <div><span>DURATION</span><strong>{{ duration(model.started_at, model.finished_at) }}</strong></div>
-        <div><span>FINISHED</span><strong>{{ formatTime(model.finished_at) }}</strong></div>
-      </section>
+      </VPanel>
+
+      <el-alert v-if="latest?.error" :title="latest.error" type="error" show-icon :closable="false" />
       <el-alert
-        v-if="latest?.error"
-        :title="latest.error"
-        type="error"
-        :closable="false"
-      /><el-alert
         v-if="latest?.warning"
         :title="latest.warning"
         type="warning"
+        show-icon
         :closable="false"
       />
-      <section class="panel">
-        <header>
-          <span>METRICS</span>
-          <h2>训练指标</h2>
-          <p>
-            每项指标独立展示；悬浮指针可查看对应 epoch 的横纵轴数值。
-          </p>
-        </header>
+
+      <VPanel title="训练指标">
+        <template #head>
+          <p class="panel-note">悬浮指针可查看对应 epoch 的横纵轴数值。</p>
+        </template>
         <TrainingMetricsChart :metrics="metrics" />
-      </section>
-      <section class="panel">
-        <header>
-          <span>CURVES</span>
-          <h2>评估曲线</h2>
-        </header>
+      </VPanel>
+
+      <VPanel title="评估曲线">
         <div class="curves-grid">
-          <article class="curve-card"><header><strong>PR curve</strong></header><PrecisionRecallChart :curve="prCurve" /></article>
-          <article class="curve-card"><header><strong>mAP50</strong><span>{{ metrics.at(-1)?.map50?.toFixed(5) ?? '—' }}</span></header><MetricTrendChart :metrics="metrics" value-key="map50" label="mAP50" color="#4d7c0f" score /></article>
-          <article class="curve-card"><header><strong>mAP50:95</strong><span>{{ metrics.at(-1)?.map50_95?.toFixed(5) ?? '—' }}</span></header><MetricTrendChart :metrics="metrics" value-key="map50_95" label="mAP50:95" color="#7c3aed" score /></article>
+          <article class="curve-card">
+            <header><strong>PR curve</strong></header>
+            <PrecisionRecallChart :curve="prCurve" />
+          </article>
+          <article class="curve-card">
+            <header>
+              <strong>mAP50</strong>
+              <span class="vdw-num">{{ metrics.at(-1)?.map50?.toFixed(5) ?? '—' }}</span>
+            </header>
+            <MetricTrendChart
+              :metrics="metrics"
+              value-key="map50"
+              label="mAP50"
+              color="#167c55"
+              score
+            />
+          </article>
+          <article class="curve-card">
+            <header>
+              <strong>mAP50:95</strong>
+              <span class="vdw-num">{{ metrics.at(-1)?.map50_95?.toFixed(5) ?? '—' }}</span>
+            </header>
+            <MetricTrendChart
+              :metrics="metrics"
+              value-key="map50_95"
+              label="mAP50:95"
+              color="#00738f"
+              score
+            />
+          </article>
         </div>
-      </section>
-      <section class="panel">
-        <header>
-          <span>RUN LOG</span>
-          <h2>训练日志</h2>
-        </header>
-        <pre ref="logView">{{ log || "暂无日志输出" }}</pre>
-      </section>
+      </VPanel>
+
+      <VPanel title="训练日志" flush>
+        <pre ref="logView" class="run-log">{{ log || '暂无日志输出' }}</pre>
+      </VPanel>
     </div>
+
     <el-dialog
       v-model="dialog"
       :title="dialog === 'derive' ? '派生训练模型' : '追加训练'"
-      width="520px"
-      ><el-form label-position="top"
-        ><el-form-item label="新任务 code"
-          ><el-input
-            v-model="action.task_code"
-            placeholder="小写字母、数字或连字符" /></el-form-item
-        ><el-form-item label="新任务名称"
-          ><el-input v-model="action.task_name" /></el-form-item
-        ><template v-if="dialog === 'derive'"
-          ><el-alert
+      width="560px"
+    >
+      <el-form label-position="top">
+        <el-form-item label="新任务 code">
+          <el-input v-model="action.task_code" placeholder="小写字母、数字或连字符" />
+        </el-form-item>
+        <el-form-item label="新任务名称">
+          <el-input v-model="action.task_name" />
+        </el-form-item>
+        <template v-if="dialog === 'derive'">
+          <el-alert
             title="派生固定使用原数据集与原 basemodel，仅允许修改超参数。"
             type="info"
-            :closable="false" />
+            show-icon
+            :closable="false"
+          />
           <div class="inline-fields">
-            <el-form-item label="epochs"
-              ><el-input-number
-                v-model="action.epochs"
-                :min="1" /></el-form-item
-            ><el-form-item label="image size"
-              ><el-input-number
-                v-model="action.image_size"
-                :min="32"
-                :step="32"
-            /></el-form-item></div></template
-        ><template v-else
-          ><el-form-item label="追加 epochs"
-            ><el-input-number
-              v-model="action.additional_epochs"
-              :min="1" /></el-form-item
-          ><el-form-item label="起点 checkpoint"
-            ><el-radio-group v-model="action.checkpoint"
-              ><el-radio value="best">best.pt</el-radio
-              ><el-radio value="last">last.pt</el-radio></el-radio-group
-            ></el-form-item
-          ></template
-        ><el-form-item label="GPU 序号"
-          ><el-input-number
-            v-model="action.gpu_index"
-            :min="0" /></el-form-item></el-form
-      ><template #footer
-        ><el-button @click="dialog = null">取消</el-button
-        ><el-button
-          type="primary"
+            <el-form-item label="epochs">
+              <el-input-number v-model="action.epochs" :min="1" />
+            </el-form-item>
+            <el-form-item label="image size">
+              <el-input-number v-model="action.image_size" :min="32" :step="32" />
+            </el-form-item>
+          </div>
+        </template>
+        <template v-else>
+          <el-form-item label="追加 epochs">
+            <el-input-number v-model="action.additional_epochs" :min="1" />
+          </el-form-item>
+          <el-form-item label="起点 checkpoint">
+            <el-radio-group v-model="action.checkpoint">
+              <el-radio value="best">best.pt</el-radio>
+              <el-radio value="last">last.pt</el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </template>
+        <el-form-item label="GPU 序号">
+          <el-input-number v-model="action.gpu_index" :min="0" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <VButton variant="quiet" @click="dialog = null">取消</VButton>
+        <VButton
+          variant="primary"
           :disabled="!action.task_code || !action.task_name"
           @click="submitAction"
-          >创建草稿</el-button
-        ></template
-      ></el-dialog
-    >
+        >创建草稿</VButton>
+      </template>
+    </el-dialog>
   </main>
 </template>
 <style scoped>
-.training-model-page {
-  background: #f4f7fa;
-}
-.model-summary {
+.detail-body {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  margin: 20px 0;
-  background: #d8dee6;
-  border: 1px solid #d8dee6;
+  align-content: start;
+  gap: 14px;
 }
-.model-summary div {
+
+.run-hero {
   display: grid;
-  gap: 7px;
-  padding: 18px;
-  background: #fff;
+  gap: 12px;
 }
-.model-summary span,
-.panel > header span {
-  color: #16866f;
-  font:
-    11px ui-monospace,
-    monospace;
-  letter-spacing: 0.08em;
+
+.run-hero__state {
+  display: flex;
+  align-items: center;
+  gap: 11px;
 }
-.panel {
-  margin: 18px 0;
-  padding: 22px;
-  background: #fff;
-  border: 1px solid #d8dee6;
+
+.run-hero__state b {
+  font-size: 20px;
+  font-weight: 500;
 }
-.panel h2 {
-  margin: 5px 0;
+
+.run-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  margin: 2px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--vdw-line);
 }
-.panel header p {
-  margin: 5px 0;
-  color: #687482;
+
+.run-summary dt {
+  color: var(--vdw-ink-3);
   font-size: 13px;
 }
-.curves-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.curve-card{min-width:0;border:1px solid #e0e5eb;background:#fbfcfd}.curve-card>header{display:flex;justify-content:space-between;padding:12px 14px 0}.curve-card>header span{color:#687482;font:12px ui-monospace,monospace}
-.metric-table {
+
+.run-summary dd {
+  margin: 5px 0 0;
+  font-family: var(--vdw-mono);
+  font-size: 14px;
+}
+
+.panel-note {
+  margin: 0;
+  color: var(--vdw-ink-2);
+  font-size: 14px;
+}
+
+.curves-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.curve-card {
+  min-width: 0;
+  background: var(--vdw-surface-2);
+  border: 1px solid var(--vdw-line);
+  border-radius: var(--vdw-radius-card);
+}
+
+.curve-card > header {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px;
-  background: #f4f7fa;
-  color: #687482;
-  font:
-    11px ui-monospace,
-    monospace;
+  justify-content: space-between;
+  padding: 12px 14px 0;
+  font-size: 14px;
 }
-.pr-panel svg {
-  width: min(100%, 650px);
-  height: 300px;
+
+.curve-card > header span {
+  color: var(--vdw-ink-3);
+  font-size: 13px;
 }
-.pr-panel polyline {
-  fill: none;
-  stroke: #16866f;
-  stroke-width: 3;
-}
-.pr-panel .guide {
-  fill: none;
-  stroke: #d8dee6;
-  stroke-width: 1;
-}
-.pr-panel text {
-  fill: #687482;
-  font-size: 12px;
-}
-.panel pre {
+
+/* 日志用深色专注令牌，和标注工作区同一套 */
+.run-log {
   max-height: 420px;
-  margin: 14px 0 0;
+  margin: 0;
   padding: 16px;
   overflow: auto;
-  background: #17212b;
-  color: #dce5ed;
-  font:
-    12px/1.6 ui-monospace,
-    monospace;
+  color: var(--vdw-focus-ink);
+  font: 13px/1.6 var(--vdw-mono);
   white-space: pre-wrap;
+  background: var(--vdw-focus-canvas);
+  border-radius: 0 0 var(--vdw-radius-card) var(--vdw-radius-card);
 }
+
 .inline-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-@media (max-width: 800px) {
-  .model-summary {
-    grid-template-columns: 1fr 1fr;
-  }
-  .curves-grid{grid-template-columns:1fr}
+  gap: 14px;
 }
 </style>

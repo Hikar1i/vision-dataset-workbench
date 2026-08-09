@@ -4,29 +4,51 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const css = readFileSync(resolve('src/styles/base.css'), 'utf8')
+const base = readFileSync(resolve('src/styles/base.css'), 'utf8')
+const tokens = readFileSync(resolve('src/styles/tokens.css'), 'utf8')
 
 describe('global design system', () => {
-  it('defines the approved desktop tokens and readable type scale', () => {
-    expect(css).toContain('--vdw-canvas: #eef3f6')
-    expect(css).toContain('--vdw-rail: #1c3442')
-    expect(css).toContain('--vdw-teal: #0f8975')
-    expect(css).toContain('--vdw-focus-canvas: #0f1d25')
-    expect(css).toContain('--vdw-title: Bahnschrift, "Noto Sans CJK SC", sans-serif')
-    expect(css).toContain('--vdw-body: Inter, "Noto Sans CJK SC", system-ui, sans-serif')
-    expect(css).toContain('--vdm-sidebar-width: 256px')
-    expect(css).toContain('--vdm-sidebar-collapsed-width: 72px')
-    expect(css).toContain('--el-font-size-base: 16px')
-    expect(css).toContain('--el-component-size: 40px')
+  it('defines the achromatic chrome and data-colour tokens', () => {
+    expect(tokens).toContain('--vdw-app: #edf0f1')
+    expect(tokens).toContain('--vdw-rail: #101a1f')
+    expect(tokens).toContain('--vdw-solid: #16232a')
+    expect(tokens).toContain('--vdw-accent: #00738f')
+    expect(tokens).toContain('--vdw-focus-canvas: #0b1216')
+  })
+
+  it('keeps every ink level above the WCAG AA threshold', () => {
+    // ink-3 承载 13-14px 标签与表格副文本，必须 >= 4.5:1；旧值 #7d8b92 只有 3.51:1
+    expect(tokens).toContain('--vdw-ink-3: #637177')
+    expect(tokens).not.toContain('#7d8b92')
+  })
+
+  it('self-hosts the type system instead of naming uninstalled families', () => {
+    // Inter 与 Bahnschrift 在目标机器上未安装，旧声明实际全部回落到 Noto CJK
+    expect(base).toContain('@fontsource/ibm-plex-sans')
+    expect(base).toContain('@fontsource/jetbrains-mono')
+    expect(tokens).toContain('--vdw-sans: "IBM Plex Sans"')
+    expect(tokens).toContain('--vdw-mono: "JetBrains Mono"')
+    expect(tokens).not.toContain('Bahnschrift')
+    expect(tokens).not.toContain('Inter,')
+  })
+
+  it('aligns numerals so table columns can be scanned', () => {
+    expect(base).toContain('font-variant-numeric: tabular-nums')
   })
 
   it('keeps interactions restrained and supports reduced motion', () => {
-    expect(css).toContain('--vdm-motion-fast: 160ms')
-    expect(css).toContain('--vdm-motion-base: 220ms')
-    expect(css).not.toContain('translateY(8px)')
-    expect(css).not.toContain('scale(0.98)')
-    expect(css).not.toContain('@media (max-width: 767px)')
-    expect(css).toContain('@media (prefers-reduced-motion: reduce)')
-    expect(css).toContain('animation-duration: 0.01ms !important')
+    expect(tokens).toContain('--vdw-motion-fast: 130ms')
+    expect(tokens).toContain('--vdw-motion-base: 200ms')
+    expect(tokens).toContain('--vdw-ease: cubic-bezier(0.2, 0.7, 0.3, 1)')
+    expect(base).not.toContain('translateY(8px)')
+    expect(base).not.toContain('scale(0.98)')
+    expect(base).not.toContain('@media (max-width: 767px)')
+    expect(base).toContain('@media (prefers-reduced-motion: reduce)')
+    expect(base).toContain('animation-duration: 0.01ms !important')
+  })
+
+  it('transitions real height when expanding so panels do not snap open', () => {
+    expect(base).toContain('grid-template-rows: 0fr')
+    expect(base).toContain('grid-template-rows: 1fr')
   })
 })

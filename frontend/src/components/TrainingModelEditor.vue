@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, Delete } from "@element-plus/icons-vue";
 import { computed, ref } from "vue";
 import type { GpuDevice, TrainingModelDraft, TrainingResources } from "../api/training";
 import {
@@ -8,6 +7,7 @@ import {
   groupedOptions,
   type TrainingDefaults,
 } from "./trainingResources";
+import VButton from '../ui/VButton.vue'
 
 const props = defineProps<{
   models: TrainingModelDraft[];
@@ -111,10 +111,10 @@ function summary(row: TrainingModelDraft) {
             <small>GPU {{ row.gpu_index }} / q{{ String(row.queue_order).padStart(2, "0") }} · {{ summary(row) }}</small>
           </button>
           <div class="card-actions">
-            <el-button v-if="mode === 'single_device_serial'" :icon="ArrowUp" circle title="上移" aria-label="上移" :disabled="index === 0" @click="move(index, -1)" />
-            <el-button v-if="mode === 'single_device_serial'" :icon="ArrowDown" circle title="下移" aria-label="下移" :disabled="index === models.length - 1" @click="move(index, 1)" />
-            <el-button :icon="Delete" circle title="删除模型行" aria-label="删除模型行" :disabled="models.length === 1" @click="remove(index)" />
-            <el-button :icon="collapsed.includes(row) ? ArrowDown : ArrowUp" circle :title="collapsed.includes(row) ? '展开配置' : '收起配置'" :aria-label="collapsed.includes(row) ? '展开配置' : '收起配置'" @click="toggle(row)" />
+            <VButton variant="secondary" v-if="mode === 'single_device_serial'" title="上移" aria-label="上移" :disabled="index === 0" @click="move(index, -1)"/>
+            <VButton variant="secondary" v-if="mode === 'single_device_serial'" title="下移" aria-label="下移" :disabled="index === models.length - 1" @click="move(index, 1)"/>
+            <VButton variant="secondary" title="删除模型行" aria-label="删除模型行" :disabled="models.length === 1" @click="remove(index)"/>
+            <VButton variant="secondary" :title="collapsed.includes(row) ? '展开配置' : '收起配置'" :aria-label="collapsed.includes(row) ? '展开配置' : '收起配置'" @click="toggle(row)"/>
           </div>
         </header>
         <el-form v-show="!collapsed.includes(row)" label-position="top">
@@ -145,5 +145,5 @@ function summary(row: TrainingModelDraft) {
 </template>
 
 <style scoped>
-.model-editor-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.model-editor-column{display:grid;gap:16px}.model-editor-card{min-width:0;border:1px solid #d8dee6;background:#fff}.model-editor-card>header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:#f8fafc;border-bottom:1px solid #d8dee6}.card-summary{display:flex;min-width:0;flex:1;flex-direction:column;align-items:flex-start;gap:3px;padding:0;border:0;background:transparent;text-align:left;cursor:pointer}.card-summary span,.artifact-preview span{color:#16866f;font:11px ui-monospace,monospace;letter-spacing:.08em}.card-summary strong,.card-summary small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.card-summary small{color:#687482;font-size:11px}.card-actions{display:flex;gap:6px}.model-editor-card form{padding:16px}.form-grid{display:grid;gap:12px}.form-grid.two{grid-template-columns:1fr 1fr}.resources-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.inline{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:8px;width:100%}.override-panel{margin-top:2px;padding:12px;background:#f4f7fa}.override-panel>header{display:flex;align-items:center;justify-content:space-between}.override-panel>header div{display:flex;flex-direction:column}.override-panel small,.inherited-core{color:#687482;font-size:11px}.core-grid{display:grid;grid-template-columns:1fr 1.5fr;gap:0 14px;margin-top:10px}.core-grid>:last-child{grid-column:1/-1}.batch-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}.invisible{visibility:hidden;pointer-events:none}.inherited-core{margin:10px 0 0}.artifact-preview{display:flex;gap:10px;margin:12px 0 0;padding:9px 11px;overflow:auto;background:#17212b;color:#dce5ed}.artifact-preview code{white-space:nowrap}@media(max-width:1350px){.resources-grid{grid-template-columns:1fr}.form-grid.two{grid-template-columns:1fr}}@media(max-width:1100px){.model-editor-columns{grid-template-columns:1fr}.form-grid.two{grid-template-columns:1fr 1fr}.resources-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:760px){.form-grid.two,.resources-grid,.core-grid,.batch-controls{grid-template-columns:1fr}.core-grid>:last-child{grid-column:auto}.card-actions{flex-wrap:wrap;justify-content:flex-end}}
+.model-editor-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.model-editor-column{display:grid;gap:16px}.model-editor-card{min-width:0;border:1px solid var(--vdw-line);background:#fff}.model-editor-card>header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:var(--vdw-surface-2);border-bottom:1px solid var(--vdw-line)}.card-summary{display:flex;min-width:0;flex:1;flex-direction:column;align-items:flex-start;gap:3px;padding:0;border:0;background:transparent;text-align:left;cursor:pointer}.card-summary span,.artifact-preview span{color:var(--vdw-accent);font:13px ui-monospace,monospace;letter-spacing:.08em}.card-summary strong,.card-summary small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.card-summary small{color:var(--vdw-ink-2);font-size: 13px}.card-actions{display:flex;gap:6px}.model-editor-card form{padding:16px}.form-grid{display:grid;gap:12px}.form-grid.two{grid-template-columns:1fr 1fr}.resources-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.inline{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:8px;width:100%}.override-panel{margin-top:2px;padding:12px;background:var(--vdw-app)}.override-panel>header{display:flex;align-items:center;justify-content:space-between}.override-panel>header div{display:flex;flex-direction:column}.override-panel small,.inherited-core{color:var(--vdw-ink-2);font-size: 13px}.core-grid{display:grid;grid-template-columns:1fr 1.5fr;gap:0 14px;margin-top:10px}.core-grid>:last-child{grid-column:1/-1}.batch-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}.invisible{visibility:hidden;pointer-events:none}.inherited-core{margin:10px 0 0}.artifact-preview{display:flex;gap:10px;margin:12px 0 0;padding:9px 11px;overflow:auto;background:var(--vdw-ink);color:var(--vdw-line)}.artifact-preview code{white-space:nowrap}@media(max-width:1350px){.resources-grid{grid-template-columns:1fr}.form-grid.two{grid-template-columns:1fr}}@media(max-width:1100px){.model-editor-columns{grid-template-columns:1fr}.form-grid.two{grid-template-columns:1fr 1fr}.resources-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:760px){.form-grid.two,.resources-grid,.core-grid,.batch-controls{grid-template-columns:1fr}.core-grid>:last-child{grid-column:auto}.card-actions{flex-wrap:wrap;justify-content:flex-end}}
 </style>

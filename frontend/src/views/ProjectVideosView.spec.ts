@@ -326,7 +326,7 @@ describe('ProjectVideosView', () => {
     const body = new DOMWrapper(document.body)
     expect(body.get('[data-test="annotation-unannotated-only"]').text()).toContain('1 个未标注视频')
     expect(body.get('[data-test="annotation-all"]').text()).toContain('全部 2 个视频')
-    expect(body.get('[data-test="annotation-all"]').classes()).toContain('el-button--danger')
+    expect(body.get('[data-test="annotation-all"]').classes()).toContain('vdw-btn--danger')
   })
 
   it('separates annotation and screening counts before countdown confirmation', async () => {
@@ -378,10 +378,10 @@ describe('ProjectVideosView', () => {
     body = new DOMWrapper(document.body)
     const confirm = body.get('[data-test="enabled-by-annotation-confirm"]')
     expect(confirm.text()).toContain('3 秒')
-    expect(confirm.classes()).toContain('is-disabled')
+    expect(confirm.attributes('disabled')).toBeDefined()
     await vi.advanceTimersByTimeAsync(3000)
     await flushPromises()
-    expect(confirm.classes()).not.toContain('is-disabled')
+    expect(confirm.attributes('disabled')).toBeUndefined()
 
     await confirm.trigger('click')
     await flushPromises()

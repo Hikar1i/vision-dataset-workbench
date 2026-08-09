@@ -23,7 +23,7 @@
   align-items: center;
   padding: 0 14px;
   background: var(--vdw-focus-panel);
-  border-bottom: 1px solid var(--vdw-focus-rule);
+  border-bottom: 1px solid var(--vdw-focus-line);
 }
 
 .focus-header-tools {
@@ -33,7 +33,7 @@
 }
 
 .focus-header strong {
-  color: var(--vdw-focus-primary);
+  color: var(--vdw-focus-accent);
   font: 700 14px var(--vdw-mono);
   letter-spacing: 0.12em;
 }
