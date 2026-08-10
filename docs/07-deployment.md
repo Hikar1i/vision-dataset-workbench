@@ -13,12 +13,12 @@
 - 工作区 SQLite。
 - 受控媒体存储。
 - FFmpeg/ffprobe；远程下载功能还需要 yt-dlp 及网络配置。
-- 自动标注服务器还需要 `gpu` extra、NVIDIA 驱动，以及管理员已入库的 YOLO 文件或 GroundingDINO Transformers 模型目录。
+- 本地自动标注和训练还需要 `gpu` extra、NVIDIA 驱动和已入库的 YOLO `.pt` 文件；远程自动标注要求 API 与 Worker 均可访问用户配置的 X-AnyLabeling Server。
 
 - Linux 原生使用两个 systemd 服务管理 API 与 Worker。
 - Windows 本地使用一个启动器管理两个子进程。
 - Docker Compose 使用 API 和 Worker 服务，共享本机工作区挂载。
-- Docker 基础配置不要求 GPU且不应因未声明 GPU 资源而启动失败；可选 GPU 配置需要为 API 和 Worker 安装包含 PyTorch、Ultralytics、Transformers 与 ONNX Runtime GPU 的 `gpu` extra，并向两者暴露同一设备视图。API 负责能力检测和单张交互推理，Worker 负责批量推理，因此不能只给其中一个进程安装依赖或暴露 GPU。
+- Docker 基础配置不要求 GPU 且不应因未声明 GPU 资源而启动失败；可选 GPU 配置需要为 API 和 Worker 安装包含 PyTorch、torchvision 与 Ultralytics 的 `gpu` extra，并向两者暴露同一设备视图。API 负责能力检测和单张交互推理，Worker 负责批量推理和训练子进程，因此不能只给其中一个进程安装依赖或暴露 GPU。
 
 当前可按[环境与启动](08-environments.md)运行 API、前端和 Worker，但尚无受进程管理器监管的正式部署产物。不应将 Vite 开发服务器或 Uvicorn `--reload` 用作长期部署。
 
@@ -41,6 +41,9 @@
 - 当前认证使用数据库可撤销 Session，部署时不需要共享浏览器 Token；不得记录 `vdw_session` Cookie 或数据库中的 token 摘要。
 - 当前同源校验直接使用请求 scheme 与 Host，不支持可信代理头。引入 TLS 终止代理前必须先明确并测试代理边界。
 - `YTDLP_PROXY` 可配置实例级代理，`YTDLP_COOKIE_FILE` 可指向 Netscape Cookie 文件；二者可能包含敏感信息，不得写入日志或仓库。
+- 用户配置的 X-AnyLabeling Server 和在线大模型 API 密钥均使用工作区 Fernet 密钥加密后写入数据库。未设置 `VDW_CREDENTIAL_ENCRYPTION_KEY` 时，应用原子生成并复用 `<workspace>/config/credential.key`；应随工作区备份该权限为 `0600` 的文件，API 与 Worker 必须挂载同一工作区。也可显式设置环境变量覆盖自动密钥。
+- 可用 `cd backend && uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成显式部署密钥。轮换前必须先重新加密或清除现有用户凭据；直接替换环境变量或删除自动密钥会使旧密文不可读。
+- X-AnyLabeling Server 客户端直连用户配置的地址，不继承 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY`；需要跨网代理时应在网络层或服务入口统一配置。
 
 ## 发布流程要求
 

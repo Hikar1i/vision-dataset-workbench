@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectsView from './ProjectsView.vue'
@@ -124,10 +125,72 @@ describe('ProjectsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('12345678')
+    // 短标识统一为 6 位大写，与模型项目、训练任务一致
+    expect(wrapper.text()).toContain('123456')
     expect(wrapper.text()).toContain('所有者')
-    expect(wrapper.get('[data-test="open-12345678-project"]').attributes('href')).toBe(
-      '/projects/12345678-project/videos',
+    await wrapper.get('[data-test="open-12345678-project"]').trigger('click')
+    expect(push).toHaveBeenCalledWith('/projects/12345678-project/videos')
+  })
+
+  it('lets only the owner confirm and delete a project', async () => {
+    const items = [
+      {
+        id: 'owner-project', name: '可删除项目', description: '', creator_id: 'admin-id',
+        creator_username: 'admin', role: 'owner', version: 1,
+        created_at: '2026-07-23T00:00:00Z', updated_at: '2026-07-23T00:00:00Z',
+      },
+      {
+        id: 'viewer-project', name: '只读项目', description: '', creator_id: 'other-id',
+        creator_username: 'other', role: 'viewer', version: 1,
+        created_at: '2026-07-23T00:00:00Z', updated_at: '2026-07-23T00:00:00Z',
+      },
+    ]
+    const fetchMock = vi.fn().mockImplementation((_path: string, init?: RequestInit) =>
+      Promise.resolve(init?.method === 'DELETE'
+        ? { ok: true, status: 204 }
+        : { ok: true, json: async () => ({ items, page: 1, page_size: 50, total: 2 }) }),
     )
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="delete-viewer-project"]').exists()).toBe(false)
+    await wrapper.get('[data-test="delete-owner-project"]').trigger('click')
+    await flushPromises()
+
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
+      expect.stringContaining('可删除项目'),
+      '删除数据集项目',
+      expect.objectContaining({ confirmButtonText: '删除项目' }),
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/projects/owner-project',
+      expect.objectContaining({ method: 'DELETE', credentials: 'same-origin' }),
+    )
+    expect(wrapper.emitted('project-deleted')).toEqual([['owner-project']])
+  })
+
+  it('does not request deletion when confirmation is canceled', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [{
+          id: 'project-id', name: '项目', description: '', creator_id: 'admin-id',
+          creator_username: 'admin', role: 'owner', version: 1,
+          created_at: '2026-07-23T00:00:00Z', updated_at: '2026-07-23T00:00:00Z',
+        }],
+        page: 1, page_size: 50, total: 1,
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel')
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="delete-project-id"]').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

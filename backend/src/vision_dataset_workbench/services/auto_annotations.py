@@ -23,7 +23,11 @@ from .labels import (
 from .models import ModelService
 from .projects import ProjectForbidden, ProjectService
 from .sampling import SamplingService
+from .xanylabeling_settings import XAnyLabelingSettingsService
+from .llm_configs import LLMConfigService
+from .llm_annotation import LLMAnnotationError, predict as predict_llm
 from .dataset_exports import video_has_active_export
+from ..xanylabeling import XAnyLabelingUnavailable
 
 
 class AutoAnnotationUnavailable(ValueError):
@@ -46,6 +50,20 @@ class AutoAnnotationResult:
     created_labels: list[ProjectLabel]
 
 
+@dataclass(frozen=True)
+class AutoAnnotationModel:
+    source: str
+    model_id: str
+    remote_task_id: str | None = None
+
+
+@dataclass(frozen=True)
+class AutoAnnotationBatchResult:
+    task: Task
+    accepted_video_ids: list[str]
+    rejected: list[dict[str, str]]
+
+
 class AutoAnnotationService:
     def __init__(
         self,
@@ -56,6 +74,8 @@ class AutoAnnotationService:
         models: ModelService,
         labels: LabelService,
         capabilities: SystemCapabilities,
+        remote_settings: XAnyLabelingSettingsService,
+        llm_configs: LLMConfigService | None = None,
         runner: InferenceRunner | None = None,
     ):
         self.workspace = workspace.resolve()
@@ -63,6 +83,8 @@ class AutoAnnotationService:
         self.models = models
         self.labels = labels
         self.capabilities = capabilities
+        self.remote_settings = remote_settings
+        self.llm_configs = llm_configs
         self.runner = runner or InferenceRunner()
         self.sampling = SamplingService(engine, settings, workspace)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
@@ -77,33 +99,23 @@ class AutoAnnotationService:
         categories: list[str],
         confidence: float,
         iou: float,
+        source: str = "local",
+        remote_task_id: str | None = None,
     ) -> AutoAnnotationResult:
         if self.projects.get_project(actor, project_id).role == "viewer":
             raise ProjectForbidden("project edit permission required")
-        model, model_path = self.models.ready_model(model_id)
-        capability = (
-            self.capabilities.features.yolo_auto_annotation
-            if model.kind == "yolo"
-            else self.capabilities.features.grounding_dino_auto_annotation
-        )
-        if not capability.available:
-            raise AutoAnnotationUnavailable(capability.reason or "auto annotation unavailable")
         frame, image_path = self.sampling.ready_frame_file(
             actor, project_id, video_id, frame_id
         )
         prompts = list(dict.fromkeys(normalize_label_name(item) for item in categories))
-        if model.kind == "grounding_dino" and not prompts:
-            prompts = [
-                item.name
-                for item in self.labels.list_labels(actor, project_id)
-                if item.enabled
-            ]
-        try:
-            detections = self.runner.predict(
-                model, model_path, image_path, prompts, confidence, iou
-            )
-        except InferenceUnavailable as exc:
-            raise AutoAnnotationUnavailable(str(exc)) from exc
+        detections = self._predict(
+            actor,
+            AutoAnnotationModel(source, model_id, remote_task_id),
+            image_path,
+            prompts,
+            confidence,
+            iou,
+        )
         with self._session_factory() as database:
             video = database.get(Video, video_id)
             if video is None or video.project_id != project_id or frame.video_id != video_id:
@@ -128,7 +140,11 @@ class AutoAnnotationService:
                         label_id=label_map[clean_name].id,
                         **bounds,
                         source="model",
-                        confidence=max(0.0, min(1.0, detection.confidence)),
+                        confidence=(
+                            max(0.0, min(1.0, detection.confidence))
+                            if detection.confidence is not None
+                            else None
+                        ),
                     ),
                     clean_name,
                 )
@@ -145,17 +161,13 @@ class AutoAnnotationService:
         confidence: float,
         iou: float,
         overwrite: bool,
+        source: str = "local",
+        remote_task_id: str | None = None,
     ) -> Task:
         if self.projects.get_project(actor, project_id).role == "viewer":
             raise ProjectForbidden("project edit permission required")
-        model, _model_path = self.models.ready_model(model_id)
-        capability = (
-            self.capabilities.features.yolo_auto_annotation
-            if model.kind == "yolo"
-            else self.capabilities.features.grounding_dino_auto_annotation
-        )
-        if not capability.available:
-            raise AutoAnnotationUnavailable(capability.reason or "auto annotation unavailable")
+        selection = AutoAnnotationModel(source, model_id, remote_task_id)
+        self._validate_model(actor, selection)
         prompts = list(dict.fromkeys(normalize_label_name(item) for item in categories))
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         with self._session_factory() as database:
@@ -191,7 +203,9 @@ class AutoAnnotationService:
                 type="auto_annotate",
                 payload=json.dumps(
                     {
+                        "source": source,
                         "model_id": model_id,
+                        "remote_task_id": remote_task_id,
                         "categories": prompts,
                         "confidence": confidence,
                         "iou": iou,
@@ -210,6 +224,166 @@ class AutoAnnotationService:
                 raise AutoAnnotationConflict("video already has an active task") from exc
             database.expunge(task)
             return task
+
+    def create_project_batch(
+        self,
+        actor: User,
+        project_id: str,
+        video_ids: list[str],
+        model_id: str,
+        categories: list[str],
+        confidence: float,
+        iou: float,
+        overwrite: bool,
+        scope: str = "all",
+        source: str = "local",
+        remote_task_id: str | None = None,
+    ) -> AutoAnnotationBatchResult:
+        if self.projects.get_project(actor, project_id).role == "viewer":
+            raise ProjectForbidden("project edit permission required")
+        if scope not in {"unannotated", "all"}:
+            raise AutoAnnotationConflict("invalid batch annotation scope")
+        if len(set(video_ids)) != len(video_ids):
+            raise AutoAnnotationConflict("video ids must be unique")
+        selection = AutoAnnotationModel(source, model_id, remote_task_id)
+        self._validate_model(actor, selection)
+        prompts = list(dict.fromkeys(normalize_label_name(item) for item in categories))
+        rejected: list[dict[str, str]] = []
+        accepted: list[str] = []
+        with self._session_factory() as database:
+            active_batch_video_ids: set[str] = set()
+            for active_task in database.scalars(
+                select(Task).where(
+                    Task.project_id == project_id,
+                    Task.type == "auto_annotate",
+                    Task.video_id.is_(None),
+                    Task.status.in_(("queued", "running")),
+                )
+            ):
+                active_batch_video_ids.update(json.loads(active_task.payload).get("video_ids", []))
+            for video_id in video_ids:
+                video = database.get(Video, video_id)
+                if video is None or video.project_id != project_id:
+                    rejected.append({"video_id": video_id, "reason": "video not found"})
+                    continue
+                if scope == "unannotated" and self.sampling._has_annotations(database, video_id):
+                    rejected.append({"video_id": video_id, "reason": "video already has annotations"})
+                    continue
+                if video_has_active_export(database, project_id, video_id):
+                    rejected.append({"video_id": video_id, "reason": "video is frozen by an active dataset export"})
+                    continue
+                if not video.enabled:
+                    rejected.append({"video_id": video_id, "reason": "video is disabled"})
+                    continue
+                enabled_frames = database.scalar(
+                    select(func.count())
+                    .select_from(Frame)
+                    .where(Frame.video_id == video_id, Frame.enabled.is_(True))
+                ) or 0
+                if enabled_frames == 0:
+                    rejected.append({"video_id": video_id, "reason": "video has no enabled sampled frames"})
+                    continue
+                active = database.scalar(
+                    select(Task.id).where(
+                        Task.video_id == video_id,
+                        Task.status.in_(("queued", "running")),
+                    )
+                )
+                if active is not None:
+                    rejected.append({"video_id": video_id, "reason": "video already has an active task"})
+                    continue
+                if video_id in active_batch_video_ids:
+                    rejected.append({"video_id": video_id, "reason": "video already has an active task"})
+                    continue
+                accepted.append(video_id)
+            if not accepted:
+                raise AutoAnnotationConflict("no videos are eligible for batch annotation")
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            task = Task(
+                id=str(uuid4()),
+                project_id=project_id,
+                submitted_by_id=actor.id,
+                video_id=None,
+                type="auto_annotate",
+                payload=json.dumps(
+                    {
+                        "video_ids": accepted,
+                        "source": source,
+                        "model_id": model_id,
+                        "remote_task_id": remote_task_id,
+                        "categories": prompts,
+                        "confidence": confidence,
+                        "iou": iou,
+                        "overwrite": overwrite,
+                        "batch": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            database.add(task)
+            database.commit()
+            database.expunge(task)
+            return AutoAnnotationBatchResult(task, accepted, rejected)
+
+    def _predict(
+        self,
+        actor: User,
+        selection: AutoAnnotationModel,
+        image_path: Path,
+        categories: list[str],
+        confidence: float,
+        iou: float,
+    ) -> list[Detection]:
+        resolved = self._validate_model(actor, selection)
+        try:
+            if selection.source == "local":
+                model, model_path = resolved
+                return self.runner.predict(
+                    model, model_path, image_path, categories, confidence, iou
+                )
+            if selection.source == "xanylabeling":
+                client, option = resolved
+                return client.predict(option, image_path, categories, confidence, iou)
+            return predict_llm(resolved, image_path, categories, confidence)
+        except (InferenceUnavailable, XAnyLabelingUnavailable, LLMAnnotationError) as exc:
+            raise AutoAnnotationUnavailable(str(exc)) from exc
+
+    def _validate_model(
+        self, actor: User, selection: AutoAnnotationModel
+    ) -> tuple[object, object]:
+        if selection.source == "local":
+            model, model_path = self.models.ready_model(selection.model_id)
+            capability = self.capabilities.features.yolo_auto_annotation
+            if not capability.available:
+                raise AutoAnnotationUnavailable(
+                    capability.reason or "auto annotation unavailable"
+                )
+            return model, model_path
+        if selection.source != "xanylabeling":
+            if selection.source != "online" or self.llm_configs is None:
+                raise AutoAnnotationUnavailable("unsupported auto annotation source")
+            try:
+                return self.llm_configs.connection(actor, selection.model_id)
+            except ValueError as exc:
+                raise AutoAnnotationUnavailable(str(exc)) from exc
+        try:
+            client = self.remote_settings.client_for(actor.id)
+            option = next(
+                (
+                    item
+                    for item in client.list_models()
+                    if item.model_id == selection.model_id
+                    and item.task_id == selection.remote_task_id
+                ),
+                None,
+            )
+        except ValueError as exc:
+            raise AutoAnnotationUnavailable(str(exc)) from exc
+        if option is None:
+            raise AutoAnnotationUnavailable("remote model is no longer available")
+        return client, option
 
     def _ensure_labels(
         self,

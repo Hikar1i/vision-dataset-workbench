@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Bottom, Top } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, ref, watch } from 'vue'
 
@@ -10,6 +9,7 @@ import {
 } from '../api/datasetExports'
 import { listLabels } from '../api/labels'
 import { listVideos } from '../api/media'
+import VButton from '../ui/VButton.vue'
 
 const props = defineProps<{ modelValue: boolean; projectId: string }>()
 const emit = defineEmits<{
@@ -176,23 +176,15 @@ watch(() => props.modelValue, (open) => {
             />
             <strong>{{ label.name }}</strong>
             <div v-if="mode === 'manual'" class="order-actions">
-              <el-button
-                :data-test="`move-up-${label.name}`"
-                text
-                :icon="Top"
+              <VButton variant="quiet" :data-test="`move-up-${label.name}`"
                 :disabled="index === 0"
                 :title="`上移 ${label.name}`"
                 :aria-label="`上移 ${label.name}`"
-                @click="move(index, -1)"
-              />
-              <el-button
-                text
-                :icon="Bottom"
-                :disabled="index === labels.length - 1"
+                @click="move(index, -1)"/>
+              <VButton variant="quiet" :disabled="index === labels.length - 1"
                 :title="`下移 ${label.name}`"
                 :aria-label="`下移 ${label.name}`"
-                @click="move(index, 1)"
-              />
+                @click="move(index, 1)"/>
             </div>
           </div>
         </div>
@@ -208,14 +200,11 @@ watch(() => props.modelValue, (open) => {
     </div>
 
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button
-        data-test="submit-export"
-        type="primary"
+      <VButton variant="secondary" @click="emit('update:modelValue', false)">取消</VButton>
+      <VButton variant="primary" data-test="submit-export"
         :loading="submitting"
         :disabled="!canSubmit"
-        @click="submit"
-      >开始导出</el-button>
+        @click="submit">开始导出</VButton>
     </template>
   </el-dialog>
 </template>
@@ -223,24 +212,24 @@ watch(() => props.modelValue, (open) => {
 <style scoped>
 .export-form { display: grid; gap: 17px; }
 .field-row { display: grid; grid-template-columns: 148px minmax(0, 1fr); align-items: center; gap: 13px; }
-.field-row > span { color: var(--vdw-muted); font-size: 14px; }
+.field-row > span { color: var(--vdw-ink-2); font-size: 14px; }
 .ratio-row { grid-template-columns: 148px minmax(120px, 1fr) auto; }
 .ratio-inputs { display: grid; grid-template-columns: 110px 13px 110px; align-items: center; gap: 5px; min-width: 0; }
-.ratio-inputs b { color: var(--vdw-muted); text-align: center; }
+.ratio-inputs b { color: var(--vdw-ink-2); text-align: center; }
 .ratio-inputs :deep(.el-input-number) { width: 100%; min-width: 0; }
 .ratio-inputs :deep(.el-input__inner) { text-align: center; }
-.estimate { padding: 10px 13px; color: var(--vdw-teal); background: #eaf5f2; border-left: 3px solid var(--vdw-teal); }
-.labels-section { border: 1px solid var(--vdw-rule); }
-.labels-section > header { display: flex; align-items: center; justify-content: space-between; gap: 13px; padding: 12px 14px; background: #f7f9fb; border-bottom: 1px solid var(--vdw-rule); }
+.estimate { padding: 10px 13px; color: var(--vdw-accent); background: var(--vdw-accent-soft); border-left: 3px solid var(--vdw-accent); }
+.labels-section { border: 1px solid var(--vdw-line); }
+.labels-section > header { display: flex; align-items: center; justify-content: space-between; gap: 13px; padding: 12px 14px; background: var(--vdw-surface-2); border-bottom: 1px solid var(--vdw-line); }
 .labels-section-title { display: grid; gap: 2px; }
-.labels-section small { color: var(--vdw-muted); font-size: 12px; }
+.labels-section small { color: var(--vdw-ink-2); font-size: 13px; }
 .label-mode { flex: none; flex-wrap: nowrap; white-space: nowrap; }
 .label-list { max-height: 286px; overflow: auto; }
-.label-row { display: grid; grid-template-columns: 38px 48px minmax(0, 1fr) auto; align-items: center; min-height: 45px; padding: 0 13px; border-bottom: 1px solid #edf0f4; }
+.label-row { display: grid; grid-template-columns: 38px 48px minmax(0, 1fr) auto; align-items: center; min-height: 45px; padding: 0 13px; border-bottom: 1px solid var(--vdw-surface-3); }
 .label-row:last-child { border-bottom: 0; }
-.label-row code { color: var(--vdw-muted); font: 12px var(--vdw-mono); }
+.label-row code { color: var(--vdw-ink-2); font: 13px var(--vdw-mono); }
 .order-actions { display: flex; }
-.empty-labels { margin: 0; padding: 24px; color: var(--vdw-muted); text-align: center; }
+.empty-labels { margin: 0; padding: 24px; color: var(--vdw-ink-2); text-align: center; }
 @media (max-width: 680px) {
   .field-row, .ratio-row { grid-template-columns: 1fr; }
   .ratio-inputs { grid-template-columns: minmax(96px, 1fr) 13px minmax(96px, 1fr); }

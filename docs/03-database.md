@@ -1,6 +1,10 @@
 # 数据库
 
-状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、推理模型和数据集导出迁移已实现。
+## 最近迁移
+
+迁移 0021_user_llm_configs 增加按用户隔离的大模型配置和默认参数表。API Key 使用工作区 Fernet 凭据密钥加密保存，响应仅返回是否存在密钥及脱敏值；配置记录保存连接测试状态、响应时延和高级选项 JSON。
+
+状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、模型项目、超参数模板、训练任务/模型/运行/指标、用户远程配置、推理模型和数据集导出迁移已实现。
 
 ## 数据库选型
 
@@ -13,7 +17,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 创建基础 `users` 表，`0002_authentication` 增加规范化用户名、审批信息和服务端会话，`0003_projects` 增加项目与成员关系，`0004_media_tasks` 增加视频与持久任务，`0005_sampling_frames` 增加采样方案和稳定帧记录，`0006_video_enabled_limit` 增加视频启用状态和项目容量硬约束，`0007_labels` 增加项目标签，`0008_label_description_zh` 增加可选中文描述，`0009_annotations` 增加矩形标注和帧标注修订号，`0010_inference_models` 增加推理模型并扩展任务类型，`0011_annotation_order` 为标注增加稳定显示顺序，`0012_video_short_codes` 增加视频短码并精简 Frame 索引，`0013_dataset_exports` 增加不可变导出记录并扩展任务类型。当前 `users` 表为：
+Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加不可变超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系，并为已有项目回填“未分类”。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -59,7 +63,7 @@ SQLite 不保留时区偏移，当前认证表按 naive UTC 持久化，API 输�
 | `role` | 仅允许 `editor` 或 `viewer` |
 | `created_at` | 加入项目时间 |
 
-owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过成员接口转移、降级或移除。创建项目时同步创建空的 `projects/<project UUID>/` 目录；`videos/` 和 `thumbnails/` 由 Worker 首次发布对应文件时创建。当前尚无项目删除流程。
+owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过成员接口转移、降级或移除。创建项目时同步创建空的 `projects/<project UUID>/` 目录；`videos/` 和 `thumbnails/` 由 Worker 首次发布对应文件时创建。仅 owner 可删除项目，且项目存在 queued/running 任务时拒绝删除。删除前在项目目录生成当前 schema 的完整 `project_metadata.json`，再将目录移动到 `.deleted/projects/<project UUID>/project/`，最后删除 `projects` 记录并由外键级联删除关联数据；快照不承诺兼容未来 schema，也不提供恢复入口。
 
 `labels` 表保存项目级目标检测类别：
 
@@ -138,18 +142,65 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 
 客户端按整帧读取和替换标注；请求必须携带当前 `annotation_revision`。服务端校验所有标签属于同一项目、矩形在图片边界内且 ID 不重复，按请求数组顺序重建 `sort_order`，成功后整体替换并递增修订号。
 
+`model_projects` 表保存工作区全局模型系列：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `name` | 模型项目 UUID 和名称 |
+| `series_type` | `archive` 或 `training` |
+| `system_key` | 可空唯一系统标识；`temporary` 对应兼容登记入口 |
+| `created_at` | 创建时间 |
+
+`model_project_tags` 保存工作区全局标签名称，`model_project_tag_links` 以 `(model_project_id, tag_id)` 复合主键保存多对多关系。每个模型项目必须有 1–20 个标签；迁移为既有项目关联“未分类”，训练任务自动发布的项目关联“训练”。
+
 `inference_models` 表保存全局受管推理模型：
 
 | 字段 | 约束/含义 |
 | --- | --- |
-| `id` / `name` / `kind` | 模型 UUID、显示名及 `yolo` 或 `grounding_dino` 类型 |
+| `id` / `model_project_id` | 模型 UUID 和模型项目外键 |
+| `name` / `description` | 可编辑显示名和描述基础字段 |
+| `parameters` | JSON 文本；保留训练超参数和模型参数信息 |
+| `kind` | 当前固定为 `yolo` |
 | `status` | `copying`、`ready` 或 `failed`；ready 表示入库完成，首次推理仍会验证运行兼容性 |
 | `storage_path` / `source_name` | 工作区内受管路径及不含绝对路径的来源显示名 |
 | `created_by_id` | 登记模型的系统管理员 |
 | `error` | 入库失败的安全错误信息 |
 | 时间字段 | 创建和更新时间 |
 
-模型属于工作区而非单个数据集项目；项目级标签与推理时选择的英文提示词决定结果如何映射到具体项目。
+模型属于工作区而非单个数据集项目；旧模型迁移和兼容登记模型均归入固定“临时模型项目”。
+
+`hyperparameter_templates` 保存工作区全局 YOLO Detect 训练配置：
+
+| 字段 | 约束/含义 |
+| --- | --- |
+| `id` / `name` / `name_normalized` | 模板 UUID、显示名和活动模板内不区分大小写的唯一名 |
+| `epochs` / `batch_size` / `image_size` | 三项核心训练参数；batch 支持正整数、`auto` 或合法比例 |
+| `parameters` | 经过 Detect v1 参数目录校验和规范化的扩展参数 JSON；不重复保存三项核心参数 |
+| `catalog_version` | 解析该模板所用参数目录版本，当前为 `detect-v1` |
+| `derived_from_id` | 可空派生来源；删除来源模板时保留历史关系 |
+| `created_by_id` / `is_system` | 创建者和只读系统模板标记 |
+| `created_at` / `deleted_at` | 创建时间和逻辑删除时间；模板内容创建后不可修改 |
+
+模板删除仅对非系统、非活动引用资源开放；普通列表过滤 `deleted_at`。名称在逻辑删除后可复用，但模板 UUID 与派生关系不复用。
+
+训练数据拆成四个层级，避免任务配置、模型配置、每次尝试和 epoch 指标相互覆盖：
+
+| 表 | 关键语义 |
+| --- | --- |
+| `training_tasks` | UUID 主键；`code` 全局唯一且逻辑删除后不复用；保存名称、模式、默认资源、聚合状态/进度、创建者、版本和训练时间 |
+| `training_models` | 一个任务 1–10 个模型；保存显式资源、三项核心覆盖、GPU、lane 顺序、冻结快照、产物 code，以及派生/追加来源 |
+| `training_runs` | 每次 initial/retry/resume/extend 独立一行；保存 attempt、GPU、PID、token、事件游标、epoch、路径、主机快照、租约和终态信息 |
+| `training_metrics` | `(training_run_id, epoch)` 复合主键；保存 box/cls/dfl loss、学习率、precision、recall、mAP50、mAP50-95 和可选 P-R 数据 |
+
+任务状态为 `draft/queued/running/canceling/canceled/start_failed/failed/partial/succeeded`；模型和运行不含 `partial`。`(task_id,gpu_index,queue_order)` 唯一，GPU lane 顺序从 1 开始；SQLite 部分唯一索引确保每张 GPU 最多一个 `running/canceling` run。任务进度是所有模型 epoch 进度的等权聚合，列表按 `last_run_at` 倒序。
+
+启动成功前草稿仍可编辑；启动事务解析默认值，校验 ready 数据集/模型和活动模板，随后冻结三个 JSON 快照、不可变 artifact code 和 initial run。`model_projects.training_task_id` 与 `inference_models.training_model_id` 都是唯一可空来源关系，确保一个训练任务最多发布一个训练项目、一个训练模型最多对应一个发布模型。
+
+`training_action_requests` 以 `(actor_id, action, idempotency_key)` 唯一，保存 action API 已创建的 task/run ID。它只提供请求重放保护，不替代训练状态机校验。
+
+训练逻辑删除保留数据库审计记录并将受管运行目录移入 `.deleted/training-tasks|training-models/`。任务删除保留已发布模型；删除已发布子模型要求显式确认，并同时逻辑删除发布模型。当前不提供 `.deleted` 恢复、导入或自动清理。
+
+`user_xanylabeling_settings` 以 `user_id` 为主键保存每个用户的 `server_url`、可空 `api_key_ciphertext` 和时间字段。API 密钥使用部署级 `VDW_CREDENTIAL_ENCRYPTION_KEY` 加密，表中不保存明文；删除用户时配置级联删除。远程模型目录不写入本表或 `inference_models`。
 
 `dataset_exports` 表保存项目级不可变导出记录：
 

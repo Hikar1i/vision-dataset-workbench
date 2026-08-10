@@ -14,7 +14,18 @@ VIDEO_EXTENSIONS = {
     ".webm",
     ".wmv",
 }
-MODEL_EXTENSIONS = {".pt", ".onnx"}
+MODEL_EXTENSIONS = {".pt"}
+BROWSABLE_EXTENSIONS = VIDEO_EXTENSIONS | MODEL_EXTENSIONS
+
+
+def normalize_extensions(values: list[str]) -> set[str]:
+    normalized = {value.casefold().removeprefix(".") for value in values}
+    extensions = {f".{value}" for value in normalized if value}
+    if len(extensions) != len(normalized) or not extensions.issubset(
+        BROWSABLE_EXTENSIONS
+    ):
+        raise ValueError("unsupported filesystem extension")
+    return extensions
 
 
 def list_home_entries(
@@ -24,17 +35,21 @@ def list_home_entries(
     page: int,
     page_size: int,
     hidden_root: Path | None = None,
-    include_video_files: bool = False,
-    include_model_files: bool = False,
+    extensions: set[str] | None = None,
+    search: str = "",
 ) -> dict[str, object]:
     directory = resolver.resolve_existing(relative)
     hidden = hidden_root.resolve() if hidden_root is not None else None
     if hidden is not None and (directory == hidden or directory.is_relative_to(hidden)):
         raise UnsafePathError("managed workspace is not browsable")
 
+    allowed_extensions = extensions or set()
+    needle = search.strip().casefold()
     children: list[tuple[Path, str]] = []
     for item in directory.iterdir():
         if item.name.startswith("."):
+            continue
+        if needle and needle not in item.name.casefold():
             continue
         try:
             resolved = item.resolve(strict=True)
@@ -45,20 +60,18 @@ def list_home_entries(
         if hidden is not None and (resolved == hidden or resolved.is_relative_to(hidden)):
             continue
         if item.is_dir():
-            children.append((item, "directory"))
-        elif include_video_files and item.is_file() and item.suffix.lower() in VIDEO_EXTENSIONS:
-            children.append((item, "file"))
-        elif include_model_files and item.is_file() and item.suffix.lower() in MODEL_EXTENSIONS:
-            children.append((item, "file"))
+            children.append((item, "dir"))
+        elif item.is_file() and item.suffix.casefold() in allowed_extensions:
+            children.append((item, item.suffix.casefold().removeprefix(".")))
 
-    children.sort(key=lambda entry: (entry[1] == "file", entry[0].name.casefold()))
+    children.sort(key=lambda entry: (entry[1] != "dir", entry[0].name.casefold()))
     start = (page - 1) * page_size
     items = [
         {
             "name": item.name,
             "path": item.relative_to(resolver.home).as_posix(),
             "type": item_type,
-            "size": item.stat().st_size if item_type == "file" else None,
+            "size": item.stat().st_size if item_type != "dir" else None,
         }
         for item, item_type in children[start : start + page_size]
     ]

@@ -14,6 +14,7 @@ from ..config import RuntimeSettings
 from ..media import RemotePreview, normalize_remote_url, preview_remote
 from ..models import (
     DatasetExport,
+    ModelProject,
     Project,
     ProjectMembership,
     Task,
@@ -42,9 +43,7 @@ class MediaUnavailable(RuntimeError):
 PROJECT_VIDEO_LIMIT = 999
 PROJECT_VIDEO_LIMIT_MESSAGE = "项目视频数量已达上限（999）"
 SHORT_CODE_ATTEMPTS = 5
-SHORT_CODE_UNIQUE_ERROR = (
-    "UNIQUE constraint failed: videos.project_id, videos.short_code"
-)
+SHORT_CODE_UNIQUE_ERROR = "UNIQUE constraint failed: videos.project_id, videos.short_code"
 
 
 @dataclass(frozen=True)
@@ -76,8 +75,13 @@ class ImportBatch:
 @dataclass(frozen=True)
 class VisibleTask:
     task: Task
-    project_name: str
+    resource_kind: str
+    resource_name: str
     can_manage: bool
+
+    @property
+    def project_name(self) -> str:
+        return self.resource_name
 
 
 def _utc_now() -> datetime:
@@ -116,9 +120,7 @@ class MediaService:
             raise UnsafePathError("managed workspace is not an import source")
         return path
 
-    def preview_local(
-        self, actor: User, project_id: str, relative: str
-    ) -> list[LocalPreview]:
+    def preview_local(self, actor: User, project_id: str, relative: str) -> list[LocalPreview]:
         self._require_editor(actor, project_id)
         source = self._source_path(relative)
         candidates = [source] if source.is_file() else list(source.iterdir())
@@ -140,15 +142,11 @@ class MediaService:
             for item in files
         ]
 
-    def preview_remote(
-        self, actor: User, project_id: str, url: str
-    ) -> list[RemotePreview]:
+    def preview_remote(self, actor: User, project_id: str, url: str) -> list[RemotePreview]:
         self._require_editor(actor, project_id)
         return self._previewer(normalize_remote_url(url), self.settings)
 
-    def import_local(
-        self, actor: User, project_id: str, paths: Sequence[str]
-    ) -> ImportBatch:
+    def import_local(self, actor: User, project_id: str, paths: Sequence[str]) -> ImportBatch:
         self._require_editor(actor, project_id)
         accepted: list[AcceptedImport] = []
         skipped: list[ImportNotice] = []
@@ -334,9 +332,7 @@ class MediaService:
         )
         with self._session_factory() as database:
             tasks = database.scalars(
-                select(Task)
-                .join(ranked, Task.id == ranked.c.task_id)
-                .where(ranked.c.position == 1)
+                select(Task).join(ranked, Task.id == ranked.c.task_id).where(ranked.c.position == 1)
             ).all()
             return {task.video_id: task for task in tasks if task.video_id is not None}
 
@@ -363,33 +359,42 @@ class MediaService:
         membership_ids = select(ProjectMembership.project_id).where(
             ProjectMembership.user_id == actor.id
         )
-        visible = or_(
+        visible_project = or_(
             Project.creator_id == actor.id,
             Project.id.in_(membership_ids),
         )
         unrestricted = self.settings.app_mode == "single" and actor.is_system_admin
         with self._session_factory() as database:
             items_query = (
-                select(Task, Project.name, Project.creator_id, membership.role)
-                .join(Project, Project.id == Task.project_id)
+                select(
+                    Task,
+                    Project.name,
+                    Project.creator_id,
+                    membership.role,
+                    ModelProject.name,
+                    ModelProject.created_by_id,
+                    ModelProject.system_key,
+                )
+                .outerjoin(Project, Project.id == Task.project_id)
+                .outerjoin(ModelProject, ModelProject.id == Task.model_project_id)
                 .outerjoin(
                     membership,
-                    (membership.project_id == Project.id)
-                    & (membership.user_id == actor.id),
+                    (membership.project_id == Project.id) & (membership.user_id == actor.id),
                 )
             )
             total_query = (
                 select(func.count())
                 .select_from(Task)
-                .join(Project, Project.id == Task.project_id)
+                .outerjoin(Project, Project.id == Task.project_id)
             )
             terminal_query = (
                 select(func.max(Task.updated_at))
                 .select_from(Task)
-                .join(Project, Project.id == Task.project_id)
+                .outerjoin(Project, Project.id == Task.project_id)
                 .where(Task.status.in_(("succeeded", "failed", "canceled")))
             )
             if not unrestricted:
+                visible = or_(Task.model_project_id.is_not(None), visible_project)
                 items_query = items_query.where(visible)
                 total_query = total_query.where(visible)
                 terminal_query = terminal_query.where(visible)
@@ -402,9 +407,12 @@ class MediaService:
                 [
                     VisibleTask(
                         task=row[0],
-                        project_name=row[1],
+                        resource_kind="model_project" if row[0].model_project_id else "project",
+                        resource_name=row[4] if row[0].model_project_id else row[1],
                         can_manage=(
-                            unrestricted or row[2] == actor.id or row[3] == "editor"
+                            (actor.is_system_admin or row[5] == actor.id)
+                            if row[0].model_project_id
+                            else (unrestricted or row[2] == actor.id or row[3] == "editor")
                         ),
                     )
                     for row in rows
@@ -412,6 +420,26 @@ class MediaService:
                 database.scalar(total_query) or 0,
                 database.scalar(terminal_query),
             )
+
+    def cancel_global_task(self, actor: User, task_id: str) -> Task:
+        now = _utc_now()
+        with self._session_factory() as database:
+            task = database.get(Task, task_id)
+            if task is None or task.model_project_id is None:
+                raise MediaNotFound("task not found")
+            project = database.get(ModelProject, task.model_project_id)
+            if project is None or not (actor.is_system_admin or project.created_by_id == actor.id):
+                raise ProjectForbidden("model project write permission required")
+            if task.status == "queued":
+                task.status = "canceled"
+                task.finished_at = now
+            elif task.status == "running":
+                task.cancel_requested = True
+            else:
+                raise MediaConflict("task cannot be canceled")
+            task.updated_at = now
+            database.commit()
+            return task
 
     def ready_video_file(
         self,

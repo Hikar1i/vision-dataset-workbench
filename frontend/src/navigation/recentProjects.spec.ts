@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  forgetProject,
   readRecentProjects,
   rememberProject,
   resolveProjectShortcuts,
@@ -42,5 +43,13 @@ describe('recent projects', () => {
     )
 
     expect(result.map((project) => project.id)).toEqual(['1', '2'])
+  })
+
+  it('forgets a deleted project', () => {
+    rememberProject({ id: '1', name: 'One' })
+    rememberProject({ id: '2', name: 'Two' })
+
+    expect(forgetProject('2').map((project) => project.id)).toEqual(['1'])
+    expect(readRecentProjects().map((project) => project.id)).toEqual(['1'])
   })
 })

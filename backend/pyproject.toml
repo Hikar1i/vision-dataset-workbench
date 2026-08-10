@@ -5,7 +5,11 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   "alembic>=1.16,<2",
   "argon2-cffi>=25,<26",
+  "cryptography>=46,<47",
   "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "psutil>=7.2.2",
+  "pyyaml>=6.0.3",
   "sqlalchemy>=2.0,<3",
   "uvicorn[standard]>=0.35,<1",
   "yt-dlp>=2026.3.17",
@@ -14,16 +18,13 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu = [
-  "onnxruntime-gpu>=1.26,<1.27",
   "torch==2.9.1",
   "torchvision==0.24.1",
-  "transformers>=4.57,<5",
   "ultralytics>=8.4.83,<9",
 ]
 
 [dependency-groups]
 dev = [
-  "httpx>=0.28,<1",
   "pytest>=8.4,<9",
   "ruff>=0.12,<1",
 ]

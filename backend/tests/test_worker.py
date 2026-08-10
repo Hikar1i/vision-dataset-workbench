@@ -24,9 +24,12 @@ from vision_dataset_workbench.models import (
 )
 from vision_dataset_workbench.security.passwords import hash_password
 from vision_dataset_workbench.worker import TaskWorker, download_command
+from vision_dataset_workbench.xanylabeling import RemoteModelOption
 
 
-def make_worker(tmp_path, *, probe=None, popen=None, inference_runner=None):
+def make_worker(
+    tmp_path, *, probe=None, popen=None, inference_runner=None, remote_settings=None
+):
     home = tmp_path / "home"
     workspace = home / ".vision-dataset-workbench"
     (workspace / "projects" / "project-id").mkdir(parents=True)
@@ -55,6 +58,7 @@ def make_worker(tmp_path, *, probe=None, popen=None, inference_runner=None):
         or (lambda path: MediaMetadata(1, 320, 240, 25, 25, path.stat().st_size)),
         **({"popen": popen} if popen else {}),
         **({"inference_runner": inference_runner} if inference_runner else {}),
+        **({"remote_settings": remote_settings} if remote_settings else {}),
     )
     return worker, engine, home, workspace
 
@@ -171,7 +175,8 @@ def test_import_model_task_copies_into_managed_storage(tmp_path):
         session.add(
             Task(
                 id="import-model",
-                project_id="project-id",
+                project_id=None,
+                model_project_id="00000000-0000-0000-0000-000000000001",
                 submitted_by_id="one-id",
                 type="import_model",
                 payload=json.dumps({"model_id": "model-id", "source_path": "models/detector.pt"}),
@@ -344,6 +349,196 @@ def test_auto_annotation_task_processes_only_starting_enabled_frames(tmp_path):
         overwritten = session.query(FrameAnnotation).filter_by(frame_id="frame-1").all()
         assert [item.source for item in overwritten] == ["model"]
         assert overwritten[0].sort_order == 0
+    engine.dispose()
+
+
+def test_remote_auto_annotation_uses_submitting_users_connection(tmp_path):
+    from vision_dataset_workbench.inference import Detection
+
+    class RemoteClient:
+        def list_models(self):
+            return [
+                RemoteModelOption(
+                    '["remote","grounding"]',
+                    "remote",
+                    "grounding",
+                    "Remote / Grounding",
+                    "text_prompt",
+                )
+            ]
+
+        def predict(self, *_args):
+            return [Detection("dog", 10, 20, 110, 220, 0.9)]
+
+    class RemoteSettings:
+        user_ids = []
+
+        def client_for(self, user_id):
+            self.user_ids.append(user_id)
+            return RemoteClient()
+
+    remote_settings = RemoteSettings()
+    worker, engine, _home, workspace = make_worker(
+        tmp_path, remote_settings=remote_settings
+    )
+    frames_dir = workspace / "projects" / "project-id" / "frames" / "TESTV001"
+    frames_dir.mkdir(parents=True)
+    image = frames_dir / "TESTV001_frame_000001.jpg"
+    image.write_bytes(b"image")
+    with Session(engine) as session:
+        session.add(
+            Video(
+                id="remote-video",
+                project_id="project-id",
+                short_code="TESTV001",
+                source_type="local",
+                title="video",
+                status="ready",
+                width=320,
+                height=240,
+            )
+        )
+        session.flush()
+        session.add(
+            Frame(
+                id="remote-frame",
+                video_id="remote-video",
+                generation=1,
+                sequence=1,
+                source_frame_index=0,
+                time_offset=0,
+                file_path=image.relative_to(workspace).as_posix(),
+            )
+        )
+        session.add(
+            Task(
+                id="remote-auto-task",
+                project_id="project-id",
+                submitted_by_id="one-id",
+                video_id="remote-video",
+                type="auto_annotate",
+                payload=json.dumps(
+                    {
+                        "source": "xanylabeling",
+                        "model_id": "remote",
+                        "remote_task_id": "grounding",
+                        "categories": ["dog"],
+                        "confidence": 0.25,
+                        "iou": 0.45,
+                        "overwrite": False,
+                    }
+                ),
+            )
+        )
+        session.commit()
+
+    assert worker.claim_available()[0].id == "remote-auto-task"
+    worker.execute_task("remote-auto-task")
+
+    with Session(engine) as session:
+        task = session.get(Task, "remote-auto-task")
+        boxes = session.query(FrameAnnotation).filter_by(frame_id="remote-frame").all()
+        assert task is not None and task.status == "succeeded", task.error if task else None
+        assert [item.source for item in boxes] == ["model"]
+    assert remote_settings.user_ids == ["one-id"]
+    engine.dispose()
+
+
+def test_project_auto_annotation_task_processes_multiple_videos(tmp_path):
+    from vision_dataset_workbench.inference import Detection
+
+    class Runner:
+        def predict(self, *_args, **_kwargs):
+            return [Detection("dog", 10, 20, 110, 220, 0.9)]
+
+    worker, engine, _home, workspace = make_worker(
+        tmp_path, inference_runner=Runner()
+    )
+    frames_dir = workspace / "projects" / "project-id" / "frames"
+    with Session(engine) as session:
+        session.add(
+            InferenceModel(
+                id="model-id",
+                name="detector",
+                kind="yolo",
+                status="ready",
+                storage_path="models/model-id/model.pt",
+                source_name="model.pt",
+                created_by_id="one-id",
+            )
+        )
+        model_path = workspace / "models" / "model-id" / "model.pt"
+        model_path.parent.mkdir(parents=True)
+        model_path.write_bytes(b"weights")
+        for index in (1, 2):
+            video_id = f"batch-video-{index}"
+            short_code = f"TESTV00{index}"
+            session.add(
+                Video(
+                    id=video_id,
+                    project_id="project-id",
+                    short_code=short_code,
+                    source_type="local",
+                    title=video_id,
+                    status="ready",
+                    width=320,
+                    height=240,
+                )
+            )
+        session.flush()
+        frame_ids = []
+        for index in (1, 2):
+            video_id = f"batch-video-{index}"
+            frame_id = f"batch-frame-{index}"
+            frame_ids.append(frame_id)
+            path = frames_dir / f"TESTV00{index}" / "frame.jpg"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"image")
+            session.add(
+                Frame(
+                    id=frame_id,
+                    video_id=video_id,
+                    generation=1,
+                    sequence=1,
+                    source_frame_index=0,
+                    time_offset=0,
+                    file_path=path.relative_to(workspace).as_posix(),
+                    enabled=True,
+                )
+            )
+        session.add(
+            Task(
+                id="batch-auto-task",
+                project_id="project-id",
+                submitted_by_id="one-id",
+                video_id=None,
+                type="auto_annotate",
+                payload=json.dumps(
+                    {
+                        "batch": True,
+                        "video_ids": ["batch-video-1", "batch-video-2"],
+                        "model_id": "model-id",
+                        "categories": ["dog"],
+                        "confidence": 0.25,
+                        "iou": 0.45,
+                        "overwrite": False,
+                    }
+                ),
+            )
+        )
+        session.commit()
+
+    assert worker.claim_available()[0].id == "batch-auto-task"
+    worker.execute_task("batch-auto-task")
+
+    with Session(engine) as session:
+        task = session.get(Task, "batch-auto-task")
+        result = json.loads(task.result or "{}") if task else {}
+        boxes = session.query(FrameAnnotation).filter(FrameAnnotation.frame_id.in_(frame_ids)).all()
+        assert task is not None and task.status == "succeeded", task.error if task else None
+        assert result["videos"] == 2
+        assert result["frames"] == 2
+        assert len(boxes) == 2
     engine.dispose()
 
 

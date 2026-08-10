@@ -1,0 +1,294 @@
+/* ============================================================================
+   认证与初始化页（登录 / 注册 / 初始化）。
+   独立流程布局，但字体、配色、表单、按钮、反馈与主工作台完全一致。
+   ========================================================================== */
+.access-shell {
+  display: grid;
+  grid-template-columns: minmax(340px, 44%) minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--vdw-app);
+}
+
+.instance-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: clamp(32px, 4.5vw, 64px);
+  overflow: hidden;
+  color: var(--vdw-focus-ink);
+  background: var(--vdw-rail);
+}
+
+.instance-heading,
+.instance-readout,
+.instance-readout div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.eyebrow,
+.mode-chip,
+.frame-label,
+.section-code,
+.instance-readout {
+  font-family: var(--vdw-mono);
+  font-size: 13px;
+  letter-spacing: 0.11em;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--vdw-focus-accent);
+}
+
+.mode-chip {
+  padding: 6px 9px;
+  color: var(--vdw-rail-ink);
+  border: 1px solid var(--vdw-rail-line);
+  border-radius: 3px;
+}
+
+/* 取景框：准星母题的来源。签名元素在系统内的原始形态。 */
+.vision-frame {
+  position: relative;
+  width: min(100%, 490px);
+  margin: clamp(48px, 9vh, 104px) 0 40px;
+  aspect-ratio: 1.55;
+  background: #16242c;
+  border: 1px solid var(--vdw-rail-line);
+}
+
+.vision-frame::before,
+.vision-frame::after {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  content: '';
+}
+
+.vision-frame::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid var(--vdw-focus-accent);
+  border-left: 2px solid var(--vdw-focus-accent);
+}
+
+.vision-frame::after {
+  right: -1px;
+  bottom: -1px;
+  border-right: 2px solid var(--vdw-focus-accent);
+  border-bottom: 2px solid var(--vdw-focus-accent);
+}
+
+.frame-label {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  color: var(--vdw-rail-ink-2);
+}
+
+.target-box {
+  position: absolute;
+  top: 30%;
+  left: 24%;
+  width: 48%;
+  height: 42%;
+  border: 1px solid var(--vdw-focus-accent);
+}
+
+.target-box i,
+.target-box i::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: 26px;
+  height: 1px;
+  background: var(--vdw-focus-accent);
+  content: '';
+  transform: translate(-50%, -50%);
+}
+
+.target-box i::after {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.instance-copy h1 {
+  margin: 0;
+  font-size: clamp(36px, 3.6vw, 56px);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+}
+
+.instance-copy p {
+  max-width: 46ch;
+  margin: 22px 0 0;
+  color: var(--vdw-focus-ink-2);
+  line-height: 1.65;
+}
+
+.instance-readout {
+  gap: 28px;
+  margin: auto 0 0;
+  padding-top: 44px;
+  color: var(--vdw-rail-ink-2);
+  border-top: 1px solid var(--vdw-rail-line);
+}
+
+.instance-readout div {
+  flex: 1;
+}
+
+.instance-readout dd {
+  margin: 0;
+  color: var(--vdw-focus-accent);
+}
+
+/* --- 右侧表单区 ----------------------------------------------------------- */
+.login-panel {
+  display: grid;
+  min-height: 100vh;
+  padding: 32px;
+  place-items: center;
+}
+
+.login-box {
+  display: grid;
+  gap: 26px;
+  width: min(456px, 100%);
+}
+
+.login-box header {
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--vdw-line);
+}
+
+.section-code {
+  color: var(--vdw-accent);
+}
+
+.login-box h2 {
+  margin: 13px 0 8px;
+  font-size: 30px;
+  letter-spacing: -0.025em;
+}
+
+.login-box header p,
+.login-box footer {
+  margin: 0;
+  color: var(--vdw-ink-2);
+  font-size: 15px;
+}
+
+.login-box form {
+  display: grid;
+  gap: 8px;
+}
+
+.login-box form :deep(.el-form),
+.login-box form .el-form {
+  display: grid;
+}
+
+.login-box form .el-form-item {
+  margin-bottom: 20px;
+}
+
+.login-box footer {
+  display: flex;
+  gap: 8px;
+  min-height: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--vdw-line);
+}
+
+.login-box footer a {
+  color: var(--vdw-accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.login-box footer a:hover {
+  text-decoration: underline;
+}
+
+/* --- 初始化页等居中卡片 --------------------------------------------------- */
+.utility-shell {
+  min-height: 100vh;
+  color: var(--vdw-ink);
+  background: var(--vdw-app);
+}
+
+.utility-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 0 clamp(20px, 4vw, 56px);
+  background: var(--vdw-rail);
+  border-bottom: 1px solid var(--vdw-rail-line);
+}
+
+.utility-topbar a {
+  color: var(--vdw-rail-ink);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.utility-brand,
+.utility-code {
+  font-family: var(--vdw-mono);
+  font-size: 13px;
+  letter-spacing: 0.11em;
+}
+
+.utility-brand {
+  color: var(--vdw-focus-accent);
+}
+
+.utility-code {
+  color: var(--vdw-accent);
+}
+
+.utility-card,
+.center-card {
+  width: min(600px, calc(100% - 32px));
+  margin: clamp(40px, 7vh, 88px) auto;
+  padding: clamp(28px, 4vw, 48px);
+  background: var(--vdw-surface);
+  border: 1px solid var(--vdw-line);
+  border-radius: var(--vdw-radius-card);
+}
+
+.utility-card {
+  display: grid;
+  gap: 26px;
+}
+
+.center-card {
+  width: min(792px, calc(100% - 32px));
+}
+
+.utility-heading {
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--vdw-line);
+}
+
+.utility-card h1 {
+  margin: 13px 0 8px;
+  font-size: 30px;
+  letter-spacing: -0.03em;
+}
+
+.utility-card p {
+  margin: 0;
+  color: var(--vdw-ink-2);
+  line-height: 1.6;
+}
+
+.utility-card form,
+.utility-card form > .el-button {
+  width: 100%;
+}

@@ -10,6 +10,7 @@ describe('FocusLayout', () => {
     })
 
     expect(wrapper.get('[data-test="focus-brand"]').text()).toBe('VDM / ANNOTATION')
+    expect(wrapper.get('.focus-layout').attributes('data-theme')).toBe('focus')
     expect(wrapper.find('[data-test="focus-content"]').exists()).toBe(true)
   })
 })

@@ -9,7 +9,9 @@ import {
   type ImportBatch,
   type RemotePreview,
 } from '../api/media'
-import ServerVideoPicker from './ServerVideoPicker.vue'
+import { VIDEO_EXTENSIONS } from '../api/filesystem'
+import ServerFilePicker from './ServerFilePicker.vue'
+import VButton from '../ui/VButton.vue'
 
 const props = defineProps<{ modelValue: boolean; projectId: string }>()
 const emit = defineEmits<{
@@ -106,17 +108,18 @@ watch(tab, () => {
     append-to-body
     :model-value="modelValue"
     title="导入视频"
-    width="min(860px, calc(100vw - 32px))"
+    top="3vh"
+    width="min(1040px, calc(100vw - 32px))"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <el-tabs v-model="tab">
       <el-tab-pane label="本地文件" name="local">
         <p class="instruction">直接选择一个或多个视频，或选择一个目录导入其第一层视频。</p>
-        <ServerVideoPicker
+        <ServerFilePicker
           v-model="selectedLocalFiles"
           v-model:selected-directory="selectedLocalDirectory"
-          multiple
-          :allow-create="false"
+          mode="multiple-files-or-directory"
+          :allowed-extensions="VIDEO_EXTENSIONS"
         />
       </el-tab-pane>
       <el-tab-pane label="远程 URL" name="remote">
@@ -128,15 +131,12 @@ watch(tab, () => {
             placeholder="https://..."
             @keyup.enter="parse"
           />
-          <el-button
-            data-test="preview-remote"
-            type="primary"
+          <VButton variant="primary" data-test="preview-remote"
             :loading="parsing"
             :disabled="!remoteUrl.trim()"
-            @click="parse"
-          >
+            @click="parse">
             解析 URL
-          </el-button>
+          </VButton>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -154,16 +154,13 @@ watch(tab, () => {
     </section>
 
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button
-        data-test="submit-import"
-        type="primary"
+      <VButton variant="secondary" @click="emit('update:modelValue', false)">取消</VButton>
+      <VButton variant="primary" data-test="submit-import"
         :loading="submitting"
         :disabled="!canSubmit"
-        @click="submit"
-      >
+        @click="submit">
         {{ submitLabel }}
-      </el-button>
+      </VButton>
     </template>
   </el-dialog>
 </template>
@@ -171,7 +168,7 @@ watch(tab, () => {
 <style scoped>
 .instruction {
   margin: 0 0 15px;
-  color: #687482;
+  color: var(--vdw-ink-2);
   font-size: 14px;
 }
 
@@ -183,7 +180,7 @@ watch(tab, () => {
 
 .candidate-panel {
   margin-top: 20px;
-  border: 1px solid #d8dee6;
+  border: 1px solid var(--vdw-line);
 }
 
 .candidate-panel > header,
@@ -196,12 +193,12 @@ watch(tab, () => {
 .candidate-panel > header {
   justify-content: space-between;
   padding: 12px 15px;
-  background: #f8fafc;
-  border-bottom: 1px solid #d8dee6;
+  background: var(--vdw-surface-2);
+  border-bottom: 1px solid var(--vdw-line);
 }
 
 .candidate-panel > header span {
-  color: #687482;
+  color: var(--vdw-ink-2);
   font-size: 13px;
 }
 
@@ -212,7 +209,7 @@ watch(tab, () => {
 
 .candidate {
   padding: 11px 15px;
-  border-bottom: 1px solid #edf0f4;
+  border-bottom: 1px solid var(--vdw-surface-3);
 }
 
 .candidate > span {
@@ -222,7 +219,7 @@ watch(tab, () => {
 
 .candidate small {
   overflow: hidden;
-  color: #687482;
+  color: var(--vdw-ink-2);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

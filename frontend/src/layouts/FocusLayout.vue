@@ -1,5 +1,5 @@
 <template>
-  <section class="focus-layout">
+  <section class="focus-layout" data-theme="focus">
     <header class="focus-header">
       <strong data-test="focus-brand">VDM / ANNOTATION</strong>
       <div id="focus-header-tools" class="focus-header-tools" />
@@ -14,16 +14,16 @@
   grid-template-rows: 52px minmax(0, 1fr);
   height: 100dvh;
   overflow: hidden;
-  color: #e8eef2;
-  background: #111820;
+  color: var(--vdw-focus-ink);
+  background: var(--vdw-focus-canvas);
 }
 
 .focus-header {
   display: flex;
   align-items: center;
   padding: 0 14px;
-  background: var(--vdw-ink);
-  border-bottom: 1px solid #33414c;
+  background: var(--vdw-focus-panel);
+  border-bottom: 1px solid var(--vdw-focus-line);
 }
 
 .focus-header-tools {
@@ -33,8 +33,8 @@
 }
 
 .focus-header strong {
-  color: var(--vdw-mint);
-  font: 700 13px var(--vdw-mono);
+  color: var(--vdw-focus-accent);
+  font: 700 14px var(--vdw-mono);
   letter-spacing: 0.12em;
 }
 </style>

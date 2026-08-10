@@ -9,9 +9,12 @@ import {
   listDatasetExports,
   type DatasetExport,
   type DatasetExportDetail,
-  type DatasetExportStatus,
 } from '../api/datasetExports'
 import type { Project } from '../api/projects'
+import { useProjectHeaderHost } from '../ui/projectHeaderHost'
+import { datasetExportStatus } from '../ui/status'
+import VButton from '../ui/VButton.vue'
+import VTag from '../ui/VTag.vue'
 
 const props = defineProps<{ project: Project }>()
 const items = ref<DatasetExport[]>([])
@@ -27,27 +30,12 @@ const canEdit = computed(() => props.project.role !== 'viewer')
 const manifestText = computed(() => (
   detail.value?.manifest ? JSON.stringify(detail.value.manifest, null, 2) : ''
 ))
-const statusLabels: Record<DatasetExportStatus, string> = {
-  queued: '排队中',
-  running: '导出中',
-  ready: '可用',
-  failed: '失败',
-  canceled: '已取消',
-}
 const exclusionLabels: Record<string, string> = {
   video_disabled: '视频停用',
   video_not_ready: '视频不可用',
   no_sampled_frames: '未抽帧',
   no_enabled_frames: '无启用帧',
   created_after_export: '快照后新增',
-}
-
-function statusType(status: DatasetExportStatus) {
-  if (status === 'ready') return 'success'
-  if (status === 'failed') return 'danger'
-  if (status === 'running') return 'primary'
-  if (status === 'canceled') return 'warning'
-  return 'info'
 }
 
 function dateTime(value: string | null) {
@@ -116,13 +104,15 @@ onMounted(() => {
   window.addEventListener('vdm:tasks-settled', refreshAfterTask)
 })
 onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTask))
+
+const headerHost = useProjectHeaderHost()
 </script>
 
 <template>
   <main class="datasets-view">
-    <header class="workspace-toolbar">
-      <div><h1>数据集管理</h1><span>{{ total }} 个导出产物</span></div>
-    </header>
+    <Teleport defer :disabled="!headerHost" to="#project-page-meta">
+      <span data-test="page-stat">{{ total }} 个导出产物</span>
+    </Teleport>
 
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <section v-loading="loading" class="datasets-table">
@@ -130,9 +120,9 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
         <el-table-column prop="name" label="数据集名称" min-width="180" />
         <el-table-column label="状态" width="94">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" effect="light">
-              {{ statusLabels[row.status as DatasetExportStatus] }}
-            </el-tag>
+            <VTag :tone="datasetExportStatus(row.status).tone">
+              {{ datasetExportStatus(row.status).label }}
+            </VTag>
           </template>
         </el-table-column>
         <el-table-column label="导出时间" width="180">
@@ -142,7 +132,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
           <template #default="{ row }">
             <el-popover trigger="click" width="280">
               <template #reference>
-                <el-button text>{{ row.labels.filter((label: { enabled: boolean }) => label.enabled).slice(0, 3).map((label: { name: string }) => label.name).join(', ') || '无' }}</el-button>
+                <VButton variant="secondary">{{ row.labels.filter((label: { enabled: boolean }) => label.enabled).slice(0, 3).map((label: { name: string }) => label.name).join(', ') || '无' }}</VButton>
               </template>
               <div class="category-popover">
                 <span v-for="label in row.labels" :key="label.source_label_id" :data-enabled="label.enabled">
@@ -172,21 +162,17 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
-              <el-button :data-test="`detail-${row.id}`" text @click="showDetail(row)">详情</el-button>
+              <VButton variant="quiet" :data-test="`detail-${row.id}`" @click="showDetail(row)">详情</VButton>
               <a
                 v-if="row.status === 'ready'"
                 :data-test="`download-${row.id}`"
                 :href="datasetExportDownloadUrl(project.id, row.id)"
               >下载</a>
-              <el-button
-                v-if="canEdit"
+              <VButton variant="quiet" size="sm" v-if="canEdit"
                 :data-test="`delete-${row.id}`"
-                text
-                type="danger"
                 :loading="deleting === row.id"
                 :disabled="row.status === 'queued' || row.status === 'running'"
-                @click="remove(row)"
-              >删除</el-button>
+                @click="remove(row)">删除</VButton>
             </div>
           </template>
         </el-table-column>
@@ -219,7 +205,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
           <section class="detail-panel detail-overview">
             <el-descriptions :column="2" border>
               <el-descriptions-item label="数据集名称">{{ detail.name }}</el-descriptions-item>
-              <el-descriptions-item label="状态">{{ statusLabels[detail.status] }}</el-descriptions-item>
+              <el-descriptions-item label="状态">{{ datasetExportStatus(detail.status).label }}</el-descriptions-item>
               <el-descriptions-item label="绝对路径" :span="2">{{ detail.absolute_path || '—' }}</el-descriptions-item>
               <el-descriptions-item label="期望比例">{{ ratio(detail.train_ratio) }}</el-descriptions-item>
               <el-descriptions-item label="实际比例">{{ ratio(detail.actual_train_ratio) }}</el-descriptions-item>
@@ -273,44 +259,38 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 </template>
 
 <style scoped>
-.datasets-view { min-height: 100%; padding: 18px; background: var(--vdw-canvas); }
-.workspace-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.workspace-toolbar h1 { margin: 0; font-size: 20px; }
-.workspace-toolbar span { color: var(--vdw-muted); font-size: 13px; }
-.datasets-table { min-height: 260px; background: white; border: 1px solid var(--vdw-rule); }
+.datasets-view { min-height: 100%; padding: 18px; background: var(--vdw-app); }
+.datasets-view :deep(.page-header) { margin: -20px -20px 20px; }
+.datasets-table { min-height: 260px; background: white; border: 1px solid var(--vdw-line); }
 .frame-summary { display: grid; grid-template-columns: repeat(3, minmax(42px, 1fr)); gap: 8px; }
 .frame-summary span { display: grid; gap: 2px; min-width: 0; }
 .frame-summary small,
-.ratio-summary small { color: var(--vdw-muted); font-size: 11px; font-weight: 500; }
+.ratio-summary small { color: var(--vdw-ink-2); font-size: 13px; font-weight: 500; }
 .frame-summary b,
 .ratio-summary b { color: var(--vdw-ink); font: 600 13px var(--vdw-mono); white-space: nowrap; }
 .ratio-summary { display: grid; gap: 4px; }
 .ratio-summary span { display: grid; grid-template-columns: 34px auto; align-items: baseline; gap: 7px; }
-.row-actions { display: inline-flex; align-items: stretch; overflow: hidden; background: white; border: 1px solid var(--vdw-rule); border-radius: 2px; }
-.row-actions > * + * { border-left: 1px solid var(--vdw-rule) !important; }
-.row-actions :deep(.el-button),
-.row-actions a { display: inline-flex; align-items: center; height: 32px; margin: 0; padding: 0 11px; background: white; border: 0; border-radius: 0; }
-.row-actions a { color: var(--vdw-teal); text-decoration: none; }
-.row-actions :deep(.el-button:hover),
-.row-actions a:hover { background: #eef5f3; }
+.row-actions { display: inline-flex; align-items: stretch; overflow: hidden; background: white; border: 1px solid var(--vdw-line); border-radius: 2px; }
+.row-actions > * + * { border-left: 1px solid var(--vdw-line) !important; }
+.row-actions a { color: var(--vdw-accent); text-decoration: none; }
 .category-popover { display: grid; gap: 7px; }
-.category-popover span[data-enabled='false'] { color: var(--vdw-muted); }
-.dataset-detail-scroll { height: calc(100dvh - 57px); padding: 20px; overflow: auto; background: var(--vdw-canvas); }
+.category-popover span[data-enabled='false'] { color: var(--vdw-ink-2); }
+.dataset-detail-scroll { height: calc(100dvh - 57px); padding: 20px; overflow: auto; background: var(--vdw-app); }
 .dataset-detail-content { display: grid; gap: 18px; width: min(100%, 1600px); margin: 0 auto; }
-.detail-panel { overflow: hidden; background: white; border: 1px solid var(--vdw-rule); }
-.detail-panel h2 { margin: 0; padding: 13px 16px; font: 700 17px var(--vdw-title); border-bottom: 1px solid var(--vdw-rule); }
+.detail-panel { overflow: hidden; background: white; border: 1px solid var(--vdw-line); }
+.detail-panel h2 { margin: 0; padding: 13px 16px; font: 700 17px var(--vdw-sans); border-bottom: 1px solid var(--vdw-line); }
 .detail-overview { padding: 0; }
 .manifest-panel { padding: 0 16px; }
-.dataset-detail-content pre { max-height: 420px; margin: 0; padding: 14px; overflow: auto; color: #d7e3ec; background: #111820; font: 12px/1.6 var(--vdw-mono); }
+.dataset-detail-content pre { max-height: 420px; margin: 0; padding: 14px; overflow: auto; color: #d7e3ec; background: var(--vdw-ink); font: 13px/1.6 var(--vdw-mono); }
 .empty-state { padding: 72px 20px; text-align: center; }
 .empty-state h2 { margin: 0 0 8px; font-size: 18px; }
-.empty-state p { color: var(--vdw-muted); }
+.empty-state p { color: var(--vdw-ink-2); }
 </style>
 
 <style>
-.dataset-detail-dialog { background: var(--vdw-canvas) !important; }
-.dataset-detail-dialog > .el-dialog__header { height: 57px; margin: 0; padding: 0 20px; border-bottom: 1px solid var(--vdw-rule); background: white; }
-.dataset-detail-dialog > .el-dialog__header .el-dialog__title { font: 700 19px var(--vdw-title); line-height: 57px; }
+.dataset-detail-dialog { background: var(--vdw-app) !important; }
+.dataset-detail-dialog > .el-dialog__header { height: 57px; margin: 0; padding: 0 20px; border-bottom: 1px solid var(--vdw-line); background: white; }
+.dataset-detail-dialog > .el-dialog__header .el-dialog__title { font: 700 19px var(--vdw-sans); line-height: 57px; }
 .dataset-detail-dialog > .el-dialog__header .el-dialog__headerbtn { top: 4px; }
 .dataset-detail-dialog > .el-dialog__body { padding: 0 !important; }
 </style>

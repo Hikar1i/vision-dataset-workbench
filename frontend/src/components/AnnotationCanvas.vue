@@ -102,10 +102,10 @@ function colorWithAlpha(color: string, alpha: number) {
 
 function contrastText(color: string) {
   const value = color.match(/^#([0-9a-f]{6})$/i)?.[1]
-  if (!value) return '#111820'
+  if (!value) return 'var(--vdw-focus-canvas)'
   const [red, green, blue] = [0, 2, 4]
     .map((offset) => Number.parseInt(value.slice(offset, offset + 2), 16))
-  return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? '#111820' : '#ffffff'
+  return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? 'var(--vdw-focus-canvas)' : '#ffffff'
 }
 
 function annotationTitle(item: FrameAnnotation) {
@@ -329,9 +329,9 @@ defineExpose({ zoomBy, resetView, zoomPercent })
                 y: item.y_min,
                 width: item.x_max - item.x_min,
                 height: item.y_max - item.y_min,
-                stroke: labelMap.get(item.label_id)?.color ?? '#ffca3a',
+                stroke: labelMap.get(item.label_id)?.color ?? 'var(--vdw-warn)',
                 fill: colorWithAlpha(
-                  labelMap.get(item.label_id)?.color ?? '#ffca3a',
+                  labelMap.get(item.label_id)?.color ?? 'var(--vdw-warn)',
                   item.id === selectedId || item.id === hoveredId ? 0.28 : 0.12,
                 ),
                 strokeWidth: item.id === selectedId ? 3 : 2,
@@ -349,7 +349,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
                 :config="{
                   width: Math.max(70, annotationTitle(item).length * 11 + 12),
                   height: 26,
-                  fill: labelMap.get(item.label_id)?.color ?? '#ffca3a',
+                  fill: labelMap.get(item.label_id)?.color ?? 'var(--vdw-warn)',
                   listening: false,
                 }"
               />
@@ -360,7 +360,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
                   text: annotationTitle(item),
                   fontSize: 17,
                   fontStyle: 'bold',
-                  fill: contrastText(labelMap.get(item.label_id)?.color ?? '#ffca3a'),
+                  fill: contrastText(labelMap.get(item.label_id)?.color ?? 'var(--vdw-warn)'),
                   listening: false,
                 }"
               />
@@ -370,7 +370,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
             v-if="preview"
             :config="{
               ...preview,
-              stroke: '#78d2b8',
+              stroke: 'var(--vdw-focus-accent)',
               strokeWidth: 2,
               dash: [8, 5],
               strokeScaleEnabled: false,
@@ -384,7 +384,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
               y: pendingBounds.y_min,
               width: pendingBounds.x_max - pendingBounds.x_min,
               height: pendingBounds.y_max - pendingBounds.y_min,
-              stroke: '#78d2b8',
+              stroke: 'var(--vdw-focus-accent)',
               fill: 'rgb(120 210 184 / 12%)',
               strokeWidth: 2,
               dash: [8, 5],
@@ -399,9 +399,9 @@ defineExpose({ zoomBy, resetView, zoomPercent })
               flipEnabled: false,
               enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
               anchorSize: 8,
-              borderStroke: '#78d2b8',
-              anchorStroke: '#17212b',
-              anchorFill: '#78d2b8',
+              borderStroke: 'var(--vdw-focus-accent)',
+              anchorStroke: 'var(--vdw-focus-panel)',
+              anchorFill: 'var(--vdw-focus-accent)',
               boundBoxFunc: (oldBox: unknown, newBox: { width: number; height: number }) =>
                 Math.abs(newBox.width) < 2 || Math.abs(newBox.height) < 2 ? oldBox : newBox,
             }"
@@ -412,7 +412,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
         <v-line
           :config="{
             points: [0, pointer.y, stageSize.width, pointer.y],
-            stroke: '#78d2b8',
+            stroke: 'var(--vdw-focus-accent)',
             strokeWidth: 1,
             dash: [5, 5],
             opacity: 0.75,
@@ -421,7 +421,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
         <v-line
           :config="{
             points: [pointer.x, 0, pointer.x, stageSize.height],
-            stroke: '#78d2b8',
+            stroke: 'var(--vdw-focus-accent)',
             strokeWidth: 1,
             dash: [5, 5],
             opacity: 0.75,
@@ -441,9 +441,9 @@ defineExpose({ zoomBy, resetView, zoomPercent })
   min-height: 0;
   overflow: hidden;
   background:
-    linear-gradient(45deg, #151d25 25%, transparent 25%) 0 0 / 18px 18px,
-    linear-gradient(45deg, transparent 75%, #151d25 75%) 0 0 / 18px 18px,
-    linear-gradient(45deg, transparent 75%, #151d25 75%) 9px -9px / 18px 18px,
-    linear-gradient(45deg, #151d25 25%, #10171e 25%) 9px -9px / 18px 18px;
+    linear-gradient(45deg, var(--vdw-focus-canvas) 25%, transparent 25%) 0 0 / 18px 18px,
+    linear-gradient(45deg, transparent 75%, var(--vdw-focus-canvas) 75%) 0 0 / 18px 18px,
+    linear-gradient(45deg, transparent 75%, var(--vdw-focus-canvas) 75%) 9px -9px / 18px 18px,
+    linear-gradient(45deg, var(--vdw-focus-canvas) 25%, #10171e 25%) 9px -9px / 18px 18px;
 }
 </style>

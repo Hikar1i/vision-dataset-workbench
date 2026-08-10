@@ -32,7 +32,6 @@ class GpuStatus:
 class FeatureCapabilities:
     manual_annotation: CapabilityStatus
     yolo_auto_annotation: CapabilityStatus
-    grounding_dino_auto_annotation: CapabilityStatus
     model_training: CapabilityStatus
 
 
@@ -40,7 +39,6 @@ class FeatureCapabilities:
 class SystemCapabilities:
     gpu: GpuStatus
     pytorch_cuda: CapabilityStatus
-    onnx_cuda: CapabilityStatus
     features: FeatureCapabilities
 
 
@@ -96,18 +94,6 @@ def _detect_pytorch(load_module: Callable[[str], ModuleType]) -> CapabilityStatu
     return CapabilityStatus(False, "PyTorch CUDA 运行时不可用")
 
 
-def _detect_onnx(load_module: Callable[[str], ModuleType]) -> CapabilityStatus:
-    try:
-        onnxruntime = load_module("onnxruntime")
-        if "CUDAExecutionProvider" in onnxruntime.get_available_providers():
-            return CapabilityStatus(True)
-    except ModuleNotFoundError:
-        return CapabilityStatus(False, "未安装 ONNX Runtime GPU 运行依赖")
-    except Exception:
-        return CapabilityStatus(False, "ONNX Runtime CUDA 初始化失败")
-    return CapabilityStatus(False, "ONNX Runtime CUDA Provider 不可用")
-
-
 def _detect_ultralytics(find_module: Callable[[str], object | None]) -> CapabilityStatus:
     try:
         if find_module("ultralytics") is not None:
@@ -115,15 +101,6 @@ def _detect_ultralytics(find_module: Callable[[str], object | None]) -> Capabili
     except Exception:
         return CapabilityStatus(False, "Ultralytics 依赖检测失败")
     return CapabilityStatus(False, "未安装 Ultralytics 运行依赖")
-
-
-def _detect_transformers(find_module: Callable[[str], object | None]) -> CapabilityStatus:
-    try:
-        if find_module("transformers") is not None:
-            return CapabilityStatus(True)
-    except Exception:
-        return CapabilityStatus(False, "Transformers 依赖检测失败")
-    return CapabilityStatus(False, "未安装 Transformers 运行依赖")
 
 
 def detect_capabilities(
@@ -134,19 +111,14 @@ def detect_capabilities(
 ) -> SystemCapabilities:
     gpu = _detect_gpu(run_command)
     pytorch_cuda = _detect_pytorch(load_module)
-    onnx_cuda = _detect_onnx(load_module)
     ultralytics = _detect_ultralytics(find_module)
-    transformers = _detect_transformers(find_module)
     yolo = pytorch_cuda if not pytorch_cuda.available else ultralytics
-    grounding_dino = pytorch_cuda if not pytorch_cuda.available else transformers
     return SystemCapabilities(
         gpu=gpu,
         pytorch_cuda=pytorch_cuda,
-        onnx_cuda=onnx_cuda,
         features=FeatureCapabilities(
             manual_annotation=CapabilityStatus(True),
             yolo_auto_annotation=yolo,
-            grounding_dino_auto_annotation=grounding_dino,
             model_training=pytorch_cuda,
         ),
     )

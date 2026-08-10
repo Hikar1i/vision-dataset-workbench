@@ -1,16 +1,22 @@
-from vision_dataset_workbench.inference import Detection, non_maximum_suppression
+from pathlib import Path
+from types import SimpleNamespace
+
+from vision_dataset_workbench.inference import Detection, InferenceRunner
 
 
-def test_non_maximum_suppression_keeps_classes_independent():
-    detections = [
-        Detection("helmet", 0, 0, 100, 100, 0.9),
-        Detection("helmet", 5, 5, 95, 95, 0.8),
-        Detection("person", 5, 5, 95, 95, 0.7),
-    ]
+class FakeYoloRunner(InferenceRunner):
+    def _predict_yolo(self, *_args):
+        return [Detection("helmet", 0, 0, 100, 100, 0.9)]
 
-    kept = non_maximum_suppression(detections, 0.5)
 
-    assert [(item.label, item.confidence) for item in kept] == [
-        ("helmet", 0.9),
-        ("person", 0.7),
-    ]
+def test_inference_runner_uses_yolo_path():
+    result = FakeYoloRunner().predict(
+        SimpleNamespace(id="model-id"),
+        Path("model.pt"),
+        Path("image.jpg"),
+        [],
+        0.25,
+        0.45,
+    )
+
+    assert result == [Detection("helmet", 0, 0, 100, 100, 0.9)]

@@ -58,6 +58,9 @@ export const updateProject = (
     body: JSON.stringify({ name, description, version }),
   })
 
+export const deleteProject = (id: string) =>
+  json<void>(`/api/v1/projects/${id}`, { method: 'DELETE' })
+
 export const listMembers = (id: string) =>
   json<ProjectMember[]>(`/api/v1/projects/${id}/members`)
 

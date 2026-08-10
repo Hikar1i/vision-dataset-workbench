@@ -1,6 +1,6 @@
 # 环境与启动
 
-状态：后端、前端、首次初始化、认证模式、GPU 能力检测，以及视频导入、抽帧、模型入库和自动标注可在开发环境运行；正式部署启动器尚未实现。
+状态：后端、前端、首次初始化、认证模式、GPU 能力与实时显存检测，以及视频导入、抽帧、模型入库、自动标注和 YOLO Detect 训练可在开发环境运行；正式部署启动器尚未实现。
 
 ## 当前可执行操作
 
@@ -16,12 +16,18 @@ GPU 服务器安装可选模型运行依赖：
 ```bash
 cd backend
 uv sync --python 3.12 --dev --extra gpu
-uv run python -c "import torch, onnxruntime as ort, transformers, ultralytics; print(torch.cuda.is_available()); print(ort.get_available_providers()); print(transformers.__version__, ultralytics.__version__)"
+uv run python -c "import torch, ultralytics; print(torch.cuda.is_available()); print(torch.__version__, ultralytics.__version__)"
 ```
 
-当前锁定组合为 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8、ONNX Runtime GPU 1.26.x、Transformers 4.57.x 和 Ultralytics 8.4.x。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)、[PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)和 [ONNX Runtime CUDA Provider](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)。
+当前锁定组合为 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8 和 Ultralytics 8.4.x。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)和 [PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)。
 
-自动标注时 API 和 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理。管理员可登记 `.pt`/`.onnx` YOLO 文件或本地 GroundingDINO Transformers 模型目录；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理时验证。
+本地自动标注和训练时 API 与 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理并为每个训练模型启动独立 Python/Ultralytics 子进程。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理或训练预检后由运行时确认。本系统不再安装或加载本地 ONNX、Transformers 或 GroundingDINO 模型。
+
+训练子进程的当前目录固定为 `<workspace>/cache/ultralytics/`。Ultralytics 首次 AMP 检查可能在此下载辅助权重（例如 `yolo26n.pt`）；这是运行缓存，不是用户选择的 basemodel，也不得出现在源码目录。训练运行会把导出数据集配置转换为带绝对路径的运行级 `dataset.yaml`。
+
+远程自动标注不要求本系统安装模型运行依赖。用户在标注页配置可由 API 和 Worker 访问的 X-AnyLabeling Server 地址及可选 API 密钥；客户端访问本机服务时应填写 `http://127.0.0.1:<port>`，`0.0.0.0` 只用于服务监听。当前只接收矩形结果，服务端点选、关键点、多边形等任务不会出现在可选模型列表中。
+
+在线视觉大模型独立于 X-AnyLabeling 配置，支持 OpenAI-compatible 和 Anthropic API，也允许填写 API/Worker 可访问的本机或局域网 Base URL。当前直接使用 HTTP 协议适配器和内置目标检测提示词，不安装 LangChain、LangGraph 或本地大模型运行框架。
 
 安装与启动前端：
 
@@ -105,6 +111,7 @@ REGISTRATION_ENABLED=false|true
 VDW_WORKSPACE=<workspace-path>
 YTDLP_PROXY=<optional-proxy-url>
 YTDLP_COOKIE_FILE=<optional-netscape-cookie-file>
+VDW_CREDENTIAL_ENCRYPTION_KEY=<optional-fernet-key>
 ```
 
 - 默认 `multi`。
@@ -113,8 +120,9 @@ YTDLP_COOKIE_FILE=<optional-netscape-cookie-file>
 - 模式切换后重启生效。
 - `VDW_WORKSPACE` 优先于平台工作区定位文件；当前 API 启动命令没有单独的工作区 CLI 参数。
 - yt-dlp 默认不使用代理或 Cookie；仅在实例确有需要时配置上述两个变量。
+- `VDW_CREDENTIAL_ENCRYPTION_KEY` 可显式覆盖用于加密用户远程 API 密钥的 Fernet 密钥。未配置时，初始化后的 API 会自动创建 `<workspace>/config/credential.key`（目录权限 `0700`、文件权限 `0600`），API 与 Worker 从同一工作区读取，因此无需用户手工维护。显式配置时两者仍必须一致。
 
-上述五个变量均已实现。布尔值只接受 `true` 或 `false`；`APP_MODE=single` 与 `REGISTRATION_ENABLED=true` 同时出现会使应用启动失败。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
+上述六个变量均已实现。布尔值只接受 `true` 或 `false`；`APP_MODE=single` 与 `REGISTRATION_ENABLED=true` 同时出现会使应用启动失败。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
 
 管理员忘记密码时，先停止 API，再在终端交互式重置；密码不会出现在命令参数中：
 
@@ -138,7 +146,7 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 | Media | FFmpeg/ffprobe/yt-dlp 路径与限制 |
 | Web | 绑定地址、前端来源和 Cookie 安全属性 |
 | Auth | 运行模式、注册开关和 Session 生命周期 |
-| GPU | 已实现硬件/运行时能力检测、单模型进程内互斥和批量任务并发限制；设备选择、显存感知调度和尚未实现的训练调度后续补充 |
+| GPU | 已实现启动时运行时能力检测、2 秒动态显存遥测、显卡选择、每 GPU 串行训练 lane 和跨 GPU 并行；不支持同卡多模型并行或单模型多 GPU |
 
 本地示例配置只能包含无敏感默认值；真实密钥通过未提交文件或密钥管理服务注入。
 

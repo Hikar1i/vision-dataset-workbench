@@ -9,6 +9,7 @@ import signal
 import subprocess
 import threading
 import time
+from dataclasses import replace
 from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -37,9 +38,15 @@ from .models import (
 )
 from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
 from .services.labels import automatic_label_color, normalize_label_name
+from .services.xanylabeling_settings import XAnyLabelingSettingsService
+from .security.credentials import resolve_credential_key
+from .services.llm_configs import LLMConfigService
+from .services.llm_annotation import LLMAnnotationError, predict as predict_llm
 from .storage.browser import VIDEO_EXTENSIONS
 from .storage.locator import WorkspaceLocator, default_locator_path
 from .storage.paths import HomePathResolver, UnsafePathError
+from .training.scheduler import TrainingScheduler
+from .xanylabeling import XAnyLabelingUnavailable
 
 LIMITS = {
     "copy_video": 2,
@@ -61,9 +68,7 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def download_command(
-    settings: RuntimeSettings, url: str, output_template: Path
-) -> list[str]:
+def download_command(settings: RuntimeSettings, url: str, output_template: Path) -> list[str]:
     return [
         *ytdlp_base_args(settings),
         "--no-playlist",
@@ -107,6 +112,7 @@ class TaskWorker:
         now=_utc_now,
         worker_id: str | None = None,
         inference_runner: InferenceRunner | None = None,
+        remote_settings: XAnyLabelingSettingsService | None = None,
     ):
         self.engine = engine
         self.settings = settings
@@ -117,10 +123,15 @@ class TaskWorker:
         self._now = now
         self.worker_id = worker_id or str(uuid4())
         self._inference_runner = inference_runner or InferenceRunner()
+        self._remote_settings = remote_settings or XAnyLabelingSettingsService(engine, settings)
+        self._llm_configs = LLMConfigService(engine, settings)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="vdw-task")
         self._futures: dict[str, Future[None]] = {}
         self._stop = threading.Event()
+        self._training_scheduler = TrainingScheduler(
+            engine, self.workspace, worker_id=self.worker_id, popen=popen
+        )
 
     def claim_available(self) -> list[Task]:
         now = self._now()
@@ -140,15 +151,11 @@ class TaskWorker:
                 task.cancel_requested = False
                 task.updated_at = now
 
-            running = database.scalars(
-                select(Task).where(Task.status == "running")
-            ).all()
+            running = database.scalars(select(Task).where(Task.status == "running")).all()
             type_counts = Counter(task.type for task in running)
             user_counts = Counter((task.type, task.submitted_by_id) for task in running)
             queued = database.scalars(
-                select(Task)
-                .where(Task.status == "queued")
-                .order_by(Task.created_at, Task.id)
+                select(Task).where(Task.status == "queued").order_by(Task.created_at, Task.id)
             ).all()
             claimed: list[Task] = []
             for task in queued:
@@ -287,9 +294,7 @@ class TaskWorker:
             for path in files:
                 destination = staged / path.relative_to(source)
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                copied = self._copy_file_with_progress(
-                    task_id, path, destination, total, copied
-                )
+                copied = self._copy_file_with_progress(task_id, path, destination, total, copied)
         target = self.workspace / "models" / model_id
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
@@ -304,6 +309,9 @@ class TaskWorker:
                 raise MediaToolError("model import resources disappeared")
             model.status = "ready"
             model.storage_path = relative.relative_to(self.workspace).as_posix()
+            model.file_size = relative.stat().st_size
+            with relative.open("rb") as model_file:
+                model.sha256 = hashlib.file_digest(model_file, "sha256").hexdigest()
             model.error = None
             model.updated_at = now
             task.status = "succeeded"
@@ -336,59 +344,147 @@ class TaskWorker:
     def _execute_auto_annotate(self, task_id: str) -> None:
         with self._session_factory() as database:
             task = database.get(Task, task_id)
-            if task is None or task.status != "running" or task.video_id is None:
+            if task is None or task.status != "running":
                 raise MediaToolError("active auto annotation task not found")
             payload = json.loads(task.payload)
-            video = database.get(Video, task.video_id)
-            model = database.get(InferenceModel, str(payload.get("model_id") or ""))
-            if video is None or model is None or model.status != "ready" or not model.storage_path:
-                raise MediaToolError("auto annotation resources not ready")
-            frames = list(
-                database.scalars(
-                    select(Frame)
-                    .where(Frame.video_id == video.id, Frame.enabled.is_(True))
-                    .order_by(Frame.sequence)
-                )
+            video_ids = [str(item) for item in payload.get("video_ids", [])]
+            if not video_ids and task.video_id is not None:
+                video_ids = [task.video_id]
+            if not video_ids:
+                raise MediaToolError("auto annotation task has no videos")
+            source = str(payload.get("source") or "local")
+            model = (
+                database.get(InferenceModel, str(payload.get("model_id") or ""))
+                if source == "local"
+                else None
             )
-            if not frames:
-                raise MediaToolError("video has no enabled sampled frames")
-            if model.kind == "grounding_dino" and not payload.get("categories"):
-                payload["categories"] = list(
+            if source == "local" and (
+                model is None or model.status != "ready" or not model.storage_path
+            ):
+                raise MediaToolError("auto annotation resources not ready")
+            if source not in {"local", "xanylabeling", "online"}:
+                raise MediaToolError("unsupported auto annotation source")
+            video_frames: list[tuple[Video, list[Frame]]] = []
+            for video_id in video_ids:
+                item = database.get(Video, video_id)
+                if item is None:
+                    continue
+                frames = list(
                     database.scalars(
-                        select(ProjectLabel.name).where(
-                            ProjectLabel.project_id == video.project_id,
-                            ProjectLabel.enabled.is_(True),
-                        )
+                        select(Frame)
+                        .where(Frame.video_id == item.id, Frame.enabled.is_(True))
+                        .order_by(Frame.sequence)
                     )
                 )
-            database.expunge(video)
-            database.expunge(model)
-            for frame in frames:
-                database.expunge(frame)
-        model_path = self._managed_model_path(model)
-        total_annotations = 0
-        for index, frame in enumerate(frames, start=1):
-            if self._cancel_requested(task_id):
-                raise TaskCanceled("task canceled")
-            image_path = self._managed_frame_path(video, frame)
+                database.expunge(item)
+                for frame in frames:
+                    database.expunge(frame)
+                video_frames.append((item, frames))
+            if model is not None:
+                database.expunge(model)
+            submitted_by_id = task.submitted_by_id
+        model_path = self._managed_model_path(model) if model is not None else None
+        remote_client = None
+        remote_option = None
+        if source == "xanylabeling":
             try:
-                detections = self._inference_runner.predict(
-                    model,
-                    model_path,
-                    image_path,
-                    list(payload.get("categories") or []),
-                    float(payload.get("confidence", 0.25)),
-                    float(payload.get("iou", 0.45)),
+                remote_client = self._remote_settings.client_for(submitted_by_id)
+                remote_option = next(
+                    (
+                        item
+                        for item in remote_client.list_models()
+                        if item.model_id == payload.get("model_id")
+                        and item.task_id == payload.get("remote_task_id")
+                    ),
+                    None,
                 )
-            except InferenceUnavailable as exc:
+            except ValueError as exc:
                 raise MediaToolError(str(exc)) from exc
-            total_annotations += self._store_auto_detections(
-                video,
-                frame.id,
-                detections,
-                overwrite=bool(payload.get("overwrite", False)),
+            if remote_option is None:
+                raise MediaToolError("remote model is no longer available")
+        llm_connection = None
+        if source == "online":
+            try:
+                llm_connection = self._llm_configs.connection(
+                    submitted_by_id, str(payload.get("model_id") or "")
+                )
+            except (ValueError, LLMAnnotationError) as exc:
+                raise MediaToolError(str(exc)) from exc
+        total_frames = sum(len(frames) for _, frames in video_frames)
+        if total_frames == 0:
+            raise MediaToolError("videos have no enabled sampled frames")
+        completed_frames = 0
+        total_annotations = 0
+        video_results: list[dict[str, object]] = []
+        for video, frames in video_frames:
+            video_annotations = 0
+            video_completed = 0
+            try:
+                for frame in frames:
+                    if self._cancel_requested(task_id):
+                        raise TaskCanceled("task canceled")
+                    image_path = self._managed_frame_path(video, frame)
+                    if source == "local":
+                        detections = self._inference_runner.predict(
+                            model,
+                            model_path,
+                            image_path,
+                            list(payload.get("categories") or []),
+                            float(payload.get("confidence", 0.25)),
+                            float(payload.get("iou", 0.45)),
+                        )
+                    elif source == "xanylabeling":
+                        detections = remote_client.predict(
+                            remote_option,
+                            image_path,
+                            list(payload.get("categories") or []),
+                            float(payload.get("confidence", 0.25)),
+                            float(payload.get("iou", 0.45)),
+                        )
+                    else:
+                        detections = predict_llm(
+                            llm_connection,
+                            image_path,
+                            list(payload.get("categories") or []),
+                            float(payload.get("confidence", 0.25)),
+                        )
+                    count = self._store_auto_detections(
+                        video,
+                        frame.id,
+                        detections,
+                        overwrite=bool(payload.get("overwrite", False)),
+                    )
+                    video_annotations += count
+                    total_annotations += count
+                    completed_frames += 1
+                    video_completed += 1
+                    self._heartbeat(task_id, round(completed_frames * 100 / total_frames))
+            except TaskCanceled:
+                raise
+            except (InferenceUnavailable, XAnyLabelingUnavailable, LLMAnnotationError, MediaToolError) as exc:
+                video_results.append(
+                    {
+                        "video_id": video.id,
+                        "status": "failed",
+                        "frames": video_completed,
+                        "annotations": video_annotations,
+                        "error": str(exc),
+                    }
+                )
+                continue
+            video_results.append(
+                {
+                    "video_id": video.id,
+                    "status": "succeeded",
+                    "frames": len(frames),
+                    "annotations": video_annotations,
+                    "error": None,
+                }
             )
-            self._heartbeat(task_id, round(index * 100 / len(frames)))
+        successful = [item for item in video_results if item["status"] == "succeeded"]
+        if not successful:
+            errors = "; ".join(str(item["error"]) for item in video_results if item["error"])
+            raise MediaToolError(errors or "batch auto annotation failed")
         now = self._now()
         with self._session_factory() as database:
             task = database.get(Task, task_id)
@@ -397,7 +493,13 @@ class TaskWorker:
             task.status = "succeeded"
             task.progress = 100
             task.result = json.dumps(
-                {"outcome": "annotated", "frames": len(frames), "annotations": total_annotations}
+                {
+                    "outcome": "annotated" if len(successful) == len(video_results) else "partial",
+                    "videos": len(video_results),
+                    "frames": completed_frames,
+                    "annotations": total_annotations,
+                    "video_results": video_results,
+                }
             )
             task.error = None
             task.finished_at = now
@@ -422,11 +524,7 @@ class TaskWorker:
         except OSError as exc:
             raise MediaToolError("frame file not found") from exc
         root = (
-            self.workspace
-            / "projects"
-            / video.project_id
-            / "frames"
-            / video.short_code
+            self.workspace / "projects" / video.project_id / "frames" / video.short_code
         ).resolve()
         if not path.is_file() or not path.is_relative_to(root):
             raise MediaToolError("frame file not found")
@@ -511,7 +609,11 @@ class TaskWorker:
                         label_id=labels[name].id,
                         **bounds,
                         source="model",
-                        confidence=max(0.0, min(1.0, detection.confidence)),
+                        confidence=(
+                            max(0.0, min(1.0, detection.confidence))
+                            if detection.confidence is not None
+                            else None
+                        ),
                         sort_order=first_annotation_order + offset,
                         created_at=now,
                     )
@@ -598,9 +700,7 @@ class TaskWorker:
         task, video, payload = self._load_task(task_id)
         requested_version = int(payload.get("sampling_plan_version") or 0)
         with self._session_factory() as database:
-            plan = database.scalar(
-                select(SamplingPlan).where(SamplingPlan.video_id == video.id)
-            )
+            plan = database.scalar(select(SamplingPlan).where(SamplingPlan.video_id == video.id))
             if plan is None or plan.version != requested_version:
                 raise MediaToolError("sampling plan changed; create a new extraction task")
             database.expunge(plan)
@@ -610,9 +710,7 @@ class TaskWorker:
             video_path = (self.workspace / video.file_path).resolve(strict=True)
         except OSError as exc:
             raise MediaToolError("video file not found") from exc
-        videos_root = (
-            self.workspace / "projects" / video.project_id / "videos"
-        ).resolve()
+        videos_root = (self.workspace / "projects" / video.project_id / "videos").resolve()
         if not video_path.is_file() or not video_path.is_relative_to(videos_root):
             raise MediaToolError("video file not found")
 
@@ -630,9 +728,7 @@ class TaskWorker:
             if extension == "jpg"
             else ["-compression_level", str(plan.output_quality)]
         )
-        output_pattern = staged_frames / (
-            f"{video.short_code}_frame_%06d.{extension}"
-        )
+        output_pattern = staged_frames / (f"{video.short_code}_frame_%06d.{extension}")
         command = [
             "ffmpeg",
             "-hide_banner",
@@ -726,13 +822,7 @@ class TaskWorker:
         staged_frames: Path,
         files: list[Path],
     ) -> None:
-        target = (
-            self.workspace
-            / "projects"
-            / video.project_id
-            / "frames"
-            / video.short_code
-        )
+        target = self.workspace / "projects" / video.project_id / "frames" / video.short_code
         target.parent.mkdir(parents=True, exist_ok=True)
         backup = staged_frames.parent / "previous-frames"
         with self._session_factory() as database:
@@ -1013,9 +1103,7 @@ class TaskWorker:
             model.updated_at = task.updated_at
 
     @staticmethod
-    def _finish_dataset_export(
-        database, task: Task, status: str, error: str
-    ) -> None:
+    def _finish_dataset_export(database, task: Task, status: str, error: str) -> None:
         if task.type != "export_dataset":
             return
         export_id = str(json.loads(task.payload).get("export_id") or "")
@@ -1033,6 +1121,7 @@ class TaskWorker:
             shutil.rmtree(path)
 
     def run_once(self) -> None:
+        self._training_scheduler.tick()
         for task_id, future in list(self._futures.items()):
             if future.done():
                 future.result()
@@ -1064,11 +1153,19 @@ def _workspace(settings: RuntimeSettings) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Vision Dataset Workbench task worker")
-    parser.add_argument("--once", action="store_true", help="claim and execute available tasks once")
+    parser.add_argument(
+        "--once", action="store_true", help="claim and execute available tasks once"
+    )
     parser.add_argument("--poll-interval", type=float, default=0.5)
     args = parser.parse_args()
     settings = RuntimeSettings.from_env()
     workspace = _workspace(settings)
+    settings = replace(
+        settings,
+        credential_encryption_key=resolve_credential_key(
+            settings.credential_encryption_key, workspace
+        ),
+    )
     engine = make_engine(workspace / "db" / "workbench.sqlite3")
     worker = TaskWorker(engine, settings, workspace)
     if args.once:

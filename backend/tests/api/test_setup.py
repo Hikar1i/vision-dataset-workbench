@@ -9,6 +9,7 @@ from vision_dataset_workbench.storage.locator import WorkspaceLocator
 def make_client(tmp_path):
     home = tmp_path / "home"
     (home / "datasets").mkdir(parents=True)
+    (home / "archive").mkdir()
     token = SetupToken.create()
     app = create_app(
         RuntimeSettings(home=home, workspace=None),
@@ -24,11 +25,15 @@ def test_setup_status_and_directory_listing(tmp_path):
     assert client.get("/api/v1/setup/status").json() == {"initialized": False}
     assert client.get("/api/v1/setup/directories").status_code == 403
     response = client.get(
-        "/api/v1/setup/directories", params={"path": "."}, headers={"X-Setup-Token": token}
+        "/api/v1/setup/directories",
+        params={"path": ".", "search": "DATA"},
+        headers={"X-Setup-Token": token},
     )
 
     assert response.status_code == 200
-    assert response.json()["items"][0]["path"] == "datasets"
+    assert [(item["path"], item["type"]) for item in response.json()["items"]] == [
+        ("datasets", "dir")
+    ]
 
 
 def test_create_directory_and_initialize(tmp_path):

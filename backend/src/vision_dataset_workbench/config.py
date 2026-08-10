@@ -25,6 +25,7 @@ class RuntimeSettings:
     registration_enabled: bool = False
     ytdlp_proxy: str | None = None
     ytdlp_cookie_file: Path | None = None
+    credential_encryption_key: str | None = None
 
     @classmethod
     def from_env(cls) -> "RuntimeSettings":
@@ -47,5 +48,8 @@ class RuntimeSettings:
                 Path(cookie_file).expanduser().resolve()
                 if (cookie_file := os.environ.get("YTDLP_COOKIE_FILE"))
                 else None
+            ),
+            credential_encryption_key=(
+                os.environ.get("VDW_CREDENTIAL_ENCRYPTION_KEY") or None
             ),
         )

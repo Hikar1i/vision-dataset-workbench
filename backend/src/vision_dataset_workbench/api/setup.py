@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from dataclasses import replace
+from typing import Annotated
+
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from ..services.auth import build_auth_service
@@ -10,7 +13,10 @@ from ..services.models import ModelService
 from ..services.projects import ProjectService
 from ..services.sampling import SamplingService
 from ..services.setup import SetupConflict, SetupService
+from ..services.xanylabeling_settings import XAnyLabelingSettingsService
+from ..services.llm_configs import LLMConfigService
 from ..setup.tokens import InvalidSetupToken
+from ..security.credentials import resolve_credential_key
 from ..storage.browser import create_home_directory, list_home_entries
 from ..storage.paths import HomePathResolver, UnsafePathError
 
@@ -46,6 +52,7 @@ def list_directories(
     path: str = ".",
     page: int = 1,
     page_size: int = 100,
+    search: Annotated[str, Query(max_length=128)] = "",
     x_setup_token: str | None = Header(default=None),
 ) -> dict[str, object]:
     require_token(request, x_setup_token)
@@ -60,6 +67,7 @@ def list_directories(
             page=page,
             page_size=page_size,
             hidden_root=request.app.state.workspace,
+            search=search,
         )
     except (OSError, UnsafePathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -100,6 +108,12 @@ def initialize(
     except (OSError, UnsafePathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     request.app.state.workspace = workspace
+    request.app.state.settings = replace(
+        request.app.state.settings,
+        credential_encryption_key=resolve_credential_key(
+            request.app.state.settings.credential_encryption_key, workspace
+        ),
+    )
     request.app.state.auth_service = build_auth_service(
         workspace, request.app.state.settings
     )
@@ -122,6 +136,14 @@ def initialize(
         workspace,
         request.app.state.project_service,
     )
+    request.app.state.xanylabeling_settings_service = XAnyLabelingSettingsService(
+        request.app.state.auth_service.engine,
+        request.app.state.settings,
+    )
+    request.app.state.llm_config_service = LLMConfigService(
+        request.app.state.auth_service.engine,
+        request.app.state.settings,
+    )
     request.app.state.auto_annotation_service = AutoAnnotationService(
         request.app.state.auth_service.engine,
         request.app.state.settings,
@@ -130,6 +152,8 @@ def initialize(
         request.app.state.model_service,
         request.app.state.label_service,
         request.app.state.capabilities,
+        request.app.state.xanylabeling_settings_service,
+        request.app.state.llm_config_service,
     )
     request.app.state.media_service = MediaService(
         request.app.state.auth_service.engine,

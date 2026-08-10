@@ -14,15 +14,11 @@ ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct horse battery staple"
 
 
-def module_loader(*, torch=True, onnx=True):
+def module_loader(*, torch=True):
     modules = {}
     if torch:
         modules["torch"] = SimpleNamespace(
             cuda=SimpleNamespace(is_available=lambda: True)
-        )
-    if onnx:
-        modules["onnxruntime"] = SimpleNamespace(
-            get_available_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"]
         )
     def load(name):
         if name not in modules:
@@ -32,12 +28,8 @@ def module_loader(*, torch=True, onnx=True):
     return load
 
 
-def module_finder(ultralytics=True, transformers=True):
-    available = {
-        "ultralytics": ultralytics,
-        "transformers": transformers,
-    }
-    return lambda name: object() if available.get(name, False) else None
+def module_finder(ultralytics=True):
+    return lambda name: object() if name == "ultralytics" and ultralytics else None
 
 
 def test_detects_multiple_gpus_and_ready_model_runtimes():
@@ -53,10 +45,8 @@ def test_detects_multiple_gpus_and_ready_model_runtimes():
         (1, "Quadro RTX 4000", 8192),
     ]
     assert capabilities.pytorch_cuda.available is True
-    assert capabilities.onnx_cuda.available is True
     assert capabilities.features.manual_annotation.available is True
     assert capabilities.features.yolo_auto_annotation.available is True
-    assert capabilities.features.grounding_dino_auto_annotation.available is True
     assert capabilities.features.model_training.available is True
 
 
@@ -66,17 +56,15 @@ def test_probe_failures_disable_gpu_features_without_raising():
 
     capabilities = detect_capabilities(
         run_command=missing_command,
-        load_module=module_loader(torch=False, onnx=False),
+        load_module=module_loader(torch=False),
         find_module=module_finder(False),
     )
 
     assert capabilities.gpu.available is False
     assert capabilities.gpu.devices == ()
     assert capabilities.pytorch_cuda.available is False
-    assert capabilities.onnx_cuda.available is False
     assert capabilities.features.manual_annotation.available is True
     assert capabilities.features.yolo_auto_annotation.available is False
-    assert capabilities.features.grounding_dino_auto_annotation.available is False
     assert capabilities.features.model_training.available is False
 
 
@@ -90,20 +78,6 @@ def test_yolo_requires_ultralytics_in_addition_to_pytorch_cuda():
     assert capabilities.pytorch_cuda.available is True
     assert capabilities.features.yolo_auto_annotation.available is False
     assert capabilities.features.yolo_auto_annotation.reason == "未安装 Ultralytics 运行依赖"
-
-
-def test_grounding_dino_requires_transformers_and_pytorch_cuda():
-    capabilities = detect_capabilities(
-        run_command=lambda _: "0, NVIDIA RTX A4000, 16376\n",
-        load_module=module_loader(),
-        find_module=module_finder(transformers=False),
-    )
-
-    assert capabilities.features.grounding_dino_auto_annotation.available is False
-    assert (
-        capabilities.features.grounding_dino_auto_annotation.reason
-        == "未安装 Transformers 运行依赖"
-    )
 
 
 def test_capabilities_api_requires_authentication_and_returns_cached_result(tmp_path):

@@ -52,6 +52,7 @@ beforeEach(() => {
   routerPush.mockReset()
 })
 afterEach(() => {
+  vi.useRealTimers()
   document.body.innerHTML = ''
 })
 
@@ -302,5 +303,89 @@ describe('ProjectVideosView', () => {
     const body = new DOMWrapper(document.body)
     expect(body.get('[data-test="extract-unextracted"]').text()).toContain('1 个未抽帧视频')
     expect(body.get('[data-test="extract-all"]').text()).toContain('全部 2 个视频')
+  })
+
+  it('chooses the batch annotation range before showing model settings', async () => {
+    const unannotated = { ...video, id: 'video-new', has_annotations: false }
+    const annotated = { ...video, id: 'video-old', has_annotations: true }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [unannotated, annotated], page: 1, page_size: 50, total: 2 }
+          : { ...project, role: 'editor' },
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="select-all"] input').setValue(true)
+    await wrapper.get('[data-test="batch-auto-annotate"]').trigger('click')
+    await flushPromises()
+    const body = new DOMWrapper(document.body)
+    expect(body.get('[data-test="annotation-unannotated-only"]').text()).toContain('1 个未标注视频')
+    expect(body.get('[data-test="annotation-all"]').text()).toContain('全部 2 个视频')
+    expect(body.get('[data-test="annotation-all"]').classes()).toContain('vdw-btn--danger')
+  })
+
+  it('separates annotation and screening counts before countdown confirmation', async () => {
+    vi.useFakeTimers()
+    const annotatedUnscreened = {
+      ...video, id: 'annotated-new', has_annotations: true,
+      sampling: { ...video.sampling, frame_revision: 1 },
+    }
+    const annotatedScreened = { ...video, id: 'annotated-old', has_annotations: true }
+    const emptyUnscreened = {
+      ...video, id: 'empty-new', has_annotations: false,
+      sampling: { ...video.sampling, frame_revision: 1 },
+    }
+    const emptyScreened = { ...video, id: 'empty-old', has_annotations: false }
+    const fetchMock = vi.fn().mockImplementation((path: string, init?: RequestInit) => Promise.resolve({
+      ok: true,
+      json: async () => path.includes('/batch-enabled-by-annotation')
+        ? {
+            accepted: [
+              { video_id: 'annotated-new', sampling: annotatedUnscreened.sampling },
+              { video_id: 'annotated-old', sampling: annotatedScreened.sampling },
+            ],
+            rejected: [
+              { input: 'empty-new', reason: 'video has no annotations', code: 'no_annotations' },
+              { input: 'empty-old', reason: 'video has no annotations', code: 'no_annotations' },
+            ],
+          }
+        : path.includes('/videos?')
+          ? { items: [annotatedUnscreened, annotatedScreened, emptyUnscreened, emptyScreened], page: 1, page_size: 50, total: 4 }
+          : { ...project, role: 'editor' },
+      init,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="select-all"] input').setValue(true)
+    await wrapper.get('[data-test="batch-enabled-by-annotation"]').trigger('click')
+    await flushPromises()
+    let body = new DOMWrapper(document.body)
+    expect(body.text()).toContain('1有标注 · 未筛帧')
+    expect(body.text()).toContain('1有标注 · 已筛帧')
+    expect(body.text()).toContain('1无标注 · 未筛帧')
+    expect(body.text()).toContain('1无标注 · 已筛帧')
+    expect(body.get('[data-test="enabled-by-annotation-unscreened"]').text()).toContain('1 个未筛帧视频')
+
+    await body.get('[data-test="enabled-by-annotation-all"]').trigger('click')
+    await flushPromises()
+    body = new DOMWrapper(document.body)
+    const confirm = body.get('[data-test="enabled-by-annotation-confirm"]')
+    expect(confirm.text()).toContain('3 秒')
+    expect(confirm.attributes('disabled')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(3000)
+    await flushPromises()
+    expect(confirm.attributes('disabled')).toBeUndefined()
+
+    await confirm.trigger('click')
+    await flushPromises()
+    const request = fetchMock.mock.calls.find(([path]) => String(path).includes('/batch-enabled-by-annotation'))
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ scope: 'all', confirm_all: true })
   })
 })

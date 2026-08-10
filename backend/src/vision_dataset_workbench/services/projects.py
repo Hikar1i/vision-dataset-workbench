@@ -1,3 +1,6 @@
+import json
+import os
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -11,7 +14,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import RuntimeSettings
-from ..models import Project, ProjectMembership, User
+from ..models import (
+    DatasetExport,
+    Frame,
+    FrameAnnotation,
+    Project,
+    ProjectLabel,
+    ProjectMembership,
+    SamplingPlan,
+    Task,
+    User,
+    Video,
+)
 from .auth import normalize_username
 
 ProjectRole = Literal["owner", "editor", "viewer"]
@@ -66,6 +80,15 @@ def _member_role(role: str) -> MemberRole:
     if role not in {"editor", "viewer"}:
         raise InvalidProjectMember("role must be editor or viewer")
     return role
+
+
+def _record(item) -> dict[str, object]:
+    return {
+        column.name: (
+            value.isoformat() if isinstance(value := getattr(item, column.name), datetime) else value
+        )
+        for column in item.__table__.columns
+    }
 
 
 class ProjectService:
@@ -167,6 +190,143 @@ class ProjectService:
             project = database.get(Project, project_id)
             assert project is not None
             return self._view(database, actor, project)
+
+    def delete_project(self, actor: User, project_id: str) -> None:
+        source = self.workspace / "projects" / project_id
+        destination = self.workspace / ".deleted" / "projects" / project_id / "project"
+        metadata = source / "project_metadata.json"
+        with self._session_factory() as database:
+            project = self._require_owner(database, actor, project_id)
+            if database.scalar(
+                select(func.count())
+                .select_from(Task)
+                .where(
+                    Task.project_id == project_id,
+                    Task.status.in_(("queued", "running")),
+                )
+            ):
+                raise ProjectConflict("project has active tasks")
+            if not source.is_dir():
+                raise ProjectConflict("project directory is unavailable")
+            if destination.exists():
+                raise ProjectConflict("project archive already exists")
+            if metadata.exists():
+                raise ProjectConflict("project metadata archive already exists")
+
+            snapshot = self._snapshot(database, project)
+            self._write_snapshot(source, snapshot)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            moved = False
+            try:
+                os.replace(source, destination)
+                moved = True
+                database.delete(project)
+                database.commit()
+            except Exception:
+                database.rollback()
+                if moved and destination.exists():
+                    try:
+                        os.replace(destination, source)
+                    except OSError as rollback_error:
+                        raise ProjectConflict(
+                            f"project rollback failed; archive retained at {destination}"
+                        ) from rollback_error
+                (source / "project_metadata.json").unlink(missing_ok=True)
+                raise
+
+    def _snapshot(self, database: Session, project: Project) -> dict[str, object]:
+        creator_username = database.scalar(
+            select(User.username).where(User.id == project.creator_id)
+        )
+        memberships = database.execute(
+            select(ProjectMembership, User.username)
+            .join(User, User.id == ProjectMembership.user_id)
+            .where(ProjectMembership.project_id == project.id)
+            .order_by(ProjectMembership.user_id)
+        ).all()
+        labels = database.scalars(
+            select(ProjectLabel)
+            .where(ProjectLabel.project_id == project.id)
+            .order_by(ProjectLabel.sort_order, ProjectLabel.id)
+        ).all()
+        videos = database.scalars(
+            select(Video)
+            .where(Video.project_id == project.id)
+            .order_by(Video.created_at, Video.id)
+        ).all()
+        plans = database.scalars(
+            select(SamplingPlan)
+            .join(Video, Video.id == SamplingPlan.video_id)
+            .where(Video.project_id == project.id)
+            .order_by(SamplingPlan.video_id)
+        ).all()
+        frames = database.scalars(
+            select(Frame)
+            .join(Video, Video.id == Frame.video_id)
+            .where(Video.project_id == project.id)
+            .order_by(Frame.video_id, Frame.sequence)
+        ).all()
+        annotations = database.scalars(
+            select(FrameAnnotation)
+            .join(Frame, Frame.id == FrameAnnotation.frame_id)
+            .join(Video, Video.id == Frame.video_id)
+            .where(Video.project_id == project.id)
+            .order_by(
+                FrameAnnotation.frame_id,
+                FrameAnnotation.sort_order,
+                FrameAnnotation.id,
+            )
+        ).all()
+        tasks = database.scalars(
+            select(Task)
+            .where(Task.project_id == project.id)
+            .order_by(Task.created_at, Task.id)
+        ).all()
+        exports = database.scalars(
+            select(DatasetExport)
+            .where(DatasetExport.project_id == project.id)
+            .order_by(DatasetExport.created_at, DatasetExport.id)
+        ).all()
+        project_record = _record(project)
+        project_record["creator_username"] = creator_username
+        return {
+            "format_version": 1,
+            "exported_at": self._now().isoformat(),
+            "project": project_record,
+            "project_memberships": [
+                {**_record(membership), "username": username}
+                for membership, username in memberships
+            ],
+            "labels": [_record(item) for item in labels],
+            "videos": [_record(item) for item in videos],
+            "sampling_plans": [_record(item) for item in plans],
+            "frames": [_record(item) for item in frames],
+            "annotations": [_record(item) for item in annotations],
+            "tasks": [_record(item) for item in tasks],
+            "dataset_exports": [_record(item) for item in exports],
+        }
+
+    @staticmethod
+    def _write_snapshot(directory: Path, snapshot: dict[str, object]) -> None:
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=directory,
+                prefix=".project_metadata.",
+                suffix=".tmp",
+                delete=False,
+            ) as output:
+                temporary = Path(output.name)
+                json.dump(snapshot, output, ensure_ascii=False, indent=2)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, directory / "project_metadata.json")
+        except Exception:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+            raise
 
     def list_members(self, actor: User, project_id: str) -> list[MemberView]:
         with self._session_factory() as database:

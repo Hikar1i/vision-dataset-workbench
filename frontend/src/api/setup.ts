@@ -1,19 +1,11 @@
+import type { FilesystemPage, FilesystemQuery } from './filesystem'
+
 export type SetupStatus = { initialized: boolean }
 
 export async function getSetupStatus(): Promise<SetupStatus> {
   const response = await fetch('/api/v1/setup/status')
   if (!response.ok) throw new Error('无法读取初始化状态')
   return response.json()
-}
-
-export type DirectoryItem = { name: string; path: string }
-export type DirectoryPage = {
-  path: string
-  parent: string | null
-  items: DirectoryItem[]
-  page: number
-  page_size: number
-  total: number
 }
 
 const setupHeaders = (token: string) => ({
@@ -23,11 +15,15 @@ const setupHeaders = (token: string) => ({
 
 export async function listSetupDirectories(
   token: string,
-  path = '.',
-  page = 1,
-): Promise<DirectoryPage> {
-  const query = new URLSearchParams({ path, page: String(page), page_size: '100' })
-  const response = await fetch(`/api/v1/setup/directories?${query}`, {
+  query: FilesystemQuery,
+): Promise<FilesystemPage> {
+  const params = new URLSearchParams({
+    path: query.path,
+    page: String(query.page),
+    page_size: String(query.pageSize),
+    search: query.search,
+  })
+  const response = await fetch(`/api/v1/setup/directories?${params}`, {
     headers: setupHeaders(token),
   })
   if (!response.ok) throw new Error('无法读取目录')

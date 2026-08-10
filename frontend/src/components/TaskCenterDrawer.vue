@@ -4,10 +4,12 @@ import { onUnmounted, ref, watch } from 'vue'
 
 import {
   cancelTask,
+  cancelGlobalTask,
   listGlobalTasks,
   retryTask,
   type GlobalProjectTask,
 } from '../api/media'
+import VButton from '../ui/VButton.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
@@ -68,7 +70,8 @@ async function load() {
 async function cancel(task: GlobalProjectTask) {
   changing.value = task.id
   try {
-    await cancelTask(task.project_id, task.id)
+    if (task.resource_kind === 'model_project') await cancelGlobalTask(task.id)
+    else if (task.project_id) await cancelTask(task.project_id, task.id)
     await load()
   } catch (reason) {
     ElMessage.error(reason instanceof Error ? reason.message : '任务取消失败')
@@ -80,6 +83,7 @@ async function cancel(task: GlobalProjectTask) {
 async function retry(task: GlobalProjectTask) {
   changing.value = task.id
   try {
+    if (!task.project_id) throw new Error('该任务不能从任务中心重试')
     await retryTask(task.project_id, task.id)
     await load()
   } catch (reason) {
@@ -126,21 +130,14 @@ onUnmounted(stopPolling)
         />
         <p v-if="task.error">{{ task.error }}</p>
         <footer v-if="task.can_manage">
-          <el-button
-            v-if="task.status === 'queued' || task.status === 'running'"
+          <VButton variant="quiet" v-if="task.status === 'queued' || task.status === 'running'"
             :data-test="`cancel-${task.id}`"
-            text
             :loading="changing === task.id"
-            @click="cancel(task)"
-          >取消</el-button>
-          <el-button
-            v-if="(task.status === 'failed' || task.status === 'canceled') && task.type !== 'import_model' && task.type !== 'auto_annotate' && task.type !== 'export_dataset'"
+            @click="cancel(task)">取消</VButton>
+          <VButton variant="primary" v-if="(task.status === 'failed' || task.status === 'canceled') && task.type !== 'import_model' && task.type !== 'auto_annotate' && task.type !== 'export_dataset'"
             :data-test="`retry-${task.id}`"
-            text
-            type="primary"
             :loading="changing === task.id"
-            @click="retry(task)"
-          >重试</el-button>
+            @click="retry(task)">重试</VButton>
         </footer>
       </article>
       <div v-if="!loading && !tasks.length" class="state-panel">还没有后台任务。</div>
@@ -150,13 +147,13 @@ onUnmounted(stopPolling)
 
 <style scoped>
 .task-center-list { display: grid; gap: 11px; }
-.task-center-row { padding: 15px; border: 1px solid var(--vdw-rule); }
+.task-center-row { padding: 15px; border: 1px solid var(--vdw-line); }
 .task-center-row header,
 .task-center-row header > div,
 .task-center-row footer { display: flex; align-items: center; }
 .task-center-row header { justify-content: space-between; gap: 13px; margin-bottom: 11px; }
 .task-center-row header > div { gap: 9px; }
-.task-center-row header span { color: var(--vdw-muted); font-size: 13px; }
-.task-center-row p { color: #a33e39; font-size: 13px; }
+.task-center-row header span { color: var(--vdw-ink-2); font-size: 14px; }
+.task-center-row p { color: var(--vdw-danger); font-size: 14px; }
 .task-center-row footer { justify-content: flex-end; }
 </style>

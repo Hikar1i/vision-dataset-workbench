@@ -259,3 +259,132 @@ def test_viewer_reads_frame_image_and_editor_filters_with_revision(tmp_path):
         headers=ORIGIN,
         json=duplicate,
     ).status_code == 422
+
+
+def test_batch_enabled_by_annotation_supports_scope_and_mixed_results(tmp_path):
+    app = make_app(tmp_path)
+    editor = client_for(app, "editor")
+    frames_dir = app.state.workspace / "projects/project-id/frames/TESTV001"
+    frames_dir.mkdir(parents=True)
+    with Session(app.state.auth_service.engine) as session:
+        session.add(
+            Video(
+                id="video-two",
+                project_id="project-id",
+                short_code="TESTV002",
+                source_type="local",
+                title="second",
+                status="ready",
+                duration=120,
+                fps=30,
+                total_frames=3600,
+            )
+        )
+        session.add(
+            ProjectLabel(
+                id="label-id",
+                project_id="project-id",
+                name="person",
+                name_normalized="person",
+                color="#16866f",
+                sort_order=0,
+            )
+        )
+        session.flush()
+        for video_id, frame_id, short_code, enabled in (
+            ("video-id", "annotated-frame", "TESTV001", True),
+            ("video-two", "empty-frame", "TESTV002", True),
+        ):
+            session.add(
+                SamplingPlan(
+                    id=f"plan-{video_id}",
+                    video_id=video_id,
+                    mode="target_frames",
+                    parameters="{}",
+                    output_format="jpg",
+                    output_quality=2,
+                    expected_frames=1,
+                    extracted_frames=1,
+                    enabled_frames=1,
+                    applied_version=1,
+                    generation=1,
+                    frame_revision=1,
+                )
+            )
+            session.add(
+                Frame(
+                    id=frame_id,
+                    video_id=video_id,
+                    generation=1,
+                    sequence=1,
+                    source_frame_index=0,
+                    time_offset=0,
+                    file_path=f"projects/project-id/frames/{short_code}/{short_code}_frame_000001.jpg",
+                    enabled=enabled,
+                )
+            )
+        session.flush()
+        session.add(
+            FrameAnnotation(
+                id="annotation-id",
+                frame_id="annotated-frame",
+                label_id="label-id",
+                x_min=1,
+                y_min=1,
+                x_max=20,
+                y_max=20,
+                source="manual",
+            )
+        )
+        session.commit()
+
+    unscreened_only = editor.post(
+        "/api/v1/projects/project-id/videos/batch-enabled-by-annotation",
+        headers=ORIGIN,
+        json={
+            "video_ids": ["video-id", "video-two"],
+            "scope": "unscreened-only",
+            "revisions": {"video-id": 1, "video-two": 1},
+        },
+    )
+    assert unscreened_only.status_code == 200
+    assert [item["video_id"] for item in unscreened_only.json()["accepted"]] == ["video-id"]
+    assert unscreened_only.json()["rejected"][0]["code"] == "no_annotations"
+
+    repeated_unscreened = editor.post(
+        "/api/v1/projects/project-id/videos/batch-enabled-by-annotation",
+        headers=ORIGIN,
+        json={
+            "video_ids": ["video-id", "video-two"],
+            "scope": "unscreened-only",
+        },
+    )
+    assert repeated_unscreened.status_code == 200
+    assert repeated_unscreened.json()["accepted"] == []
+    assert {item["code"] for item in repeated_unscreened.json()["rejected"]} == {
+        "already_screened",
+        "no_annotations",
+    }
+
+    rejected_confirmation = editor.post(
+        "/api/v1/projects/project-id/videos/batch-enabled-by-annotation",
+        headers=ORIGIN,
+        json={"video_ids": ["video-id", "video-two"], "scope": "all"},
+    )
+    assert rejected_confirmation.status_code == 409
+
+    all_videos = editor.post(
+        "/api/v1/projects/project-id/videos/batch-enabled-by-annotation",
+        headers=ORIGIN,
+        json={
+            "video_ids": ["video-id", "video-two"],
+            "scope": "all",
+            "confirm_all": True,
+        },
+    )
+    assert all_videos.status_code == 200
+    assert [item["video_id"] for item in all_videos.json()["accepted"]] == ["video-id"]
+    assert all_videos.json()["rejected"][0]["code"] == "no_annotations"
+    with Session(app.state.auth_service.engine) as session:
+        assert session.get(Frame, "annotated-frame").enabled is True
+        assert session.get(Frame, "empty-frame").enabled is True

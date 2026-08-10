@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import {
   listUsers,
@@ -7,6 +7,15 @@ import {
   type ManagedUser,
   type UserAction,
 } from '../api/auth'
+import PageHeader from '../components/PageHeader.vue'
+import VButton from '../ui/VButton.vue'
+import VCellName from '../ui/VCellName.vue'
+import VEmpty from '../ui/VEmpty.vue'
+import VPanel from '../ui/VPanel.vue'
+import VRow from '../ui/VRow.vue'
+import VTable from '../ui/VTable.vue'
+import VTag from '../ui/VTag.vue'
+import { userStatus } from '../ui/status'
 
 const users = ref<ManagedUser[]>([])
 const statusFilter = ref('')
@@ -17,12 +26,21 @@ const loading = ref(false)
 const changingId = ref('')
 const error = ref('')
 
-const statusLabels: Record<ManagedUser['status'], string> = {
-  pending: '待审批',
-  active: '正常',
-  rejected: '已拒绝',
-  disabled: '已禁用',
-}
+const COLUMNS = 'minmax(220px, 1fr) 120px minmax(180px, 0.6fr) 180px'
+
+const FILTERS = [
+  { key: '', label: '全部' },
+  { key: 'pending', label: '待审批' },
+  { key: 'active', label: '正常' },
+  { key: 'disabled', label: '已禁用' },
+  { key: 'rejected', label: '已拒绝' },
+]
+
+const stamp = (value: string) => value.slice(0, 16).replace('T', ' ')
+
+const pendingCount = computed(
+  () => users.value.filter((user) => user.status === 'pending').length,
+)
 
 async function load(nextPage = page.value) {
   loading.value = true
@@ -38,6 +56,11 @@ async function load(nextPage = page.value) {
   } finally {
     loading.value = false
   }
+}
+
+async function selectFilter(key: string) {
+  statusFilter.value = key
+  await load(1)
 }
 
 async function change(user: ManagedUser, action: UserAction) {
@@ -58,87 +81,84 @@ onMounted(() => load())
 </script>
 
 <template>
-  <main class="content-page users-shell">
-    <header class="content-toolbar">
-      <div class="content-toolbar-title">
-        <h1 data-test="page-title">用户与注册审批</h1>
-        <span>审批与登录状态管理</span>
-      </div>
-    </header>
+  <main class="content-page">
+    <PageHeader title="用户与注册审批" kind="users">
+      <template #meta>
+        <span data-test="page-stat">
+          {{ total }} 位用户<template v-if="pendingCount"> · {{ pendingCount }} 个待审批</template>
+        </span>
+      </template>
+      <template #tabs>
+        <button
+          v-for="option in FILTERS"
+          :key="option.key || 'all'"
+          type="button"
+          :class="{ 'is-active': statusFilter === option.key }"
+          :aria-selected="statusFilter === option.key"
+          @click="selectFilter(option.key)"
+        >{{ option.label }}</button>
+      </template>
+    </PageHeader>
 
     <div class="content-body">
-    <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
+      <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
 
-    <section class="users-panel">
-      <div class="table-tools">
-        <el-select
-          v-model="statusFilter"
-          aria-label="用户状态"
-          placeholder="全部状态"
-          @change="load(1)"
-        >
-          <el-option label="全部状态" value="" />
-          <el-option label="待审批" value="pending" />
-          <el-option label="正常" value="active" />
-          <el-option label="已拒绝" value="rejected" />
-          <el-option label="已禁用" value="disabled" />
-        </el-select>
-        <span>共 {{ total }} 个账号</span>
-      </div>
+      <VPanel v-loading="loading" flush>
+        <VTable :columns="COLUMNS" :headers="['用户名', '状态', '创建时间', '操作']">
+          <VRow v-for="user in users" :key="user.id" :columns="COLUMNS">
+            <VCellName
+              :name="user.username"
+              :sub="user.is_system_admin ? '系统管理员' : ''"
+            />
+            <VTag :tone="userStatus(user.status).tone">{{ userStatus(user.status).label }}</VTag>
+            <time :datetime="user.created_at">{{ stamp(user.created_at) }}</time>
+            <div class="row-actions">
+              <template v-if="user.status === 'pending'">
+                <VButton
+                  :data-test="`approve-${user.id}`"
+                  variant="secondary"
+                  size="sm"
+                  :loading="changingId === user.id"
+                  @click="change(user, 'approve')"
+                >批准</VButton>
+                <VButton
+                  variant="quiet"
+                  size="sm"
+                  :disabled="changingId === user.id"
+                  @click="change(user, 'reject')"
+                >拒绝</VButton>
+              </template>
+              <VButton
+                v-else-if="user.status === 'active'"
+                :data-test="`disable-${user.id}`"
+                variant="quiet"
+                size="sm"
+                :loading="changingId === user.id"
+                @click="change(user, 'disable')"
+              >禁用</VButton>
+              <VButton
+                v-else
+                variant="secondary"
+                size="sm"
+                :loading="changingId === user.id"
+                @click="change(user, 'enable')"
+              >启用</VButton>
+            </div>
+          </VRow>
 
-      <el-table v-loading="loading" :data="users" row-key="id">
-        <el-table-column label="用户名" min-width="209">
-          <template #default="{ row }: { row: ManagedUser }">
-            <strong>{{ row.username }}</strong>
-            <span v-if="row.is_system_admin" class="admin-mark">系统管理员</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="132">
-          <template #default="{ row }: { row: ManagedUser }">
-            <el-tag :type="row.status === 'active' ? 'success' : 'info'" effect="plain">
-              {{ statusLabels[row.status] }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" min-width="209" />
-        <el-table-column label="操作" min-width="242" align="right">
-          <template #default="{ row }: { row: ManagedUser }">
-            <template v-if="row.status === 'pending'">
-              <el-button
-                :data-test="`approve-${row.id}`"
-                text
-                type="primary"
-                :loading="changingId === row.id"
-                @click="change(row, 'approve')"
-              >
-                批准
-              </el-button>
-              <el-button text :disabled="changingId === row.id" @click="change(row, 'reject')">
-                拒绝
-              </el-button>
-            </template>
-            <el-button
-              v-else-if="row.status === 'active'"
-              :data-test="`disable-${row.id}`"
-              text
-              type="danger"
-              :loading="changingId === row.id"
-              @click="change(row, 'disable')"
+          <template #empty>
+            <VEmpty
+              v-if="!loading && !users.length"
+              :title="statusFilter ? '这个状态下没有账号' : '还没有其他账号'"
+              note="新用户提交注册申请后会出现在待审批列表。"
             >
-              禁用
-            </el-button>
-            <el-button
-              v-else
-              text
-              type="primary"
-              :loading="changingId === row.id"
-              @click="change(row, 'enable')"
-            >
-              启用
-            </el-button>
+              <VButton v-if="statusFilter" variant="secondary" @click="selectFilter('')">
+                查看全部账号
+              </VButton>
+            </VEmpty>
           </template>
-        </el-table-column>
-      </el-table>
+        </VTable>
+      </VPanel>
 
       <el-pagination
         v-if="total > pageSize"
@@ -148,56 +168,24 @@ onMounted(() => load())
         :total="total"
         @current-change="load"
       />
-    </section>
     </div>
   </main>
 </template>
 
 <style scoped>
-.users-shell {
-  color: #17212b;
-  background: #f4f7fa;
-}
-.table-tools {
-  color: #687482;
-}
-
-.users-panel {
-  margin-top: 0;
-  padding: 26px;
-  background: white;
-  border: 1px solid #d8dee6;
-}
-
-.table-tools {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 20px;
+time {
+  color: var(--vdw-ink-2);
   font-size: 14px;
 }
 
-.table-tools .el-select {
-  width: 198px;
-}
-
-.admin-mark {
-  margin-left: 10px;
-  color: #687482;
-  font-size: 13px;
-  font-weight: 400;
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
 }
 
 .el-pagination {
   justify-content: flex-end;
-  margin-top: 20px;
-}
-
-@media (max-width: 680px) {
-  .users-panel {
-    padding: 13px;
-    overflow-x: auto;
-  }
+  margin-top: 14px;
 }
 </style>

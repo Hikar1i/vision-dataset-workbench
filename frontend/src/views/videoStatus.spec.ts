@@ -24,6 +24,7 @@ const sampling: SamplingSummary = {
 const task: ProjectTask = {
   id: 'task-id',
   project_id: 'project-id',
+  model_project_id: null,
   video_id: 'video-id',
   type: 'extract_frames',
   status: 'succeeded',

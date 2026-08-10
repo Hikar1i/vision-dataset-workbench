@@ -8,9 +8,9 @@ const replace = vi.fn()
 
 vi.mock('vue-router', () => ({ useRouter: () => ({ replace }) }))
 
-vi.mock('../components/ServerDirectoryPicker.vue', () => ({
+vi.mock('../components/ServerFilePicker.vue', () => ({
   default: {
-    props: ['token', 'modelValue'],
+    props: ['modelValue'],
     emits: ['update:modelValue'],
     template:
       '<button data-test="pick" @click="$emit(\'update:modelValue\', \'data\')">pick</button>',

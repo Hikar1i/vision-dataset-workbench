@@ -10,6 +10,9 @@ import {
   Hide,
   QuestionFilled,
   Rank,
+  Refresh,
+  RefreshLeft,
+  RefreshRight,
   Right,
   View,
   ZoomIn,
@@ -39,16 +42,22 @@ import {
 } from '../api/media'
 import {
   createBatchAutoAnnotation,
-  listInferenceModels,
-  registerInferenceModel,
+  getXAnyLabelingSetting,
+  listModelProjectModels,
+  listModelProjects,
+  listXAnyLabelingModels,
   runFrameAutoAnnotation,
+  saveXAnyLabelingSetting,
   type AutoAnnotationConfig,
   type InferenceModel,
+  type ModelProject,
+  type RemoteModelOption,
+  type XAnyLabelingSetting,
 } from '../api/models'
+import { listLLMConfigs, type LLMConfig } from '../api/llm'
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
 import FrameAnnotationThumbnail from '../components/FrameAnnotationThumbnail.vue'
-import ServerVideoPicker from '../components/ServerVideoPicker.vue'
 import { formatFrameFileName } from '../components/framePresentation'
 import { type BoxBounds } from './annotationGeometry'
 import { createAnnotationHistory } from './annotationHistory'
@@ -57,10 +66,12 @@ import {
   loadAnnotationPreference,
   saveAnnotationPreference,
 } from './annotationPreferences'
+import VButton from '../ui/VButton.vue'
 
 type CanvasMode = 'select' | 'draw' | 'pan'
 type CanvasApi = { zoomBy: (factor: number) => void; resetView: () => void; zoomPercent: number }
 type SaveContext = 'switch' | 'close' | 'batch'
+type ModelSourceValue = 'xanylabeling' | 'online' | `project:${string}`
 
 const route = useRoute()
 const router = useRouter()
@@ -73,6 +84,10 @@ const video = ref<Video | null>(null)
 const frames = ref<Frame[]>([])
 const labels = ref<ProjectLabel[]>([])
 const inferenceModels = ref<InferenceModel[]>([])
+const modelProjects = ref<ModelProject[]>([])
+const remoteModels = ref<RemoteModelOption[]>([])
+const llmConfigs = ref<LLMConfig[]>([])
+const xanylabelingSetting = ref<XAnyLabelingSetting | null>(null)
 const capabilities = ref<SystemCapabilities | null>(null)
 const currentUser = ref<CurrentUser | null>(null)
 const sampling = ref<SamplingSummary | null>(null)
@@ -98,11 +113,13 @@ const filmstripVisible = ref(true)
 const shortcutsOpen = ref(false)
 const statsOpen = ref(false)
 const imageInfoExpanded = ref(true)
-const registerOpen = ref(false)
-const registering = ref(false)
-const registerName = ref('')
-const registerKind = ref<InferenceModel['kind']>('yolo')
-const registerPath = ref('')
+const selectedSource = ref<ModelSourceValue>('' as ModelSourceValue)
+const modelListLoading = ref(false)
+const xanylabelingSettingsOpen = ref(false)
+const xanylabelingSettingsSaving = ref(false)
+const xanylabelingServerUrl = ref('')
+const xanylabelingApiKey = ref('')
+const clearXAnyLabelingApiKey = ref(false)
 const inferenceRunning = ref(false)
 const activeAutoTask = ref<ProjectTask | null>(null)
 const pendingBounds = ref<BoxBounds | null>(null)
@@ -138,28 +155,46 @@ const frameFileName = computed(() => {
 const enabledLabels = computed(() => labels.value.filter((label) => label.enabled))
 const readyModels = computed(() => inferenceModels.value.filter((model) => {
   if (model.status !== 'ready') return false
-  const feature = model.kind === 'yolo'
-    ? capabilities.value?.features.yolo_auto_annotation
-    : capabilities.value?.features.grounding_dino_auto_annotation
-  return feature?.available === true
+  return capabilities.value?.features.yolo_auto_annotation.available === true
 }))
-const selectedModel = computed(() =>
+const selectedLocalModel = computed(() =>
   inferenceModels.value.find((model) => model.id === autoModel.value) ?? null,
 )
+const selectedRemoteModel = computed(() =>
+  remoteModels.value.find((model) => model.key === autoModel.value) ?? null,
+)
+const selectedOnlineModel = computed(() =>
+  llmConfigs.value.find((model) => model.id === autoModel.value) ?? null,
+)
+const selectedModelName = computed(() => selectedSource.value === 'xanylabeling'
+  ? selectedRemoteModel.value?.name ?? ''
+  : selectedSource.value === 'online'
+    ? selectedOnlineModel.value?.name ?? ''
+  : selectedLocalModel.value?.name ?? '')
 const batchActive = computed(() =>
   activeAutoTask.value?.type === 'auto_annotate'
   && ['queued', 'running'].includes(activeAutoTask.value.status),
 )
 const autoUnavailableReason = computed(() => {
+  if (selectedSource.value === 'xanylabeling') {
+    if (xanylabelingSetting.value?.available && remoteModels.value.length) return ''
+    return xanylabelingSetting.value?.configured
+      ? 'X-anylabeling-server 当前不可用'
+      : '尚未配置 X-anylabeling-server'
+  }
+  if (selectedSource.value === 'online') {
+    return selectedOnlineModel.value?.enabled && selectedOnlineModel.value.available
+      ? ''
+      : '尚无可用的在线大模型配置'
+  }
   if (readyModels.value.length) return ''
   return capabilities.value?.features.yolo_auto_annotation.reason
-    ?? capabilities.value?.features.grounding_dino_auto_annotation.reason
     ?? '没有可用的已入库模型'
 })
 const autoUnavailableText = computed(() => {
+  if (selectedSource.value === 'xanylabeling') return '远程模型不可用'
   const yolo = capabilities.value?.features.yolo_auto_annotation.available
-  const dino = capabilities.value?.features.grounding_dino_auto_annotation.available
-  return yolo === false && dino === false ? 'GPU功能不可用' : '暂无可用模型'
+  return yolo === false ? 'GPU功能不可用' : '暂无可用模型'
 })
 const groupedObjects = computed(() => labels.value
   .map((label) => ({
@@ -331,8 +366,98 @@ function setAutoCategories(values: string[]) {
   categoryQuery.value = ''
 }
 
+function selectedModelProjectId() {
+  return selectedSource.value.startsWith('project:')
+    ? selectedSource.value.slice('project:'.length)
+    : ''
+}
+
+async function openXAnyLabelingSettings() {
+  if (!xanylabelingSetting.value) {
+    xanylabelingSetting.value = await getXAnyLabelingSetting()
+  }
+  xanylabelingServerUrl.value = xanylabelingSetting.value.server_url
+  xanylabelingApiKey.value = ''
+  clearXAnyLabelingApiKey.value = false
+  xanylabelingSettingsOpen.value = true
+}
+
+async function changeModelSource(value: ModelSourceValue) {
+  selectedSource.value = value
+  autoModel.value = ''
+  if (value === 'xanylabeling') {
+    await openXAnyLabelingSettings()
+    return
+  }
+  await refreshSelectedModels()
+}
+
+async function refreshSelectedModels() {
+  modelListLoading.value = true
+  try {
+    if (selectedSource.value === 'xanylabeling') {
+      remoteModels.value = await listXAnyLabelingModels()
+      if (xanylabelingSetting.value) {
+        xanylabelingSetting.value = { ...xanylabelingSetting.value, available: true }
+      }
+      autoModel.value = remoteModels.value[0]?.key ?? ''
+      return
+    }
+    if (selectedSource.value === 'online') {
+      llmConfigs.value = (await listLLMConfigs()).filter((item) => item.enabled)
+      autoModel.value = llmConfigs.value.find((item) => item.available)?.id ?? ''
+      return
+    }
+    const modelProjectId = selectedModelProjectId()
+    inferenceModels.value = modelProjectId
+      ? await listModelProjectModels(modelProjectId)
+      : []
+    autoModel.value = readyModels.value[0]?.id ?? ''
+  } catch (reason) {
+    if (selectedSource.value === 'xanylabeling') {
+      remoteModels.value = []
+      if (xanylabelingSetting.value) {
+        xanylabelingSetting.value = { ...xanylabelingSetting.value, available: false }
+      }
+    } else {
+      inferenceModels.value = []
+    }
+    autoModel.value = ''
+    ElMessage.error(reason instanceof Error ? reason.message : '模型列表刷新失败')
+  } finally {
+    modelListLoading.value = false
+  }
+}
+
+async function saveXAnyLabelingSettings() {
+  if (!xanylabelingServerUrl.value.trim()) return
+  xanylabelingSettingsSaving.value = true
+  try {
+    const mode = clearXAnyLabelingApiKey.value
+      ? 'clear'
+      : xanylabelingApiKey.value ? 'replace' : 'retain'
+    const saved = await saveXAnyLabelingSetting(
+      xanylabelingServerUrl.value,
+      mode,
+      mode === 'replace' ? xanylabelingApiKey.value : null,
+    )
+    xanylabelingSetting.value = saved.setting
+    remoteModels.value = saved.models
+    selectedSource.value = 'xanylabeling'
+    autoModel.value = saved.models[0]?.key ?? ''
+    xanylabelingSettingsOpen.value = false
+    ElMessage.success('X-anylabeling-server 设置已保存。')
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '远程服务器设置保存失败')
+  } finally {
+    xanylabelingSettingsSaving.value = false
+  }
+}
+
 function autoConfig(): AutoAnnotationConfig | null {
-  if (!selectedModel.value) {
+  const local = selectedLocalModel.value
+  const remote = selectedRemoteModel.value
+  if (selectedSource.value === 'xanylabeling' ? !remote : selectedSource.value === 'online' ? !selectedOnlineModel.value : !local) {
     ElMessage.warning('请先选择可用模型。')
     return null
   }
@@ -340,7 +465,11 @@ function autoConfig(): AutoAnnotationConfig | null {
     ? []
     : [...new Set(autoCategories.value.map((item) => item.trim().toLowerCase()).filter(Boolean))]
   return {
-    model_id: selectedModel.value.id,
+    source: selectedSource.value === 'xanylabeling'
+      ? 'xanylabeling'
+      : selectedSource.value === 'online' ? 'online' : 'local',
+    model_id: remote?.model_id ?? local?.id ?? '',
+    remote_task_id: remote?.task_id ?? null,
     categories,
     confidence: confidence.value,
     iou: iou.value,
@@ -380,7 +509,7 @@ async function runBatchAutoAnnotation() {
   const categoryText = config.categories.length ? config.categories.join(', ') : 'All / 全类别'
   try {
     await ElMessageBox.confirm(
-      `将使用「${selectedModel.value?.name ?? ''}」处理 ${enabledFrameCount.value} 个启用采样帧；类别：${categoryText}；${overwrite.value ? '覆盖已有标注' : '保留已有标注并追加结果'}。`,
+      `将使用「${selectedModelName.value}」处理 ${enabledFrameCount.value} 个启用采样帧；类别：${categoryText}；${overwrite.value ? '覆盖已有标注' : '保留已有标注并追加结果'}。`,
       '确认批量自动标注',
       {
         confirmButtonText: '确认运行',
@@ -407,28 +536,6 @@ async function runBatchAutoAnnotation() {
   }
 }
 
-async function submitModelRegistration() {
-  if (!registerName.value.trim() || !registerPath.value) return
-  registering.value = true
-  try {
-    const registered = await registerInferenceModel(
-      projectId,
-      registerName.value,
-      registerKind.value,
-      registerPath.value,
-    )
-    inferenceModels.value = [registered.model, ...inferenceModels.value]
-    registerOpen.value = false
-    registerName.value = ''
-    registerPath.value = ''
-    ElMessage.success('模型入库任务已创建，可在任务中心查看进度。')
-  } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '模型登记失败')
-  } finally {
-    registering.value = false
-  }
-}
-
 async function refreshAutoTask() {
   if (!video.value) return
   if (!batchActive.value && !inferenceModels.value.some((model) => model.status === 'copying')) return
@@ -448,7 +555,10 @@ async function refreshAutoTask() {
       window.dispatchEvent(new CustomEvent('vdm:tasks-settled'))
     }
     if (inferenceModels.value.some((model) => model.status === 'copying')) {
-      inferenceModels.value = await listInferenceModels()
+      const modelProjectId = selectedModelProjectId()
+      inferenceModels.value = modelProjectId
+        ? await listModelProjectModels(modelProjectId)
+        : []
       if (!autoModel.value) autoModel.value = readyModels.value[0]?.id ?? ''
     }
   } catch {
@@ -619,11 +729,12 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [project, videos, projectLabels, models, detectedCapabilities, user] = await Promise.all([
+    const [project, videos, projectLabels, projects, remoteSetting, detectedCapabilities, user] = await Promise.all([
       getProject(projectId),
       listVideos(projectId, 1, 999),
       listLabels(projectId),
-      listInferenceModels(),
+      listModelProjects(),
+      getXAnyLabelingSetting(),
       getCapabilities(),
       getCurrentUser(),
     ])
@@ -635,18 +746,25 @@ async function load() {
     video.value = videos.items.find((item) => item.id === videoId) ?? null
     if (!video.value) throw new Error('视频不存在或不可访问')
     labels.value = projectLabels
-    inferenceModels.value = models
+    modelProjects.value = projects
+    xanylabelingSetting.value = remoteSetting
     capabilities.value = detectedCapabilities
     currentUser.value = user
     activeAutoTask.value = video.value.latest_task?.type === 'auto_annotate'
       ? video.value.latest_task
       : null
-    autoModel.value = models.find((model) => {
-      if (model.status !== 'ready') return false
-      return model.kind === 'yolo'
-        ? detectedCapabilities.features.yolo_auto_annotation.available
-        : detectedCapabilities.features.grounding_dino_auto_annotation.available
-    })?.id ?? ''
+    const firstProject = projects[0]
+    if (firstProject) {
+      selectedSource.value = `project:${firstProject.id}`
+      inferenceModels.value = await listModelProjectModels(firstProject.id)
+      autoModel.value = inferenceModels.value.find((model) => (
+        model.status === 'ready'
+        && detectedCapabilities.features.yolo_auto_annotation.available
+      ))?.id ?? ''
+    } else if (remoteSetting.configured) {
+      selectedSource.value = 'xanylabeling'
+      await refreshSelectedModels()
+    }
     const remembered = projectLabels.find(
       (label) => label.enabled && label.id === lastUsedLabelId.value,
     )
@@ -702,24 +820,69 @@ watch(reuseLabel, (reuse) => {
     </div>
   </Teleport>
 
-  <main ref="workbenchRoot" class="annotation-workbench" :class="{ 'filmstrip-hidden': !filmstripVisible }" data-test="annotation-workbench">
+  <main ref="workbenchRoot" class="annotation-workbench vdw-dark" :class="{ 'filmstrip-hidden': !filmstripVisible }" data-test="annotation-workbench">
     <section class="auto-bar" aria-label="自动标注控制">
       <div class="auto-controls">
         <el-select
-          v-model="autoModel"
-          class="model-select"
-          placeholder="选择模型"
-          :disabled="batchActive || inferenceRunning || !readyModels.length"
+          :model-value="selectedSource"
+          data-test="model-project-select"
+          class="model-project-select"
+          :class="selectedSource === 'xanylabeling'
+            ? (xanylabelingSetting?.available ? 'remote-source-available' : 'remote-source-unavailable')
+            : ''"
+          placeholder="选择模型项目"
+          :title="selectedSource === 'xanylabeling'
+            ? `X-anylabeling-server ${xanylabelingSetting?.available ? '可用' : '不可用'}`
+            : '选择模型项目'"
+          :disabled="batchActive || inferenceRunning"
+          @change="changeModelSource"
         >
-          <el-option v-for="model in readyModels" :key="model.id" :label="model.name" :value="model.id" />
+          <el-option
+            value="xanylabeling"
+            label="X-anylabeling-server"
+            :class="xanylabelingSetting?.available ? 'remote-source-available' : 'remote-source-unavailable'"
+          >
+            <span @click="openXAnyLabelingSettings">
+              X-anylabeling-server（{{ xanylabelingSetting?.available ? '可用' : '不可用' }}）
+            </span>
+          </el-option>
+          <el-option value="online" label="在线大模型" />
+          <el-option
+            v-for="modelProject in modelProjects"
+            :key="modelProject.id"
+            :label="modelProject.name"
+            :value="`project:${modelProject.id}`"
+          />
         </el-select>
         <button
-          v-if="currentUser?.is_system_admin"
+          data-test="model-list-refresh"
           type="button"
-          :disabled="batchActive"
-          title="登记本地推理模型"
-          @click="registerOpen = true"
-        >＋模型</button>
+          title="刷新模型列表"
+          aria-label="刷新模型列表"
+          :disabled="modelListLoading || batchActive || inferenceRunning || !selectedSource"
+          @click="refreshSelectedModels"
+        >
+          <el-icon><Refresh /></el-icon>
+        </button>
+        <el-select
+          v-model="autoModel"
+          data-test="inference-model-select"
+          class="model-select"
+          placeholder="选择模型"
+          :disabled="batchActive || inferenceRunning || modelListLoading"
+        >
+          <template v-if="selectedSource === 'xanylabeling'">
+            <el-option v-for="model in remoteModels" :key="model.key" :label="model.name" :value="model.key" />
+          </template>
+          <template v-else>
+            <template v-if="selectedSource === 'online'">
+              <el-option v-for="model in llmConfigs" :key="model.id" :label="model.name" :value="model.id" />
+            </template>
+            <template v-else>
+              <el-option v-for="model in readyModels" :key="model.id" :label="model.name" :value="model.id" />
+            </template>
+          </template>
+        </el-select>
         <el-select
           :model-value="autoCategories"
           class="category-select"
@@ -751,7 +914,7 @@ watch(reuseLabel, (reuse) => {
     </section>
 
     <aside class="tool-rail" aria-label="标注工具">
-      <button data-test="pan-tool" :class="{ active: mode === 'pan' }" type="button" title="拖拽（按住 Space）" @click="mode = mode === 'pan' ? 'select' : 'pan'">
+      <button data-test="pan-tool" :class="{ active: mode === 'pan' }" type="button" title="拖拽（按住 Space）" :aria-pressed="mode === 'pan'" @click="mode = mode === 'pan' ? 'select' : 'pan'">
         <el-icon><Rank /></el-icon>
       </button>
       <button data-test="previous-frame" type="button" title="上一张（A）" :disabled="currentIndex === 0" @click="switchFrame(currentIndex - 1)">
@@ -760,7 +923,7 @@ watch(reuseLabel, (reuse) => {
       <button data-test="next-frame" type="button" title="下一张（D）" :disabled="currentIndex >= frames.length - 1" @click="switchFrame(currentIndex + 1)">
         <el-icon><Right /></el-icon>
       </button>
-      <button :class="{ active: mode === 'draw' }" type="button" title="新建矩形框（R）" :disabled="batchActive" @click="mode = 'draw'">
+      <button :class="{ active: mode === 'draw' }" type="button" title="新建矩形框（R）" :aria-pressed="mode === 'draw'" :disabled="batchActive" @click="mode = 'draw'">
         <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 18 18" width="1em" height="1em" aria-hidden="true" focusable="false" class=""><g clip-path="url(#rectangle_svg__a)"><path d="M17.196 4.598a.304.304 0 0 0 .304-.303V.804A.304.304 0 0 0 17.196.5h-3.49a.304.304 0 0 0-.304.304v1.062H4.598V.804A.304.304 0 0 0 4.295.5H.804A.304.304 0 0 0 .5.804v3.49c0 .168.137.304.304.304h1.062v8.804H.804a.304.304 0 0 0-.304.303v3.492c0 .166.137.303.304.303h3.49a.304.304 0 0 0 .304-.303v-1.063h8.804v1.063c0 .166.136.303.303.303h3.491a.304.304 0 0 0 .304-.303v-3.492a.304.304 0 0 0-.304-.303h-1.062V4.598zm-2.58-2.884h1.67v1.67h-1.67zM1.714 3.384v-1.67h1.67v1.67zm1.67 12.902h-1.67v-1.67h1.67zm12.902-1.67v1.67h-1.67v-1.67zm-1.518-1.214h-1.063a.304.304 0 0 0-.303.303v1.063H4.598v-1.063a.304.304 0 0 0-.303-.303H3.232V4.598h1.063a.304.304 0 0 0 .303-.303V3.232h8.804v1.063c0 .167.136.303.303.303h1.063z"></path></g><defs><clipPath id="rectangle_svg__a"><path fill="#fff" d="M0 0h18v18H0z"></path></clipPath></defs></svg>
       </button>
       <button data-test="toggle-all-boxes" type="button" :title="allBoxesHidden ? '显示全部标注框' : '隐藏全部标注框'" @click="toggleAllBoxes">
@@ -770,10 +933,10 @@ watch(reuseLabel, (reuse) => {
         <el-icon><DeleteFilled /></el-icon>
       </button>
       <button type="button" title="撤销（Ctrl+Z）" :disabled="batchActive || !history.canUndo()" @click="undo">
-        <svg xmlns="http://www.w3.org/2000/svg" class="" viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false"><path d="M296.704 145.28 100.608 341.376l196.096 196.117 60.352-60.352L263.893 384h365.44a202.667 202.667 0 0 1 0 405.333H362.667v85.334h266.666c159.062 0 288-128.939 288-288s-128.938-288-288-288H264l93.035-93.056z"></path></svg>
+        <el-icon><RefreshLeft /></el-icon>
       </button>
       <button type="button" title="重做（Ctrl+Shift+Z）" :disabled="batchActive || !history.canRedo()" @click="redo">
-        <svg xmlns="http://www.w3.org/2000/svg" class="" viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor" aria-hidden="true" focusable="false"><path d="m727.296 145.28 196.096 196.096-196.096 196.117-60.352-60.352L760.107 384h-365.44a202.667 202.667 0 0 0 0 405.333h266.666v85.334H394.667c-159.062 0-288-128.939-288-288s128.938-288 288-288H760l-93.056-93.056z"></path></svg>
+        <el-icon><RefreshRight /></el-icon>
       </button>
       <span class="tool-separator" />
       <button type="button" title="展示全图" @click="canvasRef?.resetView()">
@@ -822,16 +985,16 @@ watch(reuseLabel, (reuse) => {
           <strong>图像信息</strong>
           <div class="info-heading-actions">
             <span>#{{ currentFrame?.sequence ?? 0 }}</span>
-            <button data-test="image-info-toggle" type="button" :title="imageInfoExpanded ? '收起图像信息' : '展开图像信息'" @click="imageInfoExpanded = !imageInfoExpanded">
+            <button data-test="image-info-toggle" type="button" aria-controls="image-info-details" :aria-expanded="imageInfoExpanded" :title="imageInfoExpanded ? '收起图像信息' : '展开图像信息'" @click="imageInfoExpanded = !imageInfoExpanded">
               <el-icon><ArrowUpBold v-if="imageInfoExpanded" /><ArrowDownBold v-else /></el-icon>
             </button>
           </div>
         </header>
-        <dl v-if="imageInfoExpanded">
+        <Transition name="info-expand"><dl v-if="imageInfoExpanded" id="image-info-details">
           <dt>文件名</dt><dd :title="frameFileName">{{ frameFileName }}</dd>
           <dt>尺寸</dt><dd>{{ video?.width ?? 0 }} × {{ video?.height ?? 0 }}</dd>
           <dt>大小</dt><dd>{{ ((currentFrame?.file_size ?? 0) / 1024).toFixed(1) }} KB</dd>
-        </dl>
+        </dl></Transition>
       </section>
       <section class="object-list">
         <header>
@@ -1002,26 +1165,53 @@ watch(reuseLabel, (reuse) => {
       </div>
     </dl>
   </el-dialog>
-  <el-dialog v-model="registerOpen" title="登记推理模型" width="min(760px, calc(100vw - 32px))" append-to-body>
-    <div class="model-registration-form">
-      <label><span>模型名称</span><el-input v-model="registerName" maxlength="128" placeholder="例如：安全帽 YOLO26 v1" /></label>
-      <label><span>模型类型</span>
-        <el-radio-group v-model="registerKind">
-          <el-radio-button value="yolo">YOLO</el-radio-button>
-          <el-radio-button value="grounding_dino">GroundingDINO</el-radio-button>
-        </el-radio-group>
+  <el-dialog
+    v-model="xanylabelingSettingsOpen"
+    data-test="xanylabeling-settings-dialog"
+    title="X-anylabeling-server 设置"
+    width="min(560px, calc(100vw - 32px))"
+    append-to-body
+    :close-on-click-modal="!xanylabelingSettingsSaving"
+    :close-on-press-escape="!xanylabelingSettingsSaving"
+    :show-close="!xanylabelingSettingsSaving"
+  >
+    <div class="xanylabeling-settings-form">
+      <label>
+        <span>服务器地址</span>
+        <el-input
+          v-model="xanylabelingServerUrl"
+          data-test="xanylabeling-server-url"
+          placeholder="http://127.0.0.1:44444"
+        />
       </label>
-      <p>{{ registerKind === 'yolo' ? '选择 .pt 或 .onnx 模型文件。' : '选择包含 Transformers 本地模型配置与权重的目录。' }}</p>
-      <ServerVideoPicker
-        v-model="registerPath"
-        kind="model"
-        :allow-directory-selection="registerKind === 'grounding_dino'"
-        :allow-create="false"
-      />
+      <label>
+        <span>API 密钥（可选）</span>
+        <el-input
+          v-model="xanylabelingApiKey"
+          data-test="xanylabeling-api-key"
+          type="password"
+          show-password
+          autocomplete="new-password"
+          :placeholder="xanylabelingSetting?.has_api_key ? '已配置，留空则保留' : '未配置'"
+        />
+      </label>
+      <el-checkbox
+        v-if="xanylabelingSetting?.has_api_key"
+        v-model="clearXAnyLabelingApiKey"
+      >清除已保存的 API 密钥</el-checkbox>
     </div>
     <template #footer>
-      <el-button @click="registerOpen = false">取消</el-button>
-      <el-button type="primary" :loading="registering" :disabled="!registerName.trim() || !registerPath" @click="submitModelRegistration">创建入库任务</el-button>
+      <VButton
+        variant="quiet"
+        :disabled="xanylabelingSettingsSaving"
+        @click="xanylabelingSettingsOpen = false"
+      >取消</VButton>
+      <VButton
+        variant="primary"
+        :loading="xanylabelingSettingsSaving"
+        :disabled="!xanylabelingServerUrl.trim()"
+        @click="saveXAnyLabelingSettings"
+      >确认</VButton>
     </template>
   </el-dialog>
 </template>
@@ -1043,12 +1233,12 @@ watch(reuseLabel, (reuse) => {
 
 .annotation-focus-tools { justify-content: space-between; gap: 16px; height: 100%; margin-left: 20px; }
 .focus-title { min-width: 0; gap: 12px; }
-.focus-title strong { max-width: 48vw; overflow: hidden; color: #edf3f6; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.focus-title strong { max-width: 48vw; overflow: hidden; color: var(--vdw-surface-3); font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .focus-title span,
-.save-state { color: #92a2ae; font: 14px var(--vdw-mono); white-space: nowrap; }
-.save-state[data-state='dirty'] { color: #f3c76d; }
+.save-state { color: var(--vdw-focus-ink-2); font: 14px var(--vdw-mono); white-space: nowrap; }
+.save-state[data-state='dirty'] { color: var(--vdw-warn); }
 .focus-actions { gap: 12px; }
-.focus-actions button { height: 31px; padding: 0 13px; color: #e9f0f4; background: #24323d; border: 1px solid #40515e; cursor: pointer; }
+.focus-actions button { height: 31px; padding: 0 13px; color: var(--vdw-surface-3); background: #24323d; border: 1px solid #40515e; cursor: pointer; }
 
 .annotation-workbench {
   position: relative;
@@ -1058,144 +1248,152 @@ watch(reuseLabel, (reuse) => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  color: #dce5eb;
-  background: #111820;
+  color: var(--vdw-focus-ink);
+  background: var(--vdw-focus-canvas);
 }
 .annotation-workbench.filmstrip-hidden { grid-template-rows: 50px minmax(0, 1fr) 0; }
 
-.auto-bar { grid-column: 1 / -1; gap: 14px; justify-content: space-between; min-width: 0; padding: 0 10px; overflow: hidden; background: #1d2933; border-bottom: 1px solid #33414c; }
+.auto-bar { grid-column: 1 / -1; gap: 14px; justify-content: space-between; min-width: 0; padding: 0 10px; overflow: hidden; background: var(--vdw-focus-panel); border-bottom: 1px solid var(--vdw-focus-line); }
 .auto-controls,
 .frame-controls { gap: 10px; min-width: 0; white-space: nowrap; }
 .auto-controls label,
-.frame-controls label { display: flex; align-items: center; gap: 5px; color: #aebbc4; font-size: 12px; }
-.model-select { width: 250px; }
+.frame-controls label { display: flex; align-items: center; gap: 5px; color: var(--vdw-focus-ink-2); font-size: 14px; }
+.model-project-select { width: 210px; }
+.model-select { width: 230px; }
+.remote-source-available { color: var(--vdw-focus-accent); }
+.remote-source-unavailable { color: var(--vdw-danger); }
+.remote-source-available :deep(.el-select__selected-item) { color: var(--vdw-focus-accent); }
+.remote-source-unavailable :deep(.el-select__selected-item) { color: var(--vdw-danger); }
 .category-select { width: 340px; }
 .auto-controls :deep(.el-input-number) { width: 100px; }
-.auto-bar button { height: 30px; padding: 0 10px; color: #dce5eb; background: #263641; border: 1px solid #41515d; }
+.auto-bar button { height: 30px; padding: 0 10px; color: var(--vdw-focus-ink); background: var(--vdw-focus-panel-2); border: 1px solid var(--vdw-focus-line); }
 .auto-bar button:disabled { color: #6f7d87; cursor: not-allowed; }
 .auto-bar button.primary-action,
-.focus-actions button.primary-action { color: white; background: #16866f; border-color: #16866f; border-radius: 3px; }
+/* 深色区主操作：深底青字，不用实心青填充。满屏画面上大块高饱和色块会和
+   标注框抢注意力，而标注框才是这个界面唯一该抢眼的东西。 */
+.focus-actions button.primary-action { color: var(--vdw-focus-accent); background: var(--vdw-focus-panel-2); border-color: var(--vdw-focus-accent); border-radius: 3px; }
 .auto-bar button.primary-action:hover:not(:disabled),
-.focus-actions button.primary-action:hover:not(:disabled) { background: #137762; border-color: #137762; }
-.auto-bar button.primary-action:disabled { color: #7f9d94; background: #28473f; border-color: #365c52; }
-.auto-warning { width: 84px; overflow: hidden; color: #d7a85b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.focus-actions button.primary-action:hover:not(:disabled) { color: var(--vdw-focus-canvas); background: var(--vdw-focus-accent); border-color: var(--vdw-focus-accent); }
+.auto-bar button.primary-action:disabled { color: var(--vdw-focus-ink-2); background: var(--vdw-focus-panel); border-color: var(--vdw-focus-line); }
+.auto-warning { width: 96px; overflow: hidden; color: var(--vdw-warn); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 
-.tool-rail { display: flex; grid-row: 2 / 4; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; overflow-y: auto; background: #1a252e; border-right: 1px solid #33414c; }
-.tool-rail button { display: grid; place-items: center; flex: 0 0 40px; width: 40px; padding: 0; color: #b9c6cf; font: 700 20px var(--vdw-mono); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; transition: background 150ms ease, border-color 150ms ease, color 150ms ease; }
+.tool-rail { display: flex; grid-row: 2 / 4; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; overflow-y: auto; background: #1a252e; border-right: 1px solid var(--vdw-focus-line); }
+.tool-rail button { display: grid; place-items: center; flex: 0 0 40px; width: 40px; padding: 0; color: var(--vdw-focus-ink-2); font: 700 20px var(--vdw-mono); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; transition: background 150ms ease, border-color 150ms ease, color 150ms ease; }
 .tool-rail button:hover:not(:disabled),
-.tool-rail button.active { color: #9de0cc; background: #233740; border-color: #3d665d; }
+.tool-rail button.active { color: var(--vdw-focus-accent); background: #233740; border-color: #3d665d; }
 .tool-rail button:disabled { color: #52616c; cursor: not-allowed; }
-.tool-rail output { width: 48px; color: #91a0ab; font: 11px var(--vdw-mono); text-align: center; }
+.tool-rail output { width: 48px; color: var(--vdw-focus-ink-2); font: 13px var(--vdw-mono); text-align: center; }
 .tool-separator { flex: 0 0 1px; width: 34px; margin: 2px 0; background: #34424d; }
 
 .canvas-panel { position: relative; grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
 .category-scrim { position: fixed; inset: 0; z-index: 3000; background: rgb(4 8 11 / 52%); }
-.category-picker { position: fixed; z-index: 3001; top: 50%; left: 50%; display: grid; grid-template-columns: minmax(170px, 1fr) auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: #f7fafb; border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(-50%, -50%); }
-.category-picker label { display: grid; gap: 3px; color: #51606b; font-size: 11px; }
+.category-picker { position: fixed; z-index: 3001; top: 50%; left: 50%; display: grid; grid-template-columns: minmax(170px, 1fr) auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: var(--vdw-focus-ink); border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(-50%, -50%); }
+.category-picker label { display: grid; gap: 3px; color: #51606b; font-size: 14px; }
 .category-picker select { min-width: 140px; height: 29px; }
 .category-picker button { align-self: end; height: 29px; }
 .panel-overlay { position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; color: #afbdc6; background: rgb(12 18 23 / 62%); }
 .panel-overlay--passive { pointer-events: none; background: rgb(12 18 23 / 22%); }
 
-.info-panel { display: grid; grid-column: 3; grid-row: 2; grid-template-rows: auto minmax(0, 1fr) 200px; min-height: 0; background: #f6f8f9; border-left: 1px solid #33414c; color: #24313a; }
+.info-panel { display: grid; grid-column: 3; grid-row: 2; grid-template-rows: auto minmax(0, 1fr) 200px; min-height: 0; color: var(--vdw-focus-ink); background: var(--vdw-focus-panel); border-left: 1px solid var(--vdw-focus-line); }
 .image-info,
 .object-list,
 .minimap { min-width: 0; }
-.image-info { padding: 5px 10px 10px 10px; border-bottom: 1px solid #d2dae0; }
+.image-info { padding: 5px 10px 10px 10px; border-bottom: 1px solid var(--vdw-focus-line); }
 .image-info header,
 .object-list > header,
 .minimap header { justify-content: space-between; height: 27px; }
 .info-heading-actions { display: flex; align-items: center; gap: 6px; }
-.info-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #5f6e78; background: transparent; border: 0; cursor: pointer; }
-.info-heading-actions button:hover { color: #16866f; background: #e4eeeb; }
+.info-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: var(--vdw-focus-ink-2); background: transparent; border: 0; cursor: pointer; }
+.info-heading-actions button:hover { color: var(--vdw-focus-accent); background: var(--vdw-focus-panel-2); }
 .object-heading-actions { display: flex; align-items: center; gap: 3px; }
-.object-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: #5f6e78; background: transparent; border: 0; cursor: pointer; }
-.object-heading-actions button:hover:not(:disabled) { color: #16866f; background: #e4eeeb; }
-.object-heading-actions button:disabled { color: #b0bac0; cursor: not-allowed; }
+.object-heading-actions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: var(--vdw-focus-ink-2); background: transparent; border: 0; cursor: pointer; }
+.object-heading-actions button:hover:not(:disabled) { color: var(--vdw-focus-accent); background: var(--vdw-focus-panel-2); }
+.object-heading-actions button:disabled { color: #61717a; cursor: not-allowed; }
 .image-info header strong,
 .object-list header strong,
-.minimap header strong { font-size: 13px; }
+.minimap header strong { font-size: 14px; }
 .image-info header span,
 .object-list header span,
-.minimap header span { color: #74818b; font: 13px var(--vdw-mono); }
-.image-info dl { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 5px 8px; margin: 5px 0 0; font-size: 12px; }
-.image-info dt { color: #7a8790; }
+.minimap header span { color: var(--vdw-focus-ink-2); font: 13px var(--vdw-mono); }
+.image-info dl { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 5px 8px; margin: 5px 0 0; font-size: 14px; }
+.info-expand-enter-active, .info-expand-leave-active { overflow: hidden; transition: opacity var(--vdw-motion-base) ease; }
+.info-expand-enter-from, .info-expand-leave-to { opacity: 0; }
+.image-info dt { color: var(--vdw-focus-ink-2); }
 .image-info dd { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .object-list { overflow-y: auto; padding: 5px 10px; scrollbar-width: none; }
 .object-list::-webkit-scrollbar { display: none; }
-.empty-copy { margin: 20px 0; color: #84919a; font-size: 12px; text-align: center; }
-.object-group { margin-top: 5px; border: 1px solid #d4dce1; background: white; }
+.empty-copy { margin: 20px 0; color: var(--vdw-focus-ink-2); font-size: 14px; text-align: center; }
+.object-group { margin-top: 5px; background: #1d303a; border: 1px solid var(--vdw-focus-line); }
 .object-group-row { display: grid; grid-template-columns: 15px minmax(0, 1fr) 36px 36px 36px; align-items: center; min-height: 45px; padding: 0 5px 0 8px; }
 .object-group-row i { width: 15px; height: 15px; border-radius: 50%; }
-.object-group-row button { display: grid; place-items: center; height: 34px; padding: 0; color: #4c5b65; background: transparent; border: 0; cursor: pointer; }
+.object-group-row button { display: grid; place-items: center; height: 34px; padding: 0; color: var(--vdw-focus-ink); background: transparent; border: 0; cursor: pointer; }
 .object-group-row button:not(.group-name) { font-size: 15px; }
 .object-group-row .group-name { display: block; overflow: hidden; width: 100%; padding-left: 7px; font-weight: 650; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.object-group-row span { color: #70808b; font: 14px var(--vdw-mono); text-align: center; }
-.box-list { border-top: 1px solid #e0e5e9; }
-.box-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; min-height: 30px; background: #fafcfc; border-bottom: 1px solid #edf0f2; }
-.box-item.selected { color: #116d5b; background: #e2f2ed; }
+.object-group-row span { color: var(--vdw-focus-ink-2); font: 14px var(--vdw-mono); text-align: center; }
+.box-list { border-top: 1px solid var(--vdw-focus-line); }
+.box-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; min-height: 30px; background: #16262f; border-bottom: 1px solid var(--vdw-focus-line); }
+.box-item.selected { color: var(--vdw-focus-accent); background: #203d3a; }
 .box-item > button { display: grid; place-items: center; min-width: 0; padding: 0; color: inherit; background: transparent; border: 0; cursor: pointer; }
 .box-item > button:disabled { color: #a8b1b7; cursor: not-allowed; }
 .box-item .box-select { grid-template-columns: 27px minmax(0, 1fr); padding: 0 7px; text-align: left; }
-.box-list code { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.minimap { padding: 8px 10px 10px; border-top: 1px solid #d2dae0; }
-.minimap-image { position: relative; height: 155px; overflow: hidden; background: #17212b; }
+.box-list code { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.minimap { padding: 8px 10px 10px; border-top: 1px solid var(--vdw-focus-line); }
+.minimap-image { position: relative; height: 155px; overflow: hidden; background: var(--vdw-focus-panel); }
 .minimap-svg { display: block; width: 100%; height: 100%; }
-.viewport-box { fill: rgb(120 210 184 / 8%); stroke: #78d2b8; stroke-width: 2px; filter: drop-shadow(0 0 1px rgb(23 33 43 / 75%)); pointer-events: none; }
+.viewport-box { fill: rgb(120 210 184 / 8%); stroke: var(--vdw-focus-accent); stroke-width: 2px; filter: drop-shadow(0 0 1px rgb(23 33 43 / 75%)); pointer-events: none; }
 
-.filmstrip { display: grid; grid-column: 2 / 4; grid-row: 3; grid-template-columns: minmax(0, 1fr) 38px; min-width: 0; min-height: 0; background: #18232c; border-top: 1px solid #33414c; }
-.filmstrip-scroll { display: flex; align-items: end; gap: 7px; min-width: 0; padding: 8px 8px 9px; overflow-x: scroll; overflow-y: hidden; scrollbar-color: #16866f #111820; scrollbar-gutter: stable; scrollbar-width: thin; }
+.filmstrip { display: grid; grid-column: 2 / 4; grid-row: 3; grid-template-columns: minmax(0, 1fr) 38px; min-width: 0; min-height: 0; background: var(--vdw-focus-panel); border-top: 1px solid var(--vdw-focus-line); }
+.filmstrip-scroll { display: flex; align-items: end; gap: 7px; min-width: 0; padding: 8px 8px 9px; overflow-x: scroll; overflow-y: hidden; scrollbar-color: var(--vdw-focus-accent) var(--vdw-focus-canvas); scrollbar-gutter: stable; scrollbar-width: thin; }
 .filmstrip-scroll::-webkit-scrollbar { height: 10px; }
-.filmstrip-scroll::-webkit-scrollbar-track { background: #111820; }
-.filmstrip-scroll::-webkit-scrollbar-thumb { background: #16866f; border: 2px solid #111820; border-radius: 5px; }
-.filmstrip-scroll::-webkit-scrollbar-thumb:hover { background: #78d2b8; }
-.film-frame { position: relative; flex: 0 0 128px; overflow: hidden; padding: 0; background: #111820; border: 2px solid transparent; cursor: pointer; }
-.film-frame.current { border-color: #78d2b8; box-shadow: 0 0 0 1px #16866f; }
-.filmstrip-actions { display: grid; grid-template-rows: 1fr 1fr; border-left: 1px solid #34434e; }
-.filmstrip-actions button { display: grid; place-items: center; padding: 0; color: #b8c5ce; background: #22303a; border: 0; cursor: pointer; }
-.filmstrip-actions button + button { border-top: 1px solid #34434e; }
-.restore-filmstrip { position: absolute; z-index: 12; bottom: 0; left: calc(50% + 29px); display: flex; align-items: center; gap: 5px; height: 25px; padding: 0 11px; color: #b8c5ce; background: #22303a; border: 1px solid #41515d; border-bottom: 0; border-radius: 4px 4px 0 0; cursor: pointer; transform: translateX(-50%); }
-.restore-filmstrip span { font-size: 11px; }
+.filmstrip-scroll::-webkit-scrollbar-track { background: var(--vdw-focus-canvas); }
+.filmstrip-scroll::-webkit-scrollbar-thumb { background: var(--vdw-focus-accent); border: 2px solid var(--vdw-focus-canvas); border-radius: 5px; }
+.filmstrip-scroll::-webkit-scrollbar-thumb:hover { background: var(--vdw-focus-accent); }
+.film-frame { position: relative; flex: 0 0 128px; overflow: hidden; padding: 0; background: var(--vdw-focus-canvas); border: 2px solid transparent; cursor: pointer; }
+.film-frame.current { border-color: var(--vdw-focus-accent); box-shadow: 0 0 0 1px var(--vdw-focus-accent); }
+.filmstrip-actions { display: grid; grid-template-rows: 1fr 1fr; border-left: 1px solid var(--vdw-focus-line); }
+.filmstrip-actions button { display: grid; place-items: center; padding: 0; color: var(--vdw-focus-ink); background: var(--vdw-focus-panel-2); border: 0; cursor: pointer; }
+.filmstrip-actions button + button { border-top: 1px solid var(--vdw-focus-line); }
+.restore-filmstrip { position: absolute; z-index: 12; bottom: 0; left: calc(50% + 29px); display: flex; align-items: center; gap: 5px; height: 25px; padding: 0 11px; color: var(--vdw-focus-ink); background: var(--vdw-focus-panel-2); border: 1px solid var(--vdw-focus-line); border-bottom: 0; border-radius: 4px 4px 0 0; cursor: pointer; transform: translateX(-50%); }
+.restore-filmstrip span { font-size: 14px; }
 
 .frame-grid-overlay { position: absolute; inset: 0; z-index: 20; display: grid; grid-template-rows: 48px minmax(0, 1fr); background: #152029; }
 .frame-grid-overlay > header { gap: 12px; padding: 0 14px; background: #1e2c36; border-bottom: 1px solid #3a4a56; }
-.frame-grid-overlay > header span { color: #91a0ab; font-size: 12px; }
-.frame-grid-overlay > header button { display: flex; align-items: center; gap: 5px; margin-left: auto; height: 30px; color: #dbe5eb; background: #283843; border: 1px solid #41515d; }
+.frame-grid-overlay > header span { color: var(--vdw-focus-ink-2); font-size: 14px; }
+.frame-grid-overlay > header button { display: flex; align-items: center; gap: 5px; margin-left: auto; height: 30px; color: #dbe5eb; background: #283843; border: 1px solid var(--vdw-focus-line); }
 .frame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); grid-auto-rows: max-content; gap: 9px; align-content: start; min-height: 0; padding: 12px; overflow: auto; }
-.frame-grid button { position: relative; overflow: hidden; padding: 0; color: #d7e0e6; text-align: left; background: #111820; border: 2px solid transparent; }
+.frame-grid button { position: relative; overflow: hidden; padding: 0; color: #d7e0e6; text-align: left; background: var(--vdw-focus-canvas); border: 2px solid transparent; }
 .frame-grid-card { align-self: start; aspect-ratio: 16 / 9; }
-.frame-grid button.current { border-color: #78d2b8; }
+.frame-grid button.current { border-color: var(--vdw-focus-accent); }
 
-.workbench-state { position: absolute; inset: 50px 0 0 58px; z-index: 30; display: grid; place-content: center; gap: 12px; color: #aebbc4; background: #111820; text-align: center; }
-.workbench-state.error { color: #f0a39e; }
+.workbench-state { position: absolute; inset: 50px 0 0 58px; z-index: 30; display: grid; place-content: center; gap: 12px; color: #aebbc4; background: var(--vdw-focus-canvas); text-align: center; }
+.workbench-state.error { color: var(--vdw-danger); }
 .workbench-state button { justify-self: center; height: 32px; color: #dce6eb; background: #253640; border: 1px solid #455762; }
-.save-overlay { position: fixed; inset: 0; z-index: 3100; display: grid; place-content: center; justify-items: center; gap: 12px; color: #eef5f7; background: rgb(5 9 12 / 68%); animation: save-overlay-in 160ms 100ms both; }
+.save-overlay { position: fixed; inset: 0; z-index: 3100; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--vdw-focus-ink); background: rgb(5 9 12 / 68%); animation: save-overlay-in 160ms 100ms both; }
 .save-overlay strong { font-size: 14px; font-weight: 600; }
-.save-spinner { width: 30px; height: 30px; border: 3px solid rgb(255 255 255 / 22%); border-top-color: #78d2b8; border-radius: 50%; animation: save-spinner 700ms linear infinite; }
+.save-spinner { width: 30px; height: 30px; border: 3px solid rgb(255 255 255 / 22%); border-top-color: var(--vdw-focus-accent); border-radius: 50%; animation: save-spinner 700ms linear infinite; }
 :global(.batch-confirm-mask) { background: rgb(4 8 11 / 68%) !important; }
-:global(.batch-confirm-dialog) { border: 1px solid #9ba9b2; box-shadow: 0 20px 60px rgb(0 0 0 / 45%); }
+:global(.batch-confirm-dialog) { border: 1px solid var(--vdw-focus-ink-2); box-shadow: 0 20px 60px rgb(0 0 0 / 45%); }
 @keyframes save-overlay-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes save-spinner { to { transform: rotate(360deg); } }
 .shortcut-list { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 9px 15px; margin: 0; }
-.shortcut-list dt { font: 12px var(--vdw-mono); }
-.shortcut-list dd { margin: 0; color: #687482; }
+.shortcut-list dt { font: 13px var(--vdw-mono); }
+.shortcut-list dd { margin: 0; color: var(--vdw-ink-2); }
 .stats-summary { display: grid; gap: 0; margin: 0; }
-.stats-summary > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 20px; min-height: 46px; padding: 9px 4px; border-bottom: 1px solid #e1e6e9; }
+.stats-summary > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 20px; min-height: 46px; padding: 9px 4px; border-bottom: 1px solid var(--vdw-line); }
 .stats-summary > div:last-child { border-bottom: 0; }
-.stats-summary dt { color: #687482; }
-.stats-summary dd { margin: 0; color: var(--vdw-teal); font: 700 20px var(--vdw-mono); }
+.stats-summary dt { color: var(--vdw-ink-2); }
+.stats-summary dd { margin: 0; color: var(--vdw-accent); font: 700 20px var(--vdw-mono); }
 .model-registration-form { display: grid; gap: 14px; }
 .model-registration-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 12px; }
-.model-registration-form > label > span { color: #5f6c76; font-size: 13px; }
-.model-registration-form > p { margin: 0; color: #687482; font-size: 13px; }
-
-@media (max-width: 1180px) {
-  .annotation-workbench { grid-template-columns: 54px minmax(0, 1fr) 250px; }
-  .auto-controls label { display: none; }
-  .category-select { width: 260px; }
-}
+.model-registration-form > label > span { color: var(--vdw-focus-ink-2); font-size: 14px; }
+.model-registration-form > p { margin: 0; color: var(--vdw-ink-2); font-size: 14px; }
+.xanylabeling-settings-form { display: grid; gap: 16px; }
+.xanylabeling-settings-form > label { display: grid; gap: 7px; }
+.xanylabeling-settings-form > label > span { color: var(--vdw-focus-ink-2); font-size: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
+  .info-expand-enter-active,
+  .info-expand-leave-active,
   .annotation-workbench *,
   .annotation-focus-tools * { scroll-behavior: auto !important; transition: none !important; }
   .save-overlay,

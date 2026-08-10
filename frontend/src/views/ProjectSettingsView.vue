@@ -2,6 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 
 import { ApiError } from '../api/auth'
+import { useProjectHeaderHost } from '../ui/projectHeaderHost'
+import VButton from '../ui/VButton.vue'
+import VField from '../ui/VField.vue'
+import VPanel from '../ui/VPanel.vue'
+import VTag from '../ui/VTag.vue'
+import { userStatus } from '../ui/status'
 import {
   addMember,
   changeMemberRole,
@@ -121,57 +127,60 @@ onMounted(() => {
   description.value = project.value.description
   void load()
 })
+
+const headerHost = useProjectHeaderHost()
 </script>
 
 <template>
-  <main class="settings-shell">
+  <main class="content-body settings-body">
+    <Teleport defer :disabled="!headerHost" to="#project-page-meta">
+      <span data-test="page-stat">{{ members.length }} 位成员</span>
+    </Teleport>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
 
     <div v-loading="loading" class="settings-grid">
-      <section v-if="project" class="panel metadata-panel">
-        <header>
-          <span class="section-code">PROJECT / METADATA</span>
-          <h2>项目信息</h2>
-        </header>
-
-        <el-form v-if="canEdit" label-position="top">
-          <el-form-item label="项目名称">
-            <el-input v-model="name" data-test="project-name" maxlength="128" />
-          </el-form-item>
-          <el-form-item label="描述">
-            <el-input
-              v-model="description"
-              data-test="project-description"
-              type="textarea"
-              :rows="4"
-              maxlength="2000"
-            />
-          </el-form-item>
-          <el-button
-            data-test="save-project"
-            type="primary"
-            :loading="saving"
-            :disabled="!name.trim()"
-            @click="saveProject"
-          >
-            保存项目信息
-          </el-button>
-        </el-form>
+      <VPanel v-if="project" title="项目信息">
+        <div v-if="canEdit" class="settings-form">
+          <VField label="项目名称" required>
+            <template #default="{ id }">
+              <el-input :id="id" v-model="name" data-test="project-name" maxlength="128" />
+            </template>
+          </VField>
+          <VField label="描述">
+            <template #default="{ id }">
+              <el-input
+                :id="id"
+                v-model="description"
+                data-test="project-description"
+                type="textarea"
+                :rows="4"
+                maxlength="2000"
+              />
+            </template>
+          </VField>
+        </div>
 
         <dl v-else class="readonly-metadata">
           <div><dt>名称</dt><dd>{{ project.name }}</dd></div>
           <div><dt>描述</dt><dd>{{ project.description || '暂无描述' }}</dd></div>
         </dl>
-      </section>
 
-      <section v-if="project" class="panel members-panel">
-        <header class="members-heading">
-          <div>
-            <span class="section-code">ACCESS / MEMBERS</span>
-            <h2>项目成员</h2>
-          </div>
-          <span>{{ members.length }} 人</span>
-        </header>
+        <template v-if="canEdit" #footer>
+          <VButton
+            variant="primary"
+            data-test="save-project"
+            class="settings-save"
+            :loading="saving"
+            :disabled="!name.trim()"
+            @click="saveProject"
+          >保存项目信息</VButton>
+        </template>
+      </VPanel>
+
+      <VPanel v-if="project" title="项目成员">
+        <template #head>
+          <span class="member-count">{{ members.length }} 人</span>
+        </template>
 
         <form v-if="canManageMembers" class="member-form" @submit.prevent="addProjectMember">
           <el-input
@@ -183,195 +192,141 @@ onMounted(() => {
             <el-option label="只读" value="viewer" />
             <el-option label="编辑者" value="editor" />
           </el-select>
-          <el-button
+          <VButton
             data-test="add-member"
-            native-type="submit"
-            type="primary"
+            type="submit"
             :loading="changingMember === 'new'"
             :disabled="!memberUsername.trim()"
-          >
-            添加成员
-          </el-button>
+          >添加成员</VButton>
         </form>
 
         <div class="member-list">
           <article v-for="member in members" :key="member.id" class="member-row">
-            <div>
+            <div class="member-identity">
               <strong>{{ member.username }}</strong>
-              <span>{{ member.status }}</span>
+              <VTag :tone="userStatus(member.status).tone">
+                {{ userStatus(member.status).label }}
+              </VTag>
             </div>
-            <span class="role-mark" :data-role="member.role">{{ roleLabels[member.role] }}</span>
+            <VTag :tone="member.role === 'owner' ? 'run' : 'idle'">
+              {{ roleLabels[member.role] }}
+            </VTag>
             <div v-if="canManageMembers && member.role !== 'owner'" class="member-actions">
-              <el-button
-                text
+              <VButton
+                variant="quiet"
+                size="sm"
                 :loading="changingMember === member.id"
                 @click="toggleRole(member)"
-              >
-                {{ member.role === 'editor' ? '改为只读' : '改为编辑者' }}
-              </el-button>
-              <el-button
+              >{{ member.role === 'editor' ? '改为只读' : '改为编辑者' }}</VButton>
+              <VButton
+                variant="quiet"
+                size="sm"
                 :data-test="`remove-${member.id}`"
-                text
-                type="danger"
                 :disabled="changingMember === member.id"
                 @click="remove(member)"
-              >
-                移除
-              </el-button>
+              >移除</VButton>
             </div>
           </article>
         </div>
-      </section>
+      </VPanel>
     </div>
   </main>
 </template>
 
 <style scoped>
-.settings-shell {
-  min-height: 100%;
-  padding: 18px;
-  color: #17212b;
-  background: #f4f7fa;
-}
-.section-code {
-  color: #76dfc2;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
-  letter-spacing: 0.1em;
-}
-.panel .section-code {
-  color: #2563eb;
+.settings-body {
+  display: grid;
+  align-content: start;
+  gap: 14px;
 }
 
 .settings-grid {
   display: grid;
-  grid-template-columns: minmax(300px, 0.8fr) minmax(460px, 1.2fr);
-  gap: 26px;
-  margin-top: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 14px;
+  align-items: start;
 }
 
-.panel {
-  padding: 29px;
-  background: white;
-  border: 1px solid #d8dee6;
+.settings-form {
+  display: grid;
+  gap: 16px;
 }
 
-.panel h2 {
-  margin: 10px 0 24px;
-  font-size: 25px;
-  letter-spacing: -0.025em;
-}
-
-.metadata-panel .el-button {
+.settings-form :deep(.el-input),
+.settings-form :deep(.el-textarea) {
   width: 100%;
+}
+
+.settings-save {
+  margin-left: auto;
 }
 
 .readonly-metadata {
   display: grid;
-  gap: 24px;
+  gap: 16px;
   margin: 0;
 }
 
-.readonly-metadata div {
-  display: grid;
-  gap: 6px;
-}
-
 .readonly-metadata dt {
-  color: #687482;
+  color: var(--vdw-ink-3);
   font-size: 13px;
 }
 
 .readonly-metadata dd {
-  margin: 0;
-  line-height: 1.6;
-}
-
-.members-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.members-heading > span {
-  color: #687482;
+  margin: 5px 0 0;
   font-size: 14px;
+}
+
+.member-count {
+  margin-left: auto;
+  color: var(--vdw-ink-3);
+  font: 500 13px/1 var(--vdw-mono);
 }
 
 .member-form {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 120px auto;
-  gap: 11px;
-  margin-bottom: 22px;
-  padding: 18px;
-  background: #f4f7fa;
-  border: 1px solid #d8dee6;
+  grid-template-columns: minmax(0, 1fr) 132px auto;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--vdw-line);
+}
+
+.member-list {
+  display: grid;
 }
 
 .member-row {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) 90px minmax(170px, auto);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 88px auto;
+  gap: 12px;
   align-items: center;
-  min-height: 64px;
-  border-top: 1px solid #e6eaf0;
+  min-height: 48px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--vdw-line);
 }
 
-.member-row > div:first-child {
+.member-row:last-child {
+  border-bottom: 0;
+}
+
+.member-identity {
   display: flex;
-  gap: 11px;
-  align-items: baseline;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
 }
 
-.member-row > div:first-child span {
-  color: #687482;
-  font-size: 12px;
+.member-identity strong {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .member-actions {
   display: flex;
   justify-content: flex-end;
-}
-
-.role-mark {
-  width: fit-content;
-  padding: 4px 7px;
-  color: #3f4c59;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
-  border: 1px solid #cbd3dd;
-}
-
-.role-mark[data-role='owner'] {
-  color: #0f6c59;
-  border-color: #78cdb6;
-}
-
-@media (max-width: 900px) {
-  .settings-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 620px) {
-  .page-heading,
-  .topbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .topbar {
-    padding-top: 18px;
-    padding-bottom: 18px;
-  }
-
-  .member-form,
-  .member-row {
-    grid-template-columns: 1fr;
-  }
-
-  .member-actions {
-    justify-content: flex-start;
-  }
+  gap: 2px;
 }
 </style>

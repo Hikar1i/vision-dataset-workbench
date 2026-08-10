@@ -8,6 +8,7 @@ import {
   createExtractions,
   listVideos,
   setVideoEnabled,
+  setVideosEnabledByAnnotation,
   videoContentUrl,
   videoThumbnailUrl,
   type ImportBatch,
@@ -15,11 +16,16 @@ import {
 } from '../api/media'
 import type { Project } from '../api/projects'
 import ExtractionConfirmDialog from '../components/ExtractionConfirmDialog.vue'
+import BatchAnnotationDialog from '../components/BatchAnnotationDialog.vue'
 import ExportDatasetDialog from '../components/ExportDatasetDialog.vue'
 import FramesDialog from '../components/FramesDialog.vue'
 import ImportVideosDialog from '../components/ImportVideosDialog.vue'
 import SamplingDialog from '../components/SamplingDialog.vue'
+import VButton from '../ui/VButton.vue'
+import VTag from '../ui/VTag.vue'
+import { videoTone } from '../ui/status'
 import { videoWorkflowStatus } from './videoStatus'
+import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 
 const props = defineProps<{ project: Project }>()
 const router = useRouter()
@@ -40,6 +46,14 @@ const configureChoiceTargets = ref<Video[]>([])
 const extractionChoiceTargets = ref<Video[]>([])
 const extractionTargets = ref<Video[]>([])
 const extractionConfirmOpen = ref(false)
+const annotationOpen = ref(false)
+const annotationTargets = ref<Video[]>([])
+const annotationChoiceTargets = ref<Video[]>([])
+const annotationScope = ref<'unannotated' | 'all'>('unannotated')
+const enabledByAnnotationTargets = ref<Video[]>([])
+const enabledByAnnotationConfirmTargets = ref<Video[]>([])
+const enabledByAnnotationCountdown = ref(3)
+let enabledByAnnotationTimer: number | undefined
 const changingEnabled = ref('')
 const error = ref('')
 
@@ -183,6 +197,99 @@ function openAnnotation(video: Video) {
   void router.push(`/projects/${projectId}/videos/${video.id}/annotation`)
 }
 
+function openBatchAnnotation() {
+  const targetVideos = selectedVideos.value
+  if (targetVideos.some((video) => video.has_annotations)) {
+    annotationChoiceTargets.value = targetVideos
+    return
+  }
+  openBatchAnnotationSettings(targetVideos, 'unannotated')
+}
+
+function openBatchAnnotationSettings(targetVideos: Video[], scope: 'unannotated' | 'all') {
+  annotationChoiceTargets.value = []
+  annotationTargets.value = scope === 'unannotated'
+    ? targetVideos.filter((video) => !video.has_annotations)
+    : targetVideos
+  annotationScope.value = scope
+  annotationOpen.value = true
+}
+
+function annotationSubmitted(accepted: string[]) {
+  selected.value = selected.value.filter((id) => !accepted.includes(id))
+  void load(page.value, pageSize.value, true)
+}
+
+function openEnabledByAnnotation() {
+  const targetVideos = selectedVideos.value
+  if (!targetVideos.some((video) => video.has_annotations)) {
+    ElMessage.warning('所选视频均无标注，按标注启停不会产生有效结果。')
+    return
+  }
+  enabledByAnnotationTargets.value = targetVideos
+}
+
+function isScreened(video: Video) {
+  return (video.sampling?.frame_revision ?? 0) > 1
+}
+
+function clearEnabledByAnnotationTimer() {
+  if (enabledByAnnotationTimer !== undefined) window.clearInterval(enabledByAnnotationTimer)
+  enabledByAnnotationTimer = undefined
+}
+
+function closeEnabledByAnnotationConfirmation() {
+  clearEnabledByAnnotationTimer()
+  enabledByAnnotationConfirmTargets.value = []
+  enabledByAnnotationCountdown.value = 3
+}
+
+function confirmAllEnabledByAnnotation() {
+  enabledByAnnotationConfirmTargets.value = [...enabledByAnnotationTargets.value]
+  enabledByAnnotationTargets.value = []
+  enabledByAnnotationCountdown.value = 3
+  clearEnabledByAnnotationTimer()
+  enabledByAnnotationTimer = window.setInterval(() => {
+    if (enabledByAnnotationCountdown.value <= 1) {
+      enabledByAnnotationCountdown.value = 0
+      clearEnabledByAnnotationTimer()
+    } else {
+      enabledByAnnotationCountdown.value -= 1
+    }
+  }, 1000)
+}
+
+function submitUnscreenedEnabledByAnnotation() {
+  const targets = enabledByAnnotationTargets.value.filter(
+    (video) => video.has_annotations && !isScreened(video),
+  )
+  void submitEnabledByAnnotation(targets, 'unscreened-only')
+}
+
+async function submitEnabledByAnnotation(targetVideos: Video[], scope: 'unscreened-only' | 'all') {
+  try {
+    const result = await setVideosEnabledByAnnotation(
+      projectId,
+      targetVideos.map((video) => video.id),
+      scope,
+      scope === 'all',
+      Object.fromEntries(targetVideos.map((video) => [video.id, video.version])),
+    )
+    const ignored = result.rejected.filter((item) => item.code === 'no_annotations').length
+    ElMessage.success(
+      ignored
+        ? `已更新 ${result.accepted.length} 个视频，忽略 ${ignored} 个无标注视频。`
+        : `已更新 ${result.accepted.length} 个视频的启停状态。`,
+    )
+    enabledByAnnotationTargets.value = []
+    closeEnabledByAnnotationConfirmation()
+    selected.value = selected.value.filter((id) => !result.accepted.some((item) => item.video_id === id))
+    await load(page.value, pageSize.value, true)
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '按标注启停失败')
+  }
+}
+
 async function samplingSubmitted(batch: { accepted: Array<{ video_id: string }> }) {
   ElMessage.success('采样方案已保存。')
   const accepted = new Set(batch.accepted.map((item) => item.video_id))
@@ -262,32 +369,36 @@ onMounted(() => {
   void load()
   window.addEventListener('vdm:tasks-settled', refreshAfterTask)
 })
-onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTask))
+onUnmounted(() => {
+  window.removeEventListener('vdm:tasks-settled', refreshAfterTask)
+  clearEnabledByAnnotationTimer()
+})
+
+const headerHost = useProjectHeaderHost()
 </script>
 
 <template>
   <main class="workbench-shell">
     <section class="workspace">
-        <header class="workspace-toolbar">
-          <div class="workspace-toolbar-title">
-            <h1>视频资料库</h1>
-            <span>{{ total }} 个视频</span>
-          </div>
-          <div v-if="canEdit" class="workspace-toolbar-actions" data-test="video-toolbar-actions">
-            <el-button
+        <Teleport defer :disabled="!headerHost" to="#project-page-meta">
+          <span data-test="page-stat">{{ total }} 个视频</span>
+        </Teleport>
+        <Teleport v-if="canEdit" defer :disabled="!headerHost" to="#project-page-actions">
+          <div class="workspace-toolbar-actions" data-test="video-toolbar-actions">
+            <VButton data-test="export-dataset" @click="exportOpen = true">
+              导出数据集
+            </VButton>
+            <VButton
               data-test="import-videos"
-              type="primary"
+              variant="primary"
               :disabled="importLimitReached"
               :title="importLimitReached ? '项目视频数量已达上限（999）' : '导入视频'"
               @click="importOpen = true"
             >
               导入视频
-            </el-button>
-            <el-button data-test="export-dataset" @click="exportOpen = true">
-              导出数据集
-            </el-button>
+            </VButton>
           </div>
-        </header>
+        </Teleport>
 
         <section class="video-action-lane" data-test="video-action-lane">
           <template v-if="canEdit && selected.length">
@@ -299,8 +410,10 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
               </small>
             </strong>
             <div>
-            <el-button data-test="batch-configure" @click="configure(selected)">批量配置采样</el-button>
-            <el-button data-test="batch-extract" @click="extract(selected)">批量抽帧</el-button>
+            <VButton variant="secondary" data-test="batch-configure" @click="configure(selected)">批量配置采样</VButton>
+            <VButton variant="secondary" data-test="batch-extract" @click="extract(selected)">批量抽帧</VButton>
+            <VButton variant="secondary" data-test="batch-auto-annotate" @click="openBatchAnnotation">批量自动标注</VButton>
+            <VButton variant="secondary" data-test="batch-enabled-by-annotation" @click="openEnabledByAnnotation">按标注启停</VButton>
             </div>
           </template>
           <template v-else>
@@ -389,57 +502,60 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
               <span class="frame-count">
                 {{ video.sampling ? `${video.sampling.enabled_frames}/${video.sampling.extracted_frames || video.sampling.expected_frames}` : '—' }}
               </span>
-              <span class="status-mark" :data-status="video.status">{{ statusLabels[video.status] }}</span>
+              <VTag :tone="video.status === 'ready' ? 'ok' : video.status === 'unavailable' ? 'danger' : 'idle'">
+                {{ statusLabels[video.status] }}
+              </VTag>
               <div class="status-info" :title="videoWorkflowStatus(video).detail">
-                <span
-                  class="workflow-state"
-                  :data-state="videoWorkflowStatus(video).code"
-                >{{ videoWorkflowStatus(video).primary }}</span>
-                <span
+                <VTag :tone="videoTone(videoWorkflowStatus(video).code)">
+                  {{ videoWorkflowStatus(video).primary }}
+                </VTag>
+                <VTag
                   v-for="flag in videoWorkflowStatus(video).flags"
                   :key="flag"
-                  class="workflow-flag"
-                  :data-flag="flag"
-                >{{ flag }}</span>
+                  :tone="flag === '视频停用' ? 'danger' : 'idle'"
+                >{{ flag }}</VTag>
                 <small v-if="videoWorkflowStatus(video).detail">
                   {{ videoWorkflowStatus(video).detail }}
                 </small>
               </div>
               <div class="row-actions">
-                <button
+                <VButton
+                  variant="quiet"
+                  size="sm"
                   :data-test="`play-${video.id}`"
-                  type="button"
                   :disabled="video.status !== 'ready'"
                   @click="playing = video"
-                >播放</button>
-                <button
+                >播放</VButton>
+                <VButton
                   v-if="canEdit"
+                  :variant="!video.sampling ? 'secondary' : 'quiet'"
+                  size="sm"
                   :data-test="`configure-${video.id}`"
-                  type="button"
                   :disabled="video.status !== 'ready'"
                   @click="configure([video.id])"
-                >采样</button>
-                <span v-else />
-                <button
+                >采样</VButton>
+                <VButton
                   v-if="canEdit"
+                  :variant="video.sampling && !video.sampling.extracted_frames ? 'secondary' : 'quiet'"
+                  size="sm"
                   :data-test="`extract-${video.id}`"
-                  type="button"
                   :disabled="!video.sampling"
                   @click="extract([video.id])"
-                >抽帧</button>
-                <span v-else />
-                <button
+                >抽帧</VButton>
+                <VButton
+                  variant="quiet"
+                  size="sm"
                   :data-test="`annotate-${video.id}`"
-                  type="button"
                   :disabled="!canEdit || !video.sampling?.extracted_frames"
                   @click="openAnnotation(video)"
-                >标注</button>
-                <button
+                >标注</VButton>
+                <VButton
+                  variant="quiet"
+                  size="sm"
                   :data-test="`frames-${video.id}`"
-                  type="button"
                   :disabled="!video.sampling?.extracted_frames"
                   @click="frameVideo = video"
-                >筛帧</button>
+                >筛帧</VButton>
               </div>
             </article>
           </div>
@@ -447,7 +563,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
           <div v-if="!loading && !videos.length" class="empty-state">
             <h2>项目中还没有视频</h2>
             <p>{{ canEdit ? '从本地目录或远程 URL 创建第一批导入任务。' : '项目编辑者导入视频后会显示在这里。' }}</p>
-            <el-button v-if="canEdit" type="primary" @click="importOpen = true">导入视频</el-button>
+            <VButton variant="primary" v-if="canEdit" @click="importOpen = true">导入视频</VButton>
           </div>
 
           <footer v-if="total" class="ledger-footer">
@@ -500,6 +616,88 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
       :videos="samplingTargets"
       @submitted="samplingSubmitted"
     />
+    <BatchAnnotationDialog
+      v-if="canEdit"
+      v-model="annotationOpen"
+      :project-id="projectId"
+      :videos="annotationTargets"
+      :scope="annotationScope"
+      @submitted="annotationSubmitted"
+    />
+    <el-dialog
+      append-to-body
+      :model-value="annotationChoiceTargets.length > 0"
+      title="批量自动标注"
+      width="min(560px, calc(100vw - 32px))"
+      @update:model-value="!$event && (annotationChoiceTargets = [])"
+    >
+      <p>
+        选中的视频中有
+        {{ annotationChoiceTargets.filter((video) => video.has_annotations).length }} 个已有标注。
+        请选择本次处理范围。
+      </p>
+      <template #footer>
+        <VButton variant="secondary" @click="annotationChoiceTargets = []">取消</VButton>
+        <VButton variant="secondary" data-test="annotation-unannotated-only"
+          :disabled="!annotationChoiceTargets.some((video) => !video.has_annotations)"
+          @click="openBatchAnnotationSettings(annotationChoiceTargets, 'unannotated')"
+        >仅处理 {{ annotationChoiceTargets.filter((video) => !video.has_annotations).length }} 个未标注视频</VButton>
+        <VButton variant="danger" data-test="annotation-all"
+          @click="openBatchAnnotationSettings(annotationChoiceTargets, 'all')">处理全部 {{ annotationChoiceTargets.length }} 个视频</VButton>
+      </template>
+    </el-dialog>
+    <el-dialog
+      append-to-body
+      :model-value="enabledByAnnotationTargets.length > 0"
+      title="按标注启停"
+      width="min(620px, calc(100vw - 32px))"
+      @update:model-value="!$event && (enabledByAnnotationTargets = [])"
+    >
+      <el-alert
+        title="无标注视频将被忽略"
+        description="无标注的视频即使已经手动筛帧，执行按标注启停也只会停用全部采样帧，因此不会处理。"
+        type="info"
+        show-icon
+        :closable="false"
+      />
+      <div class="annotation-scope-summary">
+        <div><strong>{{ enabledByAnnotationTargets.filter((video) => video.has_annotations && !isScreened(video)).length }}</strong><span>有标注 · 未筛帧</span></div>
+        <div><strong>{{ enabledByAnnotationTargets.filter((video) => video.has_annotations && isScreened(video)).length }}</strong><span>有标注 · 已筛帧</span></div>
+        <div><strong>{{ enabledByAnnotationTargets.filter((video) => !video.has_annotations && !isScreened(video)).length }}</strong><span>无标注 · 未筛帧</span></div>
+        <div><strong>{{ enabledByAnnotationTargets.filter((video) => !video.has_annotations && isScreened(video)).length }}</strong><span>无标注 · 已筛帧</span></div>
+      </div>
+      <template #footer>
+        <VButton variant="secondary" @click="enabledByAnnotationTargets = []">取消</VButton>
+        <VButton variant="secondary" data-test="enabled-by-annotation-unscreened"
+          :disabled="!enabledByAnnotationTargets.some((video) => video.has_annotations && !isScreened(video))"
+          @click="submitUnscreenedEnabledByAnnotation"
+        >仅处理 {{ enabledByAnnotationTargets.filter((video) => video.has_annotations && !isScreened(video)).length }} 个未筛帧视频</VButton>
+        <VButton variant="danger" data-test="enabled-by-annotation-all"
+          @click="confirmAllEnabledByAnnotation">处理全部 {{ enabledByAnnotationTargets.filter((video) => video.has_annotations).length }} 个有标注视频</VButton>
+      </template>
+    </el-dialog>
+    <el-dialog
+      append-to-body
+      :model-value="enabledByAnnotationConfirmTargets.length > 0"
+      title="确认覆盖现有筛帧结果"
+      width="min(560px, calc(100vw - 32px))"
+      @update:model-value="!$event && closeEnabledByAnnotationConfirmation()"
+    >
+      <el-alert
+        title="此操作会覆盖已有的手动筛帧结果"
+        :description="`将对 ${enabledByAnnotationConfirmTargets.filter((video) => video.has_annotations).length} 个有标注视频重新按标注启停；${enabledByAnnotationConfirmTargets.filter((video) => !video.has_annotations).length} 个无标注视频仍会被忽略。`"
+        type="error"
+        show-icon
+        :closable="false"
+      />
+      <template #footer>
+        <VButton variant="secondary" @click="closeEnabledByAnnotationConfirmation">取消</VButton>
+        <VButton variant="danger" data-test="enabled-by-annotation-confirm"
+          :disabled="enabledByAnnotationCountdown> 0"
+          @click="submitEnabledByAnnotation(enabledByAnnotationConfirmTargets, 'all')"
+        >{{ enabledByAnnotationCountdown > 0 ? `确认覆盖（${enabledByAnnotationCountdown} 秒）` : '确认覆盖筛帧结果' }}</VButton>
+      </template>
+    </el-dialog>
     <el-dialog
       append-to-body
       :model-value="configureChoiceTargets.length > 0"
@@ -509,15 +707,14 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
     >
       <p>选中的视频中已有 {{ configureChoiceTargets.filter((video) => video.sampling).length }} 个配置过采样方案。</p>
       <template #footer>
-        <el-button @click="configureChoiceTargets = []">取消</el-button>
-        <el-button
-          data-test="configure-unconfigured"
+        <VButton variant="secondary" @click="configureChoiceTargets = []">取消</VButton>
+        <VButton variant="secondary" data-test="configure-unconfigured"
           :disabled="!configureChoiceTargets.some((video) => !video.sampling)"
           @click="configureUnconfigured"
-        >仅处理 {{ configureChoiceTargets.filter((video) => !video.sampling).length }} 个未配置视频</el-button>
-        <el-button data-test="configure-all" type="warning" @click="configureAll">
+        >仅处理 {{ configureChoiceTargets.filter((video) => !video.sampling).length }} 个未配置视频</VButton>
+        <VButton variant="secondary" data-test="configure-all" @click="configureAll">
           处理全部 {{ configureChoiceTargets.length }} 个视频
-        </el-button>
+        </VButton>
       </template>
     </el-dialog>
     <el-dialog
@@ -529,15 +726,14 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
     >
       <p>选中的视频中已有 {{ extractionChoiceTargets.filter((video) => video.sampling?.extracted_frames).length }} 个完成抽帧。</p>
       <template #footer>
-        <el-button @click="extractionChoiceTargets = []">取消</el-button>
-        <el-button
-          data-test="extract-unextracted"
+        <VButton variant="secondary" @click="extractionChoiceTargets = []">取消</VButton>
+        <VButton variant="secondary" data-test="extract-unextracted"
           :disabled="!extractionChoiceTargets.some((video) => !video.sampling?.extracted_frames)"
           @click="extractUnextracted"
-        >仅处理 {{ extractionChoiceTargets.filter((video) => !video.sampling?.extracted_frames).length }} 个未抽帧视频</el-button>
-        <el-button data-test="extract-all" type="danger" @click="extractAll">
+        >仅处理 {{ extractionChoiceTargets.filter((video) => !video.sampling?.extracted_frames).length }} 个未抽帧视频</VButton>
+        <VButton variant="danger" data-test="extract-all" @click="extractAll">
           处理全部 {{ extractionChoiceTargets.length }} 个视频
-        </el-button>
+        </VButton>
       </template>
     </el-dialog>
     <ExtractionConfirmDialog
@@ -561,10 +757,30 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 </template>
 
 <style scoped>
+.annotation-scope-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.annotation-scope-summary > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+
+.annotation-scope-summary strong { font: 700 22px var(--vdw-mono); }
+.annotation-scope-summary span { color: var(--el-text-color-secondary); font-size: 14px; }
+
 .workbench-shell {
   min-height: 100%;
   color: var(--vdw-ink);
-  background: var(--vdw-canvas);
+  background: var(--vdw-app);
 }
 
 .workspace {
@@ -572,44 +788,14 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   padding: 0 18px 26px;
 }
 
-.workspace-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 62px;
-  border-bottom: 1px solid var(--vdw-rule);
-}
-
-.workspace-toolbar-title {
-  display: flex;
-  align-items: baseline;
-  gap: 11px;
+.workspace :deep(.page-header) {
+  margin: 0 -18px 18px;
 }
 
 .workspace-toolbar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.workspace-toolbar-actions :deep(.el-button + .el-button) {
-  margin-left: 0;
-}
-
-.workspace-toolbar h1 {
-  margin: 0;
-  font: 700 22px var(--vdw-title);
-  letter-spacing: -0.02em;
-}
-
-.workspace-toolbar span {
-  color: var(--vdw-muted);
-  font: 13px var(--vdw-mono);
-}
-
-.workspace-toolbar :deep(.el-button) {
-  height: var(--vdm-control-height);
-  border-radius: 2px;
 }
 
 .video-action-lane {
@@ -619,20 +805,15 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   justify-content: flex-start;
   height: 48px;
   padding: 0 9px;
-  color: var(--vdw-muted);
+  color: var(--vdw-ink-2);
   font-size: 14px;
-  border-bottom: 1px solid var(--vdw-rule);
+  border-bottom: 1px solid var(--vdw-line);
 }
 
 .video-action-lane > div {
   display: flex;
   gap: 7px;
   margin-left: auto;
-}
-
-.video-action-lane :deep(.el-button) {
-  height: var(--vdm-control-height);
-  border-radius: 2px;
 }
 
 .selection-summary {
@@ -643,14 +824,15 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 }
 
 .selection-summary small {
-  color: var(--vdw-muted);
+  color: var(--vdw-ink-2);
+  font-size: 14px;
   font-weight: 400;
 }
 
 .video-ledger {
   margin-top: 9px;
   background: white;
-  border: 1px solid var(--vdw-rule);
+  border: 1px solid var(--vdw-line);
 }
 
 .ledger-scroll {
@@ -663,7 +845,8 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   gap: 8px;
   align-items: center;
   min-width: 1292px;
-  padding: 0 9px;
+  /* 与 VRow 保持一致的行内呼吸空间 */
+  padding: 12px 12px;
 }
 
 .ledger-row > :nth-child(4),
@@ -673,11 +856,13 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 }
 
 .ledger-head {
-  height: 32px;
-  color: var(--vdw-muted);
-  font-size: 11px;
-  background: #f5f7f9;
-  border-bottom: 1px solid var(--vdw-rule);
+  height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  color: var(--vdw-ink-2);
+  font-size: 14px;
+  background: var(--vdw-surface-2);
+  border-bottom: 1px solid var(--vdw-line);
 }
 .ledger-head > * {
   text-align: center;
@@ -689,8 +874,8 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .media-row {
   position: relative;
-  min-height: var(--vdm-row-height);
-  border-bottom: 1px solid #e7ebef;
+  min-height: var(--vdw-row-height);
+  border-bottom: 1px solid var(--vdw-line);
 }
 
 .media-row:last-child {
@@ -706,7 +891,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 }
 
 .media-row[data-status='ready']::before {
-  background: var(--vdw-teal);
+  background: var(--vdw-accent);
 }
 
 .media-row[data-status='unavailable']::before {
@@ -715,7 +900,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .media-row[data-enabled='false'] {
   color: #65717c;
-  background: #f6f8f9;
+  background: var(--vdw-surface-2);
 }
 
 .selection-cell,
@@ -729,12 +914,12 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 }
 
 .enabled-cell :deep(.el-switch) {
-  --el-switch-on-color: var(--vdw-teal);
+  --el-switch-on-color: var(--vdw-accent);
 }
 
 .readonly-enabled {
-  color: var(--vdw-muted);
-  font-size: 11px;
+  color: var(--vdw-ink-2);
+  font-size: 14px;
 }
 
 .readonly-enabled[data-enabled='false'] {
@@ -769,7 +954,7 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   bottom: 2px;
   padding: 1px 2px;
   color: #c9fff0;
-  font: 9px var(--vdw-mono);
+  font: 13px var(--vdw-mono);
   background: rgb(13 23 32 / 72%);
 }
 
@@ -788,49 +973,31 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .media-identity p {
   margin: 0;
-  color: var(--vdw-muted);
-  font-size: 13px;
+  color: var(--vdw-ink-2);
+  font-size: 14px;
 }
 
 .source-mark {
   width: fit-content;
   padding: 2px 4px;
   color: #315d78;
-  font: 11px var(--vdw-mono);
+  font: 14px var(--vdw-mono);
   border: 1px solid #a8bfcd;
 }
 
 .media-spec {
   display: grid;
   gap: 2px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .media-spec small {
-  color: var(--vdw-muted);
-  font-size: 11px;
+  color: var(--vdw-ink-2);
+  font-size: 13px;
 }
 
 .frame-count {
-  font: 12px var(--vdw-mono);
-}
-
-.status-mark {
-  width: fit-content;
-  padding: 2px 5px;
-  color: var(--vdw-muted);
-  font-size: 11px;
-  border: 1px solid #c8d0d7;
-}
-
-.status-mark[data-status='ready'] {
-  color: #0d6b58;
-  border-color: #70bda9;
-}
-
-.status-mark[data-status='unavailable'] {
-  color: #a33e39;
-  border-color: #d9aaa7;
+  font: 13px var(--vdw-mono);
 }
 
 .status-info {
@@ -840,78 +1007,20 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   overflow: hidden;
   gap: 4px;
   color: #53616d;
-  font-size: 11px;
+  font-size: 14px;
   white-space: nowrap;
-}
-
-.workflow-state,
-.workflow-flag {
-  flex: none;
-  padding: 2px 5px;
-  border: 1px solid #b7c3cc;
-}
-
-.workflow-state[data-state^='running'],
-.workflow-state[data-state^='queued'] {
-  color: #0d6b58;
-  border-color: #70bda9;
-  background: #eef9f6;
-}
-
-.workflow-state[data-state='task-failed'],
-.workflow-state[data-state='unavailable'],
-.workflow-state[data-state='resampling-required'] {
-  color: #a33e39;
-  border-color: #d9aaa7;
-  background: #fff3f2;
-}
-
-.workflow-flag[data-flag='视频停用'] {
-  color: #a33e39;
 }
 
 .status-info small {
   overflow: hidden;
-  color: var(--vdw-muted);
+  color: var(--vdw-ink-2);
   text-overflow: ellipsis;
 }
 
 .row-actions {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  height: var(--vdm-control-height);
-  border: 1px solid #cbd3da;
-}
-
-.row-actions > button,
-.row-actions > span {
-  min-width: 0;
-  color: #284c5f;
-  font: inherit;
-  font-size: 13px;
-  background: #fff;
-  border: 0;
-  border-right: 1px solid #d7dde2;
-}
-
-.row-actions > :last-child {
-  border-right: 0;
-}
-
-.row-actions > button {
-  cursor: pointer;
-}
-
-.row-actions > button:hover:not(:disabled) {
-  color: white;
-  background: var(--vdw-teal);
-}
-
-.row-actions > button:disabled,
-.row-actions > span {
-  color: #a6afb7;
-  background: #f4f6f7;
-  cursor: not-allowed;
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
 }
 
 .ledger-footer {
@@ -920,15 +1029,15 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
   justify-content: space-between;
   min-height: 46px;
   padding: 4px 9px 4px 13px;
-  border-top: 1px solid var(--vdw-rule);
+  border-top: 1px solid var(--vdw-line);
 }
 
 .ledger-footer label {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: var(--vdw-muted);
-  font-size: 12px;
+  color: var(--vdw-ink-2);
+  font-size: 14px;
 }
 
 .ledger-footer select {
@@ -946,13 +1055,13 @@ onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTa
 
 .empty-state h2 {
   margin: 0 0 7px;
-  font: 700 22px var(--vdw-title);
+  font: 700 22px var(--vdw-sans);
 }
 
 .empty-state p {
   margin: 0 0 16px;
-  color: var(--vdw-muted);
-  font-size: 13px;
+  color: var(--vdw-ink-2);
+  font-size: 14px;
 }
 
 video {
@@ -962,44 +1071,4 @@ video {
   background: #0d171f;
 }
 
-@media (max-width: 760px) {
-  .project-layout {
-    display: block;
-  }
-
-  .project-rail {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .project-identity {
-    border-bottom: 0;
-  }
-
-  .project-rail nav {
-    display: flex;
-    align-items: center;
-    padding: 9px;
-  }
-
-  .project-rail nav a {
-    padding: 9px 11px;
-    border-bottom: 2px solid transparent;
-    border-left: 0;
-  }
-
-  .project-rail nav a.active {
-    border-bottom-color: var(--vdw-mint);
-  }
-
-  .project-capacity {
-    grid-column: 1 / -1;
-    margin-top: 0;
-    padding: 8px 15px;
-  }
-
-  .workspace {
-    padding: 0 9px 18px;
-  }
-}
 </style>

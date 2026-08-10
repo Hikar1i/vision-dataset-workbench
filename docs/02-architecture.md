@@ -1,10 +1,10 @@
 # 架构
 
-状态：总体设计已批准，初始化、认证、项目权限、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、模型入库、自动标注和数据集导出已实现。
+状态：初始化、认证、项目权限、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、模型项目、超参数模板、训练任务、自动标注和数据集导出已实现。
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、十三版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、模型推理、数据集导出、GPU 能力探测和独立 Worker。模型训练仍是目标设计。因此本页区分：
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、二十版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、带标签的模型项目管理、不可变超参数模板、本地/远程模型推理、数据集导出、GPU 实时遥测和独立 Worker 训练调度器。
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -27,7 +27,7 @@ Vue setup/auth/admin/project/media pages
   │    └─ owner/editor writes + viewer reads
   ├─ /api/v1/capabilities → startup-cached capability probe
   │    ├─ nvidia-smi device inventory
-  │    └─ PyTorch CUDA / ONNX CUDA / Ultralytics / Transformers readiness
+  │    └─ PyTorch CUDA / Ultralytics readiness
   ├─ /api/v1/filesystem → HomePathResolver
   ├─ /api/v1/projects/<id>/videos|imports|tasks → MediaService
        ├─ SQLite Video / Task state
@@ -39,9 +39,25 @@ Vue setup/auth/admin/project/media pages
        └─ authenticated frame image delivery
   ├─ /api/v1/.../frames/<id>/annotations → AnnotationService
   │    └─ original-pixel rectangles + stable display order + annotation revision
-  ├─ /api/v1/models|auto-annotations → ModelService / AutoAnnotationService
+  ├─ /api/v1/model-projects|models → ModelService
+  │    ├─ 全局可见、创建者/管理员写入的归档项目与多标签分类
+  │    ├─ 后台 `.pt` 导入、归档项目间移动与乐观并发
+  │    └─ `.deleted/model-projects|models` 逻辑删除
+  ├─ /api/v1/hyperparameter-* → HyperparameterTemplateService
+  │    ├─ 工作区全局不可变模板、派生和逻辑删除
+  │    └─ Detect v1 参数目录与严格 RAW YAML 校验
+  ├─ /api/v1/training-* → TrainingService
+  │    ├─ 全局草稿、冻结快照、生命周期操作与逻辑删除
+  │    ├─ 单模型/单卡串行/多卡自定义序列
+  │    └─ 独立指标/曲线、终端快照日志和训练模型项目发布
+  ├─ /api/v1/me/x-anylabeling-server → XAnyLabelingSettingsService
+  ├─ /api/v1/me/llm-configs → LLMConfigService
+  │    ├─ 按用户隔离的 OpenAI-compatible / Anthropic 配置
+  │    └─ 工作区 Fernet 密钥加密与脱敏回显
+  ├─ /api/v1/.../auto-annotations → AutoAnnotationService
        ├─ synchronous single-frame review draft
-       └─ persistent batch task creation
+       ├─ local `.pt` YOLO, X-AnyLabeling or online vision LLM
+       └─ persistent batch task creation without credential snapshots
   └─ /api/v1/projects/<id>/dataset-exports → DatasetExportService
        ├─ immutable label/source snapshots
        ├─ list/detail/streaming ZIP/logical delete
@@ -54,10 +70,15 @@ Independent Python Worker
   ├─ FFmpeg frame extraction + atomic generation replacement
   ├─ inference model copy + atomic publication
   ├─ per-frame batch auto annotation + progress/status publication
-  └─ YOLO dataset hardlinks + labels/manifest + atomic publication
+  ├─ YOLO dataset hardlinks + labels/manifest + atomic publication
+  └─ TrainingScheduler
+       ├─ 每 GPU 一个非抢占 FIFO lane、跨 GPU 并行
+       ├─ 独立 Python/Ultralytics 子进程 + JSONL 事件与回调故障隔离
+       ├─ 运行级绝对路径 dataset.yaml 与工作区 Ultralytics 缓存
+       └─ checkpoint 保留、指标入库和模型原子发布
 ```
 
-API 请求负责校验、权限和应用服务编排。视频导入、抽帧、模型入库、批量自动标注和数据集导出只创建持久任务并立即返回；复制、下载、媒体探测、抽帧、模型复制、批量推理和导出在独立 Worker 中执行。单张自动标注是为交互复核保留的例外：在 API 同步线程池中运行并只返回草稿，不直接改写标注。帧文件、模型和导出产物先写任务临时目录，验证后原子发布。审计表和模型训练尚未实现。
+API 请求负责校验、权限和应用服务编排。视频导入、抽帧、模型入库、批量自动标注、数据集导出和训练只创建持久状态并立即返回；外部工具和训练进程由独立 Worker 管理。训练启动前冻结数据集、超参和 basemodel 快照，启动后不允许修改原任务设置。
 
 ## 遗留架构基线
 
@@ -115,6 +136,7 @@ SQLite             Persistent Worker
 - 路由页面只组织用户流程，不直接实现业务算法。
 - 项目、媒体、帧、标注、模型、任务和导出使用独立的功能模块。
 - 服务端状态是任务与资源的事实来源；页面本地状态只保存交互状态和可丢弃缓存。
+- 侧栏最近资源在 `AppShell` 挂载时形成会话快照，访问只持久化时间而不实时重排；复用的详情路由监听资源 ID，并拒绝过期响应覆盖当前 URL。
 - 批量操作提交服务端任务，不在浏览器中制造 O(视频数 × 帧数) 的请求瀑布。
 - UI 追求高信息密度、清晰层级和键鼠高效操作，具体设计系统在前端实现前确认。
 
@@ -149,7 +171,7 @@ SQLite             Persistent Worker
 
 任务状态与业务状态分离。复制、下载、抽帧、模型入库、批量自动标注和数据集导出使用 queued、running、succeeded、failed、canceled；任务记录包含类型、提交者、资源范围、进度、尝试次数、错误、取消标记、租约和时间。批量自动标注要求视频启用，并按 Worker 开始执行时启用的帧集合逐帧提交；失败或取消时保留已成功帧。导出记录另以 queued、running、ready、failed、canceled 表达产物状态，并关联持久任务。
 
-采样方案覆盖使用 `none/configured/sampled` 三级确认，重新抽帧使用 `none/light/destructive` 三级确认。后端在写事务中根据当前帧、`frame_revision` 和标注存在性重新计算所需级别；前端状态过期导致风险升级时逐项拒绝。`extract_frames` 任务 queued/running 期间冻结方案、筛帧和标注写入，读取和播放不受影响；成功发布新一代帧后才删除旧帧及其级联标注。
+采样方案覆盖使用 `none/configured/sampled` 三级确认，重新抽帧使用 `none/light/destructive` 三级确认。按标注启停的安全范围仅包含有标注且 `frame_revision <= 1` 的视频；无标注视频始终忽略，覆盖 `frame_revision > 1` 的筛帧结果必须显式确认。后端在写事务中根据当前帧、`frame_revision` 和标注存在性重新计算所需级别；前端状态过期导致风险升级时逐项拒绝。`extract_frames` 任务 queued/running 期间冻结方案、筛帧和标注写入，读取和播放不受影响；成功发布新一代帧后才删除旧帧及其级联标注。
 
 ## 一致性原则
 
@@ -169,9 +191,10 @@ SQLite             Persistent Worker
 - Worker 与 API 读取同一 SQLite 和工作区。复制、下载、抽帧和批量自动标注各自全局并发 2，模型入库和数据集导出各自全局并发 1；同类型每用户并发 1。每个 FFmpeg 抽帧进程限制 2 个线程，当前只部署一个调度 Worker。
 - 项目媒体位于 `projects/<project UUID>/videos/<video short code>.<ext>`，缩略图位于 `projects/<project UUID>/thumbnails/<video short code>_thumbnail.jpg`，采样帧位于 `projects/<project UUID>/frames/<video short code>/<video short code>_frame_000001.<jpg|png>`；执行中输出位于顶层 `tmp/<task UUID>/`，验证后原子发布。短码在项目内唯一，帧文件可按原名平铺复制；每视频子目录仍是重采样原子替换边界。
 - 数据集导出位于 `projects/<project UUID>/exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；图像通过硬链接引用当前帧文件，类别和源数据快照、YOLO 标签、配置及统计清单随产物保存。下载按请求流式生成 ZIP，不在工作区保留额外压缩包。
+- 训练子进程在 `<workspace>/cache/ultralytics/` 运行；Ultralytics 的 AMP 辅助权重等运行缓存不会写入源码目录。每次运行在自身目录生成解析为绝对路径的 `dataset.yaml`，避免相对路径随子进程工作目录漂移。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
 - Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
-- Python 核心依赖不包含模型运行库；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、Ultralytics、Transformers 和 ONNX Runtime GPU。
+- Python 核心依赖不包含本地大模型或 Agent 框架；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、torchvision 和 Ultralytics。X-AnyLabeling 与在线视觉大模型均通过 HTTP 调用。
 - 只支持单机本地磁盘，不支持跨服务器 Worker 或网络文件系统上的 SQLite。
 
 当前及后续工作区目录约定：
@@ -185,14 +208,14 @@ projects/<project UUID>/
 ├─ annotation-batches/<batch UUID>/ # 逻辑概念：当前批量任务直接按 Frame 记录处理，不物化固定分组目录
 └─ exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/ # 已实现：不可变 YOLO 数据集导出
 
-models/<model UUID>/                # 已实现：受管推理模型文件或 Transformers 目录
+models/<model UUID>/                # 已实现：受管 `.pt` YOLO 模型文件
 ```
 
-遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应新的 `exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；遗留 `groups/` 不作为普通数据目录照搬，而对应自动标注任务的帧快照/分片概念。新系统直接调用 YOLO、GroundingDINO 等模型并由任务调度器动态分片，不依赖 X-AnyLabeling 或固定分组目录。
+遗留 `thumbnails/` 对应新的项目级 `thumbnails/`；遗留 `dataset/` 对应新的 `exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；遗留 `groups/` 不作为普通数据目录照搬，而对应自动标注任务的帧快照/分片概念。新系统本地只加载 YOLO；X-AnyLabeling 使用其 `/v1/models` 与 `/v1/predict` 协议，在线视觉大模型独立使用 OpenAI-compatible 或 Anthropic 原生消息协议。
 
 ## 延期架构
 
 - 图片数据集能力在视频重构后实现，不直接移植遗留分支路由。
-- 在线标注已实现手动矩形框，以及 Ultralytics YOLO 和 Transformers GroundingDINO 自动标注；不依赖 X-AnyLabeling。
+- 在线标注已实现手动矩形框、本地 Ultralytics YOLO、X-AnyLabeling-Server 和在线视觉大模型自动标注；远程返回只接纳轴对齐矩形。
 - 批量自动标注由 Worker 按任务启动时的启用 Frame 集合处理，不依赖外部 AnnotationBatch 目录。
 - 不预建任意模型或训练脚本插件框架。

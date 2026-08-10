@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -16,10 +18,13 @@ from vision_dataset_workbench.models import (
     InferenceModel,
     ProjectLabel,
     SamplingPlan,
+    Task,
     User,
+    UserXAnyLabelingSetting,
     Video,
 )
 from vision_dataset_workbench.security.passwords import hash_password
+from vision_dataset_workbench.xanylabeling import RemoteModelOption
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct horse battery staple"
@@ -33,13 +38,31 @@ class FakeRunner:
         ]
 
 
+class FakeRemoteClient:
+    def __init__(self, *_args):
+        pass
+
+    def list_models(self):
+        return [
+            RemoteModelOption(
+                '["remote-detector","grounding"]',
+                "remote-detector",
+                "grounding",
+                "Remote Detector / Grounding",
+                "text_prompt",
+            )
+        ]
+
+    def predict(self, *_args):
+        return [Detection("dog", 200, 100, 420, 500, 0.82)]
+
+
 def capabilities():
     ready = CapabilityStatus(True)
     return SystemCapabilities(
         gpu=GpuStatus(True, None, ()),
         pytorch_cuda=ready,
-        onnx_cuda=CapabilityStatus(False, "unused"),
-        features=FeatureCapabilities(ready, ready, ready, ready),
+        features=FeatureCapabilities(ready, ready, ready),
     )
 
 
@@ -136,6 +159,43 @@ def test_single_inference_returns_draft_and_creates_only_detected_missing_labels
     ).status_code == 409
 
 
+def test_remote_single_and_batch_use_user_setting_and_source_payload(tmp_path):
+    app = make_app(tmp_path)
+    app.state.xanylabeling_settings_service.client_factory = FakeRemoteClient
+    with Session(app.state.auth_service.engine) as session:
+        session.add(
+            UserXAnyLabelingSetting(
+                user_id="owner-id", server_url="http://server.test"
+            )
+        )
+        session.commit()
+    owner = client_for(app, "owner")
+    payload = {
+        "source": "xanylabeling",
+        "model_id": "remote-detector",
+        "remote_task_id": "grounding",
+        "categories": ["dog"],
+        "confidence": 0.25,
+        "iou": 0.45,
+    }
+
+    single = owner.post(url(), headers=ORIGIN, json=payload)
+    batch = owner.post(
+        "/api/v1/projects/project-id/videos/video-id/auto-annotations",
+        headers=ORIGIN,
+        json={**payload, "overwrite": False},
+    )
+
+    assert single.status_code == 200
+    assert [item["label_name"] for item in single.json()["items"]] == ["dog"]
+    assert batch.status_code == 202
+    with Session(app.state.auth_service.engine) as session:
+        task = session.get(Task, batch.json()["id"])
+        task_payload = json.loads(task.payload)
+    assert task_payload["source"] == "xanylabeling"
+    assert task_payload["remote_task_id"] == "grounding"
+
+
 def test_single_inference_rejects_viewer_and_requires_same_origin(tmp_path):
     app = make_app(tmp_path)
     owner = client_for(app, "owner")
@@ -178,3 +238,86 @@ def test_batch_inference_queues_one_video_task_and_rejects_viewer(tmp_path):
     assert response.json()["video_id"] == "video-id"
     assert viewer.post(batch_url, headers=ORIGIN, json=payload).status_code == 403
     assert owner.post(batch_url, headers=ORIGIN, json=payload).status_code == 409
+
+
+def test_project_batch_inference_queues_parent_task_and_reports_video_scope(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "owner")
+    with Session(app.state.auth_service.engine) as session:
+        session.add(
+            Video(
+                id="video-two",
+                project_id="project-id",
+                short_code="TESTV002",
+                source_type="local",
+                title="second",
+                status="ready",
+                width=1920,
+                height=1080,
+                enabled=True,
+            )
+        )
+        session.flush()
+        session.add(
+            SamplingPlan(
+                id="plan-two",
+                video_id="video-two",
+                mode="target_frames",
+                parameters="{}",
+                output_format="jpg",
+                output_quality=2,
+                expected_frames=1,
+                extracted_frames=1,
+                enabled_frames=1,
+            )
+        )
+        session.add(
+            Frame(
+                id="frame-two",
+                video_id="video-two",
+                generation=1,
+                sequence=1,
+                source_frame_index=0,
+                time_offset=0,
+                file_path="projects/project-id/frames/TESTV002/frame.jpg",
+                enabled=True,
+            )
+        )
+        session.commit()
+
+    response = owner.post(
+        "/api/v1/projects/project-id/auto-annotations/batch",
+        headers=ORIGIN,
+        json={
+            "video_ids": ["video-id", "video-two"],
+            "model_id": "model-id",
+            "categories": ["dog"],
+            "confidence": 0.25,
+            "iou": 0.45,
+            "scope": "unannotated",
+            "overwrite": False,
+        },
+    )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["accepted_video_ids"] == ["video-id", "video-two"]
+    assert body["rejected"] == []
+    assert body["task"]["video_id"] is None
+    with Session(app.state.auth_service.engine) as session:
+        task = session.get(Task, body["task"]["id"])
+        assert task is not None
+        assert json.loads(task.payload)["video_ids"] == ["video-id", "video-two"]
+
+    conflict = owner.post(
+        "/api/v1/projects/project-id/auto-annotations/batch",
+        headers=ORIGIN,
+        json={
+            "video_ids": ["video-id"],
+            "model_id": "model-id",
+            "categories": [],
+            "confidence": 0.25,
+            "iou": 0.45,
+            "scope": "all",
+        },
+    )
+    assert conflict.status_code == 409

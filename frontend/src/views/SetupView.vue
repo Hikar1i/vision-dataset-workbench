@@ -2,8 +2,10 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { initializeWorkspace } from '../api/setup'
-import ServerDirectoryPicker from '../components/ServerDirectoryPicker.vue'
+import type { CreateFilesystemDirectory, LoadFilesystemEntries } from '../api/filesystem'
+import { createSetupDirectory, initializeWorkspace, listSetupDirectories } from '../api/setup'
+import ServerFilePicker from '../components/ServerFilePicker.vue'
+import VButton from '../ui/VButton.vue'
 
 const router = useRouter()
 const step = ref(0)
@@ -18,6 +20,9 @@ const workspaceDisplay = computed(() => {
   const prefix = parent.value === '.' ? '~' : `~/${parent.value}`
   return `${prefix}/.vision-dataset-workbench`
 })
+const loadDirectories: LoadFilesystemEntries = (query) => listSetupDirectories(token.value, query)
+const createDirectory: CreateFilesystemDirectory = (directory, name) =>
+  createSetupDirectory(token.value, directory, name)
 
 async function initialize() {
   submitting.value = true
@@ -86,14 +91,11 @@ async function initialize() {
             />
           </el-form-item>
         </el-form>
-        <el-button
-          data-test="continue"
-          type="primary"
+        <VButton variant="primary" data-test="continue"
           :disabled="!token"
-          @click="step = 1"
-        >
+          @click="step = 1">
           验证并选择目录
-        </el-button>
+        </VButton>
       </section>
 
       <section v-else class="form-section wide">
@@ -101,7 +103,13 @@ async function initialize() {
           <h2>选择工作区父目录</h2>
           <p>系统将在所选位置创建 <code>.vision-dataset-workbench</code>。</p>
         </div>
-        <ServerDirectoryPicker v-model="parent" :token="token" />
+        <ServerFilePicker
+          v-model="parent"
+          mode="directory"
+          allow-create-directory
+          :load-entries="loadDirectories"
+          :create-directory="createDirectory"
+        />
 
         <div class="admin-heading">
           <h2>创建首个管理员</h2>
@@ -133,18 +141,15 @@ async function initialize() {
           </div>
         </el-form>
         <footer class="actions">
-          <el-button @click="step = 0">返回</el-button>
-          <el-button
-            data-test="initialize"
-            type="primary"
+          <VButton variant="secondary" @click="step = 0">返回</VButton>
+          <VButton variant="primary" data-test="initialize"
             :loading="submitting"
             :disabled="
               username.length < 3 || password.length < 12 || password !== passwordConfirmation
             "
-            @click="initialize"
-          >
+            @click="initialize">
             创建工作区
-          </el-button>
+          </VButton>
         </footer>
       </section>
     </section>
@@ -153,49 +158,50 @@ async function initialize() {
 
 <style scoped>
 .setup-shell {
-  --ink: #17212b;
-  --muted: #687482;
-  --line: #d8dee6;
-  --signal: #2563eb;
+  --ink: var(--vdw-rail);
+  --muted: var(--vdw-ink-2);
+  --line: var(--vdw-line);
+  --signal: var(--vdw-accent);
   display: grid;
   grid-template-columns: minmax(260px, 32%) minmax(0, 1fr);
   min-height: 100vh;
-  background: #f4f7fa;
+  background: var(--vdw-app);
 }
 
 .setup-context {
   display: flex;
   flex-direction: column;
   padding: clamp(35px, 6vw, 79px);
-  color: #f6f9fc;
+  color: var(--vdw-focus-ink);
   background: var(--ink);
 }
 
 .eyebrow,
 .step-label,
 .path-preview span {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--vdw-mono);
   font-size: 13px;
   letter-spacing: 0.1em;
 }
 
 .eyebrow {
   margin: 0 0 62px;
-  color: #76dfc2;
+  color: var(--vdw-focus-accent);
 }
 
 .setup-context h1 {
   max-width: 396px;
   margin: 0;
-  font-size: clamp(40px, 5vw, 70px);
-  line-height: 0.98;
-  letter-spacing: -0.05em;
+  font-size: clamp(34px, 4vw, 52px);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
 }
 
 .context-copy {
   max-width: 462px;
   margin: 31px 0 53px;
-  color: #b8c3ce;
+  color: var(--vdw-focus-ink-2);
   line-height: 1.7;
 }
 
@@ -212,22 +218,22 @@ async function initialize() {
   gap: 18px;
   align-items: center;
   padding: 13px 0;
-  color: #7f8d9b;
-  border-bottom: 1px solid #2d3945;
+  color: var(--vdw-rail-ink-2);
+  border-bottom: 1px solid var(--vdw-rail-line);
 }
 
 .steps li span {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--vdw-mono);
   font-size: 13px;
 }
 
 .steps li.active,
 .steps li.complete {
-  color: white;
+  color: #fff;
 }
 
 .steps li.active span {
-  color: #76dfc2;
+  color: var(--vdw-focus-accent);
 }
 
 .path-preview {
@@ -238,12 +244,12 @@ async function initialize() {
 }
 
 .path-preview span {
-  color: #7f8d9b;
+  color: var(--vdw-rail-ink-2);
 }
 
 .path-preview code {
   overflow-wrap: anywhere;
-  color: #76dfc2;
+  color: var(--vdw-focus-accent);
 }
 
 .setup-panel {
@@ -278,7 +284,8 @@ async function initialize() {
 h2 {
   margin: 0 0 8px;
   color: var(--ink);
-  font-size: 26px;
+  font-size: 22px;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 
@@ -306,38 +313,4 @@ h2 {
   border-top: 1px solid var(--line);
 }
 
-@media (max-width: 800px) {
-  .setup-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .setup-context {
-    min-height: auto;
-    padding: 31px 26px;
-  }
-
-  .eyebrow,
-  .context-copy,
-  .steps {
-    display: none;
-  }
-
-  .setup-context h1 {
-    font-size: 37px;
-  }
-
-  .path-preview {
-    padding-top: 26px;
-  }
-
-  .setup-panel {
-    width: min(100% - 35px, 1012px);
-    padding: 35px 0;
-  }
-
-  .password-grid {
-    grid-template-columns: 1fr;
-    gap: 0;
-  }
-}
 </style>

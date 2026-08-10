@@ -180,6 +180,19 @@ def update_project(
     return _project_response(view)
 
 
+@router.delete("/{project_id}", status_code=204)
+def delete_project(
+    project_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> None:
+    require_same_origin(request)
+    try:
+        project_service(request).delete_project(user, project_id)
+    except (ProjectNotFound, ProjectForbidden, ProjectConflict) as exc:
+        _raise_http_error(exc)
+
+
 @router.get("/{project_id}/members", response_model=list[MemberResponse])
 def list_members(
     project_id: str,

@@ -58,7 +58,8 @@ export type VideoPage = {
 
 export type ProjectTask = {
   id: string
-  project_id: string
+  project_id: string | null
+  model_project_id: string | null
   video_id: string | null
   type: 'copy_video' | 'download_video' | 'extract_frames' | 'import_model' | 'auto_annotate' | 'export_dataset'
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
@@ -83,6 +84,8 @@ export type TaskPage = {
 
 export type GlobalProjectTask = ProjectTask & {
   project_name: string
+  resource_kind: 'project' | 'model_project'
+  resource_name: string
   can_manage: boolean
 }
 
@@ -92,22 +95,6 @@ export type GlobalTaskPage = {
   page_size: number
   total: number
   latest_terminal_at: string | null
-}
-
-export type FilesystemItem = {
-  name: string
-  path: string
-  type: 'directory' | 'file'
-  size: number | null
-}
-
-export type FilesystemPage = {
-  path: string
-  parent: string | null
-  items: FilesystemItem[]
-  page: number
-  page_size: number
-  total: number
 }
 
 export type LocalPreview = { path: string; name: string; size: number }
@@ -184,6 +171,24 @@ export const setVideoEnabled = (
     body: JSON.stringify({ enabled, version }),
   })
 
+export type BatchEnabledByAnnotationResult = {
+  accepted: Array<{ video_id: string; sampling: SamplingSummary }>
+  rejected: Array<{ input: string; reason: string; code: string }>
+}
+
+export const setVideosEnabledByAnnotation = (
+  projectId: string,
+  videoIds: string[],
+  scope: 'unscreened-only' | 'all',
+  confirmAll = false,
+  revisions?: Record<string, number>,
+) =>
+  json<BatchEnabledByAnnotationResult>(`${projectPath(projectId)}/videos/batch-enabled-by-annotation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ video_ids: videoIds, scope, confirm_all: confirmAll, revisions }),
+  })
+
 export const listTasks = (projectId: string, page = 1) =>
   json<TaskPage>(`${projectPath(projectId)}/tasks?page=${page}`)
 
@@ -194,22 +199,6 @@ export const listGlobalTasks = (page = 1, pageSize = 50) =>
       page_size: String(pageSize),
     })}`,
   )
-
-export const listFilesystem = (
-  path = '.',
-  page = 1,
-  kind: 'video' | 'model' = 'video',
-) =>
-  json<FilesystemPage>(
-    `/api/v1/filesystem?${new URLSearchParams({ path, kind, page: String(page) })}`,
-  )
-
-export const createFilesystemDirectory = (parent: string, name: string) =>
-  json<{ path: string; display_path: string }>('/api/v1/filesystem/directories', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ parent, name }),
-  })
 
 export const previewLocal = (projectId: string, path: string) =>
   json<LocalPreview[]>(`${projectPath(projectId)}/imports/local/preview`, {
@@ -246,6 +235,9 @@ export const cancelTask = (projectId: string, taskId: string) =>
   json<ProjectTask>(`${projectPath(projectId)}/tasks/${taskId}/cancel`, {
     method: 'POST',
   })
+
+export const cancelGlobalTask = (taskId: string) =>
+  json<ProjectTask>(`/api/v1/tasks/${taskId}/cancel`, { method: 'POST' })
 
 export const retryTask = (projectId: string, taskId: string) =>
   json<ProjectTask>(`${projectPath(projectId)}/tasks/${taskId}/retry`, {
