@@ -608,14 +608,14 @@ onBeforeUnmount(() => {
             <output data-test="grid-scale-value">{{ gridScaleInput.toFixed(2) }}×</output>
           </label>
           <template v-if="canEdit">
-            <VButton variant="secondary" v-if="!rangeMode" data-test="enter-range" :aria-pressed="false" @click="enterRangeMode">范围多选</VButton>
+            <VButton variant="default" v-if="!rangeMode" data-test="enter-range" :aria-pressed="false" @click="enterRangeMode">范围多选</VButton>
             <template v-else>
-              <VButton variant="secondary" data-test="exit-range" :aria-pressed="true" @click="exitRangeMode">退出多选</VButton>
-              <VButton variant="secondary" :disabled="!selected.size" @click="clearSelection">取消选中</VButton>
-              <VButton variant="secondary" :disabled="!selected.size" @click="setSelectedEnabled(true)">批量启用</VButton>
+              <VButton variant="default" data-test="exit-range" :aria-pressed="true" @click="exitRangeMode">退出多选</VButton>
+              <VButton variant="default" :disabled="!selected.size" @click="clearSelection">取消选中</VButton>
+              <VButton variant="default" :disabled="!selected.size" @click="setSelectedEnabled(true)">批量启用</VButton>
               <VButton variant="danger" :disabled="!selected.size" @click="setSelectedEnabled(false)">批量停用</VButton>
             </template>
-            <VButton variant="secondary" @click="patternOpen = true">启停模板</VButton>
+            <VButton variant="default" @click="patternOpen = true">启停模板</VButton>
             <VButton variant="danger" v-if="!rangeMode" :loading="analyzing" @click="enableByAnnotation">按标注启停</VButton>
           </template>
         </div>
@@ -685,7 +685,7 @@ onBeforeUnmount(() => {
                 v-if="canEdit"
                 :data-test="`toggle-${frame.id}`"
                 size="sm"
-                :variant="draft[frame.id] ? 'danger' : 'secondary'"
+                :variant="draft[frame.id] ? 'danger' : 'default'"
                 @click="toggleDraft(frame.id)"
               >{{ draft[frame.id] ? '停用' : '启用' }}</VButton>
             </footer>
@@ -716,7 +716,7 @@ onBeforeUnmount(() => {
               v-for="(_, index) in pattern"
               :key="index"
               size="sm"
-              :variant="pattern[index] ? 'primary' : 'secondary'"
+              :variant="pattern[index] ? 'primary' : 'default'"
               :aria-pressed="pattern[index] ? 'true' : 'false'"
               @click="togglePattern(index)"
             >{{ pattern[index] ? '启用' : '停用' }}</VButton>
@@ -725,7 +725,7 @@ onBeforeUnmount(() => {
         <el-alert title="仅修改前端状态，需点击“保存更改”才会写入数据库。" type="warning" :closable="false" show-icon />
       </div>
       <template #footer>
-        <VButton variant="secondary" @click="patternOpen = false">取消</VButton>
+        <VButton variant="default" @click="patternOpen = false">取消</VButton>
         <VButton variant="primary" :disabled="rangeMode && !selected.size" @click="applyPattern">
           {{ rangeMode ? `应用到选中的 ${selected.size} 帧` : `应用到全部 ${frames.length} 帧` }}
         </VButton>
@@ -816,14 +816,14 @@ onBeforeUnmount(() => {
           </aside>
         </div>
         <footer>
-          <VButton v-if="canEdit" data-test="preview-toggle-enabled" :variant="draft[previewFrame.id] ? 'danger' : 'secondary'" @click="toggleDraft(previewFrame.id)">{{ draft[previewFrame.id] ? '停用采样帧' : '启用采样帧' }} · S</VButton>
-          <VButton variant="secondary" :disabled="previewIndex === 0" @click="movePreview(-1)"><el-icon><ArrowLeftBold /></el-icon>上一张 · A</VButton>
-          <VButton variant="secondary" :disabled="previewIndex === frames.length - 1" @click="movePreview(1)">下一张 · D<el-icon><ArrowRightBold /></el-icon></VButton>
-          <VButton variant="secondary" title="缩小" @click="zoomPreview(-0.1)"><el-icon><ZoomOut /></el-icon></VButton>
+          <VButton v-if="canEdit" data-test="preview-toggle-enabled" :variant="draft[previewFrame.id] ? 'danger' : 'default'" @click="toggleDraft(previewFrame.id)">{{ draft[previewFrame.id] ? '停用采样帧' : '启用采样帧' }} · S</VButton>
+          <VButton variant="default" :disabled="previewIndex === 0" @click="movePreview(-1)"><el-icon><ArrowLeftBold /></el-icon>上一张 · A</VButton>
+          <VButton variant="default" :disabled="previewIndex === frames.length - 1" @click="movePreview(1)">下一张 · D<el-icon><ArrowRightBold /></el-icon></VButton>
+          <VButton variant="default" title="缩小" @click="zoomPreview(-0.1)"><el-icon><ZoomOut /></el-icon></VButton>
           <span>{{ Math.round(previewZoom * 100) }}%</span>
-          <VButton variant="secondary" data-test="preview-zoom-in" title="放大" @click="zoomPreview(0.1)"><el-icon><ZoomIn /></el-icon></VButton>
-          <VButton variant="secondary" @click="resetPreviewView"><el-icon><Refresh /></el-icon>重置 · R</VButton>
-          <VButton variant="secondary" @click="boxesVisible = !boxesVisible"><el-icon><Hide v-if="boxesVisible" /><View v-else /></el-icon>{{ boxesVisible ? '隐藏标注框' : '显示标注框' }} · H</VButton>
+          <VButton variant="default" data-test="preview-zoom-in" title="放大" @click="zoomPreview(0.1)"><el-icon><ZoomIn /></el-icon></VButton>
+          <VButton variant="default" @click="resetPreviewView"><el-icon><Refresh /></el-icon>重置 · R</VButton>
+          <VButton variant="default" @click="boxesVisible = !boxesVisible"><el-icon><Hide v-if="boxesVisible" /><View v-else /></el-icon>{{ boxesVisible ? '隐藏标注框' : '显示标注框' }} · H</VButton>
         </footer>
       </section>
     </Transition>
@@ -903,7 +903,7 @@ onBeforeUnmount(() => {
 
 .pattern-form { display: grid; gap: 18px; }.pattern-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; }.pattern-form label > span,
 .pattern-row > span { color: var(--vdw-ink-2); font-size: 14px; }.pattern-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; }.pattern-row > div { display: flex; flex-wrap: wrap; gap: 7px; }
-/* 启停序列是一排二态开关，用 primary/secondary 表达按下与未按下，
+/* 启停序列是一排二态开关，用 primary/default 表达按下与未按下，
    不再用绿/红实心——弹窗在浅色层，红绿实心会盖过它上方的说明 */
 .pattern-row :deep(.vdw-btn) { min-width: 58px; }
 

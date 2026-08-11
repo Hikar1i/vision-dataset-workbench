@@ -226,7 +226,7 @@ const headerHost = useProjectHeaderHost()
               placeholder="可选，例如 安全帽"
             />
           </label>
-          <VButton variant="secondary" data-test="add-label" type="submit"
+          <VButton variant="default" data-test="add-label" type="submit"
             :loading="saving === 'new'"
             :disabled="!newName.trim() || !newColor">添加</VButton>
         </form>
@@ -290,7 +290,7 @@ const headerHost = useProjectHeaderHost()
                 aria-label="下移"
                 :disabled="index === labels.length - 1 || Boolean(saving)"
                 @click="move(index, 1)"><el-icon><Bottom /></el-icon></VButton>
-              <VButton variant="quiet" size="sm" :loading="saving === label.id"
+              <VButton variant="danger" size="sm" :loading="saving === label.id"
                 @click="remove(label)">删除</VButton>
             </template>
           </div>
@@ -388,7 +388,7 @@ const headerHost = useProjectHeaderHost()
 .mapping-order {
   color: var(--vdw-ink-2);
   font: 16px var(--vdw-mono);
-  justify-self: center;
+  justify-self: start;
 }
 
 .label-color {

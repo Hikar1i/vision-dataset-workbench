@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CopyDocument, Delete, Plus } from '@element-plus/icons-vue'
+import { CopyDocument, Delete, Plus, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -24,7 +24,7 @@ const loading = ref(false)
 const deleting = ref('')
 const error = ref('')
 
-const COLUMNS = 'minmax(250px, 1fr) 88px 88px 104px 112px 180px'
+const COLUMNS = 'minmax(250px, 1fr) 80px 80px 90px 200px 200px'
 
 async function load() {
   loading.value = true
@@ -94,10 +94,10 @@ onMounted(load)
             <time :datetime="item.created_at">{{ item.created_at.slice(0, 10) }}</time>
             <div class="row-actions">
               <VButton
-                variant="secondary"
+                variant="default"
                 size="sm"
                 @click="router.push(`/hyperparameter-templates/${item.id}`)"
-              >详情</VButton>
+              ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
               <VButton
                 variant="quiet"
                 size="sm"
@@ -148,9 +148,10 @@ time {
   font-size: 14px;
 }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 </style>

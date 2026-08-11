@@ -103,8 +103,13 @@ watch(() => route.params.id, load, { immediate: true })
   min-height: 100%;
 }
 
+/* 高度必须小于 eyebrow 的 22px 定高，否则会把该行撑开，
+   数据集项目的 header 就会比其它页面高——这正是要消除的问题。 */
 .project-role {
-  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
   color: var(--vdw-ink-2);
   font-size: 13px;
   letter-spacing: 0.06em;

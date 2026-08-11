@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Bottom, Top } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, ref, watch } from 'vue'
 
@@ -176,15 +177,25 @@ watch(() => props.modelValue, (open) => {
             />
             <strong>{{ label.name }}</strong>
             <div v-if="mode === 'manual'" class="order-actions">
-              <VButton variant="quiet" :data-test="`move-up-${label.name}`"
+              <VButton
+                variant="quiet"
+                size="sm"
+                icon-only
+                :data-test="`move-up-${label.name}`"
                 :disabled="index === 0"
+                :label="`上移 ${label.name}`"
                 :title="`上移 ${label.name}`"
-                :aria-label="`上移 ${label.name}`"
-                @click="move(index, -1)"/>
-              <VButton variant="quiet" :disabled="index === labels.length - 1"
+                @click="move(index, -1)"
+              ><template #icon><el-icon><Top /></el-icon></template></VButton>
+              <VButton
+                variant="quiet"
+                size="sm"
+                icon-only
+                :disabled="index === labels.length - 1"
+                :label="`下移 ${label.name}`"
                 :title="`下移 ${label.name}`"
-                :aria-label="`下移 ${label.name}`"
-                @click="move(index, 1)"/>
+                @click="move(index, 1)"
+              ><template #icon><el-icon><Bottom /></el-icon></template></VButton>
             </div>
           </div>
         </div>
@@ -200,7 +211,7 @@ watch(() => props.modelValue, (open) => {
     </div>
 
     <template #footer>
-      <VButton variant="secondary" @click="emit('update:modelValue', false)">取消</VButton>
+      <VButton variant="default" @click="emit('update:modelValue', false)">取消</VButton>
       <VButton variant="primary" data-test="submit-export"
         :loading="submitting"
         :disabled="!canSubmit"

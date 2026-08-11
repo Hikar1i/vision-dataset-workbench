@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus } from '@element-plus/icons-vue'
+import { Connection, Delete, EditPen, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 
@@ -41,7 +41,7 @@ const form = reactive({
   api_key: '', enabled: true, advanced_options: {} as Record<string, unknown>,
 })
 
-const COLUMNS = 'minmax(200px, 1.2fr) 110px minmax(160px, 0.7fr) 168px'
+const COLUMNS = 'minmax(200px, 1.2fr) 110px minmax(160px, 0.7fr) 210px'
 
 const defaultGroups = computed(() => groupedLLMOptions(Object.keys(defaults)))
 const extraDefaultKeys = computed(() => ungroupedLLMOptions(Object.keys(defaults)))
@@ -224,14 +224,14 @@ onMounted(() => void load())
                 size="sm"
                 :loading="testing[item.id]"
                 @click="test(item)"
-              >测试</VButton>
+              ><template #icon><el-icon><Connection /></el-icon></template>测试</VButton>
               <VButton
                 :data-test="`llm-edit-${item.id}`"
                 variant="quiet"
                 size="sm"
                 @click="openEdit(item)"
-              >编辑</VButton>
-              <VButton variant="quiet" size="sm" @click="remove(item)">删除</VButton>
+              ><template #icon><el-icon><EditPen /></el-icon></template>编辑</VButton>
+              <VButton variant="danger" size="sm" @click="remove(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
             </div>
           </VRow>
           <template #empty>
@@ -445,14 +445,15 @@ onMounted(() => void load())
 .llm-conn.is-danger { color: var(--vdw-danger); }
 .llm-conn.is-idle { color: var(--vdw-ink-3); }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 
 .llm-defaults__lead {
-  max-width: 68ch;
+  max-width: 800px;
   margin: 0 0 4px;
   color: var(--vdw-ink-2);
   font-size: 14px;
@@ -482,7 +483,7 @@ onMounted(() => void load())
 
 .llm-defaults {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 18px;
 }
 

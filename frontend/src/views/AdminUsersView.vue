@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Check, CircleCheck, CircleClose, Close } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 
 import {
@@ -116,17 +117,17 @@ onMounted(() => load())
               <template v-if="user.status === 'pending'">
                 <VButton
                   :data-test="`approve-${user.id}`"
-                  variant="secondary"
+                  variant="default"
                   size="sm"
                   :loading="changingId === user.id"
                   @click="change(user, 'approve')"
-                >批准</VButton>
+                ><template #icon><el-icon><Check /></el-icon></template>批准</VButton>
                 <VButton
                   variant="quiet"
                   size="sm"
                   :disabled="changingId === user.id"
                   @click="change(user, 'reject')"
-                >拒绝</VButton>
+                ><template #icon><el-icon><Close /></el-icon></template>拒绝</VButton>
               </template>
               <VButton
                 v-else-if="user.status === 'active'"
@@ -135,14 +136,14 @@ onMounted(() => load())
                 size="sm"
                 :loading="changingId === user.id"
                 @click="change(user, 'disable')"
-              >禁用</VButton>
+              ><template #icon><el-icon><CircleClose /></el-icon></template>禁用</VButton>
               <VButton
                 v-else
-                variant="secondary"
+                variant="default"
                 size="sm"
                 :loading="changingId === user.id"
                 @click="change(user, 'enable')"
-              >启用</VButton>
+              ><template #icon><el-icon><CircleCheck /></el-icon></template>启用</VButton>
             </div>
           </VRow>
 
@@ -152,7 +153,7 @@ onMounted(() => load())
               :title="statusFilter ? '这个状态下没有账号' : '还没有其他账号'"
               note="新用户提交注册申请后会出现在待审批列表。"
             >
-              <VButton v-if="statusFilter" variant="secondary" @click="selectFilter('')">
+              <VButton v-if="statusFilter" variant="default" @click="selectFilter('')">
                 查看全部账号
               </VButton>
             </VEmpty>
@@ -178,9 +179,10 @@ time {
   font-size: 14px;
 }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 

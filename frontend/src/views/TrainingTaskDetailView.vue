@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDown } from '@element-plus/icons-vue'
+import { ArrowDown, Close, Delete, Plus, RefreshLeft, RefreshRight, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -41,7 +41,7 @@ let timer: number | undefined
 let loadVersion = 0
 
 const COLUMNS =
-  '52px minmax(220px, 1.3fr) 104px minmax(180px, 0.8fr) minmax(190px, 0.7fr) minmax(240px, auto)'
+  '52px minmax(240px, 1.2fr) 104px minmax(180px, 0.9fr) minmax(200px, 0.9fr) minmax(390px, 1.8fr)'
 
 const MODE_LABEL: Record<string, string> = {
   single_model: '单模型',
@@ -369,31 +369,31 @@ onBeforeUnmount(() => clearInterval(timer))
 
               <div class="row-actions">
                 <VButton
-                  variant="secondary"
+                  variant="default"
                   size="sm"
                   @click="router.push(`/training-tasks/${task.id}/models/${model.id}`)"
-                >详情</VButton>
+                ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
                 <VButton
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.cancel?.allowed"
                   :title="model.actions.cancel?.message || '取消'"
                   @click="modelAction(model, 'cancel')"
-                >取消</VButton>
+                ><template #icon><el-icon><Close /></el-icon></template>取消</VButton>
                 <VButton
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.retry?.allowed"
                   :title="model.actions.retry?.message || '重试'"
                   @click="modelAction(model, 'retry')"
-                >重试</VButton>
+                ><template #icon><el-icon><RefreshRight /></el-icon></template>重试</VButton>
                 <VButton
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.resume?.allowed"
                   :title="model.actions.resume?.message || '恢复中断'"
                   @click="modelAction(model, 'resume')"
-                >恢复</VButton>
+                ><template #icon><el-icon><RefreshLeft /></el-icon></template>恢复</VButton>
                 <VButton
                   variant="quiet"
                   size="sm"
@@ -402,14 +402,14 @@ onBeforeUnmount(() => clearInterval(timer))
                   @click="router.push(
                     `/training-tasks/${task.id}/models/${model.id}?action=extend`,
                   )"
-                >追加</VButton>
+                ><template #icon><el-icon><Plus /></el-icon></template>追加</VButton>
                 <VButton
-                  variant="quiet"
+                  variant="danger"
                   size="sm"
                   :disabled="!model.actions.delete?.allowed"
                   :title="model.actions.delete?.message || '删除'"
                   @click="modelAction(model, 'delete')"
-                >删除</VButton>
+                ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
               </div>
             </VRow>
           </VTable>
@@ -511,7 +511,6 @@ onBeforeUnmount(() => clearInterval(timer))
 .row-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 2px;
 }
 </style>

@@ -174,7 +174,10 @@ describe('ProjectVideosView', () => {
       ),
     ).toBe(true)
     expect(wrapper.find('option[value="999"]').text()).toBe('全部')
-    expect(wrapper.get('[data-test="video-action-lane"]').text()).toContain('共 2 个视频')
+    // 视频总数只在 header 副信息里出现一次；页内工具行放本页动作，不再重复统计
+    expect(wrapper.get('[data-test="page-stat"]').text()).toContain('2 个视频')
+    expect(wrapper.get('[data-test="video-action-lane"]').text()).not.toContain('2 个视频')
+    expect(wrapper.get('[data-test="video-toolbar-actions"]').text()).toContain('导入视频')
   })
 
   it('disables importing at 999 videos', async () => {

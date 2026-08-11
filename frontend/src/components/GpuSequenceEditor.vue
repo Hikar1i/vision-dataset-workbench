@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Bottom, Top } from "@element-plus/icons-vue";
 import { computed } from "vue";
 import type { GpuDevice, TrainingModelDraft } from "../api/training";
 import VButton from '../ui/VButton.vue'
@@ -71,11 +72,12 @@ function changeGpu(model: TrainingModelDraft, gpu: number) {
             :label="`GPU ${gpu.index}`"
             :value="gpu.index"
         /></el-select>
-        <VButton variant="secondary" title="上移"
-          aria-label="上移"
-          @click="move(model, -1)"/><VButton variant="secondary" title="下移"
-          aria-label="下移"
-          @click="move(model, 1)"/>
+        <VButton variant="quiet" icon-only label="上移" title="上移" @click="move(model, -1)">
+          <template #icon><el-icon><Top /></el-icon></template>
+        </VButton>
+        <VButton variant="quiet" icon-only label="下移" title="下移" @click="move(model, 1)">
+          <template #icon><el-icon><Bottom /></el-icon></template>
+        </VButton>
       </article>
       <el-empty
         v-if="!lane.models.length"

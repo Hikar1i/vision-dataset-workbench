@@ -61,11 +61,18 @@ describe('PageHeader', () => {
     expect(wrapper.get('h1').text()).toBe('fire-det')
   })
 
-  it('omits optional regions when no slot is supplied', () => {
+  it('keeps the fixed-height regions rendered so header geometry never shifts', () => {
+    // eyebrow / 副信息 / 末行都定高且常驻：用 v-if 省掉空段会让"有权限标签的
+    // 项目页"比"没有的列表页"高几像素，标题与正文起点随页面漂移。
     const wrapper = mount(PageHeader, { props: { title: 'Overview' } })
 
     expect(wrapper.find('.page-header__back').exists()).toBe(false)
-    expect(wrapper.find('.page-header__eyebrow').exists()).toBe(false)
-    expect(wrapper.find('.page-header__tabs').exists()).toBe(false)
+    expect(wrapper.find('.page-header__eyebrow').exists()).toBe(true)
+    expect(wrapper.find('.page-header__meta').exists()).toBe(true)
+    expect(wrapper.find('.page-header__bar').exists()).toBe(true)
+    expect(wrapper.find('.page-header__tabs').exists()).toBe(true)
+    // 空段不得渲染出可读内容，否则会出现看不见的占位文字
+    expect(wrapper.get('.page-header__eyebrow').text()).toBe('')
+    expect(wrapper.get('.page-header__meta').text()).toBe('')
   })
 })
