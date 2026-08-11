@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArrowDown, ArrowUp, Bottom, Delete, Top } from "@element-plus/icons-vue";
 import { computed, ref } from "vue";
 import type { GpuDevice, TrainingModelDraft, TrainingResources } from "../api/training";
 import {
@@ -111,10 +112,18 @@ function summary(row: TrainingModelDraft) {
             <small>GPU {{ row.gpu_index }} / q{{ String(row.queue_order).padStart(2, "0") }} · {{ summary(row) }}</small>
           </button>
           <div class="card-actions">
-            <VButton variant="secondary" v-if="mode === 'single_device_serial'" title="上移" aria-label="上移" :disabled="index === 0" @click="move(index, -1)"/>
-            <VButton variant="secondary" v-if="mode === 'single_device_serial'" title="下移" aria-label="下移" :disabled="index === models.length - 1" @click="move(index, 1)"/>
-            <VButton variant="secondary" title="删除模型行" aria-label="删除模型行" :disabled="models.length === 1" @click="remove(index)"/>
-            <VButton variant="secondary" :title="collapsed.includes(row) ? '展开配置' : '收起配置'" :aria-label="collapsed.includes(row) ? '展开配置' : '收起配置'" @click="toggle(row)"/>
+            <VButton v-if="mode === 'single_device_serial'" variant="quiet" icon-only label="上移" title="上移" :disabled="index === 0" @click="move(index, -1)">
+              <template #icon><el-icon><Top /></el-icon></template>
+            </VButton>
+            <VButton v-if="mode === 'single_device_serial'" variant="quiet" icon-only label="下移" title="下移" :disabled="index === models.length - 1" @click="move(index, 1)">
+              <template #icon><el-icon><Bottom /></el-icon></template>
+            </VButton>
+            <VButton variant="danger" icon-only label="删除模型行" title="删除模型行" :disabled="models.length === 1" @click="remove(index)">
+              <template #icon><el-icon><Delete /></el-icon></template>
+            </VButton>
+            <VButton variant="quiet" icon-only :label="collapsed.includes(row) ? '展开配置' : '收起配置'" :title="collapsed.includes(row) ? '展开配置' : '收起配置'" @click="toggle(row)">
+              <template #icon><el-icon><ArrowDown v-if="collapsed.includes(row)" /><ArrowUp v-else /></el-icon></template>
+            </VButton>
           </div>
         </header>
         <el-form v-show="!collapsed.includes(row)" label-position="top">

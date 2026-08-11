@@ -141,7 +141,7 @@ async function initialize() {
           </div>
         </el-form>
         <footer class="actions">
-          <VButton variant="secondary" @click="step = 0">返回</VButton>
+          <VButton variant="default" @click="step = 0">返回</VButton>
           <VButton variant="primary" data-test="initialize"
             :loading="submitting"
             :disabled="

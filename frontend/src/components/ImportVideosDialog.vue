@@ -154,7 +154,7 @@ watch(tab, () => {
     </section>
 
     <template #footer>
-      <VButton variant="secondary" @click="emit('update:modelValue', false)">取消</VButton>
+      <VButton variant="default" @click="emit('update:modelValue', false)">取消</VButton>
       <VButton variant="primary" data-test="submit-import"
         :loading="submitting"
         :disabled="!canSubmit"

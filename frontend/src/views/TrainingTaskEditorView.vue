@@ -193,8 +193,8 @@ onMounted(load);
     <PageHeader :title="editing ? '编辑训练草稿' : '新建训练任务'" back-to="/training-tasks" back-label="返回训练任务">
       <template #meta><span>仅 YOLO Detect 轴对齐矩形框模型</span></template>
       <template #actions><div>
-        <VButton variant="secondary" @click="router.push('/training-tasks')">取消</VButton
-        ><VButton variant="secondary" :loading="saving" :disabled="!valid || saving" @click="save(false)">保存草稿</VButton
+        <VButton variant="default" @click="router.push('/training-tasks')">取消</VButton
+        ><VButton variant="default" :loading="saving" :disabled="!valid || saving" @click="save(false)">保存草稿</VButton
         ><VButton variant="primary" :loading="saving"
           :disabled="!valid || !trainingAvailable || saving"
           @click="save(true)">保存并启动</VButton
@@ -289,7 +289,7 @@ onMounted(load);
             <span>03 / MODELS</span>
             <h2>训练模型与执行顺序</h2>
           </div>
-          <VButton variant="secondary" :disabled="!canAdd"
+          <VButton variant="default" :disabled="!canAdd"
             :title="modelsHaveResources ? '添加模型' : '请先补齐现有模型的数据集、超参模板和 BaseModel'"
             @click="add">添加模型</VButton
           >

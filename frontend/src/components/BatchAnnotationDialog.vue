@@ -171,7 +171,7 @@ async function submit() {
       <p v-if="error" class="form-error">{{ error }}</p>
     </div>
     <template #footer>
-      <VButton variant="secondary" @click="emit('update:modelValue', false)">取消</VButton>
+      <VButton variant="default" @click="emit('update:modelValue', false)">取消</VButton>
       <VButton variant="primary" data-test="annotation-create-task" :loading="loading" :disabled="!valid || settingsDisabled" @click="submit">创建任务</VButton>
     </template>
   </el-dialog>

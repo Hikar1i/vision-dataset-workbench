@@ -19,4 +19,11 @@ defineProps<{ columns: string }>()
   padding: 12px 16px;
   border-bottom: 1px solid var(--vdw-line);
 }
+
+/* 全列左对齐，间隔交给 16px 列间距。居中或右对齐会让每列视觉起点不同，
+   扫读时眼睛要来回找；这条在原语里定死，页面不需要（也不应该）各自声明。 */
+.vdw-table__row > :deep(*) {
+  justify-self: start;
+  text-align: left;
+}
 </style>

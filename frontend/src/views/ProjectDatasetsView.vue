@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Delete, Download, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
@@ -132,7 +133,8 @@ const headerHost = useProjectHeaderHost()
           <template #default="{ row }">
             <el-popover trigger="click" width="280">
               <template #reference>
-                <VButton variant="secondary">{{ row.labels.filter((label: { enabled: boolean }) => label.enabled).slice(0, 3).map((label: { name: string }) => label.name).join(', ') || '无' }}</VButton>
+                <!-- 类别是数据而不是动作，用 quiet 触发弹层，不与操作列按钮争视觉 -->
+                <VButton variant="quiet" size="sm">{{ row.labels.filter((label: { enabled: boolean }) => label.enabled).slice(0, 3).map((label: { name: string }) => label.name).join(', ') || '无' }}</VButton>
               </template>
               <div class="category-popover">
                 <span v-for="label in row.labels" :key="label.source_label_id" :data-enabled="label.enabled">
@@ -162,17 +164,29 @@ const headerHost = useProjectHeaderHost()
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
-              <VButton variant="quiet" :data-test="`detail-${row.id}`" @click="showDetail(row)">详情</VButton>
-              <a
+              <VButton
+                variant="quiet"
+                size="sm"
+                :data-test="`detail-${row.id}`"
+                @click="showDetail(row)"
+              ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
+              <!-- 下载是真链接（需要 href 才能触发浏览器下载），但视觉与同行按钮一致 -->
+              <VButton
                 v-if="row.status === 'ready'"
+                variant="quiet"
+                size="sm"
                 :data-test="`download-${row.id}`"
                 :href="datasetExportDownloadUrl(project.id, row.id)"
-              >下载</a>
-              <VButton variant="quiet" size="sm" v-if="canEdit"
+              ><template #icon><el-icon><Download /></el-icon></template>下载</VButton>
+              <VButton
+                v-if="canEdit"
+                variant="danger"
+                size="sm"
                 :data-test="`delete-${row.id}`"
                 :loading="deleting === row.id"
                 :disabled="row.status === 'queued' || row.status === 'running'"
-                @click="remove(row)">删除</VButton>
+                @click="remove(row)"
+              ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
             </div>
           </template>
         </el-table-column>
@@ -270,9 +284,9 @@ const headerHost = useProjectHeaderHost()
 .ratio-summary b { color: var(--vdw-ink); font: 600 13px var(--vdw-mono); white-space: nowrap; }
 .ratio-summary { display: grid; gap: 4px; }
 .ratio-summary span { display: grid; grid-template-columns: 34px auto; align-items: baseline; gap: 7px; }
-.row-actions { display: inline-flex; align-items: stretch; overflow: hidden; background: white; border: 1px solid var(--vdw-line); border-radius: 2px; }
-.row-actions > * + * { border-left: 1px solid var(--vdw-line) !important; }
-.row-actions a { color: var(--vdw-accent); text-decoration: none; }
+/* 与模型项目、训练任务、视频列表同一套行操作：无外框、无分隔线。
+   这里原是带边框和分隔线的分段按钮组，是"同一系统两种按钮"的最后一处。 */
+.row-actions { display: flex; gap: 2px; }
 .category-popover { display: grid; gap: 7px; }
 .category-popover span[data-enabled='false'] { color: var(--vdw-ink-2); }
 .dataset-detail-scroll { height: calc(100dvh - 57px); padding: 20px; overflow: auto; background: var(--vdw-app); }

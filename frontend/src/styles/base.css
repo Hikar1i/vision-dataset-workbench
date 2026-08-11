@@ -243,16 +243,16 @@ a:focus-visible {
    深色专注区里的按钮
    ----------------------------------------------------------------------------
    标注与筛帧工作区的容器加 .vdw-dark，内部 VButton 自动换成深色配色。
-   否则白底 secondary 与红底 danger 会在深色面板上变成抢眼的亮块，
+   否则浅底 default 与红底 danger 会在深色面板上变成抢眼的亮块，
    和画面里的标注框争夺注意力。
    ========================================================================== */
-.vdw-dark .vdw-btn--secondary {
+.vdw-dark .vdw-btn--default {
   color: var(--vdw-focus-ink);
   background: var(--vdw-focus-panel-2);
   border-color: var(--vdw-focus-line);
 }
 
-.vdw-dark .vdw-btn--secondary:not(:disabled):hover {
+.vdw-dark .vdw-btn--default:not(:disabled):hover {
   color: var(--vdw-focus-canvas);
   background: var(--vdw-focus-accent);
   border-color: var(--vdw-focus-accent);

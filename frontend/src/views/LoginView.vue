@@ -94,7 +94,7 @@ async function submit() {
             </el-form-item>
           </el-form>
 
-          <VButton variant="secondary" type="submit"
+          <VButton variant="default" type="submit"
             :loading="submitting"
             :disabled="!username || !password">
             登录工作台

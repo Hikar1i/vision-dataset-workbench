@@ -60,6 +60,14 @@ defineProps<{
   border-radius: var(--vdw-radius-card) var(--vdw-radius-card) 0 0;
 }
 
+/* 表头一律不折行：折行的表头会把行高撑高一倍，并让相邻列的基线错开。
+   列不够宽时应该改表头文案或加宽该列，而不是让它换行。 */
+.vdw-table__head > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* 最后一行不画分隔线，避免和面板边框叠成双线 */
 .vdw-table__body :deep(.vdw-table__row:last-child) {
   border-bottom: 0;

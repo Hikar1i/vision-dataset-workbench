@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import {
+  Aim, Download, Filter, Scissor, Setting, Upload, VideoPlay,
+} from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -12,6 +15,7 @@ import {
   videoContentUrl,
   videoThumbnailUrl,
   type ImportBatch,
+  type PlanBatch,
   type Video,
 } from '../api/media'
 import type { Project } from '../api/projects'
@@ -290,8 +294,23 @@ async function submitEnabledByAnnotation(targetVideos: Video[], scope: 'unscreen
   }
 }
 
-async function samplingSubmitted(batch: { accepted: Array<{ video_id: string }> }) {
-  ElMessage.success('采样方案已保存。')
+/**
+ * 后端逐个视频校验采样参数，非法值会进 rejected 而不是抛错。
+ * 这里过去无条件弹"采样方案已保存"，于是填了非法值也提示成功——用户以为
+ * 存上了，实际一个都没存。现在按 accepted / rejected 分别播报。
+ */
+async function samplingSubmitted(batch: PlanBatch) {
+  if (!batch.accepted.length) {
+    ElMessage.error(batch.rejected[0]?.reason
+      ? `采样方案未保存：${batch.rejected[0].reason}`
+      : '采样方案未保存。')
+  } else if (batch.rejected.length) {
+    ElMessage.warning(
+      `已保存 ${batch.accepted.length} 个视频的采样方案，${batch.rejected.length} 个未通过校验。`,
+    )
+  } else {
+    ElMessage.success('采样方案已保存。')
+  }
   const accepted = new Set(batch.accepted.map((item) => item.video_id))
   selected.value = selected.value.filter((id) => !accepted.has(id))
   await load(page.value, pageSize.value, true)
@@ -380,26 +399,13 @@ const headerHost = useProjectHeaderHost()
 <template>
   <main class="workbench-shell">
     <section class="workspace">
+        <!-- 视频总数与启用数是本页的统计，送进 header 的副信息位，页内不再重复 -->
         <Teleport defer :disabled="!headerHost" to="#project-page-meta">
-          <span data-test="page-stat">{{ total }} 个视频</span>
-        </Teleport>
-        <Teleport v-if="canEdit" defer :disabled="!headerHost" to="#project-page-actions">
-          <div class="workspace-toolbar-actions" data-test="video-toolbar-actions">
-            <VButton data-test="export-dataset" @click="exportOpen = true">
-              导出数据集
-            </VButton>
-            <VButton
-              data-test="import-videos"
-              variant="primary"
-              :disabled="importLimitReached"
-              :title="importLimitReached ? '项目视频数量已达上限（999）' : '导入视频'"
-              @click="importOpen = true"
-            >
-              导入视频
-            </VButton>
-          </div>
+          <span data-test="page-stat">{{ total }} 个视频 · {{ enabledOnPage }} 个已启用</span>
         </Teleport>
 
+        <!-- 导出数据集与导入视频只作用于本页的原始数据，因此放在页内工具行而不是
+             项目级 header：否则用户切到标签管理、数据集管理时按钮会凭空消失。 -->
         <section class="video-action-lane" data-test="video-action-lane">
           <template v-if="canEdit && selected.length">
             <strong class="selection-summary">
@@ -410,15 +416,30 @@ const headerHost = useProjectHeaderHost()
               </small>
             </strong>
             <div>
-            <VButton variant="secondary" data-test="batch-configure" @click="configure(selected)">批量配置采样</VButton>
-            <VButton variant="secondary" data-test="batch-extract" @click="extract(selected)">批量抽帧</VButton>
-            <VButton variant="secondary" data-test="batch-auto-annotate" @click="openBatchAnnotation">批量自动标注</VButton>
-            <VButton variant="secondary" data-test="batch-enabled-by-annotation" @click="openEnabledByAnnotation">按标注启停</VButton>
+            <VButton variant="default" data-test="batch-configure" @click="configure(selected)">批量配置采样</VButton>
+            <VButton variant="default" data-test="batch-extract" @click="extract(selected)">批量抽帧</VButton>
+            <VButton variant="default" data-test="batch-auto-annotate" @click="openBatchAnnotation">批量自动标注</VButton>
+            <VButton variant="default" data-test="batch-enabled-by-annotation" @click="openEnabledByAnnotation">按标注启停</VButton>
             </div>
           </template>
-          <template v-else>
-            <span>共 {{ total }} 个视频</span>
-            <span>当前页 {{ enabledOnPage }} 个已启用</span>
+          <template v-else-if="canEdit">
+            <span class="lane-hint">勾选视频后可批量配置采样、抽帧与自动标注。</span>
+            <div class="workspace-toolbar-actions" data-test="video-toolbar-actions">
+              <VButton data-test="export-dataset" @click="exportOpen = true">
+                <template #icon><el-icon><Download /></el-icon></template>
+                导出数据集
+              </VButton>
+              <VButton
+                data-test="import-videos"
+                variant="primary"
+                :disabled="importLimitReached"
+                :title="importLimitReached ? '项目视频数量已达上限（999）' : '导入视频'"
+                @click="importOpen = true"
+              >
+                <template #icon><el-icon><Upload /></el-icon></template>
+                导入视频
+              </VButton>
+            </div>
           </template>
         </section>
 
@@ -441,7 +462,7 @@ const headerHost = useProjectHeaderHost()
               <span>视频</span>
               <span>来源</span>
               <span>规格</span>
-              <span>启用帧/采样帧</span>
+              <span>启用/总数</span>
               <span>状态</span>
               <span>业务状态</span>
               <span>操作</span>
@@ -525,37 +546,37 @@ const headerHost = useProjectHeaderHost()
                   :data-test="`play-${video.id}`"
                   :disabled="video.status !== 'ready'"
                   @click="playing = video"
-                >播放</VButton>
+                ><template #icon><el-icon><VideoPlay /></el-icon></template>播放</VButton>
                 <VButton
                   v-if="canEdit"
-                  :variant="!video.sampling ? 'secondary' : 'quiet'"
+                  :variant="!video.sampling ? 'default' : 'quiet'"
                   size="sm"
                   :data-test="`configure-${video.id}`"
                   :disabled="video.status !== 'ready'"
                   @click="configure([video.id])"
-                >采样</VButton>
+                ><template #icon><el-icon><Setting /></el-icon></template>采样</VButton>
                 <VButton
                   v-if="canEdit"
-                  :variant="video.sampling && !video.sampling.extracted_frames ? 'secondary' : 'quiet'"
+                  :variant="video.sampling && !video.sampling.extracted_frames ? 'default' : 'quiet'"
                   size="sm"
                   :data-test="`extract-${video.id}`"
                   :disabled="!video.sampling"
                   @click="extract([video.id])"
-                >抽帧</VButton>
+                ><template #icon><el-icon><Scissor /></el-icon></template>抽帧</VButton>
                 <VButton
                   variant="quiet"
                   size="sm"
                   :data-test="`annotate-${video.id}`"
                   :disabled="!canEdit || !video.sampling?.extracted_frames"
                   @click="openAnnotation(video)"
-                >标注</VButton>
+                ><template #icon><el-icon><Aim /></el-icon></template>标注</VButton>
                 <VButton
                   variant="quiet"
                   size="sm"
                   :data-test="`frames-${video.id}`"
                   :disabled="!video.sampling?.extracted_frames"
                   @click="frameVideo = video"
-                >筛帧</VButton>
+                ><template #icon><el-icon><Filter /></el-icon></template>筛帧</VButton>
               </div>
             </article>
           </div>
@@ -637,8 +658,8 @@ const headerHost = useProjectHeaderHost()
         请选择本次处理范围。
       </p>
       <template #footer>
-        <VButton variant="secondary" @click="annotationChoiceTargets = []">取消</VButton>
-        <VButton variant="secondary" data-test="annotation-unannotated-only"
+        <VButton variant="default" @click="annotationChoiceTargets = []">取消</VButton>
+        <VButton variant="default" data-test="annotation-unannotated-only"
           :disabled="!annotationChoiceTargets.some((video) => !video.has_annotations)"
           @click="openBatchAnnotationSettings(annotationChoiceTargets, 'unannotated')"
         >仅处理 {{ annotationChoiceTargets.filter((video) => !video.has_annotations).length }} 个未标注视频</VButton>
@@ -667,8 +688,8 @@ const headerHost = useProjectHeaderHost()
         <div><strong>{{ enabledByAnnotationTargets.filter((video) => !video.has_annotations && isScreened(video)).length }}</strong><span>无标注 · 已筛帧</span></div>
       </div>
       <template #footer>
-        <VButton variant="secondary" @click="enabledByAnnotationTargets = []">取消</VButton>
-        <VButton variant="secondary" data-test="enabled-by-annotation-unscreened"
+        <VButton variant="default" @click="enabledByAnnotationTargets = []">取消</VButton>
+        <VButton variant="default" data-test="enabled-by-annotation-unscreened"
           :disabled="!enabledByAnnotationTargets.some((video) => video.has_annotations && !isScreened(video))"
           @click="submitUnscreenedEnabledByAnnotation"
         >仅处理 {{ enabledByAnnotationTargets.filter((video) => video.has_annotations && !isScreened(video)).length }} 个未筛帧视频</VButton>
@@ -691,7 +712,7 @@ const headerHost = useProjectHeaderHost()
         :closable="false"
       />
       <template #footer>
-        <VButton variant="secondary" @click="closeEnabledByAnnotationConfirmation">取消</VButton>
+        <VButton variant="default" @click="closeEnabledByAnnotationConfirmation">取消</VButton>
         <VButton variant="danger" data-test="enabled-by-annotation-confirm"
           :disabled="enabledByAnnotationCountdown> 0"
           @click="submitEnabledByAnnotation(enabledByAnnotationConfirmTargets, 'all')"
@@ -707,12 +728,12 @@ const headerHost = useProjectHeaderHost()
     >
       <p>选中的视频中已有 {{ configureChoiceTargets.filter((video) => video.sampling).length }} 个配置过采样方案。</p>
       <template #footer>
-        <VButton variant="secondary" @click="configureChoiceTargets = []">取消</VButton>
-        <VButton variant="secondary" data-test="configure-unconfigured"
+        <VButton variant="default" @click="configureChoiceTargets = []">取消</VButton>
+        <VButton variant="default" data-test="configure-unconfigured"
           :disabled="!configureChoiceTargets.some((video) => !video.sampling)"
           @click="configureUnconfigured"
         >仅处理 {{ configureChoiceTargets.filter((video) => !video.sampling).length }} 个未配置视频</VButton>
-        <VButton variant="secondary" data-test="configure-all" @click="configureAll">
+        <VButton variant="default" data-test="configure-all" @click="configureAll">
           处理全部 {{ configureChoiceTargets.length }} 个视频
         </VButton>
       </template>
@@ -726,8 +747,8 @@ const headerHost = useProjectHeaderHost()
     >
       <p>选中的视频中已有 {{ extractionChoiceTargets.filter((video) => video.sampling?.extracted_frames).length }} 个完成抽帧。</p>
       <template #footer>
-        <VButton variant="secondary" @click="extractionChoiceTargets = []">取消</VButton>
-        <VButton variant="secondary" data-test="extract-unextracted"
+        <VButton variant="default" @click="extractionChoiceTargets = []">取消</VButton>
+        <VButton variant="default" data-test="extract-unextracted"
           :disabled="!extractionChoiceTargets.some((video) => !video.sampling?.extracted_frames)"
           @click="extractUnextracted"
         >仅处理 {{ extractionChoiceTargets.filter((video) => !video.sampling?.extracted_frames).length }} 个未抽帧视频</VButton>
@@ -798,16 +819,22 @@ const headerHost = useProjectHeaderHost()
   gap: 8px;
 }
 
+/* 页内工具行：未勾选时左侧是操作提示、右侧是页面动作；勾选后整行切换为
+   批量动作。同一位置同一语义（"对当前列表做什么"），不会出现两排按钮。 */
 .video-action-lane {
   display: flex;
   align-items: center;
   gap: 13px;
   justify-content: flex-start;
-  height: 48px;
+  min-height: 52px;
   padding: 0 9px;
   color: var(--vdw-ink-2);
   font-size: 14px;
   border-bottom: 1px solid var(--vdw-line);
+}
+
+.lane-hint {
+  color: var(--vdw-ink-3);
 }
 
 .video-action-lane > div {
@@ -841,18 +868,26 @@ const headerHost = useProjectHeaderHost()
 
 .ledger-row {
   display: grid;
-  grid-template-columns: 30px 50px minmax(200px, 1.2fr) 40px 100px 80px 50px minmax(200px, 1.1fr) 306px;
+  /* 来源/状态/启用总数三列原为 40/50/80px，表头文字被压得换行。
+     按内容需要的最小宽度给足，宁可挤压弹性列也不让表头折行。
+     末列 344px 是 5 个"图标+文字"操作的实测所需宽度；给少了会撑破网格
+     并在台账里产生横向滚动。 */
+  grid-template-columns:
+    30px 50px minmax(180px, 1.2fr) 62px 100px 96px 62px
+    minmax(180px, 1.1fr) 344px;
   gap: 8px;
   align-items: center;
-  min-width: 1292px;
+  /* 固定列合计 + 两个弹性列的下限；小于此宽度时才允许台账横向滚动 */
+  min-width: 1348px;
   /* 与 VRow 保持一致的行内呼吸空间 */
   padding: 12px 12px;
 }
 
-.ledger-row > :nth-child(4),
-.ledger-row > :nth-child(7),
-.ledger-row > :nth-child(8) {
-  justify-self: center;
+/* 全列左对齐：居中列会让每列的视觉起点各不相同，扫读时眼睛要来回找。
+   列间距由 grid 的 gap 负责，不靠单元格内的对齐制造间隔。 */
+.ledger-row > * {
+  justify-self: start;
+  text-align: left;
 }
 
 .ledger-head {
@@ -861,16 +896,12 @@ const headerHost = useProjectHeaderHost()
   padding-bottom: 0;
   color: var(--vdw-ink-2);
   font-size: 14px;
+  white-space: nowrap;
   background: var(--vdw-surface-2);
   border-bottom: 1px solid var(--vdw-line);
 }
-.ledger-head > * {
-  text-align: center;
-}
 
-.media-row > :not(:nth-child(3)) {
-  text-align: center;
-}
+/* 数据行同样全列左对齐，与表头保持同一起点（见 .ledger-row > *） */
 
 .media-row {
   position: relative;
@@ -1017,9 +1048,10 @@ const headerHost = useProjectHeaderHost()
   text-overflow: ellipsis;
 }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 

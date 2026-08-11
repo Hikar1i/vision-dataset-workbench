@@ -240,7 +240,7 @@ onBeforeUnmount(() => clearInterval(timer));
           @click="cancel"
         >取消</VButton>
         <VButton
-          variant="quiet"
+          variant="danger"
           :disabled="!model.actions.delete?.allowed"
           :title="model.actions.delete?.message || '删除模型任务'"
           @click="remove"

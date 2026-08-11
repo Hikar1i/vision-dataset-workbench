@@ -7,8 +7,14 @@
 import { computed } from 'vue'
 
 const props = withDefaults(defineProps<{
-  /** primary 实心近黑 · secondary 白底描边 · quiet 无底色 · danger 危险 */
-  variant?: 'primary' | 'secondary' | 'quiet' | 'danger'
+  /**
+   * primary 实心近黑（每屏最多一个）· default 浅灰底中性次要动作 ·
+   * quiet 无边框行内操作 · danger 危险操作
+   *
+   * 曾有一个 secondary 角色，语义是"指引下一步"。实测用户看不出这层含义，
+   * 只觉得它和 primary 长得太像、分不出主次，已改名为 default 并压低视觉重量。
+   */
+  variant?: 'primary' | 'default' | 'quiet' | 'danger'
   size?: 'md' | 'sm'
   disabled?: boolean
   loading?: boolean
@@ -19,7 +25,7 @@ const props = withDefaults(defineProps<{
   /** 传 href 时渲染为链接（下载、外部跳转），保持同一视觉 */
   href?: string
 }>(), {
-  variant: 'secondary',
+  variant: 'default',
   size: 'md',
   type: 'button',
 })
@@ -118,22 +124,28 @@ a.vdw-btn {
   background: var(--vdw-solid-active);
 }
 
-.vdw-btn--secondary {
+/* default：中性次要动作（弹窗取消、工具栏并列动作）。
+   刻意不用白底 + 深边框——那样和 primary 的近黑实心只差一层反相，
+   用户分不出主次。改为浅灰底 + 淡边框，和 primary 拉开明度差。 */
+.vdw-btn--default {
   color: var(--vdw-ink);
-  background: var(--vdw-surface);
-  border-color: var(--vdw-line-2);
+  background: var(--vdw-surface-2);
+  border-color: var(--vdw-line);
 }
 
-.vdw-btn--secondary:not(:disabled):hover {
+.vdw-btn--default:not(:disabled):hover {
   color: var(--vdw-accent-ink);
   background: var(--vdw-accent-soft);
+  border-color: var(--vdw-accent-line);
+}
+
+.vdw-btn--default:not(:disabled):active {
+  background: #cfe6ec;
   border-color: var(--vdw-accent);
 }
 
-.vdw-btn--secondary:not(:disabled):active {
-  background: #cfe6ec;
-}
-
+/* quiet：列表行内操作。无边框，靠图标 + 文字表达可点击；
+   hover 时才画出底色与边框，让"这是按钮"在指针到达时确认。 */
 .vdw-btn--quiet {
   padding: 0 9px;
   color: var(--vdw-ink-2);
@@ -141,17 +153,44 @@ a.vdw-btn {
 
 .vdw-btn--quiet:not(:disabled):hover {
   color: var(--vdw-accent-ink);
-  background: var(--vdw-surface-3);
+  background: var(--vdw-accent-soft);
+  border-color: var(--vdw-accent-line);
 }
 
 .vdw-btn--quiet:not(:disabled):active {
-  background: var(--vdw-line);
+  background: #cfe6ec;
+  border-color: var(--vdw-accent);
 }
 
+/* 行内图标：跟随文字色，尺寸固定，避免各页面自己调 */
+.vdw-btn :deep(.el-icon) {
+  flex: 0 0 auto;
+  font-size: 15px;
+}
+
+.vdw-btn--sm :deep(.el-icon) {
+  font-size: 14px;
+}
+
+/* danger：删除类。红字描边而非红底实心——列表里若每行都有红块，
+   会盖过真正需要注意的状态色。确认弹窗才是拦住误删的那道关。 */
 .vdw-btn--danger {
   color: var(--vdw-danger);
   background: var(--vdw-surface);
   border-color: var(--vdw-danger-line);
+}
+
+/* 行内 danger 不画边框，只用红字 + 图标，与同行 quiet 对齐；
+   hover 时才显出红色轮廓。 */
+.vdw-btn--danger.vdw-btn--sm {
+  background: none;
+  border-color: transparent;
+}
+
+.vdw-btn--danger.vdw-btn--sm:not(:disabled):hover {
+  color: #fff;
+  background: var(--vdw-danger);
+  border-color: var(--vdw-danger);
 }
 
 .vdw-btn--danger:not(:disabled):hover {
@@ -164,21 +203,31 @@ a.vdw-btn {
   background: var(--vdw-danger-hover);
 }
 
+/* 禁用态：靠**对比度**表达不可用，不靠删除线。
+   删除线只是一条 1px 浅灰线，和可用按钮几乎分不出（实测用户反馈）；
+   而文字 2.45:1 对 6.14:1 是 2.5 倍差距，扫一眼就能看出哪个点不了。
+   同时降低图标透明度——图标比文字更吸引注意，必须一起压下去。
+   两条都不是"只靠颜色"：还有 cursor: not-allowed 与 disabled 属性，
+   读屏器与键盘用户从语义拿到同一信息。 */
 .vdw-btn:disabled {
-  color: var(--vdw-ink-3);
+  color: var(--vdw-ink-disabled);
   background: var(--vdw-surface-2);
   border-color: var(--vdw-line);
   cursor: not-allowed;
   box-shadow: none;
 }
 
-/* 禁用态绝不能比可用态更显眼：行内 quiet 按钮禁用后不画底色和边框，
-   只降对比并加删除线。重构前的实现正好相反。 */
-.vdw-btn--quiet:disabled {
+.vdw-btn:disabled :deep(.el-icon) {
+  opacity: 0.55;
+}
+
+/* 行内 quiet/danger 禁用后不画底色和边框：禁用项绝不能比可用项更显眼。
+   重构前的实现正好相反（灰底描边方块比无底色的"详情"更抢眼）。 */
+.vdw-btn--quiet:disabled,
+.vdw-btn--danger.vdw-btn--sm:disabled {
+  color: var(--vdw-ink-disabled);
   background: none;
   border-color: transparent;
-  text-decoration: line-through;
-  text-decoration-color: var(--vdw-line-2);
 }
 
 .vdw-btn__spinner {

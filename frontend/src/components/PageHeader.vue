@@ -2,14 +2,17 @@
 /**
  * 全系统唯一的页面头部。视觉顺序固定，页面无法重排：
  *
- *   eyebrow（页面类型 / 对象 ID / 权限）
- *   h1（页面或对象名称）
- *   副信息（一句可读的状态摘要）
- *   操作区（右对齐，最多一个 primary）
- *   子页签（永远在头部底边）
+ *   [返回] eyebrow（页面类型 / 对象 ID / 权限）
+ *          h1（页面或对象名称）
+ *          副信息（一句可读的状态摘要）
+ *   末行：子页签（左） ──────────────── 页面操作（右）
  *
  * 重构前：数据集项目把页签放在 header 同行，大模型配置放在 header 下方，
  * 训练任务没有页签——三个页面三种结构。现在只有这一种。
+ *
+ * 三段都**定高且始终渲染**（eyebrow 22px、副信息 21px、末行 48px）。
+ * 早期版本用 v-if 省掉空段，于是"有权限标签的项目页"比"没有的列表页"高
+ * 几像素，标题和正文起点随页面漂移。定高换来的是跨页面完全一致的几何。
  */
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
@@ -38,7 +41,7 @@ withDefaults(defineProps<{
         <el-icon><ArrowLeft /></el-icon>
       </RouterLink>
       <div class="page-header__id">
-        <p v-if="kind || code || $slots.eyebrow" class="page-header__eyebrow">
+        <p class="page-header__eyebrow">
           <span class="page-header__tick" aria-hidden="true" />
           <span v-if="kind">{{ kind }}</span>
           <template v-if="code">
@@ -48,13 +51,17 @@ withDefaults(defineProps<{
           <slot name="eyebrow" />
         </p>
         <h1 data-test="page-title" :title="title">{{ title }}</h1>
-        <p v-if="$slots.meta" class="page-header__meta"><slot name="meta" /></p>
+        <p class="page-header__meta"><slot name="meta" /></p>
       </div>
-      <div v-if="$slots.actions" class="page-header__actions"><slot name="actions" /></div>
     </div>
-    <nav v-if="$slots.tabs" class="page-header__tabs" aria-label="页面子导航">
-      <slot name="tabs" />
-    </nav>
+    <!-- 末行固定存在：左侧子页签、右侧页面操作。
+         这样有页签和没页签的页面头部高度一致，正文起点不跳。 -->
+    <div class="page-header__bar">
+      <nav class="page-header__tabs" aria-label="页面子导航">
+        <slot name="tabs" />
+      </nav>
+      <div class="page-header__actions"><slot name="actions" /></div>
+    </div>
   </header>
 </template>
 
@@ -99,12 +106,17 @@ withDefaults(defineProps<{
   min-width: 0;
 }
 
+/* 定高 22px：权限标签等内容有自己的内距和边框，若让行高跟随内容，
+   带标签的页面（数据集项目）会比不带的高几像素，标题和正文整体下移。
+   这是"各页 header 位置略有不同"的直接原因。 */
 .page-header__eyebrow {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
-  margin: 0 0 5px;
+  height: 22px;
+  margin: 0 0 3px;
+  overflow: hidden;
   color: var(--vdw-ink-3);
   font: 500 13px/1 var(--vdw-mono);
   letter-spacing: 0.11em;
@@ -130,27 +142,42 @@ withDefaults(defineProps<{
   white-space: nowrap;
 }
 
+/* 同样定高：有的页面没有副信息，若高度跟随内容，末行会整体上移 */
 .page-header__meta {
-  margin: 6px 0 0;
+  height: 21px;
+  margin: 5px 0 0;
+  overflow: hidden;
   color: var(--vdw-ink-2);
   font-size: 14px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 末行：左页签 + 右操作。行高由控件高度决定，两侧都空时仍占同一高度。 */
+.page-header__bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  min-height: 48px;
+  margin-top: 10px;
 }
 
 .page-header__actions {
   display: flex;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-left: auto;
-  padding-top: 2px;
+  padding-bottom: 5px;
 }
 
 /* 页签永远在头部底边，与其它页面同位置同样式 */
 .page-header__tabs {
   display: flex;
+  flex: 1 1 auto;
   gap: 2px;
-  margin-top: 16px;
+  min-width: 0;
   overflow-x: auto;
 }
 
@@ -159,7 +186,7 @@ withDefaults(defineProps<{
   display: flex;
   align-items: center;
   gap: 7px;
-  height: 37px;
+  height: 43px;
   padding: 0 15px;
   color: var(--vdw-ink-2);
   font: 500 14px/1 var(--vdw-sans);

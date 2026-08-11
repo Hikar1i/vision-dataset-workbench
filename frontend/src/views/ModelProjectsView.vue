@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus } from '@element-plus/icons-vue'
+import { Delete, Plus, Right } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -102,7 +102,7 @@ onMounted(load)
       <template #meta><span data-test="page-stat">{{ projects.length }} 个项目</span></template>
       <template #actions>
         <VButton
-          :variant="showCreate ? 'secondary' : 'primary'"
+          :variant="showCreate ? 'default' : 'primary'"
           @click="showCreate = !showCreate"
         >
           <template v-if="!showCreate" #icon><el-icon><Plus /></el-icon></template>
@@ -192,17 +192,17 @@ onMounted(load)
             <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
             <div class="row-actions">
               <VButton
-                variant="secondary"
+                variant="default"
                 size="sm"
                 @click="router.push(`/model-projects/${project.id}`)"
-              >打开</VButton>
+              ><template #icon><el-icon><Right /></el-icon></template>打开</VButton>
               <VButton
                 v-if="project.can_manage"
-                variant="quiet"
+                variant="danger"
                 size="sm"
                 :loading="deleting === project.id"
                 @click="remove(project)"
-              >删除</VButton>
+              ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
             </div>
           </VRow>
 
@@ -263,9 +263,10 @@ time {
   font-size: 14px;
 }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 </style>

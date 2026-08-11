@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Edit, Plus, Refresh } from '@element-plus/icons-vue'
+import { Delete, Download, Edit, Plus, Refresh, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -246,22 +246,22 @@ watch(projectId, loadRouteProject, { immediate: true })
             <time>{{ model.updated_at.slice(0, 10) }}</time>
             <div class="row-actions">
               <VButton
-                variant="secondary"
+                variant="default"
                 size="sm"
                 @click="$router.push(`/model-projects/${projectId}/models/${model.id}`)"
-              >详情</VButton>
+              ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
               <VButton
                 v-if="model.status === 'ready'"
                 variant="quiet"
                 size="sm"
                 :href="modelDownloadUrl(model.id)"
-              >下载</VButton>
+              ><template #icon><el-icon><Download /></el-icon></template>下载</VButton>
               <VButton
                 v-if="model.can_manage"
-                variant="quiet"
+                variant="danger"
                 size="sm"
                 @click="removeModel(model)"
-              >删除</VButton>
+              ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
             </div>
           </VRow>
 
@@ -412,9 +412,10 @@ time {
   font-size: 14px;
 }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 

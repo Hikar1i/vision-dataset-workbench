@@ -80,7 +80,7 @@ async function submit() {
             />
           </el-form-item>
         </el-form>
-        <VButton variant="secondary" data-test="save-password" type="submit"
+        <VButton variant="default" data-test="save-password" type="submit"
           :loading="submitting"
           :disabled="!valid">
           保存新密码

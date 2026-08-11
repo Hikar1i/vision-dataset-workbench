@@ -99,7 +99,7 @@ async function submit() {
               />
             </el-form-item>
           </el-form>
-          <VButton variant="secondary" type="submit"
+          <VButton variant="default" type="submit"
             :loading="submitting"
             :disabled="!valid">
             提交注册申请

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import {
+  Delete, EditPen, Plus, Refresh, RefreshLeft, RefreshRight, VideoPlay, View,
+} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -34,7 +36,7 @@ const error = ref('')
 const filter = ref<Filter>('all')
 
 const COLUMNS =
-  'minmax(240px, 1.3fr) 106px minmax(180px, 0.9fr) 128px 128px minmax(232px, auto)'
+  'minmax(240px, auto) 80px minmax(180px, auto) 128px 128px minmax(232px, auto)'
 
 const MODE_LABEL: Record<string, string> = {
   single_model: '单模型',
@@ -60,7 +62,7 @@ const visible = computed(() => {
 })
 
 /**
- * 每行只提升一个操作为 secondary——该行当前最合理的下一步。
+ * 每行只提升一个操作为 default——该行当前最合理的下一步。
  * 其余保持 quiet，禁用项不画底色。重构前 6 个操作等重并列，
  * 且禁用项比可用项更显眼。
  */
@@ -203,35 +205,35 @@ onMounted(load)
                 variant="quiet"
                 size="sm"
                 @click="router.push(`/training-tasks/${task.id}`)"
-              >详情</VButton>
+              ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
               <VButton
                 variant="quiet"
                 size="sm"
                 :disabled="!task.actions.edit?.allowed || !task.can_manage"
                 :title="task.actions.edit?.message || '编辑训练草稿'"
                 @click="router.push(`/training-tasks/${task.id}/edit`)"
-              >编辑</VButton>
+              ><template #icon><el-icon><EditPen /></el-icon></template>编辑</VButton>
               <VButton
                 v-for="action in ([
-                  { key: 'start', label: '开始', fallback: '开始训练' },
-                  { key: 'retry', label: '重试', fallback: '重试失败' },
-                  { key: 'resume', label: '恢复', fallback: '恢复中断' },
+                  { key: 'start', label: '开始', fallback: '开始训练', icon: VideoPlay },
+                  { key: 'retry', label: '重试', fallback: '重试失败', icon: RefreshRight },
+                  { key: 'resume', label: '恢复', fallback: '恢复中断', icon: RefreshLeft },
                 ] as const)"
                 :key="action.key"
-                :variant="primaryAction(task) === action.key ? 'secondary' : 'quiet'"
+                :variant="primaryAction(task) === action.key ? 'default' : 'quiet'"
                 size="sm"
                 :loading="busy[task.id] && primaryAction(task) === action.key"
                 :disabled="!task.can_manage || !task.actions[action.key]?.allowed"
                 :title="task.actions[action.key]?.message || action.fallback"
                 @click="runAction(task, action.key)"
-              >{{ action.label }}</VButton>
+              ><template #icon><el-icon><component :is="action.icon" /></el-icon></template>{{ action.label }}</VButton>
               <VButton
-                variant="quiet"
+                variant="danger"
                 size="sm"
                 :disabled="!task.can_manage || !task.actions.delete?.allowed"
                 :title="task.actions.delete?.message || '删除任务'"
                 @click="remove(task)"
-              >删除</VButton>
+              ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
             </div>
           </VRow>
 
@@ -248,7 +250,7 @@ onMounted(load)
                 variant="primary"
                 @click="router.push('/training-tasks/new')"
               >新建训练任务</VButton>
-              <VButton v-else variant="secondary" @click="filter = 'all'">查看全部任务</VButton>
+              <VButton v-else variant="default" @click="filter = 'all'">查看全部任务</VButton>
             </VEmpty>
           </template>
         </VTable>
@@ -270,9 +272,10 @@ onMounted(load)
   color: var(--vdw-ink-2);
 }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 
