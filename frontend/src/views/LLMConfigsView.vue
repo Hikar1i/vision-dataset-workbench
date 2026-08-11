@@ -41,7 +41,7 @@ const form = reactive({
   api_key: '', enabled: true, advanced_options: {} as Record<string, unknown>,
 })
 
-const COLUMNS = 'minmax(200px, 1.2fr) 110px minmax(160px, 0.7fr) 168px'
+const COLUMNS = 'minmax(200px, 1.2fr) 110px minmax(160px, 0.7fr) 210px'
 
 const defaultGroups = computed(() => groupedLLMOptions(Object.keys(defaults)))
 const extraDefaultKeys = computed(() => ungroupedLLMOptions(Object.keys(defaults)))
@@ -453,7 +453,7 @@ onMounted(() => void load())
 }
 
 .llm-defaults__lead {
-  max-width: 68ch;
+  max-width: 800px;
   margin: 0 0 4px;
   color: var(--vdw-ink-2);
   font-size: 14px;
@@ -483,7 +483,7 @@ onMounted(() => void load())
 
 .llm-defaults {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 18px;
 }
 

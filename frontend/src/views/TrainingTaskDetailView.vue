@@ -41,7 +41,7 @@ let timer: number | undefined
 let loadVersion = 0
 
 const COLUMNS =
-  '52px minmax(220px, 1.3fr) 104px minmax(180px, 0.8fr) minmax(190px, 0.7fr) minmax(240px, auto)'
+  '52px minmax(240px, 1.2fr) 104px minmax(180px, 0.9fr) minmax(200px, 0.9fr) minmax(390px, 1.8fr)'
 
 const MODE_LABEL: Record<string, string> = {
   single_model: '单模型',

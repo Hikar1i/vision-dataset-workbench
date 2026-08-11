@@ -36,7 +36,7 @@ const error = ref('')
 const filter = ref<Filter>('all')
 
 const COLUMNS =
-  'minmax(240px, auto) 80px minmax(180px, auto) 128px 128px minmax(232px, auto)'
+  'minmax(260px, 1.4fr) 84px minmax(190px, 1fr) 142px 142px minmax(390px, 1.8fr)'
 
 const MODE_LABEL: Record<string, string> = {
   single_model: '单模型',

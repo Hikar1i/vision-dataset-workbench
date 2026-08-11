@@ -36,7 +36,7 @@ const availableTags = ref<string[]>([])
 const error = ref('')
 
 const COLUMNS =
-  'minmax(240px, 1.4fr) minmax(130px, 0.7fr) 92px 84px 106px 106px 132px'
+  'minmax(240px, 1.4fr) minmax(130px, 0.7fr) 92px 84px 106px 106px 148px'
 
 const valid = computed(() =>
   name.value.trim().length > 0 && name.value.trim().length <= 128 && tags.value.length > 0,

@@ -535,7 +535,7 @@ const headerHost = useProjectHeaderHost()
                   :key="flag"
                   :tone="flag === '视频停用' ? 'danger' : 'idle'"
                 >{{ flag }}</VTag>
-                <small v-if="videoWorkflowStatus(video).detail">
+                <small v-if="videoWorkflowStatus(video).detail" class="status-detail">
                   {{ videoWorkflowStatus(video).detail }}
                 </small>
               </div>
@@ -1042,10 +1042,17 @@ const headerHost = useProjectHeaderHost()
   white-space: nowrap;
 }
 
-.status-info small {
+.status-info :deep(.vdw-tag) {
+  flex: 0 0 auto;
+}
+
+.status-detail {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--vdw-ink-2);
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
