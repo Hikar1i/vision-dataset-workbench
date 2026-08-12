@@ -376,7 +376,9 @@ onBeforeUnmount(() => clearInterval(timer))
               </article>
             </div>
             <el-alert v-if="task.preparation.error" :title="`准备失败：${task.preparation.error}。修复来源数据或存储问题后重试。`" type="error" :closable="false" show-icon />
-            <pre v-show="preparationLogOpen" id="preparation-log" class="preparation-log">{{ preparationLog || '暂无准备日志' }}</pre>
+            <Transition name="preparation-log">
+              <pre v-show="preparationLogOpen" id="preparation-log" class="preparation-log">{{ preparationLog || '暂无准备日志' }}</pre>
+            </Transition>
           </div>
         </VPanel>
 
@@ -529,6 +531,9 @@ onBeforeUnmount(() => clearInterval(timer))
 .preparation-artifacts code { max-width: 180px; overflow: hidden; color: var(--vdw-accent-ink); font: 14px var(--vdw-mono); text-overflow: ellipsis; white-space: nowrap; }
 .preparation-artifacts span { color: var(--vdw-ink-2); font-size: 14px; }
 .preparation-log { max-height: 340px; margin: 0; padding: 13px 14px; overflow: auto; border-radius: var(--vdw-radius-control); background: var(--vdw-focus-canvas, #0f1d25); color: #d6e4e9; font: 13px/1.65 var(--vdw-mono); white-space: pre-wrap; }
+.preparation-log-enter-active,.preparation-log-leave-active { transition: opacity 220ms var(--vdw-ease), transform 220ms var(--vdw-ease); }
+.preparation-log-enter-from,.preparation-log-leave-to { opacity: 0; transform: translateY(-6px); }
+@media(prefers-reduced-motion:reduce){.preparation-log-enter-active,.preparation-log-leave-active{transition:none}}
 
 .lane-order {
   color: var(--vdw-accent-ink);
