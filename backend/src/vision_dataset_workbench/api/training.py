@@ -14,6 +14,7 @@ from ..models import (
     ModelProject,
     Project,
     TrainingModel,
+    TrainingPreparation,
     TrainingRun,
     TrainingTask,
     User,
@@ -32,11 +33,20 @@ from .auth import current_user, require_same_origin
 router = APIRouter(prefix="/api/v1", tags=["training"])
 
 
+class MultiDatasetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal[1] = 1
+    dataset_export_ids: list[str] = Field(min_length=1)
+    target_classes: list[str] = Field(min_length=1)
+
+
 class TrainingModelInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=128)
     description: str = Field(default="", max_length=2000)
     dataset_export_id: str | None = None
+    dataset_mode: Literal["inherit", "single", "multi"] | None = None
+    multi_dataset_config: MultiDatasetConfig | None = None
     template_id: str | None = None
     base_model_id: str | None = None
     epochs_override: int | None = None
@@ -54,6 +64,8 @@ class CreateTrainingTaskRequest(BaseModel):
     description: str = Field(default="", max_length=2000)
     mode: Literal["single_model", "single_device_serial", "custom_sequence"] = "single_model"
     default_dataset_export_id: str | None = None
+    default_dataset_mode: Literal["single", "multi"] = "single"
+    default_multi_dataset_config: MultiDatasetConfig | None = None
     default_template_id: str | None = None
     default_base_model_id: str | None = None
     models: list[TrainingModelInput] = Field(min_length=1, max_length=10)
@@ -66,6 +78,8 @@ class UpdateTrainingTaskRequest(BaseModel):
     description: str = Field(default="", max_length=2000)
     mode: Literal["single_model", "single_device_serial", "custom_sequence"]
     default_dataset_export_id: str | None = None
+    default_dataset_mode: Literal["single", "multi"] = "single"
+    default_multi_dataset_config: MultiDatasetConfig | None = None
     default_template_id: str | None = None
     default_base_model_id: str | None = None
     models: list[TrainingModelInput] = Field(min_length=1, max_length=10)
@@ -161,6 +175,10 @@ def model_response(svc: TrainingService, model: TrainingModel) -> dict[str, obje
         "description": model.description,
         "artifact_code": model.artifact_code,
         "dataset_export_id": model.dataset_export_id,
+        "dataset_mode": model.dataset_mode,
+        "multi_dataset_config": (
+            json.loads(model.multi_dataset_config) if model.multi_dataset_config else None
+        ),
         "template_id": model.template_id,
         "base_model_id": model.base_model_id,
         "epochs_override": model.epochs_override,
@@ -200,6 +218,12 @@ def task_response(
         "progress": task.progress,
         "model_count": len(models),
         "default_dataset_export_id": task.default_dataset_export_id,
+        "default_dataset_mode": task.default_dataset_mode,
+        "default_multi_dataset_config": (
+            json.loads(task.default_multi_dataset_config)
+            if task.default_multi_dataset_config
+            else None
+        ),
         "default_template_id": task.default_template_id,
         "default_base_model_id": task.default_base_model_id,
         "created_by_id": task.created_by_id,
@@ -215,7 +239,23 @@ def task_response(
     }
     if details:
         value["models"] = [model_response(svc, row) for row in models]
+        preparation = svc.task_preparation(task.id)
+        value["preparation"] = preparation_response(preparation) if preparation else None
     return value
+
+
+def preparation_response(item: TrainingPreparation) -> dict[str, object]:
+    return {
+        "id": item.id,
+        "status": item.status,
+        "phase": item.phase,
+        "progress": item.progress,
+        "processed": item.processed,
+        "total": item.total,
+        "error": item.error,
+        "started_at": _time(item.started_at),
+        "finished_at": _time(item.finished_at),
+    }
 
 
 @router.get("/training/capabilities")
@@ -265,6 +305,13 @@ def training_resources(
                     "name": item.name,
                     "project_id": project_id,
                     "project_name": project_name,
+                    "total_frames": item.total_frames,
+                    "train_frames": item.train_frames,
+                    "val_frames": item.val_frames,
+                    "labels": [
+                        {"index": index, "name": name}
+                        for index, name in _resource_labels(item)
+                    ],
                 }
                 for item, project_id, project_name in datasets
             ],
@@ -292,12 +339,39 @@ def training_resources(
         }
 
 
+def _resource_labels(item: DatasetExport) -> list[tuple[int, str]]:
+    try:
+        labels = json.loads(item.manifest or "{}").get("labels", [])
+        return [
+            (int(label.get("mapping", index)), str(label.get("name") or "").strip())
+            for index, label in enumerate(labels)
+            if isinstance(label, dict)
+            and label.get("enabled") is not False
+            and str(label.get("name") or "").strip()
+        ]
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+
+
 @router.get("/training-tasks")
 def list_tasks(
     request: Request, user: Annotated[User, Depends(current_user)]
 ) -> list[dict[str, object]]:
     svc = service(request)
     return [task_response(svc, user, item) for item in svc.list_tasks(user)]
+
+
+@router.get("/training-tasks/code-availability")
+def task_code_availability(
+    code: Annotated[str, Query(min_length=1, max_length=64)],
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> dict[str, object]:
+    try:
+        available = service(request).code_available(code)
+        return {"code": code, "available": available, "reason": None if available else "编码已存在"}
+    except ValueError as exc:
+        return {"code": code, "available": False, "reason": str(exc)}
 
 
 @router.post("/training-tasks", status_code=status.HTTP_201_CREATED)
@@ -380,6 +454,41 @@ def cancel_task(
     except (InvalidTraining, TrainingConflict, TrainingForbidden, TrainingNotFound) as exc:
         _raise(exc)
     return task_response(svc, user, item, True)
+
+
+@router.post("/training-tasks/{task_id}/retry-preparation")
+def retry_preparation(
+    task_id: str, request: Request, user: Annotated[User, Depends(current_user)]
+) -> dict[str, object]:
+    require_same_origin(request)
+    svc = service(request)
+    try:
+        item = svc.retry_preparation(user, task_id)
+    except (TrainingConflict, TrainingForbidden, TrainingNotFound) as exc:
+        _raise(exc)
+    return task_response(svc, user, item, True)
+
+
+@router.get("/training-tasks/{task_id}/preparation-log")
+def preparation_log(
+    task_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+    cursor: int = Query(0, ge=0),
+) -> dict[str, object]:
+    svc = service(request)
+    try:
+        svc.get_task(user, task_id)
+    except TrainingNotFound as exc:
+        _raise(exc)
+    item = svc.task_preparation(task_id)
+    if item is None:
+        raise HTTPException(404, "training preparation not found")
+    path = svc.workspace / item.storage_path / "prepare.log"
+    if not path.is_file():
+        return {"content": "", "next_cursor": cursor}
+    content, next_cursor = terminal_snapshot(path)
+    return {"content": content, "next_cursor": next_cursor}
 
 
 @router.post("/training-tasks/{task_id}/retry-failed")

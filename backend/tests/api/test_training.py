@@ -1,5 +1,6 @@
 import time
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from vision_dataset_workbench.capabilities import (
@@ -17,6 +18,7 @@ from vision_dataset_workbench.models import (
     InferenceModel,
     ModelProject,
     Project,
+    TrainingRun,
     User,
 )
 from vision_dataset_workbench.security.passwords import hash_password
@@ -45,6 +47,14 @@ def setup_app(tmp_path, monkeypatch):
     dataset_dir.mkdir(parents=True)
     (dataset_dir / "dataset.yaml").write_text(
         "path: .\ntrain: train/images\nval: val/images\nnames: [fire]\n"
+    )
+    (dataset_dir / "train" / "images").mkdir(parents=True)
+    (dataset_dir / "train" / "labels").mkdir(parents=True)
+    (dataset_dir / "val" / "images").mkdir(parents=True)
+    (dataset_dir / "val" / "labels").mkdir(parents=True)
+    (dataset_dir / "train" / "images" / "frame.jpg").write_bytes(b"image")
+    (dataset_dir / "train" / "labels" / "frame.txt").write_text(
+        "0 0.5 0.5 0.2 0.2\n"
     )
     model_path = workspace / "models" / "base.pt"
     model_path.parent.mkdir(parents=True)
@@ -78,8 +88,13 @@ def setup_app(tmp_path, monkeypatch):
                 name="Fire v1",
                 status="ready",
                 train_ratio=0.8,
+                total_frames=1,
+                train_frames=1,
                 storage_path="exports/dataset",
-                manifest='{"labels":[{"name":"fire"}]}',
+                manifest=(
+                    '{"total_frames":1,"train_frames":1,"val_frames":0,'
+                    '"labels":[{"name":"fire","mapping":0,"enabled":true}]}'
+                ),
             )
         )
         db.add(
@@ -218,6 +233,187 @@ def test_start_reports_resource_and_hyperparameter_errors_together(tmp_path, mon
     assert started.status_code == 422
     assert "models[0].base_model is not ready" in started.text
     assert "models[1].hyperparameters.batch" in started.text
+
+
+def test_resources_code_availability_and_multi_dataset_draft_round_trip(
+    tmp_path, monkeypatch
+):
+    _, client, _ = setup_app(tmp_path, monkeypatch)
+    resources = client.get("/api/v1/training/resources").json()
+    assert resources["datasets"][0] == {
+        "id": "export-id",
+        "name": "Fire v1",
+        "project_id": "project-id",
+        "project_name": "Fire dataset",
+        "total_frames": 1,
+        "train_frames": 1,
+        "val_frames": 0,
+        "labels": [{"index": 0, "name": "fire"}],
+    }
+    assert client.get(
+        "/api/v1/training-tasks/code-availability", params={"code": "multi-fire"}
+    ).json()["available"] is True
+    payload = {
+        "code": "multi-fire",
+        "name": "Multi fire",
+        "mode": "single_model",
+        "default_dataset_mode": "multi",
+        "default_multi_dataset_config": {
+            "version": 1,
+            "dataset_export_ids": ["export-id"],
+            "target_classes": ["fire"],
+        },
+        "default_template_id": "00000000-0000-0000-0000-000000000002",
+        "default_base_model_id": "base-model",
+        "models": [{"name": "one", "dataset_mode": "inherit"}],
+    }
+    created = client.post("/api/v1/training-tasks", headers=ORIGIN, json=payload)
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["default_dataset_mode"] == "multi"
+    assert body["default_multi_dataset_config"] == payload["default_multi_dataset_config"]
+    assert body["models"][0]["dataset_mode"] == "inherit"
+    assert client.get(
+        "/api/v1/training-tasks/code-availability", params={"code": "multi-fire"}
+    ).json() == {"code": "multi-fire", "available": False, "reason": "编码已存在"}
+
+
+def test_invalid_multi_dataset_config_is_rejected(tmp_path, monkeypatch):
+    _, client, _ = setup_app(tmp_path, monkeypatch)
+    response = client.post(
+        "/api/v1/training-tasks",
+        headers=ORIGIN,
+        json={
+            "code": "invalid-multi",
+            "name": "Invalid multi",
+            "default_dataset_mode": "multi",
+            "default_multi_dataset_config": {
+                "version": 1,
+                "dataset_export_ids": ["export-id"],
+                "target_classes": ["missing"],
+            },
+            "models": [{"name": "one"}],
+        },
+    )
+    assert response.status_code == 422
+    assert "target classes are unavailable" in response.text
+
+
+def test_multi_dataset_start_prepares_before_queue_and_reuses_same_task_hash(
+    tmp_path, monkeypatch
+):
+    app, client, workspace = setup_app(tmp_path, monkeypatch)
+    created = client.post(
+        "/api/v1/training-tasks",
+        headers=ORIGIN,
+        json={
+            "code": "prepared-fire",
+            "name": "Prepared fire",
+            "mode": "custom_sequence",
+            "default_dataset_mode": "multi",
+            "default_multi_dataset_config": {
+                "version": 1,
+                "dataset_export_ids": ["export-id"],
+                "target_classes": ["fire"],
+            },
+            "default_template_id": "00000000-0000-0000-0000-000000000002",
+            "default_base_model_id": "base-model",
+            "models": [
+                {"name": "one", "epochs_override": 1, "gpu_index": 0, "queue_order": 1},
+                {"name": "two", "epochs_override": 1, "gpu_index": 1, "queue_order": 1},
+            ],
+        },
+    ).json()
+    started = client.post(f"/api/v1/training-tasks/{created['id']}/start", headers=ORIGIN)
+    assert started.status_code == 200, started.text
+    assert started.json()["status"] == "preparing"
+    assert started.json()["preparation"]["status"] == "queued"
+    assert all(not model["runs"] for model in started.json()["models"])
+
+    scheduler = TrainingScheduler(
+        app.state.auth_service.engine, workspace, worker_id="prepare-worker", fake=True
+    )
+    scheduler._start_preparations()
+    with Session(app.state.auth_service.engine) as db:
+        assert list(db.scalars(select(TrainingRun))) == []
+
+    for _ in range(300):
+        scheduler.tick()
+        detail = client.get(f"/api/v1/training-tasks/{created['id']}").json()
+        if detail["status"] == "succeeded":
+            break
+        time.sleep(0.02)
+    assert detail["status"] == "succeeded", detail
+    paths = {model["dataset_snapshot"]["prepared_storage_path"] for model in detail["models"]}
+    assert len(paths) == 1
+    prepared = workspace / paths.pop()
+    assert (prepared / "READY").is_file()
+    assert (prepared / "train/labels/export-id_frame.txt").read_text() == (
+        "0 0.5 0.5 0.2 0.2\n"
+    )
+    log = client.get(f"/api/v1/training-tasks/{created['id']}/preparation-log").json()
+    assert "[prepare] completed" in log["content"]
+
+
+def test_preparation_failure_can_retry_and_queued_preparation_can_cancel(tmp_path, monkeypatch):
+    app, client, workspace = setup_app(tmp_path, monkeypatch)
+
+    def create(code):
+        return client.post(
+            "/api/v1/training-tasks",
+            headers=ORIGIN,
+            json={
+                "code": code,
+                "name": code,
+                "default_dataset_mode": "multi",
+                "default_multi_dataset_config": {
+                    "version": 1,
+                    "dataset_export_ids": ["export-id"],
+                    "target_classes": ["fire"],
+                },
+                "default_template_id": "00000000-0000-0000-0000-000000000002",
+                "default_base_model_id": "base-model",
+                "models": [{"name": "one", "epochs_override": 1}],
+            },
+        ).json()
+
+    canceled_source = create("cancel-prep")
+    client.post(f"/api/v1/training-tasks/{canceled_source['id']}/start", headers=ORIGIN)
+    canceled = client.post(
+        f"/api/v1/training-tasks/{canceled_source['id']}/cancel", headers=ORIGIN
+    )
+    assert canceled.json()["status"] == "canceled"
+    assert canceled.json()["preparation"]["status"] == "canceled"
+
+    source = create("retry-prep")
+    client.post(f"/api/v1/training-tasks/{source['id']}/start", headers=ORIGIN)
+    label = workspace / "exports/dataset/train/labels/frame.txt"
+    label.unlink()
+    scheduler = TrainingScheduler(
+        app.state.auth_service.engine, workspace, worker_id="retry-worker", fake=True
+    )
+    for _ in range(200):
+        scheduler.tick()
+        detail = client.get(f"/api/v1/training-tasks/{source['id']}").json()
+        if detail["status"] == "preparation_failed":
+            break
+        time.sleep(0.02)
+    assert detail["status"] == "preparation_failed", detail
+    assert detail["preparation"]["error"]
+    assert not any(model["runs"] for model in detail["models"])
+
+    label.write_text("0 0.5 0.5 0.2 0.2\n")
+    retried = client.post(
+        f"/api/v1/training-tasks/{source['id']}/retry-preparation", headers=ORIGIN
+    )
+    assert retried.status_code == 200, retried.text
+    for _ in range(300):
+        scheduler.tick()
+        detail = client.get(f"/api/v1/training-tasks/{source['id']}").json()
+        if detail["status"] == "succeeded":
+            break
+        time.sleep(0.02)
+    assert detail["status"] == "succeeded", detail
 
 
 def test_same_gpu_models_are_strictly_serial_and_task_cancel_covers_queue(tmp_path, monkeypatch):

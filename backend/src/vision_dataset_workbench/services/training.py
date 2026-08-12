@@ -14,14 +14,21 @@ from ..models import (
     DatasetExport,
     HyperparameterTemplate,
     InferenceModel,
+    Project,
     TrainingActionRequest,
     TrainingMetric,
     TrainingModel,
+    TrainingPreparation,
     TrainingRun,
     TrainingTask,
     User,
 )
 from ..training.actions import model_actions, task_actions
+from ..training.dataset_preparation import (
+    normalize_multi_dataset_config,
+    snapshot_hash,
+    source_classes,
+)
 from ..training.hyperparameters import (
     HyperparameterValidationError,
     effective_parameters,
@@ -29,7 +36,7 @@ from ..training.hyperparameters import (
 )
 from ..training.naming import build_artifact_code, validate_task_code
 
-ACTIVE = {"queued", "running", "canceling"}
+ACTIVE = {"preparing", "queued", "running", "canceling"}
 
 
 class TrainingNotFound(ValueError):
@@ -57,6 +64,25 @@ def _clean(value: str, maximum: int, required: bool = False) -> str:
     if (required and not result) or len(result) > maximum:
         raise InvalidTraining("invalid text field")
     return result
+
+
+def _config_json(value: object | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        normalized = normalize_multi_dataset_config(value)
+    except ValueError as exc:
+        raise InvalidTraining(str(exc)) from exc
+    return json.dumps(normalized, ensure_ascii=False)
+
+
+def _dataset_mode(value: object, dataset_id: object) -> str:
+    if value is None:
+        return "single" if dataset_id else "inherit"
+    mode = str(value)
+    if mode not in {"inherit", "single", "multi"}:
+        raise InvalidTraining("invalid model dataset mode")
+    return mode
 
 
 class TrainingService:
@@ -119,6 +145,22 @@ class TrainingService:
             for item in items:
                 db.expunge(item)
             return items
+
+    def task_preparation(self, task_id: str) -> TrainingPreparation | None:
+        with self._session_factory() as db:
+            item = db.scalar(
+                select(TrainingPreparation).where(
+                    TrainingPreparation.training_task_id == task_id
+                )
+            )
+            if item:
+                db.expunge(item)
+            return item
+
+    def code_available(self, code: str) -> bool:
+        clean = validate_task_code(code)
+        with self._session_factory() as db:
+            return db.scalar(select(TrainingTask.id).where(TrainingTask.code == clean)) is None
 
     def metrics(self, run_id: str, after_epoch: int = 0) -> list[TrainingMetric]:
         with self._session_factory() as db:
@@ -188,6 +230,8 @@ class TrainingService:
         description: str = "",
         mode: str = "single_model",
         default_dataset_export_id: str | None = None,
+        default_dataset_mode: str = "single",
+        default_multi_dataset_config: object | None = None,
         default_template_id: str | None = None,
         default_base_model_id: str | None = None,
         models: list[dict[str, object]],
@@ -200,6 +244,11 @@ class TrainingService:
             raise InvalidTraining("single_device_serial requires at least two models")
         if mode not in {"single_model", "single_device_serial", "custom_sequence"}:
             raise InvalidTraining("invalid training mode")
+        if default_dataset_mode not in {"single", "multi"}:
+            raise InvalidTraining("invalid task dataset mode")
+        default_multi_json = _config_json(default_multi_dataset_config)
+        if default_dataset_mode == "multi" and default_multi_json is None:
+            raise InvalidTraining("task multi-dataset config is required")
         now = _now()
         task = TrainingTask(
             id=str(uuid4()),
@@ -209,6 +258,8 @@ class TrainingService:
             status="draft",
             mode=mode,
             default_dataset_export_id=default_dataset_export_id,
+            default_dataset_mode=default_dataset_mode,
+            default_multi_dataset_config=default_multi_json,
             default_template_id=default_template_id,
             default_base_model_id=default_base_model_id,
             created_by_id=actor.id,
@@ -222,6 +273,12 @@ class TrainingService:
             if gpu < 0 or not 1 <= order <= 10 or (gpu, order) in seen:
                 raise InvalidTraining("GPU lane order must be unique")
             seen.add((gpu, order))
+            dataset_mode = _dataset_mode(
+                source.get("dataset_mode"), source.get("dataset_export_id")
+            )
+            multi_json = _config_json(source.get("multi_dataset_config"))
+            if dataset_mode == "multi" and multi_json is None:
+                raise InvalidTraining(f"models[{index - 1}].multi-dataset config is required")
             rows.append(
                 TrainingModel(
                     id=str(uuid4()),
@@ -229,6 +286,8 @@ class TrainingService:
                     name=_clean(str(source.get("name") or f"模型 {index}"), 128, True),
                     description=_clean(str(source.get("description") or ""), 2000),
                     dataset_export_id=source.get("dataset_export_id") or None,
+                    dataset_mode=dataset_mode,
+                    multi_dataset_config=multi_json,
                     template_id=source.get("template_id") or None,
                     base_model_id=source.get("base_model_id") or None,
                     epochs_override=source.get("epochs_override") or None,
@@ -246,6 +305,11 @@ class TrainingService:
             raise InvalidTraining("single_device_serial must use one GPU")
         with self._session_factory() as db:
             try:
+                if task.default_multi_dataset_config:
+                    self._multi_dataset_snapshot(db, task.default_multi_dataset_config)
+                for row in rows:
+                    if row.multi_dataset_config:
+                        self._multi_dataset_snapshot(db, row.multi_dataset_config)
                 db.add(task)
                 db.flush()
                 db.add_all(rows)
@@ -289,6 +353,14 @@ class TrainingService:
             task.description = _clean(str(values.get("description") or ""), 2000)
             task.mode = mode
             task.default_dataset_export_id = values.get("default_dataset_export_id") or None
+            default_dataset_mode = str(values.get("default_dataset_mode") or "single")
+            if default_dataset_mode not in {"single", "multi"}:
+                raise InvalidTraining("invalid task dataset mode")
+            default_multi_json = _config_json(values.get("default_multi_dataset_config"))
+            if default_dataset_mode == "multi" and default_multi_json is None:
+                raise InvalidTraining("task multi-dataset config is required")
+            task.default_dataset_mode = default_dataset_mode
+            task.default_multi_dataset_config = default_multi_json
             task.default_template_id = values.get("default_template_id") or None
             task.default_base_model_id = values.get("default_base_model_id") or None
             task.version += 1
@@ -300,6 +372,14 @@ class TrainingService:
                 if gpu < 0 or not 1 <= order <= 10 or (gpu, order) in seen:
                     raise InvalidTraining("GPU lane order must be unique")
                 seen.add((gpu, order))
+                dataset_mode = _dataset_mode(
+                    source.get("dataset_mode"), source.get("dataset_export_id")
+                )
+                multi_json = _config_json(source.get("multi_dataset_config"))
+                if dataset_mode == "multi" and multi_json is None:
+                    raise InvalidTraining(
+                        f"models[{index - 1}].multi-dataset config is required"
+                    )
                 db.add(
                     TrainingModel(
                         id=str(uuid4()),
@@ -307,6 +387,8 @@ class TrainingService:
                         name=_clean(str(source.get("name") or f"模型 {index}"), 128, True),
                         description=_clean(str(source.get("description") or ""), 2000),
                         dataset_export_id=source.get("dataset_export_id") or None,
+                        dataset_mode=dataset_mode,
+                        multi_dataset_config=multi_json,
                         template_id=source.get("template_id") or None,
                         base_model_id=source.get("base_model_id") or None,
                         epochs_override=source.get("epochs_override") or None,
@@ -325,9 +407,116 @@ class TrainingService:
                 and len({int(row.get("gpu_index", 0)) for row in model_values}) != 1
             ):
                 raise InvalidTraining("single_device_serial must use one GPU")
+            if task.default_multi_dataset_config:
+                self._multi_dataset_snapshot(db, task.default_multi_dataset_config)
+            for row in db.scalars(
+                select(TrainingModel).where(TrainingModel.training_task_id == task.id)
+            ):
+                if row.multi_dataset_config:
+                    self._multi_dataset_snapshot(db, row.multi_dataset_config)
             db.commit()
             db.expunge(task)
             return task
+
+    def _multi_dataset_snapshot(self, db, config_json: str | None) -> dict[str, object]:
+        if not config_json:
+            raise InvalidTraining("multi-dataset config is required")
+        try:
+            config = normalize_multi_dataset_config(json.loads(config_json))
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise InvalidTraining(str(exc)) from exc
+        export_ids = list(config["dataset_export_ids"])
+        target_classes = list(config["target_classes"])
+        targets = {name: index for index, name in enumerate(target_classes)}
+        exports = {
+            item.id: item
+            for item in db.scalars(select(DatasetExport).where(DatasetExport.id.in_(export_ids)))
+        }
+        sources: list[dict[str, object]] = []
+        available: set[str] = set()
+        for export_id in export_ids:
+            dataset = exports.get(export_id)
+            if (
+                dataset is None
+                or dataset.deleted_at is not None
+                or dataset.status != "ready"
+                or not dataset.storage_path
+            ):
+                raise InvalidTraining(f"dataset export is not ready: {export_id}")
+            try:
+                manifest = json.loads(dataset.manifest or "{}")
+                classes = source_classes(manifest)
+            except (ValueError, json.JSONDecodeError) as exc:
+                raise InvalidTraining(f"dataset export manifest is invalid: {export_id}") from exc
+            project = db.get(Project, dataset.project_id)
+            available.update(name for _index, name in classes)
+            sources.append(
+                {
+                    "dataset_export_id": dataset.id,
+                    "dataset_name": dataset.name,
+                    "project_id": dataset.project_id,
+                    "project_name": project.name if project else "",
+                    "storage_path": dataset.storage_path,
+                    "manifest": manifest,
+                    "class_map": {
+                        str(source_index): targets[name]
+                        for source_index, name in classes
+                        if name in targets
+                    },
+                }
+            )
+        missing = [name for name in target_classes if name not in available]
+        if missing:
+            raise InvalidTraining(f"target classes are unavailable: {', '.join(missing)}")
+        hash_input = {
+            "version": 1,
+            "dataset_export_ids": export_ids,
+            "target_classes": target_classes,
+            "sources": [
+                {
+                    "dataset_export_id": source["dataset_export_id"],
+                    "manifest": source["manifest"],
+                    "class_map": source["class_map"],
+                }
+                for source in sources
+            ],
+        }
+        return {
+            "version": 1,
+            "kind": "multi",
+            "config_hash": snapshot_hash(hash_input),
+            "target_classes": target_classes,
+            "sources": sources,
+        }
+
+    def _effective_dataset_snapshot(
+        self, db, task: TrainingTask, model: TrainingModel, index: int
+    ) -> dict[str, object]:
+        mode = model.dataset_mode
+        config_json = model.multi_dataset_config
+        dataset_id = model.dataset_export_id
+        if mode == "inherit":
+            mode = task.default_dataset_mode
+            config_json = task.default_multi_dataset_config
+            dataset_id = task.default_dataset_export_id
+        if mode == "multi":
+            return self._multi_dataset_snapshot(db, config_json)
+        dataset = db.get(DatasetExport, dataset_id) if dataset_id else None
+        if (
+            dataset is None
+            or dataset.deleted_at is not None
+            or dataset.status != "ready"
+            or not dataset.storage_path
+        ):
+            raise InvalidTraining(f"models[{index}].dataset is not ready")
+        return {
+            "version": 1,
+            "kind": "single",
+            "id": dataset.id,
+            "name": dataset.name,
+            "storage_path": dataset.storage_path,
+            "manifest": json.loads(dataset.manifest or "{}"),
+        }
 
     def start(
         self, actor: User, task_id: str, *, available_gpu_indices: set[int] | None = None
@@ -354,19 +543,15 @@ class TrainingService:
             issues: list[str] = []
             for index, row in enumerate(models):
                 issue_count = len(issues)
-                dataset_id = row.dataset_export_id or task.default_dataset_export_id
                 template_id = row.template_id or task.default_template_id
                 base_id = row.base_model_id or task.default_base_model_id
-                dataset = db.get(DatasetExport, dataset_id) if dataset_id else None
                 template = db.get(HyperparameterTemplate, template_id) if template_id else None
                 base = db.get(InferenceModel, base_id) if base_id else None
-                if (
-                    dataset is None
-                    or dataset.deleted_at is not None
-                    or dataset.status != "ready"
-                    or not dataset.storage_path
-                ):
-                    issues.append(f"models[{index}].dataset is not ready")
+                try:
+                    dataset_snapshot = self._effective_dataset_snapshot(db, task, row, index)
+                except InvalidTraining as exc:
+                    issues.append(str(exc))
+                    dataset_snapshot = None
                 if template is None or template.deleted_at is not None:
                     issues.append(f"models[{index}].template is unavailable")
                 if (
@@ -380,7 +565,7 @@ class TrainingService:
                     issues.append(f"models[{index}].gpu is unavailable")
                 if len(issues) > issue_count:
                     continue
-                assert dataset and template and base
+                assert dataset_snapshot and template and base
                 parameters = effective_parameters(
                     template.epochs,
                     template.batch_mode,
@@ -411,20 +596,8 @@ class TrainingService:
                     normalized["image_size"],
                     normalized["extra_parameters"],
                 )
-                row.dataset_export_id, row.template_id, row.base_model_id = (
-                    dataset.id,
-                    template.id,
-                    base.id,
-                )
-                row.dataset_snapshot = json.dumps(
-                    {
-                        "id": dataset.id,
-                        "name": dataset.name,
-                        "storage_path": dataset.storage_path,
-                        "manifest": json.loads(dataset.manifest or "{}"),
-                    },
-                    ensure_ascii=False,
-                )
+                row.template_id, row.base_model_id = template.id, base.id
+                row.dataset_snapshot = json.dumps(dataset_snapshot, ensure_ascii=False)
                 row.template_snapshot = json.dumps(
                     {"id": template.id, "name": template.name, "parameters": parameters},
                     ensure_ascii=False,
@@ -454,30 +627,56 @@ class TrainingService:
                 row.updated_at = now
             if issues:
                 raise InvalidTraining("; ".join(issues))
-            for row in models:
-                run_id = str(uuid4())
+            needs_preparation = any(
+                json.loads(row.dataset_snapshot).get("kind") == "multi" for row in models
+            )
+            if needs_preparation:
+                preparation_id = str(uuid4())
                 db.add(
-                    TrainingRun(
-                        id=run_id,
-                        training_model_id=row.id,
-                        attempt_no=1,
-                        kind="initial",
+                    TrainingPreparation(
+                        id=preparation_id,
+                        training_task_id=task.id,
                         status="queued",
-                        gpu_index=row.gpu_index,
-                        queue_order=row.queue_order,
+                        phase="waiting",
                         run_token=secrets.token_hex(24),
-                        target_epochs=json.loads(row.template_snapshot)["parameters"]["epochs"],
-                        storage_path=f"training/tasks/{task.id}/models/{row.id}/runs/{run_id}",
-                        enqueued_at=now,
+                        storage_path=f"training/tasks/{task.id}/preparation",
+                        created_at=now,
                     )
                 )
-            task.status = "queued"
+                for row in models:
+                    row.status = "preparing"
+                task.status = "preparing"
+            else:
+                self._queue_initial_runs(db, task, models, now)
             task.submitted_at = task.last_run_at = now
             task.updated_at = now
             task.version += 1
             db.commit()
             db.expunge(task)
             return task
+
+    @staticmethod
+    def _queue_initial_runs(db, task: TrainingTask, models: list[TrainingModel], now) -> None:
+        for row in models:
+            run_id = str(uuid4())
+            db.add(
+                TrainingRun(
+                    id=run_id,
+                    training_model_id=row.id,
+                    attempt_no=1,
+                    kind="initial",
+                    status="queued",
+                    gpu_index=row.gpu_index,
+                    queue_order=row.queue_order,
+                    run_token=secrets.token_hex(24),
+                    target_epochs=json.loads(row.template_snapshot)["parameters"]["epochs"],
+                    storage_path=f"training/tasks/{task.id}/models/{row.id}/runs/{run_id}",
+                    enqueued_at=now,
+                )
+            )
+            row.status = "queued"
+            row.updated_at = now
+        task.status = "queued"
 
     def cancel(self, actor: User, task_id: str) -> TrainingTask:
         check = self.get_task(actor, task_id)
@@ -488,6 +687,31 @@ class TrainingService:
             assert task
             if task.status not in ACTIVE:
                 raise TrainingConflict("training task is not active")
+            preparation = db.scalar(
+                select(TrainingPreparation).where(
+                    TrainingPreparation.training_task_id == task_id,
+                    TrainingPreparation.status.in_(("queued", "running", "canceling")),
+                )
+            )
+            if preparation:
+                now = _now()
+                preparation.status = (
+                    "canceled" if preparation.status == "queued" else "canceling"
+                )
+                if preparation.status == "canceled":
+                    preparation.finished_at = now
+                for model in db.scalars(
+                    select(TrainingModel).where(TrainingModel.training_task_id == task_id)
+                ):
+                    model.status = (
+                        "canceled" if preparation.status == "canceled" else "canceling"
+                    )
+                    model.finished_at = now if preparation.status == "canceled" else None
+                task.status = "canceled" if preparation.status == "canceled" else "canceling"
+                task.finished_at = now if preparation.status == "canceled" else None
+                db.commit()
+                db.expunge(task)
+                return task
             models = list(
                 db.scalars(
                     select(TrainingModel).where(
@@ -513,6 +737,48 @@ class TrainingService:
             )
             if task.status == "canceled":
                 task.finished_at = _now()
+            db.commit()
+            db.expunge(task)
+            return task
+
+    def retry_preparation(self, actor: User, task_id: str) -> TrainingTask:
+        task_check = self.get_task(actor, task_id)
+        if not self.can_manage(actor, task_check):
+            raise TrainingForbidden("training task is read-only")
+        with self._session_factory() as db:
+            task = db.get(TrainingTask, task_id)
+            preparation = db.scalar(
+                select(TrainingPreparation).where(
+                    TrainingPreparation.training_task_id == task_id
+                )
+            )
+            if task is None or preparation is None:
+                raise TrainingNotFound("training preparation not found")
+            if task.status != "preparation_failed" or preparation.status != "failed":
+                raise TrainingConflict("training preparation is not retryable")
+            now = _now()
+            preparation.status = "queued"
+            preparation.phase = "waiting"
+            preparation.progress = 0
+            preparation.processed = 0
+            preparation.total = 0
+            preparation.pid = None
+            preparation.run_token = secrets.token_hex(24)
+            preparation.worker_id = None
+            preparation.lease_expires_at = None
+            preparation.event_offset = 0
+            preparation.last_sequence = 0
+            preparation.error = None
+            preparation.started_at = None
+            preparation.finished_at = None
+            for model in db.scalars(
+                select(TrainingModel).where(TrainingModel.training_task_id == task_id)
+            ):
+                model.status = "preparing"
+                model.finished_at = None
+            task.status = "preparing"
+            task.finished_at = None
+            task.updated_at = now
             db.commit()
             db.expunge(task)
             return task
