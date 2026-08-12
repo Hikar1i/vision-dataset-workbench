@@ -255,7 +255,9 @@ def preparation_response(
         config_hash = snapshot.get("config_hash")
         if snapshot.get("kind") != "multi" or not isinstance(config_hash, str):
             continue
-        stats = snapshot.get("stats") if isinstance(snapshot.get("stats"), dict) else {}
+        stats = snapshot.get("stats")
+        if not isinstance(stats, dict):
+            continue
         artifacts.setdefault(
             config_hash,
             {
