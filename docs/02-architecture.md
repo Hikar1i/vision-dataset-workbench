@@ -4,7 +4,7 @@
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、二十版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、带标签的模型项目管理、不可变超参数模板、本地/远程模型推理、数据集导出、GPU 实时遥测和独立 Worker 训练调度器。
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、二十二版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、带标签的模型项目管理、不可变超参数模板、本地/远程模型推理、数据集导出、GPU 实时遥测和独立 Worker 训练调度器。
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -72,13 +72,14 @@ Independent Python Worker
   ├─ per-frame batch auto annotation + progress/status publication
   ├─ YOLO dataset hardlinks + labels/manifest + atomic publication
   └─ TrainingScheduler
+       ├─ 无 GPU 的多数据集合并准备、进度日志与安全重试
        ├─ 每 GPU 一个非抢占 FIFO lane、跨 GPU 并行
        ├─ 独立 Python/Ultralytics 子进程 + JSONL 事件与回调故障隔离
        ├─ 运行级绝对路径 dataset.yaml 与工作区 Ultralytics 缓存
        └─ checkpoint 保留、指标入库和模型原子发布
 ```
 
-API 请求负责校验、权限和应用服务编排。视频导入、抽帧、模型入库、批量自动标注、数据集导出和训练只创建持久状态并立即返回；外部工具和训练进程由独立 Worker 管理。训练启动前冻结数据集、超参和 basemodel 快照，启动后不允许修改原任务设置。
+API 请求负责校验、权限和应用服务编排。视频导入、抽帧、模型入库、批量自动标注、数据集导出和训练只创建持久状态并立即返回；外部工具和训练进程由独立 Worker 管理。训练启动前冻结数据集、类别映射、超参和 basemodel 快照，启动后不允许修改原任务设置。多数据集训练先运行独立准备子进程，原子发布合并数据集后才进入 GPU lane。
 
 ## 遗留架构基线
 
@@ -191,7 +192,7 @@ SQLite             Persistent Worker
 - Worker 与 API 读取同一 SQLite 和工作区。复制、下载、抽帧和批量自动标注各自全局并发 2，模型入库和数据集导出各自全局并发 1；同类型每用户并发 1。每个 FFmpeg 抽帧进程限制 2 个线程，当前只部署一个调度 Worker。
 - 项目媒体位于 `projects/<project UUID>/videos/<video short code>.<ext>`，缩略图位于 `projects/<project UUID>/thumbnails/<video short code>_thumbnail.jpg`，采样帧位于 `projects/<project UUID>/frames/<video short code>/<video short code>_frame_000001.<jpg|png>`；执行中输出位于顶层 `tmp/<task UUID>/`，验证后原子发布。短码在项目内唯一，帧文件可按原名平铺复制；每视频子目录仍是重采样原子替换边界。
 - 数据集导出位于 `projects/<project UUID>/exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；图像通过硬链接引用当前帧文件，类别和源数据快照、YOLO 标签、配置及统计清单随产物保存。下载按请求流式生成 ZIP，不在工作区保留额外压缩包。
-- 训练子进程在 `<workspace>/cache/ultralytics/` 运行；Ultralytics 的 AMP 辅助权重等运行缓存不会写入源码目录。每次运行在自身目录生成解析为绝对路径的 `dataset.yaml`，避免相对路径随子进程工作目录漂移。
+- 训练子进程在 `<workspace>/cache/ultralytics/` 运行；Ultralytics 的 AMP 辅助权重等运行缓存不会写入源码目录。单数据集运行生成绝对路径 `dataset.yaml`；多数据集准备在工作区缓存中硬链接图片、改写 YOLO 标签并原子发布 `data.yaml`，避免修改原导出或依赖子进程当前目录。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
 - Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
 - Python 核心依赖不包含本地大模型或 Agent 框架；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、torchvision 和 Ultralytics。X-AnyLabeling 与在线视觉大模型均通过 HTTP 调用。

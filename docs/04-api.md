@@ -80,10 +80,13 @@
 | `GET/POST /api/v1/hyperparameter-templates` | Session；创建需同源 | 列出或创建工作区全局不可变模板，可指定派生来源 |
 | `GET/DELETE /api/v1/hyperparameter-templates/{id}` | Session；删除需创建者或管理员与同源 | 查看或逻辑删除模板；系统模板不可删除 |
 | `GET /api/v1/training/capabilities` | Session | 返回 2 秒缓存的主机/GPU 实时显存、利用率、颜色级别和训练可用性 |
-| `GET /api/v1/training/resources` | Session | 返回工作区 ready 数据集导出、活动模板和 ready basemodel 候选 |
+| `GET /api/v1/training/resources` | Session | 返回工作区 ready 数据集导出（含项目、train/val/总量和类别索引）、活动模板和 ready basemodel 候选 |
+| `GET /api/v1/training-tasks/code-availability` | Session | 校验新任务不可变 code 的格式和可用性 |
 | `GET/POST /api/v1/training-tasks` | Session；创建需同源 | 按最近训练倒序列出任务，或创建含 1–10 个模型的草稿 |
 | `GET/PATCH /api/v1/training-tasks/{id}` | Session；PATCH 需创建者/管理员与同源 | 查看任务详情；仅 draft 可按 `version` 修改且 code 不可变 |
-| `POST /api/v1/training-tasks/{id}/start|cancel` | 创建者/管理员 + 同源 | 原子预检并冻结排队，或整体取消 queued/running 模型；预检会将 JSON/数据库中的整数型浮点 batch（如 `12.0`）规范化为固定批量，并聚合返回各模型资源与超参错误 |
+| `POST /api/v1/training-tasks/{id}/start|cancel` | 创建者/管理员 + 同源 | 原子预检并冻结；多数据集任务先进入无 GPU 的数据准备阶段，准备完成后才排队训练；取消覆盖准备和训练阶段 |
+| `POST /api/v1/training-tasks/{id}/retry-preparation` | 创建者/管理员 + 同源 | 仅为 `preparation_failed` 任务重建并排队数据准备记录 |
+| `GET /api/v1/training-tasks/{id}/preparation-log` | Session | 返回当前数据准备子进程的去 ANSI 文本日志快照 |
 | `POST /api/v1/training-tasks/{id}/retry-failed|resume-interrupted|derive` | 创建者/管理员 + 同源 | 重试未成功子项、恢复具备 last.pt 的中断子项，或固定各模型数据集/basemodel 派生新草稿 |
 | `DELETE /api/v1/training-tasks/{id}` | 创建者/管理员 + 同源 | 拒绝活动任务；归档运行目录并保留已发布模型 |
 | `POST /api/v1/training-models/{id}/cancel|retry|resume` | 创建者/管理员 + 同源 | 单模型取消、从 epoch 0 重试或基于 last.pt 恢复中断 |
@@ -167,6 +170,10 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 训练资源当前按已确认的工作区全局权限实现：所有认证用户可读和创建任务，创建者或系统管理员可修改草稿及执行生命周期操作；最终按功能/RBAC 的权限优化另行重构。任务 code 是不可变全局业务标识而非主键，UUID 继续承担路由和外键身份。
 
 三种模式分别为 `single_model`、`single_device_serial` 和 `custom_sequence`。一个模型只属于一个 GPU lane，同卡严格串行、不同 GPU 可并行，不支持单 GPU 多模型并行或一个模型使用多 GPU。GPU 高显存只产生红/橙风险提示，不阻止选择；本系统已有 active run 会由数据库和调度器强制排队。
+
+任务默认数据集支持 `single` 或 `multi`，模型可 `inherit`、`single` 或 `multi`。多数据集配置版本固定为 1，包含非空的 ready 导出 UUID 列表和按目标索引排序的非空 `target_classes`；来源类别按导出 manifest 中的精确名称映射。允许只选择一个导出使用多数据集映射；同名来源类别自动归入同一目标类别，类别同名但大小写不同视为不同类别。启动边界会重新验证配置、导出状态、标签索引和磁盘空间，客户端校验不构成信任边界。
+
+多数据集不会修改原导出目录。准备进程为图片创建硬链接、复制并改写每个 YOLO TXT 的第一列，保持原 train/val/test 划分并发布独立 `data.yaml`。准备期间任务/模型状态为 `preparing`，失败为 `preparation_failed`；详情响应附带 preparation 进度、阶段、已处理/总数、时间和安全错误。准备成功后才创建 initial run 和参与 GPU lane 调度。
 
 生命周期 action 可携带最长 128 字符的 `Idempotency-Key`。重试生成新 run；恢复只允许 failed/canceled 且有有效 last.pt；派生生成新 task/model 且请求 DTO 不接受 dataset/basemodel；追加训练只允许成功模型并创建新单模型草稿。成功模型重试还必须提交 `confirm_replace=true`，新训练失败不会修改当前发布模型。
 

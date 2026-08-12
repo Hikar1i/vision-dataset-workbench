@@ -2,7 +2,7 @@
 
 ## 最近迁移
 
-迁移 0021_user_llm_configs 增加按用户隔离的大模型配置和默认参数表。API Key 使用工作区 Fernet 凭据密钥加密保存，响应仅返回是否存在密钥及脱敏值；配置记录保存连接测试状态、响应时延和高级选项 JSON。
+迁移 `0022_multi_dataset_training` 为训练任务和模型增加单/多数据集模式及映射配置，并新增独立的数据准备记录。`0021_user_llm_configs` 增加按用户隔离的大模型配置和默认参数表。API Key 使用工作区 Fernet 凭据密钥加密保存，响应仅返回是否存在密钥及脱敏值；配置记录保存连接测试状态、响应时延和高级选项 JSON。
 
 状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、模型项目、超参数模板、训练任务/模型/运行/指标、用户远程配置、推理模型和数据集导出迁移已实现。
 
@@ -17,7 +17,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加不可变超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系，并为已有项目回填“未分类”。当前 `users` 表为：
+Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加不可变超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系；`0021_user_llm_configs` 增加用户大模型配置；`0022_multi_dataset_training` 增加多数据集训练准备。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -183,16 +183,19 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 
 模板删除仅对非系统、非活动引用资源开放；普通列表过滤 `deleted_at`。名称在逻辑删除后可复用，但模板 UUID 与派生关系不复用。
 
-训练数据拆成四个层级，避免任务配置、模型配置、每次尝试和 epoch 指标相互覆盖：
+训练数据拆成五个层级，避免任务配置、数据准备、模型配置、每次尝试和 epoch 指标相互覆盖：
 
 | 表 | 关键语义 |
 | --- | --- |
 | `training_tasks` | UUID 主键；`code` 全局唯一且逻辑删除后不复用；保存名称、模式、默认资源、聚合状态/进度、创建者、版本和训练时间 |
+| `training_preparations` | 每个已启动任务最多一行；保存合并数据集准备的进度、阶段、PID/token、事件游标、租约、输出目录和错误 |
 | `training_models` | 一个任务 1–10 个模型；保存显式资源、三项核心覆盖、GPU、lane 顺序、冻结快照、产物 code，以及派生/追加来源 |
 | `training_runs` | 每次 initial/retry/resume/extend 独立一行；保存 attempt、GPU、PID、token、事件游标、epoch、路径、主机快照、租约和终态信息 |
 | `training_metrics` | `(training_run_id, epoch)` 复合主键；保存 box/cls/dfl loss、学习率、precision、recall、mAP50、mAP50-95 和可选 P-R 数据 |
 
-任务状态为 `draft/queued/running/canceling/canceled/start_failed/failed/partial/succeeded`；模型和运行不含 `partial`。`(task_id,gpu_index,queue_order)` 唯一，GPU lane 顺序从 1 开始；SQLite 部分唯一索引确保每张 GPU 最多一个 `running/canceling` run。任务进度是所有模型 epoch 进度的等权聚合，列表按 `last_run_at` 倒序。
+任务状态为 `draft/preparing/preparation_failed/queued/running/canceling/canceled/start_failed/failed/partial/succeeded`；模型增加 `preparing/preparation_failed` 且不含 `partial`，运行仍从 `queued` 开始。`(task_id,gpu_index,queue_order)` 唯一，GPU lane 顺序从 1 开始；SQLite 部分唯一索引确保每张 GPU 最多一个 `running/canceling` run。任务进度在准备阶段保持 0，进入训练后按所有模型 epoch 进度等权聚合，列表按 `last_run_at` 倒序。
+
+任务和模型分别以 `default_dataset_mode/default_multi_dataset_config`、`dataset_mode/multi_dataset_config` 保存数据选择。多数据集配置冻结导出 UUID、连续目标类别顺序和精确区分大小写的来源类别映射。启动后先创建 `training_preparations`：子进程在同一文件系统的 staging 目录硬链接图片、改写 YOLO TXT 第一列并生成 `data.yaml`，校验完成后原子发布；原导出目录及其标签文件不修改。相同规范化配置可复用已发布目录。准备阶段不申请 GPU，成功后才创建并排队 initial run；失败保留安全错误和日志，可由任务级操作重试。
 
 启动成功前草稿仍可编辑；启动事务解析默认值，校验 ready 数据集/模型和活动模板，随后冻结三个 JSON 快照、不可变 artifact code 和 initial run。`model_projects.training_task_id` 与 `inference_models.training_model_id` 都是唯一可空来源关系，确保一个训练任务最多发布一个训练项目、一个训练模型最多对应一个发布模型。
 

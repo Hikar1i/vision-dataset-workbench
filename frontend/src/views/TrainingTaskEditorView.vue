@@ -175,11 +175,19 @@ const valid = computed(
     modelsHaveResources.value &&
     form.models.every((item) => item.name.trim()),
 );
-const activeMappingConfig = computed(() =>
-  mappingModel.value
-    ? mappingModel.value.multi_dataset_config ?? form.default_multi_dataset_config
-    : form.default_multi_dataset_config,
-);
+function initialMapping(datasetId: string | null): MultiDatasetConfig | null {
+  const dataset = resources.value.datasets.find((item) => item.id === datasetId);
+  return dataset
+    ? { version: 1, dataset_export_ids: [dataset.id], target_classes: dataset.labels.map((item) => item.name) }
+    : null;
+}
+const activeMappingConfig = computed(() => {
+  if (!mappingModel.value)
+    return form.default_multi_dataset_config ?? initialMapping(form.default_dataset_export_id);
+  return mappingModel.value.multi_dataset_config
+    ?? form.default_multi_dataset_config
+    ?? initialMapping(mappingModel.value.dataset_export_id ?? form.default_dataset_export_id);
+});
 const defaultMultiSummary = computed(() => {
   const config = form.default_multi_dataset_config;
   const selected = resources.value.datasets.filter((item) =>

@@ -18,6 +18,7 @@ describe("TrainingTaskEditorView layout", () => {
   it("keeps task and model multi-dataset mappings as explicit saved configuration", () => {
     expect(source).toContain("form.default_multi_dataset_config = config");
     expect(source).toContain("mappingModel.value.multi_dataset_config = config");
+    expect(source).toContain("initialMapping(form.default_dataset_export_id)");
     expect(source).toContain('form.default_dataset_mode === "multi" && !form.default_multi_dataset_config');
   });
 });

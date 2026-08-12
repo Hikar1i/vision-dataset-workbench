@@ -29,6 +29,7 @@ const search = ref("");
 const working = ref<MappingDraft>({ selected: [], order: [], deleted: [] });
 const expandedProjects = ref<string[]>([]);
 const expandedSources = ref<string[]>([]);
+const selectedExpanded = ref(false);
 
 watch(
   () => props.modelValue,
@@ -38,6 +39,7 @@ watch(
     search.value = "";
     expandedProjects.value = [...new Set(props.datasets.map((item) => item.project_id))];
     expandedSources.value = [];
+    selectedExpanded.value = false;
   },
   { immediate: true },
 );
@@ -115,20 +117,23 @@ function save() {
               type="button"
               class="project-title"
               :aria-expanded="expandedProjects.includes(project.id)"
+              :aria-controls="`mapping-project-${project.id}`"
               @click="toggleProject(project.id)"
             >
               <strong>{{ project.name }}</strong><span>{{ project.datasets.length }} 个</span>
             </button>
-            <div v-show="expandedProjects.includes(project.id)" class="project-datasets">
-              <label v-for="dataset in project.datasets" :key="dataset.id" class="dataset-option">
-                <el-checkbox
-                  :model-value="working.selected.includes(dataset.id)"
-                  :data-test="`dataset-${dataset.id}`"
-                  @change="selectDataset(dataset.id, Boolean($event))"
-                />
-                <span class="dataset-copy"><b>{{ dataset.name }}</b><small>{{ dataset.total_frames.toLocaleString() }} 张图像 · {{ dataset.labels.length }} 个类别</small></span>
-              </label>
-            </div>
+            <Transition name="mapping-expand">
+              <div v-show="expandedProjects.includes(project.id)" :id="`mapping-project-${project.id}`" class="project-datasets">
+                <label v-for="dataset in project.datasets" :key="dataset.id" class="dataset-option">
+                  <el-checkbox
+                    :model-value="working.selected.includes(dataset.id)"
+                    :data-test="`dataset-${dataset.id}`"
+                    @change="selectDataset(dataset.id, Boolean($event))"
+                  />
+                  <span class="dataset-copy"><b>{{ dataset.name }}</b><small>{{ dataset.total_frames.toLocaleString() }} 张图像 · {{ dataset.labels.length }} 个类别</small></span>
+                </label>
+              </div>
+            </Transition>
           </section>
         </div>
         <el-empty v-else description="没有匹配的可用数据集" :image-size="72" />
@@ -137,12 +142,15 @@ function save() {
       <section class="mapping-pane">
         <header class="selection-summary">
           <div><b>已选数据集（{{ working.selected.length }}）</b><span>{{ selectedImages.toLocaleString() }} 张图像 · {{ working.order.length }} 个目标类别</span></div>
-          <div class="selected-chips">
+          <div id="selected-dataset-chips" class="selected-chips" :class="{ expanded: selectedExpanded }">
             <span v-for="dataset in selectedDatasets" :key="dataset.id" class="dataset-chip" :title="`${dataset.project_name} / ${dataset.name}`">
               <span>{{ dataset.project_name }} / {{ dataset.name }}</span>
               <button type="button" :aria-label="`移除 ${dataset.name}`" @click="selectDataset(dataset.id, false)">×</button>
             </span>
           </div>
+          <button v-if="selectedDatasets.length > 3" type="button" class="expand-selected" :aria-expanded="selectedExpanded" aria-controls="selected-dataset-chips" @click="selectedExpanded = !selectedExpanded">
+            {{ selectedExpanded ? "收起已选数据集" : "展开全部已选数据集" }}
+          </button>
           <el-alert title="不同来源可能包含重复图片；系统仅提示，不自动去重，也不会阻止训练。" type="warning" :closable="false" show-icon />
         </header>
 
@@ -152,7 +160,7 @@ function save() {
             <VButton size="sm" :disabled="!working.deleted.length" @click="restoreTargets(working, datasets)">
               <template #icon><el-icon><Refresh /></el-icon></template>恢复已删除类别
             </VButton>
-            <VButton size="sm" :disabled="!working.order.length">
+            <VButton size="sm" disabled title="目标索引已随当前顺序保持连续">
               <template #icon><el-icon><Sort /></el-icon></template>索引已连续
             </VButton>
           </div>
@@ -195,7 +203,9 @@ function save() {
 </template>
 
 <style scoped>
-.mapping-layout{display:grid;grid-template-columns:360px minmax(0,1fr);height:min(890px,calc(100vh - 190px));min-height:620px;border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-card);overflow:hidden}.dataset-pane{padding:16px;overflow:auto;background:var(--vdw-surface-2);border-right:1px solid var(--vdw-line)}.visible-label{display:block;margin-bottom:7px;font-weight:500}.dataset-tree{display:grid;gap:8px;margin-top:14px}.project-group{border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-control);background:var(--vdw-surface)}.project-title{display:flex;align-items:center;justify-content:space-between;width:100%;height:42px;padding:0 12px;border:0;background:transparent;cursor:pointer}.project-title:hover{background:var(--vdw-accent-soft)}.project-title span{color:var(--vdw-ink-3);font-size:14px}.project-datasets{display:grid;gap:2px;padding:0 8px 8px}.dataset-option{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;padding:9px;border:1px solid transparent;border-radius:var(--vdw-radius-control);cursor:pointer}.dataset-option:hover{border-color:var(--vdw-line);background:var(--vdw-surface-2)}.dataset-copy{display:grid;min-width:0}.dataset-copy b,.dataset-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dataset-copy small{color:var(--vdw-ink-2);font-size:14px}.mapping-pane{min-width:0;overflow:auto}.selection-summary{display:grid;gap:10px;padding:15px 18px;border-bottom:1px solid var(--vdw-line);background:var(--vdw-surface)}.selection-summary>div:first-child{display:flex;gap:14px;align-items:baseline}.selection-summary>div:first-child span{color:var(--vdw-ink-2);font-size:14px}.selected-chips{display:flex;flex-wrap:wrap;gap:6px;max-height:58px;overflow:auto}.dataset-chip{display:flex;align-items:center;gap:6px;max-width:300px;height:26px;padding:0 8px;border:1px solid var(--vdw-line-2);border-radius:999px;background:var(--vdw-surface-2);font-size:14px}.dataset-chip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dataset-chip button{padding:0;border:0;background:transparent;color:var(--vdw-ink-2);font-size:16px}.mapping-toolbar{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 10px}.mapping-toolbar h3{margin:0;font-size:17px}.mapping-toolbar p{margin:3px 0 0;color:var(--vdw-ink-2);font-size:14px}.mapping-toolbar>div:last-child,.dialog-footer>div{display:flex;gap:7px}.mapping-table{margin:0 18px 18px;border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-card);overflow:hidden}.mapping-row{display:grid;grid-template-columns:100px minmax(160px,.8fr) minmax(280px,1.8fr) 126px;gap:16px;align-items:center;min-height:64px;padding:12px 14px;border-bottom:1px solid var(--vdw-line)}.mapping-row:last-child{border-bottom:0}.mapping-head{min-height:43px;background:var(--vdw-surface-3);color:var(--vdw-ink-2);font-size:14px;font-weight:500}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.source-list{display:flex;flex-wrap:wrap;gap:5px;max-height:52px;overflow:hidden}.source-list.expanded{max-height:none}.source-chip{display:block;max-width:100%;padding:2px 7px;overflow:hidden;background:var(--vdw-surface-2);color:var(--vdw-ink-2);font:14px var(--vdw-mono);text-overflow:ellipsis;white-space:nowrap}.expand-sources{margin-top:4px;padding:0;border:0;background:transparent;color:var(--vdw-accent-ink);font-size:14px}.row-actions{display:flex;gap:4px}.dialog-footer{display:flex;align-items:center;justify-content:space-between}.dialog-footer p{margin:0;color:var(--vdw-ok);font-size:14px}.dialog-footer p.invalid{color:var(--vdw-danger)}
+.mapping-layout{display:grid;grid-template-columns:360px minmax(0,1fr);height:min(890px,calc(100vh - 190px));min-height:620px;border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-card);overflow:hidden}.dataset-pane{padding:16px;overflow:auto;background:var(--vdw-surface-2);border-right:1px solid var(--vdw-line)}.visible-label{display:block;margin-bottom:7px;font-weight:500}.dataset-tree{display:grid;gap:8px;margin-top:14px}.project-group{border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-control);background:var(--vdw-surface)}.project-title{display:flex;align-items:center;justify-content:space-between;width:100%;height:42px;padding:0 12px;border:0;background:transparent;cursor:pointer}.project-title:hover{background:var(--vdw-accent-soft)}.project-title span{color:var(--vdw-ink-3);font-size:14px}.project-datasets{display:grid;gap:2px;padding:0 8px 8px}.dataset-option{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;padding:9px;border:1px solid transparent;border-radius:var(--vdw-radius-control);cursor:pointer}.dataset-option:hover{border-color:var(--vdw-line);background:var(--vdw-surface-2)}.dataset-copy{display:grid;min-width:0}.dataset-copy b,.dataset-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dataset-copy small{color:var(--vdw-ink-2);font-size:14px}.mapping-pane{min-width:0;overflow:auto}.selection-summary{display:grid;gap:10px;padding:15px 18px;border-bottom:1px solid var(--vdw-line);background:var(--vdw-surface)}.selection-summary>div:first-child{display:flex;gap:14px;align-items:baseline}.selection-summary>div:first-child span{color:var(--vdw-ink-2);font-size:14px}.selected-chips{display:flex;flex-wrap:wrap;gap:6px;max-height:58px;overflow:hidden}.selected-chips.expanded{max-height:none}.dataset-chip{display:flex;align-items:center;gap:6px;max-width:300px;height:26px;padding:0 8px;border:1px solid var(--vdw-line-2);border-radius:999px;background:var(--vdw-surface-2);font-size:14px}.dataset-chip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dataset-chip button{padding:0;border:0;background:transparent;color:var(--vdw-ink-2);font-size:16px}.expand-selected,.expand-sources{justify-self:start;margin-top:4px;padding:0;border:0;background:transparent;color:var(--vdw-accent-ink);font-size:14px;cursor:pointer}.mapping-toolbar{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 10px}.mapping-toolbar h3{margin:0;font-size:17px}.mapping-toolbar p{margin:3px 0 0;color:var(--vdw-ink-2);font-size:14px}.mapping-toolbar>div:last-child,.dialog-footer>div{display:flex;gap:7px}.mapping-table{margin:0 18px 18px;border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-card);overflow:hidden}.mapping-row{display:grid;grid-template-columns:100px minmax(160px,.8fr) minmax(280px,1.8fr) 126px;gap:16px;align-items:center;min-height:64px;padding:12px 14px;border-bottom:1px solid var(--vdw-line)}.mapping-row:last-child{border-bottom:0}.mapping-head{min-height:43px;background:var(--vdw-surface-3);color:var(--vdw-ink-2);font-size:14px;font-weight:500}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.source-list{display:flex;flex-wrap:wrap;gap:5px;max-height:52px;overflow:hidden}.source-list.expanded{max-height:none}.source-chip{display:block;max-width:100%;padding:2px 7px;overflow:hidden;background:var(--vdw-surface-2);color:var(--vdw-ink-2);font:14px var(--vdw-mono);text-overflow:ellipsis;white-space:nowrap}.row-actions{display:flex;gap:4px}.dialog-footer{display:flex;align-items:center;justify-content:space-between}.dialog-footer p{margin:0;color:var(--vdw-ok);font-size:14px}.dialog-footer p.invalid{color:var(--vdw-danger)}
+.mapping-expand-enter-active,.mapping-expand-leave-active{transition:opacity 220ms var(--vdw-ease),transform 220ms var(--vdw-ease)}
+.mapping-expand-enter-from,.mapping-expand-leave-to{opacity:0;transform:translateY(-4px)}
 @media(prefers-reduced-motion:reduce){.project-datasets,.source-list{transition:none}}
 </style>
 
