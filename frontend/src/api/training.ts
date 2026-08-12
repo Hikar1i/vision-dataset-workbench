@@ -76,6 +76,14 @@ export type TrainingPreparation = {
   error: string | null;
   started_at: string | null;
   finished_at: string | null;
+  artifacts: {
+    config_hash: string;
+    dataset_count: number;
+    images: number;
+    annotations: number;
+    ignored_annotations: number;
+    negative_images: number;
+  }[];
 };
 export type TrainingModel = {
   id: string;

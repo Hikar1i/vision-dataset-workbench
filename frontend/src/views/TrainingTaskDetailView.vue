@@ -369,6 +369,12 @@ onBeforeUnmount(() => clearInterval(timer))
               <span>{{ task.preparation.progress.toFixed(1) }}%</span>
               <span>持续 {{ duration(task.preparation.started_at, task.preparation.finished_at) }}</span>
             </div>
+            <div v-if="task.preparation.artifacts.length" class="preparation-artifacts">
+              <article v-for="artifact in task.preparation.artifacts" :key="artifact.config_hash">
+                <div><b>{{ artifact.dataset_count }} 个数据集</b><code :title="artifact.config_hash">{{ artifact.config_hash.slice(0, 12) }}</code></div>
+                <span>{{ artifact.images.toLocaleString() }} 张图像 · {{ artifact.annotations.toLocaleString() }} 个标注 · {{ artifact.negative_images.toLocaleString() }} 张负样本 · 忽略 {{ artifact.ignored_annotations.toLocaleString() }} 个标注</span>
+              </article>
+            </div>
             <el-alert v-if="task.preparation.error" :title="`准备失败：${task.preparation.error}。修复来源数据或存储问题后重试。`" type="error" :closable="false" show-icon />
             <pre v-show="preparationLogOpen" id="preparation-log" class="preparation-log">{{ preparationLog || '暂无准备日志' }}</pre>
           </div>
@@ -517,6 +523,11 @@ onBeforeUnmount(() => clearInterval(timer))
 .preparation-head span { color: var(--vdw-ink-2); font-size: 14px; }
 .preparation-actions { display: flex; gap: 7px; }
 .preparation-meta { display: flex; gap: 18px; color: var(--vdw-ink-2); font-size: 14px; }
+.preparation-artifacts { display: grid; gap: 8px; }
+.preparation-artifacts article { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--vdw-line); background: var(--vdw-surface-2); }
+.preparation-artifacts article>div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.preparation-artifacts code { max-width: 180px; overflow: hidden; color: var(--vdw-accent-ink); font: 14px var(--vdw-mono); text-overflow: ellipsis; white-space: nowrap; }
+.preparation-artifacts span { color: var(--vdw-ink-2); font-size: 14px; }
 .preparation-log { max-height: 340px; margin: 0; padding: 13px 14px; overflow: auto; border-radius: var(--vdw-radius-control); background: var(--vdw-focus-canvas, #0f1d25); color: #d6e4e9; font: 13px/1.65 var(--vdw-mono); white-space: pre-wrap; }
 
 .lane-order {

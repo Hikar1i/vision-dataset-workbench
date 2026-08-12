@@ -351,6 +351,16 @@ def test_multi_dataset_start_prepares_before_queue_and_reuses_same_task_hash(
     assert (prepared / "train/labels/export-id_frame.txt").read_text() == (
         "0 0.5 0.5 0.2 0.2\n"
     )
+    assert detail["preparation"]["artifacts"] == [
+        {
+            "config_hash": prepared.name,
+            "dataset_count": 1,
+            "images": 1,
+            "annotations": 1,
+            "ignored_annotations": 0,
+            "negative_images": 0,
+        }
+    ]
     log = client.get(f"/api/v1/training-tasks/{created['id']}/preparation-log").json()
     assert "[prepare] completed" in log["content"]
 

@@ -240,11 +240,33 @@ def task_response(
     if details:
         value["models"] = [model_response(svc, row) for row in models]
         preparation = svc.task_preparation(task.id)
-        value["preparation"] = preparation_response(preparation) if preparation else None
+        value["preparation"] = (
+            preparation_response(preparation, models) if preparation else None
+        )
     return value
 
 
-def preparation_response(item: TrainingPreparation) -> dict[str, object]:
+def preparation_response(
+    item: TrainingPreparation, models: list[TrainingModel]
+) -> dict[str, object]:
+    artifacts: dict[str, dict[str, object]] = {}
+    for model in models:
+        snapshot = json.loads(model.dataset_snapshot or "{}")
+        config_hash = snapshot.get("config_hash")
+        if snapshot.get("kind") != "multi" or not isinstance(config_hash, str):
+            continue
+        stats = snapshot.get("stats") if isinstance(snapshot.get("stats"), dict) else {}
+        artifacts.setdefault(
+            config_hash,
+            {
+                "config_hash": config_hash,
+                "dataset_count": len(snapshot.get("sources") or []),
+                "images": int(stats.get("images") or 0),
+                "annotations": int(stats.get("annotations") or 0),
+                "ignored_annotations": int(stats.get("ignored_annotations") or 0),
+                "negative_images": int(stats.get("negative_images") or 0),
+            },
+        )
     return {
         "id": item.id,
         "status": item.status,
@@ -255,6 +277,7 @@ def preparation_response(item: TrainingPreparation) -> dict[str, object]:
         "error": item.error,
         "started_at": _time(item.started_at),
         "finished_at": _time(item.finished_at),
+        "artifacts": list(artifacts.values()),
     }
 
 
