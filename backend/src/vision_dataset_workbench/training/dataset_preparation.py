@@ -127,6 +127,19 @@ def materialize_snapshot(
             source_files.append((source, root, split, images))
             total += len(images)
 
+    label_bytes = 0
+    for _source, root, split, images in source_files:
+        for image in images:
+            label = root / split / "labels" / f"{image.stem}.txt"
+            if not label.is_file():
+                raise ValueError(f"source label is missing: {label.name}")
+            label_bytes += label.stat().st_size
+    required_bytes = 16 * 1024 * 1024 + total * 4096 + label_bytes * 2
+    if shutil.disk_usage(workspace).free < required_bytes:
+        raise ValueError("insufficient disk space for prepared dataset metadata and labels")
+    if progress:
+        progress("validate", 0, total)
+
     staging = target.parent / f".preparing-{uuid4()}"
     stats = {"images": 0, "annotations": 0, "ignored_annotations": 0, "negative_images": 0}
     try:

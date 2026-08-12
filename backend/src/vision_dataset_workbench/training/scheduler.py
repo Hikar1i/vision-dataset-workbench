@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -21,6 +22,7 @@ from ..models import (
     ModelProjectTagLink,
     TrainingMetric,
     TrainingModel,
+    TrainingPreparation,
     TrainingRun,
     TrainingTask,
 )
@@ -51,8 +53,260 @@ class TrainingScheduler:
         self.fake = bool(os.environ.get("VDW_FAKE_TRAINING") == "1") if fake is None else fake
 
     def tick(self) -> None:
+        self._monitor_preparations()
+        self._start_preparations()
         self._monitor_active()
         self._start_available()
+
+    def _monitor_preparations(self) -> None:
+        with self._session_factory() as db:
+            ids = list(
+                db.scalars(
+                    select(TrainingPreparation.id).where(
+                        TrainingPreparation.status.in_(("running", "canceling"))
+                    )
+                )
+            )
+        for preparation_id in ids:
+            self._consume_preparation_events(preparation_id)
+            with self._session_factory() as db:
+                item = db.get(TrainingPreparation, preparation_id)
+                if item is None or item.status not in {"running", "canceling"}:
+                    continue
+                if item.status == "canceling" and item.pid:
+                    try:
+                        os.kill(item.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                alive = False
+                if item.pid:
+                    try:
+                        process = psutil.Process(item.pid)
+                        alive = process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+                    except psutil.Error:
+                        pass
+                if alive:
+                    item.lease_expires_at = _now() + timedelta(seconds=30)
+                    db.commit()
+                    continue
+                self._consume_preparation_events(preparation_id)
+                db.refresh(item)
+                if item.status not in {"running", "canceling"}:
+                    continue
+                status = "canceled" if item.status == "canceling" else "failed"
+                self._finish_preparation(
+                    db, item, status, "preparation process exited without terminal event"
+                )
+                db.commit()
+
+    def _consume_preparation_events(self, preparation_id: str) -> None:
+        with self._session_factory() as db:
+            item = db.get(TrainingPreparation, preparation_id)
+            if item is None:
+                return
+            events = self.workspace / item.storage_path / "events.jsonl"
+            if not events.is_file():
+                return
+            with events.open("rb") as source:
+                source.seek(item.event_offset)
+                while line := source.readline():
+                    if not line.endswith(b"\n"):
+                        break
+                    item.event_offset = source.tell()
+                    try:
+                        event = validate_event(
+                            json.loads(line),
+                            run_id=item.id,
+                            token=item.run_token,
+                            last_sequence=item.last_sequence,
+                        )
+                    except (ValueError, json.JSONDecodeError) as exc:
+                        item.error = str(exc)[:2000]
+                        continue
+                    item.last_sequence = int(event["sequence"])
+                    kind = str(event["type"])
+                    if kind == "started":
+                        item.pid = int(event.get("pid") or item.pid or 0)
+                        item.total = int(event.get("total") or 0)
+                        item.phase = "validate"
+                    elif kind == "progress":
+                        item.phase = str(event.get("phase") or "prepare")[:32]
+                        item.processed = int(event.get("processed") or 0)
+                        item.total = int(event.get("total") or item.total)
+                        item.progress = (
+                            min(100, item.processed / item.total * 100) if item.total else 0
+                        )
+                    elif kind == "failed":
+                        self._finish_preparation(
+                            db, item, "failed", str(event.get("error") or "preparation failed")
+                        )
+                    elif kind == "completed":
+                        try:
+                            self._queue_prepared_task(db, item)
+                        except Exception as exc:
+                            self._finish_preparation(db, item, "failed", str(exc))
+            db.commit()
+
+    def _start_preparations(self) -> None:
+        with self._session_factory() as db:
+            items = list(
+                db.scalars(
+                    select(TrainingPreparation)
+                    .where(TrainingPreparation.status == "queued")
+                    .order_by(TrainingPreparation.created_at, TrainingPreparation.id)
+                )
+            )
+            selected: list[str] = []
+            for item in items:
+                item.status = "running"
+                item.phase = "starting"
+                item.started_at = item.started_at or _now()
+                item.worker_id = self.worker_id
+                item.lease_expires_at = _now() + timedelta(seconds=30)
+                selected.append(item.id)
+            db.commit()
+        for preparation_id in selected:
+            try:
+                self._spawn_preparation(preparation_id)
+            except Exception as exc:
+                with self._session_factory() as db:
+                    item = db.get(TrainingPreparation, preparation_id)
+                    if item:
+                        self._finish_preparation(db, item, "failed", str(exc))
+                        db.commit()
+
+    def _spawn_preparation(self, preparation_id: str) -> None:
+        with self._session_factory() as db:
+            item = db.get(TrainingPreparation, preparation_id)
+            assert item
+            models = list(
+                db.scalars(
+                    select(TrainingModel).where(
+                        TrainingModel.training_task_id == item.training_task_id,
+                        TrainingModel.deleted_at.is_(None),
+                    )
+                )
+            )
+            snapshots: dict[str, dict[str, object]] = {}
+            for model in models:
+                snapshot = json.loads(model.dataset_snapshot)
+                if snapshot.get("kind") != "multi":
+                    continue
+                config_hash = str(snapshot["config_hash"])
+                sources = list(snapshot.get("sources") or [])
+                snapshots.setdefault(
+                    config_hash,
+                    {
+                        "config_hash": config_hash,
+                        "storage_path": (
+                            f"training/tasks/{item.training_task_id}/datasets/{config_hash}"
+                        ),
+                        "total_frames": sum(
+                            int(source.get("manifest", {}).get("total_frames") or 0)
+                            for source in sources
+                            if isinstance(source, dict)
+                        ),
+                        "snapshot": snapshot,
+                    },
+                )
+            directory = self.workspace / item.storage_path
+            directory.mkdir(parents=True, exist_ok=True)
+            spec_path = directory / "spec.json"
+            events_path = directory / "events.jsonl"
+            log_path = directory / "prepare.log"
+            events_path.write_text("", encoding="utf-8")
+            log_path.write_text("", encoding="utf-8")
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "preparation_id": item.id,
+                        "token": item.run_token,
+                        "workspace": str(self.workspace),
+                        "snapshots": list(snapshots.values()),
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            log = log_path.open("ab")
+            process = self._popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "vision_dataset_workbench.training.preparation_process",
+                    "--spec",
+                    str(spec_path),
+                    "--events",
+                    str(events_path),
+                ],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                cwd=self.workspace,
+            )
+            log.close()
+            item.pid = process.pid
+            db.commit()
+
+    def _queue_prepared_task(self, db, item: TrainingPreparation) -> None:
+        task = db.get(TrainingTask, item.training_task_id)
+        assert task
+        models = list(
+            db.scalars(
+                select(TrainingModel)
+                .where(
+                    TrainingModel.training_task_id == task.id,
+                    TrainingModel.deleted_at.is_(None),
+                )
+                .order_by(TrainingModel.gpu_index, TrainingModel.queue_order)
+            )
+        )
+        for model in models:
+            snapshot = json.loads(model.dataset_snapshot)
+            if snapshot.get("kind") == "multi":
+                storage_path = f"training/tasks/{task.id}/datasets/{snapshot['config_hash']}"
+                if not (self.workspace / storage_path / "READY").is_file():
+                    raise RuntimeError("prepared dataset is incomplete")
+                snapshot["storage_path"] = storage_path
+                snapshot["prepared_storage_path"] = storage_path
+                snapshot["stats"] = json.loads(
+                    (self.workspace / storage_path / "manifest.json").read_text(encoding="utf-8")
+                )["stats"]
+                model.dataset_snapshot = json.dumps(snapshot, ensure_ascii=False)
+        from ..services.training import TrainingService
+
+        TrainingService._queue_initial_runs(db, task, models, _now())
+        item.status = "succeeded"
+        item.phase = "completed"
+        item.progress = 100
+        item.processed = item.total
+        item.finished_at = _now()
+        item.lease_expires_at = None
+        task.updated_at = _now()
+
+    def _finish_preparation(
+        self, db, item: TrainingPreparation, status: str, error: str | None
+    ) -> None:
+        item.status = status
+        item.error = error[:2000] if error else None
+        item.finished_at = _now()
+        item.lease_expires_at = None
+        task = db.get(TrainingTask, item.training_task_id)
+        assert task
+        model_status = "canceled" if status == "canceled" else "preparation_failed"
+        for model in db.scalars(
+            select(TrainingModel).where(TrainingModel.training_task_id == task.id)
+        ):
+            model.status = model_status
+            model.finished_at = _now()
+        task.status = "canceled" if status == "canceled" else "preparation_failed"
+        task.finished_at = _now()
+        task.updated_at = _now()
+        datasets = self.workspace / "training" / "tasks" / task.id / "datasets"
+        if datasets.is_dir():
+            for staged in datasets.glob(".preparing-*"):
+                if staged.parent == datasets:
+                    shutil.rmtree(staged, ignore_errors=True)
 
     def _monitor_active(self) -> None:
         with self._session_factory() as db:

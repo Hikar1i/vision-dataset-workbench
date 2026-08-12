@@ -4,7 +4,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SCHEMA_VERSION = 1
-EVENT_TYPES = {"started", "epoch_end", "artifact", "warning", "completed", "failed"}
+EVENT_TYPES = {
+    "started",
+    "progress",
+    "epoch_end",
+    "artifact",
+    "warning",
+    "completed",
+    "failed",
+}
 ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 
