@@ -125,7 +125,7 @@ function setDatasetMode(row: TrainingModelDraft, mode: TrainingModelDraft["datas
     <div v-for="(column, columnIndex) in columns" :key="columnIndex" class="model-editor-column">
       <article v-for="({ row, index }) in column" :key="keyFor(row)" class="model-editor-card">
         <header>
-          <button class="card-summary" type="button" :aria-expanded="!collapsed.includes(row)" @click="toggle(row)">
+          <button class="card-summary" type="button" :aria-expanded="!collapsed.includes(row)" :aria-controls="`${keyFor(row)}-details`" @click="toggle(row)">
             <span>MODEL {{ String(index + 1).padStart(2, "0") }}</span>
             <strong>{{ row.name || `模型 ${index + 1}` }}</strong>
             <small>GPU {{ row.gpu_index }} / q{{ String(row.queue_order).padStart(2, "0") }} · {{ summary(row) }}</small>
@@ -145,7 +145,7 @@ function setDatasetMode(row: TrainingModelDraft, mode: TrainingModelDraft["datas
             </VButton>
           </div>
         </header>
-        <el-form v-show="!collapsed.includes(row)" label-position="top">
+        <el-form :id="`${keyFor(row)}-details`" v-show="!collapsed.includes(row)" label-position="top">
           <div class="form-grid two">
             <el-form-item label="模型名称"><el-input v-model="row.name" maxlength="128" @change="update" /></el-form-item>
             <el-form-item label="GPU / 序号"><div class="inline"><el-select v-model="row.gpu_index" @change="normalize();update()"><el-option v-for="gpu in devices" :key="gpu.index" :value="gpu.index" :label="`GPU ${gpu.index} · 显存 ${gpu.memory_percent}%`" /></el-select><el-input-number v-model="row.queue_order" :min="1" :max="10" :disabled="mode !== 'custom_sequence'" @change="update" /></div></el-form-item>
