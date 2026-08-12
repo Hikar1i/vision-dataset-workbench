@@ -52,9 +52,16 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         "model_projects",
         "user_xanylabeling_settings",
         "dataset_exports",
+        "training_preparations",
     }.issubset(
         inspect(engine).get_table_names()
     )
+    assert {"default_dataset_mode", "default_multi_dataset_config"} <= {
+        column["name"] for column in inspect(engine).get_columns("training_tasks")
+    }
+    assert {"dataset_mode", "multi_dataset_config"} <= {
+        column["name"] for column in inspect(engine).get_columns("training_models")
+    }
     assert AuthSession.__tablename__ == "sessions"
     video_columns = {
         column["name"]: column for column in inspect(engine).get_columns("videos")

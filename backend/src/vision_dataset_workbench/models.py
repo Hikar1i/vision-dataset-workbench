@@ -501,7 +501,7 @@ class TrainingTask(Base):
     __tablename__ = "training_tasks"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('draft','queued','running','canceling','canceled','start_failed','failed','partial','succeeded')",
+            "status IN ('draft','preparing','preparation_failed','queued','running','canceling','canceled','start_failed','failed','partial','succeeded')",
             name="ck_training_tasks_status",
         ),
         CheckConstraint(
@@ -521,6 +521,8 @@ class TrainingTask(Base):
     default_dataset_export_id: Mapped[str | None] = mapped_column(
         ForeignKey("dataset_exports.id", ondelete="RESTRICT"), nullable=True
     )
+    default_dataset_mode: Mapped[str] = mapped_column(String(16), default="single")
+    default_multi_dataset_config: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_template_id: Mapped[str | None] = mapped_column(
         ForeignKey("hyperparameter_templates.id", ondelete="RESTRICT"), nullable=True
     )
@@ -550,7 +552,7 @@ class TrainingModel(Base):
     __tablename__ = "training_models"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('draft','queued','running','canceling','canceled','start_failed','failed','succeeded')",
+            "status IN ('draft','preparing','preparation_failed','queued','running','canceling','canceled','start_failed','failed','succeeded')",
             name="ck_training_models_status",
         ),
         CheckConstraint("progress >= 0 AND progress <= 100", name="ck_training_models_progress"),
@@ -572,6 +574,8 @@ class TrainingModel(Base):
     dataset_export_id: Mapped[str | None] = mapped_column(
         ForeignKey("dataset_exports.id", ondelete="RESTRICT"), nullable=True
     )
+    dataset_mode: Mapped[str] = mapped_column(String(16), default="inherit")
+    multi_dataset_config: Mapped[str | None] = mapped_column(Text, nullable=True)
     template_id: Mapped[str | None] = mapped_column(
         ForeignKey("hyperparameter_templates.id", ondelete="RESTRICT"), nullable=True
     )
@@ -605,6 +609,49 @@ class TrainingModel(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TrainingPreparation(Base):
+    __tablename__ = "training_preparations"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','running','canceling','canceled','failed','succeeded')",
+            name="ck_training_preparations_status",
+        ),
+        CheckConstraint(
+            "progress >= 0 AND progress <= 100",
+            name="ck_training_preparations_progress",
+        ),
+        CheckConstraint(
+            "processed >= 0 AND total >= 0",
+            name="ck_training_preparations_counts",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    training_task_id: Mapped[str] = mapped_column(
+        ForeignKey("training_tasks.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
+    phase: Mapped[str] = mapped_column(String(32), default="waiting")
+    progress: Mapped[float] = mapped_column(Float, default=0)
+    processed: Mapped[int] = mapped_column(Integer, default=0)
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    run_token: Mapped[str] = mapped_column(String(64), unique=True)
+    worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    event_offset: Mapped[int] = mapped_column(Integer, default=0)
+    last_sequence: Mapped[int] = mapped_column(Integer, default=0)
+    storage_path: Mapped[str] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TrainingRun(Base):
