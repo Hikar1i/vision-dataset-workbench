@@ -3,6 +3,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
+  checkTrainingTaskCode,
   createTrainingTask,
   getTrainingCapabilities,
   getTrainingResources,
@@ -10,6 +11,7 @@ import {
   startTrainingTask,
   updateTrainingTask,
   type GpuDevice,
+  type MultiDatasetConfig,
   type TrainingModelDraft,
   type TrainingResources,
   type TrainingTaskDraft,
@@ -17,6 +19,7 @@ import {
 import { ApiError } from "../api/auth";
 import GpuSequenceEditor from "../components/GpuSequenceEditor.vue";
 import TrainingModelEditor from "../components/TrainingModelEditor.vue";
+import MultiDatasetMappingDialog from "../components/MultiDatasetMappingDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { groupedOptions, hasEffectiveResources } from "../components/trainingResources";
 import VButton from '../ui/VButton.vue'
@@ -27,6 +30,10 @@ const editing = computed(() => Boolean(route.params.id));
 const taskVersion = ref(1);
 const loading = ref(true);
 const saving = ref(false);
+const mappingOpen = ref(false);
+const mappingModel = ref<TrainingModelDraft | null>(null);
+const codeState = ref<"idle" | "checking" | "available" | "conflict" | "failed">("idle");
+const codeMessage = ref("");
 const devices = ref<GpuDevice[]>([]);
 const trainingAvailable = ref(false);
 const capabilityReason = ref("");
@@ -41,6 +48,8 @@ const form = reactive<TrainingTaskDraft>({
   description: "",
   mode: "single_model",
   default_dataset_export_id: null,
+  default_dataset_mode: "single",
+  default_multi_dataset_config: null,
   default_template_id: null,
   default_base_model_id: null,
   models: [],
@@ -50,6 +59,8 @@ function row(index: number): TrainingModelDraft {
     name: `模型 ${index}`,
     description: "",
     dataset_export_id: null,
+    dataset_mode: "inherit",
+    multi_dataset_config: null,
     template_id: null,
     base_model_id: null,
     epochs_override: null,
@@ -86,6 +97,19 @@ function applyMode(mode: string) {
   }
 }
 watch(() => form.mode, applyMode);
+watch(
+  () => form.default_dataset_mode,
+  (mode) => {
+    if (mode === "multi" && !form.default_multi_dataset_config) openTaskMapping();
+  },
+);
+watch(mappingOpen, (open) => {
+  if (open) return;
+  if (mappingModel.value?.dataset_mode === "multi" && !mappingModel.value.multi_dataset_config)
+    mappingModel.value.dataset_mode = "single";
+  if (!mappingModel.value && form.default_dataset_mode === "multi" && !form.default_multi_dataset_config)
+    form.default_dataset_mode = "single";
+});
 async function load() {
   try {
     const [available, options] = await Promise.all([
@@ -104,12 +128,16 @@ async function load() {
         description: task.description,
         mode: task.mode,
         default_dataset_export_id: task.default_dataset_export_id,
+        default_dataset_mode: task.default_dataset_mode,
+        default_multi_dataset_config: task.default_multi_dataset_config,
         default_template_id: task.default_template_id,
         default_base_model_id: task.default_base_model_id,
         models: (task.models || []).map((item) => ({
           name: item.name,
           description: item.description,
           dataset_export_id: item.dataset_export_id,
+          dataset_mode: item.dataset_mode,
+          multi_dataset_config: item.multi_dataset_config,
           template_id: item.template_id,
           base_model_id: item.base_model_id,
           epochs_override: item.epochs_override,
@@ -140,12 +168,63 @@ const cascaderProps = { emitPath: false };
 const valid = computed(
   () =>
     /^[a-z][a-z0-9-]{2,31}$/.test(form.code) &&
+    codeState.value !== "conflict" &&
     form.name.trim() &&
     form.models.length >= 1 &&
     form.models.length <= 10 &&
     modelsHaveResources.value &&
     form.models.every((item) => item.name.trim()),
 );
+const activeMappingConfig = computed(() =>
+  mappingModel.value
+    ? mappingModel.value.multi_dataset_config ?? form.default_multi_dataset_config
+    : form.default_multi_dataset_config,
+);
+const defaultMultiSummary = computed(() => {
+  const config = form.default_multi_dataset_config;
+  const selected = resources.value.datasets.filter((item) =>
+    config?.dataset_export_ids.includes(item.id),
+  );
+  return {
+    datasets: selected.length,
+    images: selected.reduce((sum, item) => sum + item.total_frames, 0),
+    classes: config?.target_classes.length ?? 0,
+  };
+});
+function openTaskMapping() {
+  mappingModel.value = null;
+  mappingOpen.value = true;
+}
+function openModelMapping(model: TrainingModelDraft) {
+  mappingModel.value = model;
+  mappingOpen.value = true;
+}
+function saveMapping(config: MultiDatasetConfig) {
+  if (mappingModel.value) {
+    mappingModel.value.dataset_mode = "multi";
+    mappingModel.value.multi_dataset_config = config;
+  } else {
+    form.default_dataset_mode = "multi";
+    form.default_multi_dataset_config = config;
+  }
+}
+async function checkCode() {
+  if (editing.value || !/^[a-z][a-z0-9-]{2,31}$/.test(form.code)) {
+    codeState.value = "idle";
+    codeMessage.value = "";
+    return;
+  }
+  codeState.value = "checking";
+  codeMessage.value = "正在检查编码…";
+  try {
+    const result = await checkTrainingTaskCode(form.code);
+    codeState.value = result.available ? "available" : "conflict";
+    codeMessage.value = result.available ? "编码可用" : result.reason || "编码已存在";
+  } catch {
+    codeState.value = "failed";
+    codeMessage.value = "暂时无法检查，保存时会再次校验";
+  }
+}
 async function save(start: boolean) {
   if (!valid.value || saving.value) return;
   saving.value = true;
@@ -161,6 +240,8 @@ async function save(start: boolean) {
           description: form.description,
           mode: form.mode,
           default_dataset_export_id: form.default_dataset_export_id,
+          default_dataset_mode: form.default_dataset_mode,
+          default_multi_dataset_config: form.default_multi_dataset_config,
           default_template_id: form.default_template_id,
           default_base_model_id: form.default_base_model_id,
           models: form.models,
@@ -217,7 +298,7 @@ onMounted(load);
           <h2>任务基础设置</h2>
         </header>
         <el-form label-position="top"
-          ><div class="form-grid three">
+          ><div class="form-grid two">
             <el-form-item label="训练任务名称"
               ><el-input v-model="form.name" maxlength="128" /></el-form-item
             ><el-form-item label="任务 code"
@@ -225,18 +306,14 @@ onMounted(load);
                 v-model="form.code"
                 :disabled="editing"
                 placeholder="如 firedet"
+                @blur="checkCode"
               />
-              <p class="field-note">
+              <p v-if="codeMessage" class="field-note code-state" :class="codeState">
+                {{ codeMessage }}
+              </p>
+              <p v-else class="field-note">
                 3–32 位小写字母、数字或连字符；创建后不可修改且删除后不复用。
-              </p></el-form-item
-            ><el-form-item label="训练模式"
-              ><el-select v-model="form.mode"
-                ><el-option label="单模型" value="single_model" /><el-option
-                  label="单算力串行"
-                  value="single_device_serial" /><el-option
-                  label="自定义序列"
-                  value="custom_sequence" /></el-select
-            ></el-form-item>
+              </p></el-form-item>
           </div>
           <el-form-item label="训练描述"
             ><el-input
@@ -251,24 +328,26 @@ onMounted(load);
           <span>02 / DEFAULTS</span>
           <h2>任务总体设置</h2>
         </header>
-        <div class="form-grid three">
-          <el-form-item label="默认数据集"
-            ><el-cascader
-              v-model="form.default_dataset_export_id"
-              :options="datasetOptions"
-              :props="cascaderProps"
-              filterable
-              clearable
-              placeholder="数据集项目 / 导出数据集"
-            /></el-form-item
-          ><el-form-item label="默认超参模板"
+        <div class="resource-rows">
+          <div class="resource-row">
+            <div><b>默认数据集</b><span>继承模型共用；单数据集与多数据集配置互相保留</span></div>
+            <div class="dataset-default-control">
+              <el-segmented v-model="form.default_dataset_mode" :options="[{ label: '单数据集', value: 'single' }, { label: '多数据集', value: 'multi' }]" />
+              <el-cascader v-if="form.default_dataset_mode === 'single'" v-model="form.default_dataset_export_id" :options="datasetOptions" :props="cascaderProps" filterable clearable placeholder="数据集项目 / 导出数据集" />
+              <div v-else class="multi-summary" :class="{ invalid: !form.default_multi_dataset_config }">
+                <div><b>{{ form.default_multi_dataset_config ? '多数据集配置有效' : '尚未配置多数据集' }}</b><span>{{ defaultMultiSummary.datasets }} 个数据集 · {{ defaultMultiSummary.images.toLocaleString() }} 张图像 · {{ defaultMultiSummary.classes }} 个目标类别</span></div>
+                <VButton variant="quiet" @click="openTaskMapping">{{ form.default_multi_dataset_config ? '配置映射' : '开始配置' }}</VButton>
+              </div>
+            </div>
+          </div>
+          <div class="resource-row"><div><b>默认超参模板</b><span>训练器基础参数</span></div><el-form-item
             ><el-select v-model="form.default_template_id" filterable clearable
               ><el-option
                 v-for="item in resources.templates"
                 :key="item.id"
                 :label="item.name"
-                :value="item.id" /></el-select></el-form-item
-          ><el-form-item label="默认 Base model">
+                :value="item.id" /></el-select></el-form-item></div
+          ><div class="resource-row"><div><b>默认 Base model</b><span>模型初始化权重</span></div><el-form-item>
           <el-cascader
               v-model="form.default_base_model_id"
               :options="baseModelOptions"
@@ -277,7 +356,7 @@ onMounted(load);
               clearable
               placeholder="模型项目 / BaseModel"
             />
-          </el-form-item>
+          </el-form-item></div>
         </div>
         <p class="field-note">
           未设置默认资源时，每个模型行必须单独选择；模型行选择值会覆盖任务默认。
@@ -294,6 +373,12 @@ onMounted(load);
             @click="add">添加模型</VButton
           >
         </header>
+        <el-form label-position="top" class="training-mode-field">
+          <el-form-item label="训练模式">
+            <el-segmented v-model="form.mode" :options="[{ label: '单模型', value: 'single_model' }, { label: '单算力串行', value: 'single_device_serial' }, { label: '自定义序列', value: 'custom_sequence' }]" />
+            <p class="field-note">准备训练数据始终在申请 GPU 前完成。</p>
+          </el-form-item>
+        </el-form>
         <TrainingModelEditor
           :models="form.models"
           :resources="resources"
@@ -301,6 +386,7 @@ onMounted(load);
           :mode="form.mode"
           :task-code="form.code"
           :defaults="form"
+          @configure-mapping="openModelMapping"
           @change="form.models = $event"
         /><GpuSequenceEditor
           v-if="form.mode === 'custom_sequence'"
@@ -311,6 +397,7 @@ onMounted(load);
         />
       </section>
     </div>
+    <MultiDatasetMappingDialog v-model="mappingOpen" :config="activeMappingConfig" :datasets="resources.datasets" :title="mappingModel ? `${mappingModel.name || '训练模型'} · 多数据集映射` : '任务默认 · 多数据集映射'" @save="saveMapping" />
   </main>
 </template>
 <style scoped>
@@ -341,25 +428,39 @@ onMounted(load);
   display: grid;
   gap: 16px;
 }
-.form-grid.three {
-  grid-template-columns: repeat(3, 1fr);
+.form-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .field-note {
   margin: 5px 0 0;
   color: var(--vdw-ink-2);
-  font-size: 13px;
+  font-size: 14px;
 }
 .model-section-title {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
+.resource-rows { display: grid; }
+.resource-row { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 18px; align-items: start; padding: 16px 0; border-bottom: 1px solid var(--vdw-line); }
+.resource-row:first-child { padding-top: 0; }
+.resource-row:last-child { padding-bottom: 0; border-bottom: 0; }
+.resource-row>div:first-child { display: grid; }
+.resource-row>div:first-child span { color: var(--vdw-ink-2); font-size: 14px; }
+.resource-row :deep(.el-form-item) { margin: 0; }
+.resource-row :deep(.el-select),.resource-row :deep(.el-cascader) { width: 100%; }
+.dataset-default-control { display: grid; gap: 10px; }
+.dataset-default-control :deep(.el-segmented) { justify-self: start; }
+.multi-summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 13px; border: 1px solid var(--vdw-accent-line); border-radius: var(--vdw-radius-control); background: var(--vdw-accent-soft); }
+.multi-summary.invalid { border-color: var(--vdw-warn-line); background: var(--vdw-warn-soft); }
+.multi-summary>div { display: grid; min-width: 0; }
+.multi-summary span { color: var(--vdw-ink-2); font-size: 14px; }
+.training-mode-field { margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--vdw-line); background: var(--vdw-surface-2); }
+.training-mode-field :deep(.el-form-item) { margin: 0; }
+.code-state.available { color: var(--vdw-ok); }
+.code-state.conflict,.code-state.failed { color: var(--vdw-danger); }
+.code-state.checking { color: var(--vdw-accent-ink); }
 .lane-preview {
   margin-top: 18px;
-}
-@media (max-width: 900px) {
-  .form-grid.three {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

@@ -10,6 +10,8 @@ export type Tone = 'ok' | 'run' | 'warn' | 'danger' | 'idle'
 /** 训练任务与训练运行状态（后端 TrainingStatus / RunStatus） */
 const TRAINING: Record<string, { tone: Tone; label: string }> = {
   draft: { tone: 'idle', label: '草稿' },
+  preparing: { tone: 'run', label: '准备训练数据' },
+  preparation_failed: { tone: 'danger', label: '数据准备失败' },
   queued: { tone: 'idle', label: '排队中' },
   running: { tone: 'run', label: '进行中' },
   canceling: { tone: 'warn', label: '取消中' },

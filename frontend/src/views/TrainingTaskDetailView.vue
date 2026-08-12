@@ -10,8 +10,10 @@ import {
   deleteTrainingModel,
   deleteTrainingTask,
   deriveTrainingTask,
+  getTrainingPreparationLog,
   getTrainingTask,
   retryFailedTrainingModels,
+  retryTrainingPreparation,
   retryTrainingModel,
   resumeInterruptedTrainingModels,
   resumeTrainingModel,
@@ -37,6 +39,8 @@ const route = useRoute()
 const router = useRouter()
 const task = ref<TrainingTask>()
 const error = ref('')
+const preparationLog = ref('')
+const preparationLogOpen = ref(false)
 let timer: number | undefined
 let loadVersion = 0
 
@@ -50,7 +54,7 @@ const MODE_LABEL: Record<string, string> = {
 }
 
 const active = computed(
-  () => task.value && ['queued', 'running', 'canceling'].includes(task.value.status),
+  () => task.value && ['preparing', 'queued', 'running', 'canceling'].includes(task.value.status),
 )
 
 const groups = computed(() => {
@@ -201,6 +205,27 @@ async function retryFailed() {
   }
 }
 
+async function retryPreparation() {
+  if (!task.value) return
+  try {
+    task.value = await retryTrainingPreparation(task.value.id)
+    preparationLog.value = ''
+    ElMessage.success('训练数据准备已重新排队')
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '重试准备失败')
+  }
+}
+
+async function togglePreparationLog() {
+  preparationLogOpen.value = !preparationLogOpen.value
+  if (!preparationLogOpen.value || !task.value) return
+  try {
+    preparationLog.value = (await getTrainingPreparationLog(task.value.id)).content
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '准备日志加载失败')
+  }
+}
+
 async function derive() {
   if (!task.value) return
   try {
@@ -322,6 +347,30 @@ onBeforeUnmount(() => clearInterval(timer))
                 <dd>{{ item.text }}</dd>
               </div>
             </dl>
+          </div>
+        </VPanel>
+
+        <VPanel v-if="task.preparation" title="准备训练数据">
+          <div class="preparation-stage">
+            <div class="preparation-head">
+              <div>
+                <VTag :tone="trainingStatus(task.status).tone">{{ trainingStatus(task.status).label }}</VTag>
+                <b>{{ task.preparation.phase }}</b>
+                <span>独立阶段 · 不占用 GPU</span>
+              </div>
+              <div class="preparation-actions">
+                <VButton variant="quiet" :aria-expanded="preparationLogOpen" aria-controls="preparation-log" @click="togglePreparationLog">{{ preparationLogOpen ? '收起日志' : '查看准备日志' }}</VButton>
+                <VButton v-if="task.status === 'preparation_failed'" variant="default" @click="retryPreparation">重试准备</VButton>
+              </div>
+            </div>
+            <VBar :value="task.preparation.progress" :tone="trainingStatus(task.status).tone" label="训练数据准备进度" />
+            <div class="preparation-meta">
+              <span>{{ task.preparation.processed.toLocaleString() }} / {{ task.preparation.total.toLocaleString() }} 个文件</span>
+              <span>{{ task.preparation.progress.toFixed(1) }}%</span>
+              <span>持续 {{ duration(task.preparation.started_at, task.preparation.finished_at) }}</span>
+            </div>
+            <el-alert v-if="task.preparation.error" :title="`准备失败：${task.preparation.error}。修复来源数据或存储问题后重试。`" type="error" :closable="false" show-icon />
+            <pre v-show="preparationLogOpen" id="preparation-log" class="preparation-log">{{ preparationLog || '暂无准备日志' }}</pre>
           </div>
         </VPanel>
 
@@ -461,6 +510,14 @@ onBeforeUnmount(() => clearInterval(timer))
   font-family: var(--vdw-mono);
   font-size: 14px;
 }
+
+.preparation-stage { display: grid; gap: 12px; }
+.preparation-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.preparation-head>div:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.preparation-head span { color: var(--vdw-ink-2); font-size: 14px; }
+.preparation-actions { display: flex; gap: 7px; }
+.preparation-meta { display: flex; gap: 18px; color: var(--vdw-ink-2); font-size: 14px; }
+.preparation-log { max-height: 340px; margin: 0; padding: 13px 14px; overflow: auto; border-radius: var(--vdw-radius-control); background: var(--vdw-focus-canvas, #0f1d25); color: #d6e4e9; font: 13px/1.65 var(--vdw-mono); white-space: pre-wrap; }
 
 .lane-order {
   color: var(--vdw-accent-ink);

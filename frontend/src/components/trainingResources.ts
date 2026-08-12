@@ -6,7 +6,11 @@ import type {
 
 export type TrainingDefaults = Pick<
   TrainingTaskDraft,
-  "default_dataset_export_id" | "default_template_id" | "default_base_model_id"
+  | "default_dataset_export_id"
+  | "default_dataset_mode"
+  | "default_multi_dataset_config"
+  | "default_template_id"
+  | "default_base_model_id"
 >;
 
 export function effectiveResourceIds(
@@ -14,7 +18,16 @@ export function effectiveResourceIds(
   defaults: TrainingDefaults,
 ) {
   return {
-    datasetId: row.dataset_export_id || defaults.default_dataset_export_id,
+    datasetMode:
+      row.dataset_mode === "inherit" ? defaults.default_dataset_mode : row.dataset_mode,
+    datasetId:
+      row.dataset_mode === "inherit"
+        ? defaults.default_dataset_export_id
+        : row.dataset_export_id,
+    multiDatasetConfig:
+      row.dataset_mode === "inherit"
+        ? defaults.default_multi_dataset_config
+        : row.multi_dataset_config,
     templateId: row.template_id || defaults.default_template_id,
     baseModelId: row.base_model_id || defaults.default_base_model_id,
   };
@@ -25,7 +38,14 @@ export function hasEffectiveResources(
   defaults: TrainingDefaults,
 ) {
   const value = effectiveResourceIds(row, defaults);
-  return Boolean(value.datasetId && value.templateId && value.baseModelId);
+  const datasetReady =
+    value.datasetMode === "multi"
+      ? Boolean(
+          value.multiDatasetConfig?.dataset_export_ids.length &&
+            value.multiDatasetConfig.target_classes.length,
+        )
+      : Boolean(value.datasetId);
+  return Boolean(datasetReady && value.templateId && value.baseModelId);
 }
 
 export function groupedOptions(

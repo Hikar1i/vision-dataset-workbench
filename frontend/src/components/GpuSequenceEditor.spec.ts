@@ -8,6 +8,8 @@ const row = (name: string, gpu: number, order: number): TrainingModelDraft => ({
   name,
   description: "",
   dataset_export_id: null,
+  dataset_mode: "inherit",
+  multi_dataset_config: null,
   template_id: null,
   base_model_id: null,
   epochs_override: null,

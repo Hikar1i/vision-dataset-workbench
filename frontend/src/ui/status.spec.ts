@@ -29,4 +29,11 @@ describe('status 映射', () => {
     expect(trainingStatus('brand_new').tone).toBe('idle')
     expect(userStatus('brand_new').tone).toBe('idle')
   })
+
+  it('区分数据准备中与准备失败', () => {
+    expect(trainingStatus('preparing')).toEqual({ tone: 'run', label: '准备训练数据' })
+    expect(trainingStatus('preparation_failed')).toEqual({
+      tone: 'danger', label: '数据准备失败',
+    })
+  })
 })

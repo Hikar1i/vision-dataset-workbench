@@ -97,7 +97,7 @@ a.vdw-btn {
 .vdw-btn--sm {
   height: var(--vdw-control-height-sm);
   padding: 0 10px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .vdw-btn--icon {
