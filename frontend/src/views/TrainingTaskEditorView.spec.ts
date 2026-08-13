@@ -21,4 +21,13 @@ describe("TrainingTaskEditorView layout", () => {
     expect(source).toContain("initialMapping(form.default_dataset_export_id)");
     expect(source).toContain('form.default_dataset_mode === "multi" && !form.default_multi_dataset_config');
   });
+
+  it("uses the shared dataset summary and an explicit empty single-dataset placeholder", () => {
+    expect(source).toContain('placeholder="未选择任何数据集"');
+    expect(source).toContain("<DatasetSelectionSummary");
+    expect(source).toContain(':dataset-id="form.default_dataset_export_id"');
+    expect(source).toContain(':config="form.default_multi_dataset_config"');
+    expect(source).toContain('@configure-mapping="openTaskMapping"');
+    expect(source).not.toContain('class="multi-summary"');
+  });
 });

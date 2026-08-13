@@ -17,6 +17,7 @@ import {
   type TrainingTaskDraft,
 } from "../api/training";
 import { ApiError } from "../api/auth";
+import DatasetSelectionSummary from "../components/DatasetSelectionSummary.vue";
 import GpuSequenceEditor from "../components/GpuSequenceEditor.vue";
 import TrainingModelEditor from "../components/TrainingModelEditor.vue";
 import MultiDatasetMappingDialog from "../components/MultiDatasetMappingDialog.vue";
@@ -188,17 +189,6 @@ const activeMappingConfig = computed(() => {
     ?? form.default_multi_dataset_config
     ?? initialMapping(mappingModel.value.dataset_export_id ?? form.default_dataset_export_id);
 });
-const defaultMultiSummary = computed(() => {
-  const config = form.default_multi_dataset_config;
-  const selected = resources.value.datasets.filter((item) =>
-    config?.dataset_export_ids.includes(item.id),
-  );
-  return {
-    datasets: selected.length,
-    images: selected.reduce((sum, item) => sum + item.total_frames, 0),
-    classes: config?.target_classes.length ?? 0,
-  };
-});
 function openTaskMapping() {
   mappingModel.value = null;
   mappingOpen.value = true;
@@ -341,11 +331,14 @@ onMounted(load);
             <div><b>默认数据集</b><span>继承模型共用；单数据集与多数据集配置互相保留</span></div>
             <div class="dataset-default-control">
               <el-segmented v-model="form.default_dataset_mode" :options="[{ label: '单数据集', value: 'single' }, { label: '多数据集', value: 'multi' }]" />
-              <el-cascader v-if="form.default_dataset_mode === 'single'" v-model="form.default_dataset_export_id" :options="datasetOptions" :props="cascaderProps" filterable clearable placeholder="数据集项目 / 导出数据集" />
-              <div v-else class="multi-summary" :class="{ invalid: !form.default_multi_dataset_config }">
-                <div><b>{{ form.default_multi_dataset_config ? '多数据集配置有效' : '尚未配置多数据集' }}</b><span>{{ defaultMultiSummary.datasets }} 个数据集 · {{ defaultMultiSummary.images.toLocaleString() }} 张图像 · {{ defaultMultiSummary.classes }} 个目标类别</span></div>
-                <VButton variant="quiet" @click="openTaskMapping">{{ form.default_multi_dataset_config ? '配置映射' : '开始配置' }}</VButton>
-              </div>
+              <el-cascader v-if="form.default_dataset_mode === 'single'" v-model="form.default_dataset_export_id" :options="datasetOptions" :props="cascaderProps" filterable clearable placeholder="未选择任何数据集" />
+              <DatasetSelectionSummary
+                :mode="form.default_dataset_mode"
+                :dataset-id="form.default_dataset_export_id"
+                :config="form.default_multi_dataset_config"
+                :datasets="resources.datasets"
+                @configure-mapping="openTaskMapping"
+              />
             </div>
           </div>
           <div class="resource-row"><div><b>默认超参模板</b><span>训练器基础参数</span></div><el-form-item
@@ -459,10 +452,6 @@ onMounted(load);
 .resource-row :deep(.el-select),.resource-row :deep(.el-cascader) { width: 100%; }
 .dataset-default-control { display: grid; gap: 10px; }
 .dataset-default-control :deep(.el-segmented) { justify-self: start; }
-.multi-summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 13px; border: 1px solid var(--vdw-accent-line); border-radius: var(--vdw-radius-control); background: var(--vdw-accent-soft); }
-.multi-summary.invalid { border-color: var(--vdw-warn-line); background: var(--vdw-warn-soft); }
-.multi-summary>div { display: grid; min-width: 0; }
-.multi-summary span { color: var(--vdw-ink-2); font-size: 14px; }
 .training-mode-field { margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--vdw-line); background: var(--vdw-surface-2); }
 .training-mode-field :deep(.el-form-item) { margin: 0; }
 .code-state.available { color: var(--vdw-ok); }
