@@ -1,6 +1,6 @@
 # 训练任务数据集选择摘要调整设计
 
-状态：设计已确认，等待书面规格复核。
+状态：已实现；UI/UX REVIEW PASSED（2026-08-13，HEAD `8af86ff`）。
 
 ## 1. 目标与范围
 
@@ -96,3 +96,12 @@
 - 删除冗余“恢复任务默认”按钮且切换继承仍正确更新模式。
 
 Chrome 验收覆盖 1920×1080 与 2560×1440：任务默认单/多数据集、模型 inherit/single/multi、超长 chips、省略、展开收起、hover/press/focus、reduced-motion 和页面横向溢出。最终由独立 `ui_ux_reviewer` 只读复核；存在 Blocking 时不得写入 `UI/UX REVIEW PASSED`。
+
+## 8. 实施与复核结果
+
+- 新增共享 `DatasetSelectionSummary.vue`，任务总体设置与模型具体设置共用同一套单/多数据集摘要。
+- 单数据集保持默认空值并使用“未选择任何数据集”占位；选中后显示图像、类别数量和来源索引 chips。
+- 多数据集按数据集统计、数据集 chips、目标类别统计、类别 chips 分层展示；两组 chips 独立按实际两行高度判断溢出。
+- 模型模式文案统一为“继承任务默认 / 单数据集 / 多数据集”，删除“恢复任务默认”；映射入口仅出现在显式多数据集摘要卡内。
+- 1920×1080 与 2560×1440 下页面、模型卡和摘要卡均无横向溢出；摘要文字和 chips 不低于 14px，正常动效为 260ms，reduced-motion 下正确降级。
+- 独立 `ui_ux_reviewer` 只读复核无 Blocking，结论为 `UI/UX REVIEW PASSED`。
