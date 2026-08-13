@@ -28,28 +28,55 @@ const resources: TrainingResources = {
   base_models: [],
 };
 
+const defaults = {
+  default_dataset_export_id: null,
+  default_dataset_mode: "single" as const,
+  default_multi_dataset_config: null,
+  default_template_id: null,
+  default_base_model_id: null,
+};
+
+const stubs = {
+  ElSegmented: {
+    props: ["modelValue", "options"],
+    emits: ["change"],
+    template: `<div>
+      <button v-for="option in options" :key="option.value" :data-test="option.value" @click="$emit('change', option.value)">{{ option.label }}</button>
+    </div>`,
+  },
+  ElForm: { template: "<form><slot /></form>" },
+  ElFormItem: { template: "<label><slot /></label>" },
+  ElCascader: {
+    props: ["placeholder"],
+    template: '<div data-test="dataset-cascader">{{ placeholder }}</div>',
+  },
+  ElInput: true,
+  ElSelect: true,
+  ElOption: true,
+  ElInputNumber: true,
+  ElSwitch: true,
+  ElSlider: true,
+  ElIcon: true,
+};
+
+function mountEditor(row: TrainingModelDraft, taskDefaults = defaults) {
+  return mount(TrainingModelEditor, {
+    props: {
+      models: [row],
+      resources,
+      devices: [],
+      mode: "single_model",
+      taskCode: "demo",
+      defaults: taskDefaults,
+    },
+    global: { stubs },
+  });
+}
+
 describe("TrainingModelEditor", () => {
   it("opens mapping when a model first switches to multi-dataset mode", async () => {
     const row = model();
-    const wrapper = mount(TrainingModelEditor, {
-      props: {
-        models: [row], resources, devices: [], mode: "single_model", taskCode: "demo",
-        defaults: { default_dataset_export_id: null, default_dataset_mode: "single", default_multi_dataset_config: null, default_template_id: null, default_base_model_id: null },
-      },
-      global: {
-        stubs: {
-          ElSegmented: {
-            props: ["modelValue", "options"],
-            emits: ["change"],
-            template: '<button data-test="multi" @click="$emit(\'change\', \'multi\')">自定义多数据集</button>',
-          },
-          ElForm: { template: "<form><slot /></form>" },
-          ElFormItem: { template: "<label><slot /></label>" },
-          ElInput: true, ElSelect: true, ElOption: true, ElInputNumber: true,
-          ElCascader: true, ElSwitch: true, ElSlider: true, ElIcon: true,
-        },
-      },
-    });
+    const wrapper = mountEditor(row);
 
     await wrapper.get('[data-test="multi"]').trigger("click");
 
@@ -59,14 +86,43 @@ describe("TrainingModelEditor", () => {
 
   it("summarizes inherited multi-dataset configuration in a collapsed card", () => {
     const row = model();
-    const wrapper = mount(TrainingModelEditor, {
-      props: {
-        models: [row], resources, devices: [], mode: "single_model", taskCode: "demo",
-        defaults: { default_dataset_export_id: null, default_dataset_mode: "multi", default_multi_dataset_config: { version: 1, dataset_export_ids: ["d1"], target_classes: ["car"] }, default_template_id: null, default_base_model_id: null },
-      },
-      global: { stubs: { ElForm: { template: "<form><slot /></form>" }, ElFormItem: { template: "<label><slot /></label>" }, ElSegmented: true, ElInput: true, ElSelect: true, ElOption: true, ElInputNumber: true, ElCascader: true, ElSwitch: true, ElSlider: true, ElIcon: true } },
+    const wrapper = mountEditor(row, {
+      ...defaults,
+      default_dataset_mode: "multi",
+      default_multi_dataset_config: { version: 1, dataset_export_ids: ["d1"], target_classes: ["car"] },
     });
 
     expect(wrapper.text()).toContain("1 个数据集 · 1 个目标类别 · 120 张图像");
+    expect(wrapper.find('[data-test="configure-mapping"]').exists()).toBe(false);
+  });
+
+  it("uses concise mode labels and retains dormant settings when inheriting", async () => {
+    const savedConfig = { version: 1 as const, dataset_export_ids: ["d1"], target_classes: ["car"] };
+    const row = { ...model(), dataset_mode: "multi" as const, dataset_export_id: "d1", multi_dataset_config: savedConfig };
+    const wrapper = mountEditor(row);
+
+    expect(wrapper.text()).toContain("继承任务默认");
+    expect(wrapper.text()).toContain("单数据集");
+    expect(wrapper.text()).toContain("多数据集");
+    expect(wrapper.text()).not.toContain("自定义单数据集");
+    expect(wrapper.text()).not.toContain("自定义多数据集");
+    expect(wrapper.text()).not.toContain("恢复任务默认");
+    expect(wrapper.find('[data-test="configure-mapping"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="inherit"]').trigger("click");
+    expect(row.dataset_mode).toBe("inherit");
+    expect(row.dataset_export_id).toBe("d1");
+    expect(row.multi_dataset_config).toEqual(savedConfig);
+    expect(wrapper.find('[data-test="configure-mapping"]').exists()).toBe(false);
+  });
+
+  it("shows single-dataset details with the explicit empty placeholder", () => {
+    const row = { ...model(), dataset_mode: "single" as const, dataset_export_id: "d1" };
+    const wrapper = mountEditor(row);
+
+    expect(wrapper.get('[data-test="dataset-cascader"]').text()).toBe("未选择任何数据集");
+    expect(wrapper.text()).toContain("120 张图像 · 1 个类别");
+    expect(wrapper.text()).toContain("0 : car");
+    expect(wrapper.find('[data-test="configure-mapping"]').exists()).toBe(false);
   });
 });
