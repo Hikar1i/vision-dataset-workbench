@@ -2,6 +2,7 @@ import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 
 import type { TrainingModelDraft, TrainingResources } from "../api/training";
+import type { TrainingDefaults } from "./trainingResources";
 import TrainingModelEditor from "./TrainingModelEditor.vue";
 
 const model = (): TrainingModelDraft => ({
@@ -28,7 +29,7 @@ const resources: TrainingResources = {
   base_models: [],
 };
 
-const defaults = {
+const defaults: TrainingDefaults = {
   default_dataset_export_id: null,
   default_dataset_mode: "single" as const,
   default_multi_dataset_config: null,
@@ -59,7 +60,7 @@ const stubs = {
   ElIcon: true,
 };
 
-function mountEditor(row: TrainingModelDraft, taskDefaults = defaults) {
+function mountEditor(row: TrainingModelDraft, taskDefaults: TrainingDefaults = defaults) {
   return mount(TrainingModelEditor, {
     props: {
       models: [row],
