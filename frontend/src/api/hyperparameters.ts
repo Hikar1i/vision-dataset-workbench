@@ -16,6 +16,13 @@ export type ParameterDefinition = {
 
 export type HyperparameterCatalog = { version: string; items: ParameterDefinition[] }
 export type BatchMode = 'auto' | 'fixed' | 'fraction'
+export type HyperparameterConfig = {
+  epochs: number
+  batch_mode: BatchMode
+  batch_value: number | null
+  image_size: number
+  extra_parameters: Record<string, unknown>
+}
 export type HyperparameterTemplate = {
   id: string
   name: string
@@ -31,7 +38,10 @@ export type HyperparameterTemplate = {
   derived_from_id: string | null
   created_by_id: string | null
   can_manage: boolean
+  can_edit: boolean
+  version: number
   created_at: string
+  updated_at: string
 }
 export type ValidationIssue = { code: string; message: string; key: string | null; line: number | null; column: number | null }
 export type RawValidation = {
@@ -64,6 +74,12 @@ export const createHyperparameterTemplate = (payload: {
   derived_from_id: string | null
 }) => json<HyperparameterTemplate>('/api/v1/hyperparameter-templates', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+})
+export const updateHyperparameterTemplate = (
+  id: string,
+  payload: HyperparameterConfig & { version: number; name: string; description: string },
+) => json<HyperparameterTemplate>(`/api/v1/hyperparameter-templates/${id}`, {
+  method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
 })
 export const validateHyperparameterRaw = (raw: string) =>
   json<RawValidation>('/api/v1/hyperparameter-templates/validate-raw', {
