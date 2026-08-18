@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Bottom, Delete, Top } from "@element-plus/icons-vue
 import { computed, ref } from "vue";
 import type { GpuDevice, TrainingModelDraft, TrainingResources } from "../api/training";
 import DatasetSelectionSummary from "./DatasetSelectionSummary.vue";
+import CoreHyperparameterFields from "./CoreHyperparameterFields.vue";
 import {
   artifactPreview,
   effectiveResourceIds,
@@ -18,10 +19,13 @@ const props = defineProps<{
   mode: string;
   taskCode: string;
   defaults: TrainingDefaults;
+  hyperMessages?: Map<TrainingModelDraft, string>;
 }>();
 const emit = defineEmits<{
   change: [TrainingModelDraft[]];
   configureMapping: [TrainingModelDraft];
+  editHyperparameters: [TrainingModelDraft];
+  changeTemplate: [TrainingModelDraft, string | null];
 }>();
 const rowKeys = new WeakMap<object, string>();
 const collapsed = ref<TrainingModelDraft[]>([]);
@@ -68,12 +72,13 @@ function toggle(row: TrainingModelDraft) {
     ? collapsed.value.filter((item) => item !== row)
     : [...collapsed.value, row];
 }
-function templateFor(row: TrainingModelDraft) {
-  const id = effectiveResourceIds(row, props.defaults).templateId;
-  return props.resources.templates.find((item) => item.id === id);
+function explicitTemplateFor(row: TrainingModelDraft) {
+  return props.resources.templates.find((item) => item.id === row.template_id);
 }
 function overrideEnabled(row: TrainingModelDraft) {
-  return row.epochs_override != null || row.batch_mode_override != null || row.image_size_override != null;
+  return row.epochs_override != null
+    || row.batch_mode_override != null
+    || row.image_size_override != null;
 }
 function setOverride(row: TrainingModelDraft, enabled: boolean) {
   if (!enabled) {
@@ -82,10 +87,10 @@ function setOverride(row: TrainingModelDraft, enabled: boolean) {
     row.batch_value_override = null;
     row.image_size_override = null;
   } else {
-    const template = templateFor(row);
+    const template = explicitTemplateFor(row);
     if (!template) return;
     row.epochs_override = template.epochs;
-    row.batch_mode_override = template.batch_mode as TrainingModelDraft["batch_mode_override"];
+    row.batch_mode_override = template.batch_mode;
     row.batch_value_override = template.batch_value;
     row.image_size_override = template.image_size;
   }
@@ -94,6 +99,14 @@ function setOverride(row: TrainingModelDraft, enabled: boolean) {
 function setBatchMode(row: TrainingModelDraft, mode: TrainingModelDraft["batch_mode_override"]) {
   row.batch_mode_override = mode;
   row.batch_value_override = mode === "auto" ? null : mode === "fixed" ? 10 : 0.8;
+  update();
+}
+function setCoreValue(
+  row: TrainingModelDraft,
+  key: "epochs_override" | "image_size_override",
+  value: number,
+) {
+  row[key] = value;
   update();
 }
 function summary(row: TrainingModelDraft) {
@@ -178,17 +191,28 @@ function setDatasetMode(row: TrainingModelDraft, mode: TrainingModelDraft["datas
             />
           </section>
           <div class="form-grid resources-grid">
-            <el-form-item label="超参模板"><el-select v-model="row.template_id" filterable clearable :placeholder="defaults.default_template_id ? '继承任务默认' : '请选择超参模板'" @change="update"><el-option v-for="item in resources.templates" :key="item.id" :value="item.id" :label="item.name" /></el-select></el-form-item>
+            <el-form-item label="超参模板"><el-select :model-value="row.template_id" filterable clearable :placeholder="defaults.default_template_id ? '继承任务默认' : '请选择超参模板'" @change="emit('changeTemplate', row, ($event as string) || null)"><el-option v-for="item in resources.templates" :key="item.id" :value="item.id" :label="item.name" /></el-select></el-form-item>
             <el-form-item label="Base model"><el-cascader v-model="row.base_model_id" :options="baseModelOptions" :props="cascaderProps" filterable clearable :placeholder="defaults.default_base_model_id ? '继承任务默认' : '请选择 BaseModel'" @change="update" /></el-form-item>
           </div>
-          <section class="override-panel">
-            <header><div><strong>核心参数覆盖</strong><small>关闭时使用当前有效超参模板</small></div><el-switch :model-value="overrideEnabled(row)" :disabled="!templateFor(row)" @change="setOverride(row, Boolean($event))" /></header>
-            <div v-if="overrideEnabled(row)" class="core-grid">
-              <el-form-item label="epochs"><el-input-number v-model="row.epochs_override" :min="1" :max="100000" :controls="false" @change="update" /></el-form-item>
-              <el-form-item :label="`image size · ${row.image_size_override}`"><el-slider :model-value="row.image_size_override || 32" :min="32" :max="1280" :step="32" @update:model-value="row.image_size_override = Number($event)" @change="update" /></el-form-item>
-              <el-form-item label="batch size"><div class="batch-controls"><el-select :model-value="row.batch_mode_override" @change="setBatchMode(row, $event)"><el-option label="自动" value="auto"/><el-option label="固定数量" value="fixed"/><el-option label="显存比例" value="fraction"/></el-select><el-input-number v-model="row.batch_value_override" :class="{ invisible: row.batch_mode_override === 'auto' }" :disabled="row.batch_mode_override === 'auto'" :min="row.batch_mode_override === 'fixed' ? 1 : 0.01" :max="row.batch_mode_override === 'fixed' ? 4096 : 1" :step="row.batch_mode_override === 'fixed' ? 1 : 0.05" :precision="row.batch_mode_override === 'fraction' ? 2 : 0" @change="update" /></div></el-form-item>
+          <section v-if="row.template_id && explicitTemplateFor(row)" class="override-panel">
+            <header><div><strong>超参数设置</strong><small>{{ explicitTemplateFor(row)?.name }} · v{{ explicitTemplateFor(row)?.version }}</small></div><el-switch :model-value="overrideEnabled(row)" @change="setOverride(row, Boolean($event))" /></header>
+            <CoreHyperparameterFields
+              v-if="overrideEnabled(row)"
+              compact
+              :epochs="row.epochs_override ?? explicitTemplateFor(row)!.epochs"
+              :batch-mode="row.batch_mode_override ?? explicitTemplateFor(row)!.batch_mode"
+              :batch-value="row.batch_mode_override == null ? explicitTemplateFor(row)!.batch_value : row.batch_value_override"
+              :image-size="row.image_size_override ?? explicitTemplateFor(row)!.image_size"
+              @update:epochs="setCoreValue(row, 'epochs_override', $event)"
+              @update:batch-mode="setBatchMode(row, $event)"
+              @update:batch-value="row.batch_value_override = $event; update()"
+              @update:image-size="setCoreValue(row, 'image_size_override', $event)"
+            />
+            <p v-else class="inherited-core">关闭核心覆盖，使用当前模板的核心参数。</p>
+            <div class="full-editor-row">
+              <span v-if="hyperMessages?.get(row)" class="applied-message">{{ hyperMessages.get(row) }}</span>
+              <VButton variant="default" size="sm" @click="emit('editHyperparameters', row)">编辑完整超参数</VButton>
             </div>
-            <p v-else class="inherited-core">{{ templateFor(row) ? `epochs ${templateFor(row)?.epochs} · image ${templateFor(row)?.image_size} · batch ${templateFor(row)?.batch_mode === 'auto' ? 'auto' : templateFor(row)?.batch_value}` : '选择超参模板后可覆盖核心参数' }}</p>
           </section>
           <p class="artifact-preview"><span>ARTIFACT</span><code>{{ artifactPreview(row, defaults, resources, taskCode) || '选择有效超参模板和 BaseModel 后生成' }}</code></p>
         </el-form>
@@ -199,6 +223,6 @@ function setDatasetMode(row: TrainingModelDraft, mode: TrainingModelDraft["datas
 </template>
 
 <style scoped>
-.model-editor-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.model-editor-column{display:grid;gap:16px}.model-editor-card{min-width:0;border:1px solid var(--vdw-line);background:#fff}.model-editor-card>header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:var(--vdw-surface-2);border-bottom:1px solid var(--vdw-line)}.card-summary{display:flex;min-width:0;flex:1;flex-direction:column;align-items:flex-start;gap:3px;margin:-6px 0;padding:6px 8px;border:0;border-radius:var(--vdw-radius-control);background:transparent;text-align:left;cursor:pointer;transition:color var(--vdw-motion-fast) var(--vdw-ease),background-color var(--vdw-motion-fast) var(--vdw-ease),box-shadow var(--vdw-motion-fast) var(--vdw-ease)}.card-summary:hover{background:var(--vdw-accent-soft);box-shadow:inset 3px 0 var(--vdw-accent)}.card-summary:active{background:#cfe6ec;box-shadow:inset 3px 0 var(--vdw-accent-ink)}.card-summary span,.artifact-preview span{color:var(--vdw-accent);font:14px ui-monospace,monospace;letter-spacing:.08em}.card-summary strong,.card-summary small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.card-summary small{color:var(--vdw-ink-2);font-size:14px}.card-actions{display:flex;gap:6px}.model-editor-card form{padding:16px}.model-details-enter-active,.model-details-leave-active{overflow:hidden;transition:opacity 220ms var(--vdw-ease),transform 220ms var(--vdw-ease)}.model-details-enter-from,.model-details-leave-to{opacity:0;transform:translateY(-6px)}.form-grid{display:grid;gap:12px}.form-grid.two{grid-template-columns:1fr 1fr}.resources-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.inline{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:8px;width:100%;min-width:0}.inline :deep(.el-select),.inline :deep(.el-input-number){width:100%;min-width:0}.dataset-resource{display:grid;gap:10px;margin-bottom:12px;padding:12px;border:1px solid var(--vdw-line);background:var(--vdw-surface-2)}.dataset-resource>header{display:flex;align-items:center;justify-content:space-between;gap:12px}.dataset-resource>header>div{display:grid;min-width:0}.dataset-resource small{overflow:hidden;color:var(--vdw-ink-2);font-size:14px;text-overflow:ellipsis;white-space:nowrap}.dataset-resource :deep(.el-segmented){justify-self:start}.override-panel{margin-top:2px;padding:12px;background:var(--vdw-app)}.override-panel>header{display:flex;align-items:center;justify-content:space-between}.override-panel>header div{display:flex;flex-direction:column}.override-panel small,.inherited-core{color:var(--vdw-ink-2);font-size:14px}.core-grid{display:grid;grid-template-columns:1fr 1.5fr;gap:0 14px;margin-top:10px}.core-grid>:last-child{grid-column:1/-1}.batch-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}.invisible{visibility:hidden;pointer-events:none}.inherited-core{margin:10px 0 0}.artifact-preview{display:flex;gap:10px;margin:12px 0 0;padding:9px 11px;overflow:auto;background:var(--vdw-ink);color:var(--vdw-line)}.artifact-preview code{white-space:nowrap}
+.model-editor-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.model-editor-column{display:grid;gap:16px}.model-editor-card{min-width:0;border:1px solid var(--vdw-line);background:#fff}.model-editor-card>header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:var(--vdw-surface-2);border-bottom:1px solid var(--vdw-line)}.card-summary{display:flex;min-width:0;flex:1;flex-direction:column;align-items:flex-start;gap:3px;margin:-6px 0;padding:6px 8px;border:0;border-radius:var(--vdw-radius-control);background:transparent;text-align:left;cursor:pointer;transition:color var(--vdw-motion-fast) var(--vdw-ease),background-color var(--vdw-motion-fast) var(--vdw-ease),box-shadow var(--vdw-motion-fast) var(--vdw-ease)}.card-summary:hover{background:var(--vdw-accent-soft);box-shadow:inset 3px 0 var(--vdw-accent)}.card-summary:active{background:#cfe6ec;box-shadow:inset 3px 0 var(--vdw-accent-ink)}.card-summary span,.artifact-preview span{color:var(--vdw-accent);font:14px ui-monospace,monospace;letter-spacing:.08em}.card-summary strong,.card-summary small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.card-summary small{color:var(--vdw-ink-2);font-size:14px}.card-actions{display:flex;gap:6px}.model-editor-card form{padding:16px}.model-details-enter-active,.model-details-leave-active{overflow:hidden;transition:opacity 220ms var(--vdw-ease),transform 220ms var(--vdw-ease)}.model-details-enter-from,.model-details-leave-to{opacity:0;transform:translateY(-6px)}.form-grid{display:grid;gap:12px}.form-grid.two{grid-template-columns:1fr 1fr}.resources-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.inline{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:8px;width:100%;min-width:0}.inline :deep(.el-select),.inline :deep(.el-input-number){width:100%;min-width:0}.dataset-resource{display:grid;gap:10px;margin-bottom:12px;padding:12px;border:1px solid var(--vdw-line);background:var(--vdw-surface-2)}.dataset-resource>header{display:flex;align-items:center;justify-content:space-between;gap:12px}.dataset-resource>header>div{display:grid;min-width:0}.dataset-resource small{overflow:hidden;color:var(--vdw-ink-2);font-size:14px;text-overflow:ellipsis;white-space:nowrap}.dataset-resource :deep(.el-segmented){justify-self:start}.override-panel{display:grid;gap:12px;margin-top:2px;padding:12px;background:var(--vdw-app)}.override-panel>header{display:flex;align-items:center;justify-content:space-between}.override-panel>header div{display:flex;flex-direction:column}.override-panel small,.inherited-core{color:var(--vdw-ink-2);font-size:14px}.inherited-core{margin:0}.full-editor-row{display:flex;align-items:center;justify-content:flex-end;gap:10px}.applied-message{min-width:0;flex:1;color:var(--vdw-ok);font-size:14px}.artifact-preview{display:flex;gap:10px;margin:12px 0 0;padding:9px 11px;overflow:auto;background:var(--vdw-ink);color:var(--vdw-line)}.artifact-preview code{white-space:nowrap}
 @media(prefers-reduced-motion:reduce){.model-details-enter-active,.model-details-leave-active{transition:none}}
 </style>

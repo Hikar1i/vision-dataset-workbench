@@ -16,6 +16,7 @@ const row = (name: string, gpu: number, order: number): TrainingModelDraft => ({
   batch_mode_override: null,
   batch_value_override: null,
   image_size_override: null,
+  extra_parameters_override: null,
   gpu_index: gpu,
   queue_order: order,
 });

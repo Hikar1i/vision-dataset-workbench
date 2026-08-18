@@ -24,7 +24,11 @@ const emit = defineEmits<{
   'dirty-change': [value: boolean]
 }>()
 
-const state = reactive<HyperparameterConfig>(structuredClone(props.modelValue))
+function cloneConfig(value: HyperparameterConfig): HyperparameterConfig {
+  return { ...value, extra_parameters: { ...value.extra_parameters } }
+}
+
+const state = reactive<HyperparameterConfig>(cloneConfig(props.modelValue))
 const selectedKey = ref('')
 const raw = ref('')
 const rawDirty = ref(false)
@@ -108,7 +112,7 @@ watch(
   state,
   () => {
     if (applying.value) return
-    emit('update:modelValue', structuredClone(state))
+    emit('update:modelValue', cloneConfig(state))
     syncRaw()
   },
   { deep: true },

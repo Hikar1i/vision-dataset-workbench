@@ -1,4 +1,5 @@
 import { json } from "./auth";
+import type { BatchMode } from "./hyperparameters";
 
 export type TrainingStatus =
   | "draft"
@@ -66,6 +67,11 @@ export type MultiDatasetConfig = {
   dataset_export_ids: string[];
   target_classes: string[];
 };
+export type ExtraParametersOverride = {
+  version: 1;
+  set: Record<string, unknown>;
+  remove: string[];
+};
 export type TrainingPreparation = {
   id: string;
   status: "queued" | "running" | "canceling" | "canceled" | "failed" | "succeeded";
@@ -100,6 +106,7 @@ export type TrainingModel = {
   batch_mode_override: "auto" | "fixed" | "fraction" | null;
   batch_value_override: number | null;
   image_size_override: number | null;
+  extra_parameters_override: ExtraParametersOverride | null;
   gpu_index: number;
   queue_order: number;
   status: RunStatus | "draft";
@@ -130,6 +137,11 @@ export type TrainingTask = {
   default_dataset_mode: "single" | "multi";
   default_multi_dataset_config: MultiDatasetConfig | null;
   default_template_id: string | null;
+  default_epochs_override: number | null;
+  default_batch_mode_override: BatchMode | null;
+  default_batch_value_override: number | null;
+  default_image_size_override: number | null;
+  default_extra_parameters_override: ExtraParametersOverride | null;
   default_base_model_id: string | null;
   created_by_id: string;
   can_manage: boolean;
@@ -175,10 +187,16 @@ export type TrainingResources = {
   templates: {
     id: string;
     name: string;
+    description: string;
     epochs: number;
-    batch_mode: string;
+    batch_mode: BatchMode;
     batch_value: number | null;
     image_size: number;
+    extra_parameters: Record<string, unknown>;
+    effective_parameters: Record<string, unknown>;
+    version: number;
+    updated_at: string;
+    can_edit: boolean;
   }[];
   base_models: {
     id: string;
@@ -200,6 +218,7 @@ export type TrainingModelDraft = {
   batch_mode_override: "auto" | "fixed" | "fraction" | null;
   batch_value_override: number | null;
   image_size_override: number | null;
+  extra_parameters_override: ExtraParametersOverride | null;
   gpu_index: number;
   queue_order: number;
 };
@@ -212,6 +231,11 @@ export type TrainingTaskDraft = {
   default_dataset_mode: "single" | "multi";
   default_multi_dataset_config: MultiDatasetConfig | null;
   default_template_id: string | null;
+  default_epochs_override: number | null;
+  default_batch_mode_override: BatchMode | null;
+  default_batch_value_override: number | null;
+  default_image_size_override: number | null;
+  default_extra_parameters_override: ExtraParametersOverride | null;
   default_base_model_id: string | null;
   models: TrainingModelDraft[];
 };

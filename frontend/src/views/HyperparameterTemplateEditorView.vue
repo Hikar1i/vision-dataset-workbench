@@ -140,7 +140,7 @@ onMounted(async () => {
     batch_mode: loadedSource.batch_mode,
     batch_value: loadedSource.batch_value,
     image_size: loadedSource.image_size,
-    extra_parameters: structuredClone(loadedSource.extra_parameters),
+    extra_parameters: { ...loadedSource.extra_parameters },
   }
 })
 </script>

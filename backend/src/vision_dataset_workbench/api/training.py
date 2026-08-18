@@ -372,6 +372,7 @@ def training_resources(
                 {
                     "id": item.id,
                     "name": item.name,
+                    "description": item.description,
                     "epochs": item.epochs,
                     "batch_mode": item.batch_mode,
                     "batch_value": item.batch_value,
@@ -386,6 +387,8 @@ def training_resources(
                     ),
                     "version": item.version,
                     "updated_at": _time(item.updated_at),
+                    "can_edit": item.system_key is None
+                    and (user.is_system_admin or item.created_by_id == user.id),
                 }
                 for item in templates
             ],

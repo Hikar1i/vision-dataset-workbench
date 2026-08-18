@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from "element-plus";
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   checkTrainingTaskCode,
@@ -17,12 +17,30 @@ import {
   type TrainingTaskDraft,
 } from "../api/training";
 import { ApiError } from "../api/auth";
+import {
+  createHyperparameterTemplate,
+  getHyperparameterCatalog,
+  updateHyperparameterTemplate,
+  type HyperparameterConfig,
+  type HyperparameterTemplate,
+  type ParameterDefinition,
+} from "../api/hyperparameters";
 import DatasetSelectionSummary from "../components/DatasetSelectionSummary.vue";
+import CoreHyperparameterFields from "../components/CoreHyperparameterFields.vue";
 import GpuSequenceEditor from "../components/GpuSequenceEditor.vue";
 import TrainingModelEditor from "../components/TrainingModelEditor.vue";
 import MultiDatasetMappingDialog from "../components/MultiDatasetMappingDialog.vue";
+import TrainingHyperparameterDialog from "../components/TrainingHyperparameterDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
-import { groupedOptions, hasEffectiveResources } from "../components/trainingResources";
+import {
+  applyHyperparameterOverrides,
+  diffHyperparameterConfig,
+  groupedOptions,
+  hasEffectiveResources,
+  hyperparameterOverrideCount,
+  templateConfig,
+  type TrainingHyperparameterOverrides,
+} from "../components/trainingResources";
 import VButton from '../ui/VButton.vue'
 
 const route = useRoute();
@@ -43,6 +61,13 @@ const resources = ref<TrainingResources>({
   templates: [],
   base_models: [],
 });
+const catalog = ref<ParameterDefinition[]>([]);
+const hyperOpen = ref(false);
+const hyperTarget = ref<"task" | TrainingModelDraft | null>(null);
+const hyperConfig = ref<HyperparameterConfig | null>(null);
+const taskHyperMessage = ref("");
+const modelHyperMessages = ref(new Map<TrainingModelDraft, string>());
+const taskCoreEditing = ref(false);
 const form = reactive<TrainingTaskDraft>({
   code: "",
   name: "",
@@ -52,6 +77,11 @@ const form = reactive<TrainingTaskDraft>({
   default_dataset_mode: "single",
   default_multi_dataset_config: null,
   default_template_id: null,
+  default_epochs_override: null,
+  default_batch_mode_override: null,
+  default_batch_value_override: null,
+  default_image_size_override: null,
+  default_extra_parameters_override: null,
   default_base_model_id: null,
   models: [],
 });
@@ -68,6 +98,7 @@ function row(index: number): TrainingModelDraft {
     batch_mode_override: null,
     batch_value_override: null,
     image_size_override: null,
+    extra_parameters_override: null,
     gpu_index: devices.value[0]?.index ?? 0,
     queue_order: index,
   };
@@ -113,14 +144,16 @@ watch(mappingOpen, (open) => {
 });
 async function load() {
   try {
-    const [available, options] = await Promise.all([
+    const [available, options, hyperparameterCatalog] = await Promise.all([
       getTrainingCapabilities(),
       getTrainingResources(),
+      getHyperparameterCatalog(),
     ]);
     devices.value = available.devices;
     trainingAvailable.value = available.training_available;
     capabilityReason.value = available.training_reason || "";
     resources.value = options;
+    catalog.value = hyperparameterCatalog.items;
     if (editing.value) {
       const task = await getTrainingTask(String(route.params.id));
       Object.assign(form, {
@@ -132,6 +165,11 @@ async function load() {
         default_dataset_mode: task.default_dataset_mode,
         default_multi_dataset_config: task.default_multi_dataset_config,
         default_template_id: task.default_template_id,
+        default_epochs_override: task.default_epochs_override,
+        default_batch_mode_override: task.default_batch_mode_override,
+        default_batch_value_override: task.default_batch_value_override,
+        default_image_size_override: task.default_image_size_override,
+        default_extra_parameters_override: task.default_extra_parameters_override,
         default_base_model_id: task.default_base_model_id,
         models: (task.models || []).map((item) => ({
           name: item.name,
@@ -145,11 +183,15 @@ async function load() {
           batch_mode_override: item.batch_mode_override,
           batch_value_override: item.batch_value_override,
           image_size_override: item.image_size_override,
+          extra_parameters_override: item.extra_parameters_override,
           gpu_index: item.gpu_index,
           queue_order: item.queue_order,
         })),
       });
       taskVersion.value = task.version;
+      taskCoreEditing.value = task.default_epochs_override != null
+        || task.default_batch_mode_override != null
+        || task.default_image_size_override != null;
     } else form.models.push(row(1));
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : "训练表单加载失败");
@@ -206,6 +248,255 @@ function saveMapping(config: MultiDatasetConfig) {
     form.default_multi_dataset_config = config;
   }
 }
+
+const taskTemplate = computed(() =>
+  resources.value.templates.find((item) => item.id === form.default_template_id) ?? null,
+);
+const activeHyperTemplate = computed(() => {
+  const id = hyperTarget.value === "task"
+    ? form.default_template_id
+    : hyperTarget.value && hyperTarget.value.template_id;
+  return resources.value.templates.find((item) => item.id === id) ?? null;
+});
+
+function taskOverrides(): TrainingHyperparameterOverrides {
+  return {
+    epochs: form.default_epochs_override,
+    batchMode: form.default_batch_mode_override,
+    batchValue: form.default_batch_value_override,
+    imageSize: form.default_image_size_override,
+    extra: form.default_extra_parameters_override,
+  };
+}
+
+function modelOverrides(model: TrainingModelDraft): TrainingHyperparameterOverrides {
+  return {
+    epochs: model.epochs_override,
+    batchMode: model.batch_mode_override,
+    batchValue: model.batch_value_override,
+    imageSize: model.image_size_override,
+    extra: model.extra_parameters_override,
+  };
+}
+
+function assignTaskOverrides(value: TrainingHyperparameterOverrides) {
+  form.default_epochs_override = value.epochs;
+  form.default_batch_mode_override = value.batchMode;
+  form.default_batch_value_override = value.batchValue;
+  form.default_image_size_override = value.imageSize;
+  form.default_extra_parameters_override = value.extra;
+}
+
+function assignModelOverrides(
+  model: TrainingModelDraft,
+  value: TrainingHyperparameterOverrides,
+) {
+  model.epochs_override = value.epochs;
+  model.batch_mode_override = value.batchMode;
+  model.batch_value_override = value.batchValue;
+  model.image_size_override = value.imageSize;
+  model.extra_parameters_override = value.extra;
+}
+
+function clearTaskCore() {
+  form.default_epochs_override = null;
+  form.default_batch_mode_override = null;
+  form.default_batch_value_override = null;
+  form.default_image_size_override = null;
+}
+
+function setTaskCoreEditing(enabled: boolean) {
+  taskCoreEditing.value = enabled;
+  if (!enabled) clearTaskCore();
+}
+
+function setTaskBatchMode(mode: TrainingTaskDraft["default_batch_mode_override"]) {
+  form.default_batch_mode_override = mode;
+  form.default_batch_value_override = mode === "auto" ? null : mode === "fixed" ? 10 : 0.8;
+}
+
+async function changeChoice(overrides: TrainingHyperparameterOverrides) {
+  if (!hyperparameterOverrideCount(overrides)) return "keep" as const;
+  try {
+    await ElMessageBox.confirm(
+      "当前已有超参数覆盖。切换模板后如何处理？",
+      "切换超参模板",
+      {
+        type: "warning",
+        distinguishCancelAndClose: true,
+        confirmButtonText: "保留覆盖",
+        cancelButtonText: "清空覆盖",
+      },
+    );
+    return "keep" as const;
+  } catch (action) {
+    return action === "cancel" ? "clear" as const : "cancel" as const;
+  }
+}
+
+async function changeTaskTemplate(id: string | null) {
+  if (id === form.default_template_id) return;
+  const choice = await changeChoice(taskOverrides());
+  if (choice === "cancel") return;
+  if (choice === "clear") {
+    assignTaskOverrides({ epochs: null, batchMode: null, batchValue: null, imageSize: null, extra: null });
+    taskCoreEditing.value = false;
+  }
+  form.default_template_id = id;
+  taskHyperMessage.value = "";
+}
+
+async function changeModelTemplate(model: TrainingModelDraft, id: string | null) {
+  if (id === model.template_id) return;
+  const choice = await changeChoice(modelOverrides(model));
+  if (choice === "cancel") return;
+  if (choice === "clear")
+    assignModelOverrides(model, { epochs: null, batchMode: null, batchValue: null, imageSize: null, extra: null });
+  model.template_id = id;
+  const messages = new Map(modelHyperMessages.value);
+  messages.delete(model);
+  modelHyperMessages.value = messages;
+}
+
+function openHyperparameters(target: "task" | TrainingModelDraft) {
+  hyperTarget.value = target;
+  const template = target === "task"
+    ? taskTemplate.value
+    : resources.value.templates.find((item) => item.id === target.template_id) ?? null;
+  if (!template) return;
+  const overrides = target === "task" ? taskOverrides() : modelOverrides(target);
+  hyperConfig.value = applyHyperparameterOverrides(templateConfig(template), overrides);
+  hyperOpen.value = true;
+}
+
+function setHyperMessage(message: string) {
+  if (hyperTarget.value === "task") taskHyperMessage.value = message;
+  else if (hyperTarget.value) {
+    const messages = new Map(modelHyperMessages.value);
+    messages.set(hyperTarget.value, message);
+    modelHyperMessages.value = messages;
+  }
+}
+
+function applyHyperparameters(value: HyperparameterConfig) {
+  const template = activeHyperTemplate.value;
+  if (!template || !hyperTarget.value) return;
+  const overrides = diffHyperparameterConfig(templateConfig(template), value);
+  if (hyperTarget.value === "task") {
+    assignTaskOverrides(overrides);
+    taskCoreEditing.value = overrides.epochs != null
+      || overrides.batchMode != null
+      || overrides.imageSize != null;
+  } else assignModelOverrides(hyperTarget.value, overrides);
+  const count = hyperparameterOverrideCount(overrides);
+  setHyperMessage(`已应用修改：${count} 项覆盖将在保存草稿时生效。`);
+  hyperOpen.value = false;
+}
+
+function resourceTemplate(item: HyperparameterTemplate): TrainingResources["templates"][number] {
+  return {
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    epochs: item.epochs,
+    batch_mode: item.batch_mode,
+    batch_value: item.batch_value,
+    image_size: item.image_size,
+    extra_parameters: { ...item.extra_parameters },
+    effective_parameters: { ...item.effective_parameters },
+    version: item.version,
+    updated_at: item.updated_at,
+    can_edit: item.can_edit,
+  };
+}
+
+async function saveHyperparameters(value: HyperparameterConfig) {
+  const template = activeHyperTemplate.value;
+  if (!template || !hyperTarget.value || !template.can_edit) return;
+  try {
+    const updated = await updateHyperparameterTemplate(template.id, {
+      version: template.version,
+      name: template.name,
+      description: template.description,
+      ...value,
+    });
+    resources.value.templates = resources.value.templates.map((item) =>
+      item.id === updated.id ? resourceTemplate(updated) : item,
+    );
+    if (hyperTarget.value === "task") {
+      assignTaskOverrides({ epochs: null, batchMode: null, batchValue: null, imageSize: null, extra: null });
+      taskCoreEditing.value = false;
+    } else assignModelOverrides(hyperTarget.value, { epochs: null, batchMode: null, batchValue: null, imageSize: null, extra: null });
+    setHyperMessage(`已应用修改并保存到模板 v${updated.version}。`);
+    hyperOpen.value = false;
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : "模板保存失败");
+  }
+}
+
+async function deriveHyperparameters(value: HyperparameterConfig) {
+  const template = activeHyperTemplate.value;
+  if (!template || !hyperTarget.value) return;
+  let name: string;
+  try {
+    const result = await ElMessageBox.prompt("请输入派生模板名称", "应用并派生", {
+      inputValue: `${template.name} - 派生`,
+      inputValidator: (input) => Boolean(input.trim()) || "请输入模板名称",
+      confirmButtonText: "创建并应用",
+      cancelButtonText: "取消",
+    });
+    name = result.value.trim();
+  } catch {
+    return;
+  }
+  try {
+    const created = await createHyperparameterTemplate({
+      name,
+      description: template.description,
+      ...value,
+      derived_from_id: template.id,
+    });
+    resources.value.templates = [resourceTemplate(created), ...resources.value.templates];
+    if (hyperTarget.value === "task") {
+      form.default_template_id = created.id;
+      assignTaskOverrides({ epochs: null, batchMode: null, batchValue: null, imageSize: null, extra: null });
+      taskCoreEditing.value = false;
+    } else {
+      hyperTarget.value.template_id = created.id;
+      assignModelOverrides(hyperTarget.value, { epochs: null, batchMode: null, batchValue: null, imageSize: null, extra: null });
+    }
+    setHyperMessage(`已应用修改并派生为“${created.name}” v1。`);
+    hyperOpen.value = false;
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : "派生模板失败");
+  }
+}
+
+async function refreshResources() {
+  if (loading.value) return;
+  try {
+    const next = await getTrainingResources();
+    const previous = new Map(resources.value.templates.map((item) => [item.id, item]));
+    resources.value = next;
+    const taskNext = next.templates.find((item) => item.id === form.default_template_id);
+    const taskPrevious = form.default_template_id
+      ? previous.get(form.default_template_id)
+      : undefined;
+    if (taskNext && taskPrevious && taskNext.version !== taskPrevious.version)
+      taskHyperMessage.value = `模板已更新至 v${taskNext.version}，已保留 ${hyperparameterOverrideCount(taskOverrides())} 项覆盖。`;
+    const messages = new Map(modelHyperMessages.value);
+    for (const model of form.models) {
+      if (!model.template_id) continue;
+      const before = previous.get(model.template_id);
+      const after = next.templates.find((item) => item.id === model.template_id);
+      if (before && after && before.version !== after.version)
+        messages.set(model, `模板已更新至 v${after.version}，已保留 ${hyperparameterOverrideCount(modelOverrides(model))} 项覆盖。`);
+    }
+    modelHyperMessages.value = messages;
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : "超参模板刷新失败");
+  }
+}
 async function checkCode() {
   if (editing.value || !/^[a-z][a-z0-9-]{2,31}$/.test(form.code)) {
     codeState.value = "idle";
@@ -241,6 +532,11 @@ async function save(start: boolean) {
           default_dataset_mode: form.default_dataset_mode,
           default_multi_dataset_config: form.default_multi_dataset_config,
           default_template_id: form.default_template_id,
+          default_epochs_override: form.default_epochs_override,
+          default_batch_mode_override: form.default_batch_mode_override,
+          default_batch_value_override: form.default_batch_value_override,
+          default_image_size_override: form.default_image_size_override,
+          default_extra_parameters_override: form.default_extra_parameters_override,
           default_base_model_id: form.default_base_model_id,
           models: form.models,
         },
@@ -265,7 +561,11 @@ async function save(start: boolean) {
     saving.value = false;
   }
 }
-onMounted(load);
+onMounted(async () => {
+  await load();
+  window.addEventListener("focus", refreshResources);
+});
+onUnmounted(() => window.removeEventListener("focus", refreshResources));
 </script>
 <template>
   <main v-loading="loading" class="content-page training-editor-page">
@@ -341,13 +641,62 @@ onMounted(load);
               />
             </div>
           </div>
-          <div class="resource-row"><div><b>默认超参模板</b><span>训练器基础参数</span></div><el-form-item
-            ><el-select v-model="form.default_template_id" filterable clearable
-              ><el-option
-                v-for="item in resources.templates"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id" /></el-select></el-form-item></div
+          <div class="resource-row hyperparameter-resource-row">
+            <div><b>默认超参模板</b><span>训练器基础参数</span></div>
+            <div class="hyperparameter-default-control">
+              <el-form-item>
+                <el-select
+                  :model-value="form.default_template_id"
+                  filterable
+                  clearable
+                  placeholder="请选择超参模板"
+                  @change="changeTaskTemplate(($event as string) || null)"
+                >
+                  <el-option
+                    v-for="item in resources.templates"
+                    :key="item.id"
+                    :label="`${item.name} · v${item.version}`"
+                    :value="item.id"
+                  />
+                </el-select>
+              </el-form-item>
+              <section v-if="taskTemplate" class="task-override-card">
+                <header>
+                  <div>
+                    <strong>{{ taskTemplate.name }} · v{{ taskTemplate.version }}</strong>
+                    <small>
+                      epochs {{ taskTemplate.epochs }} · image {{ taskTemplate.image_size }} · batch
+                      {{ taskTemplate.batch_mode === "auto" ? "auto" : taskTemplate.batch_value }}
+                    </small>
+                  </div>
+                  <label>
+                    <span>核心参数覆盖</span>
+                    <el-switch
+                      :model-value="taskCoreEditing"
+                      @change="setTaskCoreEditing(Boolean($event))"
+                    />
+                  </label>
+                </header>
+                <CoreHyperparameterFields
+                  v-if="taskCoreEditing"
+                  :epochs="form.default_epochs_override ?? taskTemplate.epochs"
+                  :batch-mode="form.default_batch_mode_override ?? taskTemplate.batch_mode"
+                  :batch-value="form.default_batch_mode_override == null ? taskTemplate.batch_value : form.default_batch_value_override"
+                  :image-size="form.default_image_size_override ?? taskTemplate.image_size"
+                  @update:epochs="form.default_epochs_override = $event"
+                  @update:batch-mode="setTaskBatchMode($event)"
+                  @update:batch-value="form.default_batch_value_override = $event"
+                  @update:image-size="form.default_image_size_override = $event"
+                />
+                <div class="full-editor-row">
+                  <span v-if="taskHyperMessage" class="applied-message">{{ taskHyperMessage }}</span>
+                  <VButton variant="default" @click="openHyperparameters('task')">
+                    编辑完整超参数
+                  </VButton>
+                </div>
+              </section>
+            </div>
+          </div
           ><div class="resource-row"><div><b>默认 Base model</b><span>模型初始化权重</span></div><el-form-item>
           <el-cascader
               v-model="form.default_base_model_id"
@@ -387,7 +736,10 @@ onMounted(load);
           :mode="form.mode"
           :task-code="form.code"
           :defaults="form"
+          :hyper-messages="modelHyperMessages"
           @configure-mapping="openModelMapping"
+          @edit-hyperparameters="openHyperparameters"
+          @change-template="changeModelTemplate"
           @change="form.models = $event"
         /><GpuSequenceEditor
           v-if="form.mode === 'custom_sequence'"
@@ -399,6 +751,15 @@ onMounted(load);
       </section>
     </div>
     <MultiDatasetMappingDialog v-model="mappingOpen" :config="activeMappingConfig" :datasets="resources.datasets" :title="mappingModel ? `${mappingModel.name || '训练模型'} · 多数据集映射` : '任务默认 · 多数据集映射'" @save="saveMapping" />
+    <TrainingHyperparameterDialog
+      v-model="hyperOpen"
+      :config="hyperConfig"
+      :catalog="catalog"
+      :template="activeHyperTemplate"
+      @apply="applyHyperparameters"
+      @save="saveHyperparameters"
+      @derive="deriveHyperparameters"
+    />
   </main>
 </template>
 <style scoped>
@@ -452,6 +813,14 @@ onMounted(load);
 .resource-row :deep(.el-select),.resource-row :deep(.el-cascader) { width: 100%; }
 .dataset-default-control { display: grid; gap: 10px; }
 .dataset-default-control :deep(.el-segmented) { justify-self: start; }
+.hyperparameter-default-control { display: grid; gap: 10px; }
+.task-override-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--vdw-line); border-radius: var(--vdw-radius-card); background: var(--vdw-surface-2); }
+.task-override-card>header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.task-override-card>header>div { display: flex; min-width: 0; flex-direction: column; }
+.task-override-card>header small { overflow: hidden; color: var(--vdw-ink-2); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.task-override-card>header label { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+.full-editor-row { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.applied-message { min-width: 0; flex: 1; color: var(--vdw-ok); font-size: 14px; }
 .training-mode-field { margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--vdw-line); background: var(--vdw-surface-2); }
 .training-mode-field :deep(.el-form-item) { margin: 0; }
 .code-state.available { color: var(--vdw-ok); }

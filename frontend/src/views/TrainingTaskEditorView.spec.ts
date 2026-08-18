@@ -30,4 +30,14 @@ describe("TrainingTaskEditorView layout", () => {
     expect(source).toContain('@configure-mapping="openTaskMapping"');
     expect(source).not.toContain('class="multi-summary"');
   });
+
+  it("integrates task and explicit-model hyperparameter editing with persistent feedback", () => {
+    expect(source).toContain('<CoreHyperparameterFields')
+    expect(source).toContain('<TrainingHyperparameterDialog')
+    expect(source).toContain('编辑完整超参数')
+    expect(source).toContain('已应用修改：${count} 项覆盖将在保存草稿时生效。')
+    expect(source).toContain('模板已更新至 v${taskNext.version}')
+    expect(source).toContain('window.addEventListener("focus", refreshResources)')
+    expect(source).toContain('distinguishCancelAndClose: true')
+  });
 });

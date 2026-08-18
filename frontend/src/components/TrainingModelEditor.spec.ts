@@ -17,6 +17,7 @@ const model = (): TrainingModelDraft => ({
   batch_mode_override: null,
   batch_value_override: null,
   image_size_override: null,
+  extra_parameters_override: null,
   gpu_index: 0,
   queue_order: 1,
 });
@@ -25,7 +26,13 @@ const resources: TrainingResources = {
   datasets: [
     { id: "d1", name: "车辆集", project_id: "p", project_name: "项目", total_frames: 120, train_frames: 100, val_frames: 20, labels: [{ index: 0, name: "car" }] },
   ],
-  templates: [],
+  templates: [
+    {
+      id: "t1", name: "基础模板", description: "", epochs: 100, batch_mode: "auto",
+      batch_value: null, image_size: 640, extra_parameters: {}, effective_parameters: {},
+      version: 2, updated_at: "2026-08-18T00:00:00Z", can_edit: true,
+    },
+  ],
   base_models: [],
 };
 
@@ -34,6 +41,11 @@ const defaults: TrainingDefaults = {
   default_dataset_mode: "single" as const,
   default_multi_dataset_config: null,
   default_template_id: null,
+  default_epochs_override: null,
+  default_batch_mode_override: null,
+  default_batch_value_override: null,
+  default_image_size_override: null,
+  default_extra_parameters_override: null,
   default_base_model_id: null,
 };
 
@@ -125,5 +137,19 @@ describe("TrainingModelEditor", () => {
     expect(wrapper.text()).toContain("120 张图像 · 1 个类别");
     expect(wrapper.text()).toContain("0 : car");
     expect(wrapper.find('[data-test="configure-mapping"]').exists()).toBe(false);
+  });
+
+  it("hides model hyperparameter editing while inheriting and shows it for an explicit template", async () => {
+    const inherited = model();
+    const inheritedWrapper = mountEditor(inherited, { ...defaults, default_template_id: "t1" });
+    expect(inheritedWrapper.text()).not.toContain("编辑完整超参数");
+
+    const explicit = { ...model(), template_id: "t1" };
+    const explicitWrapper = mountEditor(explicit);
+    expect(explicitWrapper.text()).toContain("基础模板 · v2");
+    expect(explicitWrapper.text()).toContain("编辑完整超参数");
+
+    const select = explicitWrapper.findComponent({ name: "ElSelect" });
+    expect(select.exists()).toBe(true);
   });
 });
