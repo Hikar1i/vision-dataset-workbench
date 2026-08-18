@@ -491,7 +491,11 @@ class HyperparameterTemplate(Base):
     created_by_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -526,6 +530,11 @@ class TrainingTask(Base):
     default_template_id: Mapped[str | None] = mapped_column(
         ForeignKey("hyperparameter_templates.id", ondelete="RESTRICT"), nullable=True
     )
+    default_epochs_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    default_batch_mode_override: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    default_batch_value_override: Mapped[float | None] = mapped_column(Float, nullable=True)
+    default_image_size_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    default_extra_parameters_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_base_model_id: Mapped[str | None] = mapped_column(
         ForeignKey("inference_models.id", ondelete="RESTRICT"), nullable=True
     )
@@ -586,6 +595,7 @@ class TrainingModel(Base):
     batch_mode_override: Mapped[str | None] = mapped_column(String(16), nullable=True)
     batch_value_override: Mapped[float | None] = mapped_column(Float, nullable=True)
     image_size_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extra_parameters_override: Mapped[str | None] = mapped_column(Text, nullable=True)
     dataset_snapshot: Mapped[str] = mapped_column(Text, default="{}")
     template_snapshot: Mapped[str] = mapped_column(Text, default="{}")
     base_model_snapshot: Mapped[str] = mapped_column(Text, default="{}")

@@ -362,3 +362,74 @@ def effective_parameters(
         else float(batch_value or 0)
     )
     return {"epochs": epochs, "batch": batch, "imgsz": image_size, **extra_parameters}
+
+
+def normalize_extra_parameter_override(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"version", "set", "remove"}:
+        raise HyperparameterValidationError(
+            [ValidationIssue("invalid_override", "额外参数覆盖格式不正确")]
+        )
+    updates, removals = value["set"], value["remove"]
+    if value["version"] != 1 or not isinstance(updates, dict) or not isinstance(removals, list):
+        raise HyperparameterValidationError(
+            [ValidationIssue("invalid_override", "额外参数覆盖格式不正确")]
+        )
+    if any(not isinstance(key, str) for key in removals) or len(set(removals)) != len(removals):
+        raise HyperparameterValidationError(
+            [ValidationIssue("invalid_override", "额外参数移除列表不正确")]
+        )
+    reserved_updates = set(updates).intersection(CORE_KEYS | SYSTEM_KEYS)
+    overlap = set(updates).intersection(removals)
+    invalid_removals = [key for key in removals if key not in DEFINITIONS]
+    if reserved_updates or overlap or invalid_removals:
+        key = next(
+            iter(reserved_updates or overlap), invalid_removals[0] if invalid_removals else None
+        )
+        raise HyperparameterValidationError(
+            [ValidationIssue("invalid_override", f"参数 {key} 的覆盖操作不正确", key)]
+        )
+    validated = validate_values(
+        {"epochs": 1, "batch": -1, "imgsz": 32, **updates}
+    )["extra_parameters"]
+    if not validated and not removals:
+        return None
+    return {"version": 1, "set": validated, "remove": removals}
+
+
+def apply_parameter_overrides(
+    base: dict[str, Any],
+    *,
+    epochs: int | None = None,
+    batch_mode: str | None = None,
+    batch_value: float | None = None,
+    image_size: int | None = None,
+    extra_override: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    values = dict(base)
+    if epochs is not None:
+        values["epochs"] = epochs
+    if image_size is not None:
+        values["imgsz"] = image_size
+    if batch_mode is not None:
+        values["batch"] = (
+            -1
+            if batch_mode == "auto"
+            else int(batch_value or 0)
+            if batch_mode == "fixed"
+            else float(batch_value or 0)
+        )
+    normalized_override = normalize_extra_parameter_override(extra_override)
+    if normalized_override:
+        for key in normalized_override["remove"]:
+            values.pop(key, None)
+        values.update(normalized_override["set"])
+    normalized = validate_values(values)
+    return effective_parameters(
+        normalized["epochs"],
+        normalized["batch_mode"],
+        normalized["batch_value"],
+        normalized["image_size"],
+        normalized["extra_parameters"],
+    )
