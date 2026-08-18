@@ -171,7 +171,7 @@ describe('videoStatusInfo', () => {
     }
 
     expect(videoStatusInfo(changed)).toBe(
-      '待重新抽帧 · 当前 50 帧，新方案预计 80 帧',
+      '待重抽帧 · 当前 50 帧，新方案预计 80 帧',
     )
     expect(videoWorkflowStatus(changed).flags).toEqual(['已筛帧', '有标注', '视频停用'])
   })
