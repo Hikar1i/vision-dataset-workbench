@@ -31,7 +31,9 @@ from ..training.dataset_preparation import (
 )
 from ..training.hyperparameters import (
     HyperparameterValidationError,
+    apply_parameter_overrides,
     effective_parameters,
+    normalize_extra_parameter_override,
     validate_values,
 )
 from ..training.naming import build_artifact_code, validate_task_code
@@ -83,6 +85,14 @@ def _dataset_mode(value: object, dataset_id: object) -> str:
     if mode not in {"inherit", "single", "multi"}:
         raise InvalidTraining("invalid model dataset mode")
     return mode
+
+
+def _extra_override_json(value: object | None) -> str | None:
+    try:
+        normalized = normalize_extra_parameter_override(value)
+    except HyperparameterValidationError as exc:
+        raise InvalidTraining("; ".join(issue.message for issue in exc.issues)) from exc
+    return json.dumps(normalized, ensure_ascii=False) if normalized else None
 
 
 class TrainingService:
@@ -149,9 +159,7 @@ class TrainingService:
     def task_preparation(self, task_id: str) -> TrainingPreparation | None:
         with self._session_factory() as db:
             item = db.scalar(
-                select(TrainingPreparation).where(
-                    TrainingPreparation.training_task_id == task_id
-                )
+                select(TrainingPreparation).where(TrainingPreparation.training_task_id == task_id)
             )
             if item:
                 db.expunge(item)
@@ -233,6 +241,11 @@ class TrainingService:
         default_dataset_mode: str = "single",
         default_multi_dataset_config: object | None = None,
         default_template_id: str | None = None,
+        default_epochs_override: int | None = None,
+        default_batch_mode_override: str | None = None,
+        default_batch_value_override: float | None = None,
+        default_image_size_override: int | None = None,
+        default_extra_parameters_override: object | None = None,
         default_base_model_id: str | None = None,
         models: list[dict[str, object]],
     ) -> TrainingTask:
@@ -261,6 +274,13 @@ class TrainingService:
             default_dataset_mode=default_dataset_mode,
             default_multi_dataset_config=default_multi_json,
             default_template_id=default_template_id,
+            default_epochs_override=default_epochs_override,
+            default_batch_mode_override=default_batch_mode_override,
+            default_batch_value_override=default_batch_value_override,
+            default_image_size_override=default_image_size_override,
+            default_extra_parameters_override=_extra_override_json(
+                default_extra_parameters_override
+            ),
             default_base_model_id=default_base_model_id,
             created_by_id=actor.id,
             created_at=now,
@@ -294,6 +314,9 @@ class TrainingService:
                     batch_mode_override=source.get("batch_mode_override") or None,
                     batch_value_override=source.get("batch_value_override"),
                     image_size_override=source.get("image_size_override") or None,
+                    extra_parameters_override=_extra_override_json(
+                        source.get("extra_parameters_override")
+                    ),
                     gpu_index=gpu,
                     queue_order=order,
                     status="draft",
@@ -362,6 +385,13 @@ class TrainingService:
             task.default_dataset_mode = default_dataset_mode
             task.default_multi_dataset_config = default_multi_json
             task.default_template_id = values.get("default_template_id") or None
+            task.default_epochs_override = values.get("default_epochs_override") or None
+            task.default_batch_mode_override = values.get("default_batch_mode_override") or None
+            task.default_batch_value_override = values.get("default_batch_value_override")
+            task.default_image_size_override = values.get("default_image_size_override") or None
+            task.default_extra_parameters_override = _extra_override_json(
+                values.get("default_extra_parameters_override")
+            )
             task.default_base_model_id = values.get("default_base_model_id") or None
             task.version += 1
             task.updated_at = now
@@ -377,9 +407,7 @@ class TrainingService:
                 )
                 multi_json = _config_json(source.get("multi_dataset_config"))
                 if dataset_mode == "multi" and multi_json is None:
-                    raise InvalidTraining(
-                        f"models[{index - 1}].multi-dataset config is required"
-                    )
+                    raise InvalidTraining(f"models[{index - 1}].multi-dataset config is required")
                 db.add(
                     TrainingModel(
                         id=str(uuid4()),
@@ -395,6 +423,9 @@ class TrainingService:
                         batch_mode_override=source.get("batch_mode_override") or None,
                         batch_value_override=source.get("batch_value_override"),
                         image_size_override=source.get("image_size_override") or None,
+                        extra_parameters_override=_extra_override_json(
+                            source.get("extra_parameters_override")
+                        ),
                         gpu_index=gpu,
                         queue_order=order,
                         status="draft",
@@ -543,7 +574,8 @@ class TrainingService:
             issues: list[str] = []
             for index, row in enumerate(models):
                 issue_count = len(issues)
-                template_id = row.template_id or task.default_template_id
+                uses_task_template = row.template_id is None
+                template_id = task.default_template_id if uses_task_template else row.template_id
                 base_id = row.base_model_id or task.default_base_model_id
                 template = db.get(HyperparameterTemplate, template_id) if template_id else None
                 base = db.get(InferenceModel, base_id) if base_id else None
@@ -566,28 +598,53 @@ class TrainingService:
                 if len(issues) > issue_count:
                     continue
                 assert dataset_snapshot and template and base
-                parameters = effective_parameters(
-                    template.epochs,
-                    template.batch_mode,
-                    template.batch_value,
-                    template.image_size,
-                    json.loads(template.extra_parameters),
-                )
-                if row.epochs_override is not None:
-                    parameters["epochs"] = row.epochs_override
-                if row.batch_mode_override is not None:
-                    parameters["batch"] = (
-                        -1 if row.batch_mode_override == "auto" else row.batch_value_override
-                    )
-                if row.image_size_override is not None:
-                    parameters["imgsz"] = row.image_size_override
                 try:
+                    parameters = apply_parameter_overrides(
+                        effective_parameters(
+                            template.epochs,
+                            template.batch_mode,
+                            template.batch_value,
+                            template.image_size,
+                            json.loads(template.extra_parameters),
+                        ),
+                        epochs=(
+                            task.default_epochs_override
+                            if uses_task_template
+                            else row.epochs_override
+                        ),
+                        batch_mode=(
+                            task.default_batch_mode_override
+                            if uses_task_template
+                            else row.batch_mode_override
+                        ),
+                        batch_value=(
+                            task.default_batch_value_override
+                            if uses_task_template
+                            else row.batch_value_override
+                        ),
+                        image_size=(
+                            task.default_image_size_override
+                            if uses_task_template
+                            else row.image_size_override
+                        ),
+                        extra_override=json.loads(
+                            (
+                                task.default_extra_parameters_override
+                                if uses_task_template
+                                else row.extra_parameters_override
+                            )
+                            or "null"
+                        ),
+                    )
                     normalized = validate_values(parameters)
                 except HyperparameterValidationError as exc:
                     issues.extend(
                         f"models[{index}].hyperparameters.{issue.key or 'value'}: {issue.message}"
                         for issue in exc.issues
                     )
+                    continue
+                except (json.JSONDecodeError, TypeError):
+                    issues.append(f"models[{index}].hyperparameters.value: 覆盖配置格式错误")
                     continue
                 parameters = effective_parameters(
                     normalized["epochs"],
@@ -599,7 +656,13 @@ class TrainingService:
                 row.template_id, row.base_model_id = template.id, base.id
                 row.dataset_snapshot = json.dumps(dataset_snapshot, ensure_ascii=False)
                 row.template_snapshot = json.dumps(
-                    {"id": template.id, "name": template.name, "parameters": parameters},
+                    {
+                        "id": template.id,
+                        "name": template.name,
+                        "version": template.version,
+                        "updated_at": template.updated_at.isoformat(),
+                        "parameters": parameters,
+                    },
                     ensure_ascii=False,
                 )
                 row.base_model_snapshot = json.dumps(
@@ -695,17 +758,13 @@ class TrainingService:
             )
             if preparation:
                 now = _now()
-                preparation.status = (
-                    "canceled" if preparation.status == "queued" else "canceling"
-                )
+                preparation.status = "canceled" if preparation.status == "queued" else "canceling"
                 if preparation.status == "canceled":
                     preparation.finished_at = now
                 for model in db.scalars(
                     select(TrainingModel).where(TrainingModel.training_task_id == task_id)
                 ):
-                    model.status = (
-                        "canceled" if preparation.status == "canceled" else "canceling"
-                    )
+                    model.status = "canceled" if preparation.status == "canceled" else "canceling"
                     model.finished_at = now if preparation.status == "canceled" else None
                 task.status = "canceled" if preparation.status == "canceled" else "canceling"
                 task.finished_at = now if preparation.status == "canceled" else None
@@ -748,9 +807,7 @@ class TrainingService:
         with self._session_factory() as db:
             task = db.get(TrainingTask, task_id)
             preparation = db.scalar(
-                select(TrainingPreparation).where(
-                    TrainingPreparation.training_task_id == task_id
-                )
+                select(TrainingPreparation).where(TrainingPreparation.training_task_id == task_id)
             )
             if task is None or preparation is None:
                 raise TrainingNotFound("training preparation not found")
@@ -895,6 +952,11 @@ class TrainingService:
                 "image_size_override": image_size
                 if image_size is not None
                 else source.image_size_override,
+                "extra_parameters_override": (
+                    json.loads(source.extra_parameters_override)
+                    if source.extra_parameters_override
+                    else None
+                ),
                 "gpu_index": gpu_index,
                 "queue_order": 1,
             }
@@ -970,12 +1032,21 @@ class TrainingService:
                 "name": row.name,
                 "description": row.description,
                 "dataset_export_id": row.dataset_export_id,
+                "dataset_mode": row.dataset_mode,
+                "multi_dataset_config": (
+                    json.loads(row.multi_dataset_config) if row.multi_dataset_config else None
+                ),
                 "template_id": row.template_id,
                 "base_model_id": row.base_model_id,
                 "epochs_override": row.epochs_override,
                 "batch_mode_override": row.batch_mode_override,
                 "batch_value_override": row.batch_value_override,
                 "image_size_override": row.image_size_override,
+                "extra_parameters_override": (
+                    json.loads(row.extra_parameters_override)
+                    if row.extra_parameters_override
+                    else None
+                ),
                 "gpu_index": row.gpu_index,
                 "queue_order": row.queue_order,
             }
@@ -987,6 +1058,24 @@ class TrainingService:
             name=task_name,
             description=description,
             mode=source_task.mode,
+            default_dataset_export_id=source_task.default_dataset_export_id,
+            default_dataset_mode=source_task.default_dataset_mode,
+            default_multi_dataset_config=(
+                json.loads(source_task.default_multi_dataset_config)
+                if source_task.default_multi_dataset_config
+                else None
+            ),
+            default_template_id=source_task.default_template_id,
+            default_epochs_override=source_task.default_epochs_override,
+            default_batch_mode_override=source_task.default_batch_mode_override,
+            default_batch_value_override=source_task.default_batch_value_override,
+            default_image_size_override=source_task.default_image_size_override,
+            default_extra_parameters_override=(
+                json.loads(source_task.default_extra_parameters_override)
+                if source_task.default_extra_parameters_override
+                else None
+            ),
+            default_base_model_id=source_task.default_base_model_id,
             models=rows,
         )
         with self._session_factory() as db:

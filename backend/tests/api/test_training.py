@@ -53,9 +53,7 @@ def setup_app(tmp_path, monkeypatch):
     (dataset_dir / "val" / "images").mkdir(parents=True)
     (dataset_dir / "val" / "labels").mkdir(parents=True)
     (dataset_dir / "train" / "images" / "frame.jpg").write_bytes(b"image")
-    (dataset_dir / "train" / "labels" / "frame.txt").write_text(
-        "0 0.5 0.5 0.2 0.2\n"
-    )
+    (dataset_dir / "train" / "labels" / "frame.txt").write_text("0 0.5 0.5 0.2 0.2\n")
     model_path = workspace / "models" / "base.pt"
     model_path.parent.mkdir(parents=True)
     model_path.write_bytes(b"fake-base")
@@ -153,9 +151,16 @@ def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypat
             "default_template_id": "00000000-0000-0000-0000-000000000002",
             "default_base_model_id": "base-model",
             "models": [
-                {"name": "small", "epochs_override": 2, "gpu_index": 0, "queue_order": 1},
+                {
+                    "name": "small",
+                    "template_id": "00000000-0000-0000-0000-000000000002",
+                    "epochs_override": 2,
+                    "gpu_index": 0,
+                    "queue_order": 1,
+                },
                 {
                     "name": "small-alt",
+                    "template_id": "00000000-0000-0000-0000-000000000002",
                     "epochs_override": 2,
                     "batch_mode_override": "fixed",
                     "batch_value_override": 12.0,
@@ -220,6 +225,7 @@ def test_start_reports_resource_and_hyperparameter_errors_together(tmp_path, mon
                 {"name": "missing-base", "gpu_index": 0, "queue_order": 1},
                 {
                     "name": "invalid-batch",
+                    "template_id": "00000000-0000-0000-0000-000000000002",
                     "base_model_id": "base-model",
                     "batch_mode_override": "fixed",
                     "batch_value_override": 12.5,
@@ -235,9 +241,7 @@ def test_start_reports_resource_and_hyperparameter_errors_together(tmp_path, mon
     assert "models[1].hyperparameters.batch" in started.text
 
 
-def test_resources_code_availability_and_multi_dataset_draft_round_trip(
-    tmp_path, monkeypatch
-):
+def test_resources_code_availability_and_multi_dataset_draft_round_trip(tmp_path, monkeypatch):
     _, client, _ = setup_app(tmp_path, monkeypatch)
     resources = client.get("/api/v1/training/resources").json()
     assert resources["datasets"][0] == {
@@ -250,9 +254,12 @@ def test_resources_code_availability_and_multi_dataset_draft_round_trip(
         "val_frames": 0,
         "labels": [{"index": 0, "name": "fire"}],
     }
-    assert client.get(
-        "/api/v1/training-tasks/code-availability", params={"code": "multi-fire"}
-    ).json()["available"] is True
+    assert (
+        client.get(
+            "/api/v1/training-tasks/code-availability", params={"code": "multi-fire"}
+        ).json()["available"]
+        is True
+    )
     payload = {
         "code": "multi-fire",
         "name": "Multi fire",
@@ -278,6 +285,125 @@ def test_resources_code_availability_and_multi_dataset_draft_round_trip(
     ).json() == {"code": "multi-fire", "available": False, "reason": "编码已存在"}
 
 
+def test_template_changes_rebase_drafts_and_started_snapshots_stay_frozen(tmp_path, monkeypatch):
+    _, client, _ = setup_app(tmp_path, monkeypatch)
+    template = client.post(
+        "/api/v1/hyperparameter-templates",
+        headers=ORIGIN,
+        json={
+            "name": "Draft base",
+            "epochs": 10,
+            "batch_mode": "auto",
+            "batch_value": None,
+            "image_size": 640,
+            "extra_parameters": {"lr0": 0.01, "patience": 50},
+        },
+    ).json()
+    resources_template = next(
+        item
+        for item in client.get("/api/v1/training/resources").json()["templates"]
+        if item["id"] == template["id"]
+    )
+    assert resources_template["version"] == 1
+    assert resources_template["effective_parameters"]["lr0"] == 0.01
+
+    payload = {
+        "code": "override-draft",
+        "name": "Override draft",
+        "mode": "custom_sequence",
+        "default_dataset_export_id": "export-id",
+        "default_template_id": template["id"],
+        "default_base_model_id": "base-model",
+        "default_epochs_override": 20,
+        "default_extra_parameters_override": {
+            "version": 1,
+            "set": {"lr0": 0.02},
+            "remove": ["patience"],
+        },
+        "models": [
+            {
+                "name": "inherit",
+                "epochs_override": 99,
+                "extra_parameters_override": {
+                    "version": 1,
+                    "set": {"mosaic": 0.5},
+                    "remove": [],
+                },
+                "gpu_index": 0,
+                "queue_order": 1,
+            },
+            {
+                "name": "explicit",
+                "template_id": template["id"],
+                "image_size_override": 960,
+                "extra_parameters_override": {
+                    "version": 1,
+                    "set": {"mosaic": 0.5},
+                    "remove": ["lr0"],
+                },
+                "gpu_index": 0,
+                "queue_order": 2,
+            },
+        ],
+    }
+    draft = client.post("/api/v1/training-tasks", headers=ORIGIN, json=payload)
+    assert draft.status_code == 201, draft.text
+    draft_body = draft.json()
+    assert draft_body["default_epochs_override"] == 20
+    assert draft_body["models"][1]["extra_parameters_override"]["remove"] == ["lr0"]
+
+    derived = client.post(
+        f"/api/v1/training-tasks/{draft_body['id']}/derive",
+        headers={**ORIGIN, "Idempotency-Key": "derive-overrides"},
+        json={"task_code": "override-derived", "task_name": "Derived"},
+    )
+    assert derived.status_code == 201, derived.text
+    assert derived.json()["default_epochs_override"] == 20
+    assert derived.json()["models"][1]["extra_parameters_override"]["remove"] == ["lr0"]
+
+    update_payload = {
+        "version": template["version"],
+        "name": template["name"],
+        "description": "updated before start",
+        "epochs": 30,
+        "batch_mode": "auto",
+        "batch_value": None,
+        "image_size": 640,
+        "extra_parameters": {"lr0": 0.03, "patience": 60},
+    }
+    updated_template = client.patch(
+        f"/api/v1/hyperparameter-templates/{template['id']}",
+        headers=ORIGIN,
+        json=update_payload,
+    ).json()
+    started = client.post(f"/api/v1/training-tasks/{draft_body['id']}/start", headers=ORIGIN)
+    assert started.status_code == 200, started.text
+    inherit_snapshot = started.json()["models"][0]["template_snapshot"]
+    explicit_snapshot = started.json()["models"][1]["template_snapshot"]
+    assert inherit_snapshot["version"] == 2
+    assert inherit_snapshot["parameters"] == {
+        "epochs": 20,
+        "batch": -1,
+        "imgsz": 640,
+        "lr0": 0.02,
+    }
+    assert explicit_snapshot["parameters"] == {
+        "epochs": 30,
+        "batch": -1,
+        "imgsz": 960,
+        "patience": 60,
+        "mosaic": 0.5,
+    }
+
+    client.patch(
+        f"/api/v1/hyperparameter-templates/{template['id']}",
+        headers=ORIGIN,
+        json={**update_payload, "version": updated_template["version"], "epochs": 40},
+    )
+    detail = client.get(f"/api/v1/training-tasks/{draft_body['id']}").json()
+    assert detail["models"][0]["template_snapshot"] == inherit_snapshot
+
+
 def test_invalid_multi_dataset_config_is_rejected(tmp_path, monkeypatch):
     _, client, _ = setup_app(tmp_path, monkeypatch)
     response = client.post(
@@ -299,9 +425,7 @@ def test_invalid_multi_dataset_config_is_rejected(tmp_path, monkeypatch):
     assert "target classes are unavailable" in response.text
 
 
-def test_multi_dataset_start_prepares_before_queue_and_reuses_same_task_hash(
-    tmp_path, monkeypatch
-):
+def test_multi_dataset_start_prepares_before_queue_and_reuses_same_task_hash(tmp_path, monkeypatch):
     app, client, workspace = setup_app(tmp_path, monkeypatch)
     created = client.post(
         "/api/v1/training-tasks",
@@ -317,10 +441,11 @@ def test_multi_dataset_start_prepares_before_queue_and_reuses_same_task_hash(
                 "target_classes": ["fire"],
             },
             "default_template_id": "00000000-0000-0000-0000-000000000002",
+            "default_epochs_override": 1,
             "default_base_model_id": "base-model",
             "models": [
-                {"name": "one", "epochs_override": 1, "gpu_index": 0, "queue_order": 1},
-                {"name": "two", "epochs_override": 1, "gpu_index": 1, "queue_order": 1},
+                {"name": "one", "gpu_index": 0, "queue_order": 1},
+                {"name": "two", "gpu_index": 1, "queue_order": 1},
             ],
         },
     ).json()
@@ -348,9 +473,7 @@ def test_multi_dataset_start_prepares_before_queue_and_reuses_same_task_hash(
     assert len(paths) == 1
     prepared = workspace / paths.pop()
     assert (prepared / "READY").is_file()
-    assert (prepared / "train/labels/export-id_frame.txt").read_text() == (
-        "0 0.5 0.5 0.2 0.2\n"
-    )
+    assert (prepared / "train/labels/export-id_frame.txt").read_text() == ("0 0.5 0.5 0.2 0.2\n")
     assert detail["preparation"]["artifacts"] == [
         {
             "config_hash": prepared.name,
@@ -382,16 +505,15 @@ def test_preparation_failure_can_retry_and_queued_preparation_can_cancel(tmp_pat
                     "target_classes": ["fire"],
                 },
                 "default_template_id": "00000000-0000-0000-0000-000000000002",
+                "default_epochs_override": 1,
                 "default_base_model_id": "base-model",
-                "models": [{"name": "one", "epochs_override": 1}],
+                "models": [{"name": "one"}],
             },
         ).json()
 
     canceled_source = create("cancel-prep")
     client.post(f"/api/v1/training-tasks/{canceled_source['id']}/start", headers=ORIGIN)
-    canceled = client.post(
-        f"/api/v1/training-tasks/{canceled_source['id']}/cancel", headers=ORIGIN
-    )
+    canceled = client.post(f"/api/v1/training-tasks/{canceled_source['id']}/cancel", headers=ORIGIN)
     assert canceled.json()["status"] == "canceled"
     assert canceled.json()["preparation"]["status"] == "canceled"
 
@@ -437,10 +559,11 @@ def test_same_gpu_models_are_strictly_serial_and_task_cancel_covers_queue(tmp_pa
             "mode": "single_device_serial",
             "default_dataset_export_id": "export-id",
             "default_template_id": "00000000-0000-0000-0000-000000000002",
+            "default_epochs_override": 20,
             "default_base_model_id": "base-model",
             "models": [
-                {"name": "first", "epochs_override": 20, "gpu_index": 0, "queue_order": 1},
-                {"name": "second", "epochs_override": 20, "gpu_index": 0, "queue_order": 2},
+                {"name": "first", "gpu_index": 0, "queue_order": 1},
+                {"name": "second", "gpu_index": 0, "queue_order": 2},
             ],
         },
     ).json()

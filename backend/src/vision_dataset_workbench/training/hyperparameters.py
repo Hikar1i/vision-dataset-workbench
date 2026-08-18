@@ -242,16 +242,17 @@ def validate_values(
             _issue("invalid_value", "imgsz 必须是 32–1280 且为 32 的倍数", "imgsz", marks)
         )
     integral_float_batch = (
-        isinstance(batch, float)
-        and isfinite(batch)
-        and batch.is_integer()
-        and 1 <= batch <= 4096
+        isinstance(batch, float) and isfinite(batch) and batch.is_integer() and 1 <= batch <= 4096
     )
     batch_valid = (
-        isinstance(batch, int)
-        and not isinstance(batch, bool)
-        and (batch == -1 or 1 <= batch <= 4096)
-    ) or integral_float_batch or (isinstance(batch, float) and isfinite(batch) and 0 < batch <= 1)
+        (
+            isinstance(batch, int)
+            and not isinstance(batch, bool)
+            and (batch == -1 or 1 <= batch <= 4096)
+        )
+        or integral_float_batch
+        or (isinstance(batch, float) and isfinite(batch) and 0 < batch <= 1)
+    )
     if "batch" in values and not batch_valid:
         issues.append(
             _issue("invalid_value", "batch 必须为 -1、1–4096 整数或 (0,1] 小数", "batch", marks)
@@ -390,9 +391,9 @@ def normalize_extra_parameter_override(value: Any) -> dict[str, Any] | None:
         raise HyperparameterValidationError(
             [ValidationIssue("invalid_override", f"参数 {key} 的覆盖操作不正确", key)]
         )
-    validated = validate_values(
-        {"epochs": 1, "batch": -1, "imgsz": 32, **updates}
-    )["extra_parameters"]
+    validated = validate_values({"epochs": 1, "batch": -1, "imgsz": 32, **updates})[
+        "extra_parameters"
+    ]
     if not validated and not removals:
         return None
     return {"version": 1, "set": validated, "remove": removals}
@@ -416,7 +417,7 @@ def apply_parameter_overrides(
         values["batch"] = (
             -1
             if batch_mode == "auto"
-            else int(batch_value or 0)
+            else batch_value or 0
             if batch_mode == "fixed"
             else float(batch_value or 0)
         )

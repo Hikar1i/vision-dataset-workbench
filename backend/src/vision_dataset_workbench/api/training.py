@@ -28,6 +28,7 @@ from ..services.training import (
 )
 from ..training.telemetry import training_telemetry
 from ..training.events import terminal_snapshot
+from ..training.hyperparameters import effective_parameters
 from .auth import current_user, require_same_origin
 
 router = APIRouter(prefix="/api/v1", tags=["training"])
@@ -38,6 +39,13 @@ class MultiDatasetConfig(BaseModel):
     version: Literal[1] = 1
     dataset_export_ids: list[str] = Field(min_length=1)
     target_classes: list[str] = Field(min_length=1)
+
+
+class ExtraParametersOverride(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal[1] = 1
+    set: dict[str, object] = Field(default_factory=dict)
+    remove: list[str] = Field(default_factory=list)
 
 
 class TrainingModelInput(BaseModel):
@@ -53,6 +61,7 @@ class TrainingModelInput(BaseModel):
     batch_mode_override: Literal["auto", "fixed", "fraction"] | None = None
     batch_value_override: float | None = None
     image_size_override: int | None = None
+    extra_parameters_override: ExtraParametersOverride | None = None
     gpu_index: int = Field(default=0, ge=0)
     queue_order: int = Field(default=1, ge=1, le=10)
 
@@ -67,6 +76,11 @@ class CreateTrainingTaskRequest(BaseModel):
     default_dataset_mode: Literal["single", "multi"] = "single"
     default_multi_dataset_config: MultiDatasetConfig | None = None
     default_template_id: str | None = None
+    default_epochs_override: int | None = None
+    default_batch_mode_override: Literal["auto", "fixed", "fraction"] | None = None
+    default_batch_value_override: float | None = None
+    default_image_size_override: int | None = None
+    default_extra_parameters_override: ExtraParametersOverride | None = None
     default_base_model_id: str | None = None
     models: list[TrainingModelInput] = Field(min_length=1, max_length=10)
 
@@ -81,6 +95,11 @@ class UpdateTrainingTaskRequest(BaseModel):
     default_dataset_mode: Literal["single", "multi"] = "single"
     default_multi_dataset_config: MultiDatasetConfig | None = None
     default_template_id: str | None = None
+    default_epochs_override: int | None = None
+    default_batch_mode_override: Literal["auto", "fixed", "fraction"] | None = None
+    default_batch_value_override: float | None = None
+    default_image_size_override: int | None = None
+    default_extra_parameters_override: ExtraParametersOverride | None = None
     default_base_model_id: str | None = None
     models: list[TrainingModelInput] = Field(min_length=1, max_length=10)
 
@@ -185,6 +204,9 @@ def model_response(svc: TrainingService, model: TrainingModel) -> dict[str, obje
         "batch_mode_override": model.batch_mode_override,
         "batch_value_override": model.batch_value_override,
         "image_size_override": model.image_size_override,
+        "extra_parameters_override": (
+            json.loads(model.extra_parameters_override) if model.extra_parameters_override else None
+        ),
         "gpu_index": model.gpu_index,
         "queue_order": model.queue_order,
         "status": model.status,
@@ -225,6 +247,15 @@ def task_response(
             else None
         ),
         "default_template_id": task.default_template_id,
+        "default_epochs_override": task.default_epochs_override,
+        "default_batch_mode_override": task.default_batch_mode_override,
+        "default_batch_value_override": task.default_batch_value_override,
+        "default_image_size_override": task.default_image_size_override,
+        "default_extra_parameters_override": (
+            json.loads(task.default_extra_parameters_override)
+            if task.default_extra_parameters_override
+            else None
+        ),
         "default_base_model_id": task.default_base_model_id,
         "created_by_id": task.created_by_id,
         "can_manage": svc.can_manage(actor, task),
@@ -240,9 +271,7 @@ def task_response(
     if details:
         value["models"] = [model_response(svc, row) for row in models]
         preparation = svc.task_preparation(task.id)
-        value["preparation"] = (
-            preparation_response(preparation, models) if preparation else None
-        )
+        value["preparation"] = preparation_response(preparation, models) if preparation else None
     return value
 
 
@@ -334,8 +363,7 @@ def training_resources(
                     "train_frames": item.train_frames,
                     "val_frames": item.val_frames,
                     "labels": [
-                        {"index": index, "name": name}
-                        for index, name in _resource_labels(item)
+                        {"index": index, "name": name} for index, name in _resource_labels(item)
                     ],
                 }
                 for item, project_id, project_name in datasets
@@ -348,6 +376,16 @@ def training_resources(
                     "batch_mode": item.batch_mode,
                     "batch_value": item.batch_value,
                     "image_size": item.image_size,
+                    "extra_parameters": json.loads(item.extra_parameters),
+                    "effective_parameters": effective_parameters(
+                        item.epochs,
+                        item.batch_mode,
+                        item.batch_value,
+                        item.image_size,
+                        json.loads(item.extra_parameters),
+                    ),
+                    "version": item.version,
+                    "updated_at": _time(item.updated_at),
                 }
                 for item in templates
             ],
