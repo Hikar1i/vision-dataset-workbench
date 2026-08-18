@@ -61,7 +61,7 @@ export function videoWorkflowStatus(video: Video): VideoWorkflowStatus {
   ) {
     return result(
       'resampling-required',
-      '待重新抽帧',
+      '待重抽帧',
       `当前 ${sampling.extracted_frames} 帧，新方案预计 ${sampling.expected_frames} 帧`,
     )
   }

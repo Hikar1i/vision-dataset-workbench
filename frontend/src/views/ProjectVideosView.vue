@@ -85,7 +85,7 @@ const allSelected = computed(
 const someSelected = computed(
   () => selectedOnPage.value.length > 0 && !allSelected.value,
 )
-const statusLabels = { pending: '等待导入', ready: '可用', unavailable: '不可用' } as const
+const statusLabels = { pending: '导入中', ready: '可用', unavailable: '不可用' } as const
 
 function duration(seconds: number) {
   const rounded = Math.max(0, Math.round(seconds))
@@ -876,7 +876,7 @@ const headerHost = useProjectHeaderHost()
      末列 344px 是 5 个"图标+文字"操作的实测所需宽度；给少了会撑破网格
      并在台账里产生横向滚动。 */
   grid-template-columns:
-    30px 50px minmax(180px, 1.2fr) 62px 100px 96px 62px
+    16px 46px minmax(180px, 1.0fr) 54px 106px 76px 74px
     minmax(180px, 1.1fr) 344px;
   gap: 8px;
   align-items: center;
@@ -1037,11 +1037,11 @@ const headerHost = useProjectHeaderHost()
 .status-info {
   display: flex;
   align-items: center;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   gap: 4px;
-  color: #53616d;
-  font-size: 14px;
   white-space: nowrap;
 }
 
@@ -1050,10 +1050,10 @@ const headerHost = useProjectHeaderHost()
 }
 
 .status-detail {
-  flex: 1;
+  display: block;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
-  color: var(--vdw-ink-2);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1062,7 +1062,6 @@ const headerHost = useProjectHeaderHost()
    与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  gap: 2px;
 }
 
 .ledger-footer {

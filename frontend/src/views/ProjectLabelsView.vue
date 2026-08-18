@@ -249,8 +249,6 @@ const headerHost = useProjectHeaderHost()
             :model-value="label.enabled"
             :data-test="`enabled-${label.id}`"
             inline-prompt
-            active-text="启用"
-            inactive-text="停用"
             :disabled="!canEdit || saving === label.id"
             @change="canEdit && change(label, { enabled: Boolean($event) })"
           />
