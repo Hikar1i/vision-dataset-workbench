@@ -74,6 +74,13 @@ export function createAppRouter() {
             meta: { section: "超参数模板", page: "新建模板" },
           },
           {
+            path: "hyperparameter-templates/:id/edit",
+            name: "hyperparameter-template-edit",
+            component: () =>
+              import("./views/HyperparameterTemplateEditorView.vue"),
+            meta: { section: "超参数模板", page: "编辑模板" },
+          },
+          {
             path: "hyperparameter-templates/:id",
             name: "hyperparameter-template-detail",
             component: () =>

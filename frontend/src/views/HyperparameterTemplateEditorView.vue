@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
-import { onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
   createHyperparameterTemplate,
   getHyperparameterCatalog,
   getHyperparameterTemplate,
+  updateHyperparameterTemplate,
   type HyperparameterConfig,
+  type HyperparameterTemplate,
   type ParameterDefinition,
 } from '../api/hyperparameters'
 import HyperparameterConfigEditor from '../components/HyperparameterConfigEditor.vue'
@@ -17,6 +19,7 @@ import VButton from '../ui/VButton.vue'
 const route = useRoute()
 const router = useRouter()
 const catalog = ref<ParameterDefinition[]>([])
+const source = ref<HyperparameterTemplate | null>(null)
 const name = ref('')
 const description = ref('')
 const config = ref<HyperparameterConfig>({
@@ -29,6 +32,22 @@ const config = ref<HyperparameterConfig>({
 const rawDirty = ref(false)
 const saving = ref(false)
 const derivedFromId = ref<string | null>(null)
+const editorKey = ref(0)
+const editing = computed(() => route.name === 'hyperparameter-template-edit')
+const title = computed(() => editing.value ? '编辑超参数模板' : derivedFromId.value ? '派生超参数模板' : '新建超参数模板')
+
+function defaultConfig(): HyperparameterConfig {
+  return { epochs: 100, batch_mode: 'auto', batch_value: null, image_size: 640, extra_parameters: {} }
+}
+
+function clear() {
+  name.value = ''
+  description.value = ''
+  config.value = defaultConfig()
+  rawDirty.value = false
+  editorKey.value += 1
+  ElMessage.success('已清空，核心参数已恢复默认值。')
+}
 
 async function save() {
   if (!name.value.trim()) return
@@ -48,24 +67,80 @@ async function save() {
   }
 }
 
+async function saveCurrent() {
+  if (!source.value || !name.value.trim()) return
+  saving.value = true
+  try {
+    source.value = await updateHyperparameterTemplate(source.value.id, {
+      version: source.value.version,
+      name: name.value,
+      description: description.value,
+      ...config.value,
+    })
+    ElMessage.success(`已保存到当前模板 v${source.value.version}。`)
+    await router.push(`/hyperparameter-templates/${source.value.id}`)
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '模板保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function derive() {
+  if (!source.value) return
+  let nextName: string
+  try {
+    const result = await ElMessageBox.prompt('请输入派生模板名称', '派生模板', {
+      inputValue: `${source.value.name} - 派生`,
+      inputValidator: (value) => Boolean(value.trim()) || '请输入模板名称',
+      confirmButtonText: '创建派生模板',
+      cancelButtonText: '取消',
+    })
+    nextName = result.value.trim()
+  } catch {
+    return
+  }
+  saving.value = true
+  try {
+    const created = await createHyperparameterTemplate({
+      name: nextName,
+      description: description.value,
+      ...config.value,
+      derived_from_id: source.value.id,
+    })
+    ElMessage.success('已创建派生模板。')
+    await router.push(`/hyperparameter-templates/${created.id}`)
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '派生模板创建失败')
+  } finally {
+    saving.value = false
+  }
+}
+
 onMounted(async () => {
-  const [nextCatalog, source] = await Promise.all([
+  const sourceId = editing.value
+    ? String(route.params.id)
+    : typeof route.query.from === 'string'
+      ? route.query.from
+      : null
+  const [nextCatalog, loadedSource] = await Promise.all([
     getHyperparameterCatalog(),
-    typeof route.query.from === 'string'
-      ? getHyperparameterTemplate(route.query.from)
+    sourceId
+      ? getHyperparameterTemplate(sourceId)
       : Promise.resolve(null),
   ])
   catalog.value = nextCatalog.items
-  if (!source) return
-  derivedFromId.value = source.id
-  name.value = `${source.name} - 派生`
-  description.value = source.description
+  if (!loadedSource) return
+  source.value = loadedSource
+  derivedFromId.value = editing.value ? null : loadedSource.id
+  name.value = editing.value ? loadedSource.name : `${loadedSource.name} - 派生`
+  description.value = loadedSource.description
   config.value = {
-    epochs: source.epochs,
-    batch_mode: source.batch_mode,
-    batch_value: source.batch_value,
-    image_size: source.image_size,
-    extra_parameters: structuredClone(source.extra_parameters),
+    epochs: loadedSource.epochs,
+    batch_mode: loadedSource.batch_mode,
+    batch_value: loadedSource.batch_value,
+    image_size: loadedSource.image_size,
+    extra_parameters: structuredClone(loadedSource.extra_parameters),
   }
 })
 </script>
@@ -73,18 +148,24 @@ onMounted(async () => {
 <template>
   <main class="content-page editor-page">
     <PageHeader
-      :title="derivedFromId ? '派生超参数模板' : '新建超参数模板'"
+      :title="title"
       back-to="/hyperparameter-templates"
     >
-      <template #meta>YOLO Detect / {{ catalog.length }} 个可选参数</template>
+      <template #meta>
+        YOLO Detect / {{ catalog.length }} 个可选参数<span v-if="source"> · v{{ source.version }}</span>
+      </template>
       <template #actions>
+        <VButton v-if="!editing" variant="quiet" @click="clear">清空</VButton>
+        <VButton v-if="editing" variant="default" :disabled="rawDirty" @click="derive">
+          派生模板
+        </VButton>
         <VButton
           variant="primary"
           :loading="saving"
           :disabled="!name.trim() || rawDirty"
-          @click="save"
+          @click="editing ? saveCurrent() : save()"
         >
-          创建模板
+          {{ editing ? '保存当前模板' : '创建模板' }}
         </VButton>
       </template>
     </PageHeader>
@@ -101,6 +182,7 @@ onMounted(async () => {
         </el-form>
       </section>
       <HyperparameterConfigEditor
+        :key="editorKey"
         v-model="config"
         :catalog="catalog"
         @dirty-change="rawDirty = $event"

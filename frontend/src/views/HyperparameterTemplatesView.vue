@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CopyDocument, Delete, Plus, View } from '@element-plus/icons-vue'
+import { CopyDocument, Delete, Edit, Plus, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -24,7 +24,7 @@ const loading = ref(false)
 const deleting = ref('')
 const error = ref('')
 
-const COLUMNS = 'minmax(250px, 1fr) 80px 80px 90px 200px 200px'
+const COLUMNS = 'minmax(250px, 1fr) 80px 80px 90px 70px 150px 290px'
 
 async function load() {
   loading.value = true
@@ -78,7 +78,7 @@ onMounted(load)
       <VPanel v-loading="loading" flush>
         <VTable
           :columns="COLUMNS"
-          :headers="['模板', 'epochs', 'batch', 'image size', '创建时间', '操作']"
+          :headers="['模板', 'epochs', 'batch', 'image size', '版本', '编辑时间', '操作']"
         >
           <VRow v-for="item in templates" :key="item.id" :columns="COLUMNS">
             <VCellName :name="item.name" :sub="item.description || '暂无描述'">
@@ -91,13 +91,20 @@ onMounted(load)
               {{ item.batch_mode === 'auto' ? 'auto' : item.batch_value }}
             </span>
             <span class="vdw-num cell-num">{{ item.image_size }}</span>
-            <time :datetime="item.created_at">{{ item.created_at.slice(0, 10) }}</time>
+            <span class="vdw-num cell-num">v{{ item.version }}</span>
+            <time :datetime="item.updated_at">{{ item.updated_at.slice(0, 10) }}</time>
             <div class="row-actions">
               <VButton
                 variant="default"
                 size="sm"
                 @click="router.push(`/hyperparameter-templates/${item.id}`)"
               ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
+              <VButton
+                v-if="item.can_edit"
+                variant="default"
+                size="sm"
+                @click="router.push(`/hyperparameter-templates/${item.id}/edit`)"
+              ><template #icon><el-icon><Edit /></el-icon></template>编辑</VButton>
               <VButton
                 variant="quiet"
                 size="sm"
