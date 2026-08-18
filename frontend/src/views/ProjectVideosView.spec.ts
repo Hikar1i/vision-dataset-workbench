@@ -389,6 +389,15 @@ describe('ProjectVideosView', () => {
     await confirm.trigger('click')
     await flushPromises()
     const request = fetchMock.mock.calls.find(([path]) => String(path).includes('/batch-enabled-by-annotation'))
-    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ scope: 'all', confirm_all: true })
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({
+      scope: 'all',
+      confirm_all: true,
+      revisions: {
+        'annotated-new': 1,
+        'annotated-old': 2,
+        'empty-new': 1,
+        'empty-old': 2,
+      },
+    })
   })
 })

@@ -277,7 +277,10 @@ async function submitEnabledByAnnotation(targetVideos: Video[], scope: 'unscreen
       targetVideos.map((video) => video.id),
       scope,
       scope === 'all',
-      Object.fromEntries(targetVideos.map((video) => [video.id, video.version])),
+      Object.fromEntries(targetVideos.map((video) => [
+        video.id,
+        video.sampling?.frame_revision ?? 0,
+      ])),
     )
     const ignored = result.rejected.filter((item) => item.code === 'no_annotations').length
     ElMessage.success(
