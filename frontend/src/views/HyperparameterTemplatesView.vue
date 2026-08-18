@@ -24,7 +24,7 @@ const loading = ref(false)
 const deleting = ref('')
 const error = ref('')
 
-const COLUMNS = 'minmax(250px, 1fr) 80px 80px 90px 70px 150px 290px'
+const COLUMNS = 'minmax(250px, 1fr) 80px 80px 90px 150px 290px'
 
 async function load() {
   loading.value = true
@@ -78,12 +78,13 @@ onMounted(load)
       <VPanel v-loading="loading" flush>
         <VTable
           :columns="COLUMNS"
-          :headers="['模板', 'epochs', 'batch', 'image size', '版本', '编辑时间', '操作']"
+          :headers="['模板', 'epochs', 'batch', 'image size', '编辑时间', '操作']"
         >
           <VRow v-for="item in templates" :key="item.id" :columns="COLUMNS">
             <VCellName :name="item.name" :sub="item.description || '暂无描述'">
               <template #after>
                 <VTag v-if="item.system_key" tone="idle">系统</VTag>
+                <VTag tone="idle">v{{ item.version }}</VTag>
               </template>
             </VCellName>
             <span class="vdw-num cell-num">{{ item.epochs }}</span>
@@ -91,7 +92,6 @@ onMounted(load)
               {{ item.batch_mode === 'auto' ? 'auto' : item.batch_value }}
             </span>
             <span class="vdw-num cell-num">{{ item.image_size }}</span>
-            <span class="vdw-num cell-num">v{{ item.version }}</span>
             <time :datetime="item.updated_at">{{ item.updated_at.slice(0, 10) }}</time>
             <div class="row-actions">
               <VButton

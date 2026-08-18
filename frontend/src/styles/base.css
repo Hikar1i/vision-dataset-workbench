@@ -217,6 +217,11 @@ a:focus-visible {
   font-size: 14px;
 }
 
+.el-input .el-input__count,
+.el-input__count-inner {
+  font-size: 13px;
+}
+
 .el-table {
   font-size: 14px;
 }
