@@ -68,6 +68,8 @@ const hyperConfig = ref<HyperparameterConfig | null>(null);
 const taskHyperMessage = ref("");
 const modelHyperMessages = ref(new Map<TrainingModelDraft, string>());
 const taskCoreEditing = ref(false);
+const templateSwitchOpen = ref(false);
+let resolveTemplateSwitch: ((choice: "keep" | "clear" | "cancel") => void) | null = null;
 const form = reactive<TrainingTaskDraft>({
   code: "",
   name: "",
@@ -317,21 +319,16 @@ function setTaskBatchMode(mode: TrainingTaskDraft["default_batch_mode_override"]
 
 async function changeChoice(overrides: TrainingHyperparameterOverrides) {
   if (!hyperparameterOverrideCount(overrides)) return "keep" as const;
-  try {
-    await ElMessageBox.confirm(
-      "当前已有超参数覆盖。切换模板后如何处理？",
-      "切换超参模板",
-      {
-        type: "warning",
-        distinguishCancelAndClose: true,
-        confirmButtonText: "保留覆盖",
-        cancelButtonText: "清空覆盖",
-      },
-    );
-    return "keep" as const;
-  } catch (action) {
-    return action === "cancel" ? "clear" as const : "cancel" as const;
-  }
+  templateSwitchOpen.value = true;
+  return new Promise<"keep" | "clear" | "cancel">((resolve) => {
+    resolveTemplateSwitch = resolve;
+  });
+}
+
+function finishTemplateSwitch(choice: "keep" | "clear" | "cancel") {
+  templateSwitchOpen.value = false;
+  resolveTemplateSwitch?.(choice);
+  resolveTemplateSwitch = null;
 }
 
 async function changeTaskTemplate(id: string | null) {
@@ -760,6 +757,21 @@ onUnmounted(() => window.removeEventListener("focus", refreshResources));
       @save="saveHyperparameters"
       @derive="deriveHyperparameters"
     />
+    <el-dialog
+      v-model="templateSwitchOpen"
+      title="切换超参模板"
+      width="560px"
+      :show-close="false"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+    >
+      <p class="template-switch-message">当前已有超参数覆盖。请选择切换到新模板后的处理方式。</p>
+      <template #footer>
+        <VButton variant="quiet" @click="finishTemplateSwitch('cancel')">取消</VButton>
+        <VButton variant="default" @click="finishTemplateSwitch('clear')">清空覆盖并使用新模板</VButton>
+        <VButton variant="primary" @click="finishTemplateSwitch('keep')">保留覆盖并应用到新模板</VButton>
+      </template>
+    </el-dialog>
   </main>
 </template>
 <style scoped>
@@ -821,6 +833,7 @@ onUnmounted(() => window.removeEventListener("focus", refreshResources));
 .task-override-card>header label { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
 .full-editor-row { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .applied-message { min-width: 0; flex: 1; color: var(--vdw-ok); font-size: 14px; }
+.template-switch-message { margin: 0; color: var(--vdw-ink-2); }
 .training-mode-field { margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--vdw-line); background: var(--vdw-surface-2); }
 .training-mode-field :deep(.el-form-item) { margin: 0; }
 .code-state.available { color: var(--vdw-ok); }

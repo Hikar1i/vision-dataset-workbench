@@ -8,6 +8,7 @@ import {
   artifactPreview,
   effectiveResourceIds,
   groupedOptions,
+  hyperparameterOverrideCount,
   type TrainingDefaults,
 } from "./trainingResources";
 import VButton from '../ui/VButton.vue'
@@ -74,6 +75,18 @@ function toggle(row: TrainingModelDraft) {
 }
 function explicitTemplateFor(row: TrainingModelDraft) {
   return props.resources.templates.find((item) => item.id === row.template_id);
+}
+function inheritedTemplate() {
+  return props.resources.templates.find((item) => item.id === props.defaults.default_template_id);
+}
+function inheritedOverrideCount() {
+  return hyperparameterOverrideCount({
+    epochs: props.defaults.default_epochs_override,
+    batchMode: props.defaults.default_batch_mode_override,
+    batchValue: props.defaults.default_batch_value_override,
+    imageSize: props.defaults.default_image_size_override,
+    extra: props.defaults.default_extra_parameters_override,
+  });
 }
 function overrideEnabled(row: TrainingModelDraft) {
   return row.epochs_override != null
@@ -194,8 +207,17 @@ function setDatasetMode(row: TrainingModelDraft, mode: TrainingModelDraft["datas
             <el-form-item label="超参模板"><el-select :model-value="row.template_id" filterable clearable :placeholder="defaults.default_template_id ? '继承任务默认' : '请选择超参模板'" @change="emit('changeTemplate', row, ($event as string) || null)"><el-option v-for="item in resources.templates" :key="item.id" :value="item.id" :label="item.name" /></el-select></el-form-item>
             <el-form-item label="Base model"><el-cascader v-model="row.base_model_id" :options="baseModelOptions" :props="cascaderProps" filterable clearable :placeholder="defaults.default_base_model_id ? '继承任务默认' : '请选择 BaseModel'" @change="update" /></el-form-item>
           </div>
-          <section v-if="row.template_id && explicitTemplateFor(row)" class="override-panel">
-            <header><div><strong>超参数设置</strong><small>{{ explicitTemplateFor(row)?.name }} · v{{ explicitTemplateFor(row)?.version }}</small></div><el-switch :model-value="overrideEnabled(row)" @change="setOverride(row, Boolean($event))" /></header>
+          <section v-if="!row.template_id && inheritedTemplate()" class="override-panel inherited-template-panel">
+            <header>
+              <div>
+                <strong>继承任务默认</strong>
+                <small>{{ inheritedTemplate()?.name }} · v{{ inheritedTemplate()?.version }} · {{ inheritedOverrideCount() }} 项覆盖</small>
+              </div>
+            </header>
+            <p class="inherited-core">使用任务总体设置中的最终超参数配置。</p>
+          </section>
+          <section v-else-if="row.template_id && explicitTemplateFor(row)" class="override-panel">
+            <header><div><strong>超参数设置</strong><small>{{ explicitTemplateFor(row)?.name }} · v{{ explicitTemplateFor(row)?.version }}</small></div><el-switch aria-label="核心参数覆盖" :model-value="overrideEnabled(row)" @change="setOverride(row, Boolean($event))" /></header>
             <CoreHyperparameterFields
               v-if="overrideEnabled(row)"
               compact

@@ -38,6 +38,8 @@ describe("TrainingTaskEditorView layout", () => {
     expect(source).toContain('已应用修改：${count} 项覆盖将在保存草稿时生效。')
     expect(source).toContain('模板已更新至 v${taskNext.version}')
     expect(source).toContain('window.addEventListener("focus", refreshResources)')
-    expect(source).toContain('distinguishCancelAndClose: true')
+    expect(source).toContain('保留覆盖并应用到新模板')
+    expect(source).toContain('清空覆盖并使用新模板')
+    expect(source).toContain("finishTemplateSwitch('cancel')")
   });
 });

@@ -141,13 +141,19 @@ describe("TrainingModelEditor", () => {
 
   it("hides model hyperparameter editing while inheriting and shows it for an explicit template", async () => {
     const inherited = model();
-    const inheritedWrapper = mountEditor(inherited, { ...defaults, default_template_id: "t1" });
+    const inheritedWrapper = mountEditor(inherited, {
+      ...defaults,
+      default_template_id: "t1",
+      default_epochs_override: 120,
+    });
+    expect(inheritedWrapper.text()).toContain("基础模板 · v2 · 1 项覆盖");
     expect(inheritedWrapper.text()).not.toContain("编辑完整超参数");
 
     const explicit = { ...model(), template_id: "t1" };
     const explicitWrapper = mountEditor(explicit);
     expect(explicitWrapper.text()).toContain("基础模板 · v2");
     expect(explicitWrapper.text()).toContain("编辑完整超参数");
+    expect(explicitWrapper.findComponent({ name: "ElSwitch" }).attributes("aria-label")).toBe("核心参数覆盖");
 
     const select = explicitWrapper.findComponent({ name: "ElSelect" });
     expect(select.exists()).toBe(true);
