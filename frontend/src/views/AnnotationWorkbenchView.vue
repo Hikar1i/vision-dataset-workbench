@@ -461,9 +461,13 @@ function autoConfig(): AutoAnnotationConfig | null {
     ElMessage.warning('请先选择可用模型。')
     return null
   }
-  const categories = autoCategories.value.includes('__all__')
+  const pendingCategory = categoryQuery.value.trim().toLowerCase()
+  const selectedCategories = pendingCategory
+    ? [...autoCategories.value.filter((item) => item !== '__all__'), pendingCategory]
+    : autoCategories.value
+  const categories = selectedCategories.includes('__all__')
     ? []
-    : [...new Set(autoCategories.value.map((item) => item.trim().toLowerCase()).filter(Boolean))]
+    : [...new Set(selectedCategories.map((item) => item.trim().toLowerCase()).filter(Boolean))]
   return {
     source: selectedSource.value === 'xanylabeling'
       ? 'xanylabeling'

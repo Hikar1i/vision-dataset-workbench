@@ -66,6 +66,10 @@ const CanvasStub = defineComponent({
   emits: ['change', 'request-category', 'view-change'],
   template: '<div><button data-test="canvas-change" @click="$emit(\'change\', [{ id: \'box-id\', label_id: \'label-id\', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: \'manual\', confidence: null }])">change</button><button data-test="request-category" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 50, y: 60 })">draw</button><button data-test="view-change" @click="$emit(\'view-change\', { x_min: 100, y_min: 200, x_max: 900, y_max: 700 })">view</button></div>',
 })
+const SelectStub = defineComponent({
+  props: ['filterMethod'],
+  template: '<div><button data-test="filter-person" @click="filterMethod?.(\'person\')">person</button><slot /></div>',
+})
 
 const project = {
   id: 'project-id',
@@ -456,7 +460,7 @@ describe('AnnotationWorkbenchView', () => {
     wrapper.unmount()
   })
 
-  it('uses the configured X-AnyLabeling model as a remote source', async () => {
+  it('submits a typed category with the configured X-AnyLabeling model', async () => {
     mocks.listModelProjects.mockResolvedValueOnce([])
     mocks.getXAnyLabelingSetting.mockResolvedValueOnce({
       configured: true,
@@ -476,7 +480,7 @@ describe('AnnotationWorkbenchView', () => {
       global: {
         stubs: {
           AnnotationCanvas: CanvasStub,
-          ElSelect: true,
+          ElSelect: SelectStub,
           ElOption: true,
           ElInputNumber: true,
           ElSwitch: true,
@@ -486,11 +490,13 @@ describe('AnnotationWorkbenchView', () => {
     })
     await flushPromises()
 
+    await wrapper.get('[data-test="auto-categories"] [data-test="filter-person"]').trigger('click')
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
 
     expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3]).toMatchObject({
       source: 'xanylabeling', model_id: 'remote', remote_task_id: 'grounding',
+      categories: ['person'],
     })
     wrapper.unmount()
   })
