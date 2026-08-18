@@ -37,6 +37,18 @@ class CreateTemplateRequest(BaseModel):
     derived_from_id: str | None = None
 
 
+class UpdateTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1)
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+    epochs: int
+    batch_mode: Literal["auto", "fixed", "fraction"]
+    batch_value: float | None = None
+    image_size: int
+    extra_parameters: dict[str, object] = Field(default_factory=dict)
+
+
 class RawRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     raw: str = Field(max_length=100_000)
@@ -72,7 +84,10 @@ class TemplateResponse(BaseModel):
     derived_from_id: str | None
     created_by_id: str | None
     can_manage: bool
+    can_edit: bool
+    version: int
     created_at: str
+    updated_at: str
 
 
 def service(request: Request) -> HyperparameterTemplateService:
@@ -109,7 +124,10 @@ def _response(
         derived_from_id=item.derived_from_id,
         created_by_id=item.created_by_id,
         can_manage=svc.can_manage(actor, item),
+        can_edit=svc.can_manage(actor, item),
+        version=item.version,
         created_at=_time(item.created_at),
+        updated_at=_time(item.updated_at),
     )
 
 
@@ -198,6 +216,28 @@ def get_template(
     try:
         item = svc.get(user, template_id)
     except TemplateNotFound as exc:
+        _raise(exc)
+    return _response(svc, user, item)
+
+
+@router.patch("/hyperparameter-templates/{template_id}", response_model=TemplateResponse)
+def update_template(
+    template_id: str,
+    payload: UpdateTemplateRequest,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> TemplateResponse:
+    require_same_origin(request)
+    svc = service(request)
+    try:
+        item = svc.update(user, template_id, **payload.model_dump())
+    except (
+        InvalidTemplate,
+        TemplateNotFound,
+        TemplateForbidden,
+        TemplateConflict,
+        HyperparameterValidationError,
+    ) as exc:
         _raise(exc)
     return _response(svc, user, item)
 

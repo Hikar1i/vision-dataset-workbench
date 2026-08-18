@@ -18,46 +18,172 @@ def make_client(tmp_path):
     create_workspace_database(workspace / "db" / "workbench.sqlite3")
     engine = make_engine(workspace / "db" / "workbench.sqlite3")
     with Session(engine) as session:
-        session.add(User(
-            id="user-id", username="user", username_normalized="user",
-            password_hash=hash_password(PASSWORD), status="active",
-        ))
+        session.add_all(
+            [
+                User(
+                    id="user-id",
+                    username="user",
+                    username_normalized="user",
+                    password_hash=hash_password(PASSWORD),
+                    status="active",
+                ),
+                User(
+                    id="other-user-id",
+                    username="other",
+                    username_normalized="other",
+                    password_hash=hash_password(PASSWORD),
+                    status="active",
+                ),
+            ]
+        )
         session.commit()
     engine.dispose()
     client = TestClient(create_app(RuntimeSettings(home=home, workspace=workspace)))
-    assert client.post(
-        "/api/v1/auth/login", headers=ORIGIN,
-        json={"username": "user", "password": PASSWORD},
-    ).status_code == 200
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            headers=ORIGIN,
+            json={"username": "user", "password": PASSWORD},
+        ).status_code
+        == 200
+    )
     return client
 
 
-def test_templates_are_immutable_derivable_and_logically_deleted(tmp_path):
+def test_templates_are_editable_derivable_versioned_and_logically_deleted(tmp_path):
     client = make_client(tmp_path)
     templates = client.get("/api/v1/hyperparameter-templates").json()
     system = templates[0]
     assert system["system_key"] == "ultralytics-detect-default"
     assert system["effective_parameters"] == {"epochs": 100, "batch": -1, "imgsz": 640}
-    assert client.delete(
-        f"/api/v1/hyperparameter-templates/{system['id']}", headers=ORIGIN
-    ).status_code == 403
+    assert system["version"] == 1
+    assert system["updated_at"]
+    assert system["can_edit"] is False
+    assert (
+        client.delete(
+            f"/api/v1/hyperparameter-templates/{system['id']}", headers=ORIGIN
+        ).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/v1/hyperparameter-templates/{system['id']}",
+            headers=ORIGIN,
+            json={
+                "version": 1,
+                "name": system["name"],
+                "description": "",
+                "epochs": 200,
+                "batch_mode": "auto",
+                "batch_value": None,
+                "image_size": 640,
+                "extra_parameters": {},
+            },
+        ).status_code
+        == 403
+    )
 
     created = client.post(
         "/api/v1/hyperparameter-templates",
         headers=ORIGIN,
         json={
-            "name": "Fire baseline", "description": "", "epochs": 200,
-            "batch_mode": "fixed", "batch_value": 16, "image_size": 640,
-            "extra_parameters": {"lr0": 0.01}, "derived_from_id": system["id"],
+            "name": "Fire baseline",
+            "description": "",
+            "epochs": 200,
+            "batch_mode": "fixed",
+            "batch_value": 16,
+            "image_size": 640,
+            "extra_parameters": {"lr0": 0.01},
+            "derived_from_id": system["id"],
         },
     )
     assert created.status_code == 201
     item = created.json()
     assert item["derived_from_id"] == system["id"]
-    assert client.patch(f"/api/v1/hyperparameter-templates/{item['id']}").status_code == 405
-    assert client.delete(
-        f"/api/v1/hyperparameter-templates/{item['id']}", headers=ORIGIN
-    ).status_code == 204
+    assert item["version"] == 1 and item["can_edit"] is True
+
+    edited = client.patch(
+        f"/api/v1/hyperparameter-templates/{item['id']}",
+        headers=ORIGIN,
+        json={
+            "version": item["version"],
+            "name": "Fire tuned",
+            "description": "edited",
+            "epochs": 240,
+            "batch_mode": "fraction",
+            "batch_value": 0.5,
+            "image_size": 960,
+            "extra_parameters": {"lr0": 0.005},
+        },
+    )
+    assert edited.status_code == 200
+    edited_item = edited.json()
+    assert edited_item["version"] == 2
+    assert edited_item["name"] == "Fire tuned"
+    assert edited_item["effective_parameters"] == {
+        "epochs": 240,
+        "batch": 0.5,
+        "imgsz": 960,
+        "lr0": 0.005,
+    }
+    assert (
+        client.patch(
+            f"/api/v1/hyperparameter-templates/{item['id']}",
+            headers=ORIGIN,
+            json={
+                "version": 1,
+                "name": "stale",
+                "description": "",
+                "epochs": 100,
+                "batch_mode": "auto",
+                "batch_value": None,
+                "image_size": 640,
+                "extra_parameters": {},
+            },
+        ).status_code
+        == 409
+    )
+
+    client.cookies.clear()
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            headers=ORIGIN,
+            json={"username": "other", "password": PASSWORD},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/hyperparameter-templates/{item['id']}",
+            headers=ORIGIN,
+            json={
+                "version": 2,
+                "name": "forbidden",
+                "description": "",
+                "epochs": 100,
+                "batch_mode": "auto",
+                "batch_value": None,
+                "image_size": 640,
+                "extra_parameters": {},
+            },
+        ).status_code
+        == 403
+    )
+
+    client.cookies.clear()
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            headers=ORIGIN,
+            json={"username": "user", "password": PASSWORD},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.delete(f"/api/v1/hyperparameter-templates/{item['id']}", headers=ORIGIN).status_code
+        == 204
+    )
     assert client.get(f"/api/v1/hyperparameter-templates/{item['id']}").status_code == 404
 
 
