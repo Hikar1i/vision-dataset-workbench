@@ -2,7 +2,7 @@
 
 ## 最近迁移
 
-迁移 `0022_multi_dataset_training` 为训练任务和模型增加单/多数据集模式及映射配置，并新增独立的数据准备记录。`0021_user_llm_configs` 增加按用户隔离的大模型配置和默认参数表。API Key 使用工作区 Fernet 凭据密钥加密保存，响应仅返回是否存在密钥及脱敏值；配置记录保存连接测试状态、响应时延和高级选项 JSON。
+迁移 `0023_editable_hyperparameter_templates` 为模板增加乐观版本和编辑时间，并为任务默认层、模型显式层增加超参数覆盖字段。`0022_multi_dataset_training` 为训练任务和模型增加单/多数据集模式及映射配置，并新增独立的数据准备记录。`0021_user_llm_configs` 增加按用户隔离的大模型配置和默认参数表。API Key 使用工作区 Fernet 凭据密钥加密保存，响应仅返回是否存在密钥及脱敏值；配置记录保存连接测试状态、响应时延和高级选项 JSON。
 
 状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、模型项目、超参数模板、训练任务/模型/运行/指标、用户远程配置、推理模型和数据集导出迁移已实现。
 
@@ -17,7 +17,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加不可变超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系；`0021_user_llm_configs` 增加用户大模型配置；`0022_multi_dataset_training` 增加多数据集训练准备。当前 `users` 表为：
+Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系；`0021_user_llm_configs` 增加用户大模型配置；`0022_multi_dataset_training` 增加多数据集训练准备；`0023_editable_hyperparameter_templates` 增加可编辑模板版本和训练覆盖。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -174,22 +174,23 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 | 字段 | 约束/含义 |
 | --- | --- |
 | `id` / `name` / `name_normalized` | 模板 UUID、显示名和活动模板内不区分大小写的唯一名 |
-| `epochs` / `batch_size` / `image_size` | 三项核心训练参数；batch 支持正整数、`auto` 或合法比例 |
-| `parameters` | 经过 Detect v1 参数目录校验和规范化的扩展参数 JSON；不重复保存三项核心参数 |
+| `epochs` / `batch_mode` / `batch_value` / `image_size` | 三项核心训练参数；batch 支持正整数、`auto` 或合法比例 |
+| `extra_parameters` | 经过 Detect v1 参数目录校验和规范化的扩展参数 JSON；不重复保存三项核心参数 |
 | `catalog_version` | 解析该模板所用参数目录版本，当前为 `detect-v1` |
 | `derived_from_id` | 可空派生来源；删除来源模板时保留历史关系 |
-| `created_by_id` / `is_system` | 创建者和只读系统模板标记 |
-| `created_at` / `deleted_at` | 创建时间和逻辑删除时间；模板内容创建后不可修改 |
+| `created_by_id` / `system_key` | 创建者和只读系统模板标记 |
+| `version` / `updated_at` | 从 1 开始的乐观版本和最近编辑时间 |
+| `created_at` / `deleted_at` | 创建时间和逻辑删除时间 |
 
-模板删除仅对非系统、非活动引用资源开放；普通列表过滤 `deleted_at`。名称在逻辑删除后可复用，但模板 UUID 与派生关系不复用。
+系统模板只读；用户模板仅创建者或系统管理员可原地编辑和逻辑删除。名称在逻辑删除后可复用，但模板 UUID 与派生关系不复用；不保存完整编辑历史。
 
 训练数据拆成五个层级，避免任务配置、数据准备、模型配置、每次尝试和 epoch 指标相互覆盖：
 
 | 表 | 关键语义 |
 | --- | --- |
-| `training_tasks` | UUID 主键；`code` 全局唯一且逻辑删除后不复用；保存名称、模式、默认资源、聚合状态/进度、创建者、版本和训练时间 |
+| `training_tasks` | UUID 主键；`code` 全局唯一且逻辑删除后不复用；保存名称、模式、默认资源、默认核心/附加超参覆盖、聚合状态/进度、创建者、版本和训练时间 |
 | `training_preparations` | 每个已启动任务最多一行；保存合并数据集准备的进度、阶段、PID/token、事件游标、租约、输出目录和错误 |
-| `training_models` | 一个任务 1–10 个模型；保存显式资源、三项核心覆盖、GPU、lane 顺序、冻结快照、产物 code，以及派生/追加来源 |
+| `training_models` | 一个任务 1–10 个模型；保存显式资源、核心/附加超参覆盖、GPU、lane 顺序、冻结快照、产物 code，以及派生/追加来源 |
 | `training_runs` | 每次 initial/retry/resume/extend 独立一行；保存 attempt、GPU、PID、token、事件游标、epoch、路径、主机快照、租约和终态信息 |
 | `training_metrics` | `(training_run_id, epoch)` 复合主键；保存 box/cls/dfl loss、学习率、precision、recall、mAP50、mAP50-95 和可选 P-R 数据 |
 
@@ -197,7 +198,7 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 
 任务和模型分别以 `default_dataset_mode/default_multi_dataset_config`、`dataset_mode/multi_dataset_config` 保存数据选择。多数据集配置冻结导出 UUID、连续目标类别顺序和精确区分大小写的来源类别映射。启动后先创建 `training_preparations`：子进程在同一文件系统的 staging 目录硬链接图片、改写 YOLO TXT 第一列并生成 `data.yaml`，校验完成后原子发布；原导出目录及其标签文件不修改。相同规范化配置可复用已发布目录。准备阶段不申请 GPU，成功后才创建并排队 initial run；失败保留安全错误和日志，可由任务级操作重试。
 
-启动成功前草稿仍可编辑；启动事务解析默认值，校验 ready 数据集/模型和活动模板，随后冻结三个 JSON 快照、不可变 artifact code 和 initial run。`model_projects.training_task_id` 与 `inference_models.training_model_id` 都是唯一可空来源关系，确保一个训练任务最多发布一个训练项目、一个训练模型最多对应一个发布模型。
+启动成功前草稿仍可编辑。任务默认层与模型显式层使用版本 1 的 `{set,remove}` JSON 保存附加参数差异；模型模板为空时严格继承任务最终配置。启动事务读取模板最新版本、叠加覆盖并重新校验，随后冻结含模板版本和最终参数的 JSON 快照、不可变 artifact code 和 initial run。后续模板修改不影响已启动任务。`model_projects.training_task_id` 与 `inference_models.training_model_id` 都是唯一可空来源关系，确保一个训练任务最多发布一个训练项目、一个训练模型最多对应一个发布模型。
 
 `training_action_requests` 以 `(actor_id, action, idempotency_key)` 唯一，保存 action API 已创建的 task/run ID。它只提供请求重放保护，不替代训练状态机校验。
 

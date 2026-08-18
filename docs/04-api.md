@@ -76,14 +76,14 @@
 | `GET/PATCH/DELETE /api/v1/models/{id}` | Session；写入需项目管理权 | 查看、编辑/移动或逻辑删除模型 |
 | `GET /api/v1/models/{id}/download` | Session | 下载 ready 且路径通过受管目录校验的 `.pt` 模型 |
 | `GET /api/v1/hyperparameter-catalog` | Session | 返回 Detect v1 参数目录、类型、默认值和约束 |
-| `POST /api/v1/hyperparameter-catalog/validate-raw` | Session | 严格校验完整 RAW YAML；失败不返回可应用配置 |
-| `GET/POST /api/v1/hyperparameter-templates` | Session；创建需同源 | 列出或创建工作区全局不可变模板，可指定派生来源 |
-| `GET/DELETE /api/v1/hyperparameter-templates/{id}` | Session；删除需创建者或管理员与同源 | 查看或逻辑删除模板；系统模板不可删除 |
+| `POST /api/v1/hyperparameter-templates/validate-raw` | Session | 严格校验完整 RAW YAML；失败不返回可应用配置 |
+| `GET/POST /api/v1/hyperparameter-templates` | Session；创建需同源 | 列出或创建工作区全局参数预设，可指定派生来源 |
+| `GET/PATCH/DELETE /api/v1/hyperparameter-templates/{id}` | Session；写入需创建者或管理员与同源 | 查看、按 `version` 原地编辑或逻辑删除用户模板；系统模板只读 |
 | `GET /api/v1/training/capabilities` | Session | 返回 2 秒缓存的主机/GPU 实时显存、利用率、颜色级别和训练可用性 |
-| `GET /api/v1/training/resources` | Session | 返回工作区 ready 数据集导出（含项目、train/val/总量和类别索引）、活动模板和 ready basemodel 候选 |
+| `GET /api/v1/training/resources` | Session | 返回工作区 ready 数据集导出、含版本/完整参数/编辑权限的活动模板和 ready basemodel 候选 |
 | `GET /api/v1/training-tasks/code-availability` | Session | 校验新任务不可变 code 的格式和可用性 |
 | `GET/POST /api/v1/training-tasks` | Session；创建需同源 | 按最近训练倒序列出任务，或创建含 1–10 个模型的草稿 |
-| `GET/PATCH /api/v1/training-tasks/{id}` | Session；PATCH 需创建者/管理员与同源 | 查看任务详情；仅 draft 可按 `version` 修改且 code 不可变 |
+| `GET/PATCH /api/v1/training-tasks/{id}` | Session；PATCH 需创建者/管理员与同源 | 查看任务详情；仅 draft 可按 `version` 修改，支持任务默认与模型显式稀疏超参覆盖且 code 不可变 |
 | `POST /api/v1/training-tasks/{id}/start|cancel` | 创建者/管理员 + 同源 | 原子预检并冻结；多数据集任务先进入无 GPU 的数据准备阶段，准备完成后才排队训练；取消覆盖准备和训练阶段 |
 | `POST /api/v1/training-tasks/{id}/retry-preparation` | 创建者/管理员 + 同源 | 仅为 `preparation_failed` 任务重建并排队数据准备记录 |
 | `GET /api/v1/training-tasks/{id}/preparation-log` | Session | 返回当前数据准备子进程的去 ANSI 文本日志快照 |
@@ -165,7 +165,9 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 
 模型项目全局可见，所有认证用户可创建 archive 项目，创建者或系统管理员可管理；training 项目仅由训练发布服务创建。项目创建/编辑接受 1–20 个标签名，未指定时使用“未分类”。导入只接受 `.pt` YOLO，Worker 发布时记录大小和 SHA-256。项目和模型删除从普通查询隐藏数据库记录，并将受管文件移入 `.deleted`；临时项目只读。ready 模型可经授权下载接口读取，接口拒绝任意路径。X-AnyLabeling 用户配置语义不变。
 
-超参数模板全局可见，所有认证用户可创建；模板创建后不可编辑，需要变更时从已有模板派生新资源。非系统模板仅创建者或系统管理员可逻辑删除。RAW 接口仅接受单文档、顶层 mapping、无锚点/别名/重复键的 YAML，未知键、系统控制键、嵌套值、类型或范围错误都会整体拒绝；只有 `valid=true` 的响应可覆盖客户端表单。
+超参数模板全局可见，所有认证用户可创建或派生；非系统模板仅创建者或系统管理员可按版本原地编辑和逻辑删除，系统模板保持只读。模板响应包含 `version/updated_at`，PATCH 的旧版本返回 409。RAW 接口仅接受单文档、顶层 mapping、无锚点/别名/重复键的 YAML，未知键、系统控制键、嵌套值、类型或范围错误都会整体拒绝；只有 `valid=true` 的响应可覆盖客户端表单。
+
+训练草稿的附加参数覆盖格式固定为 `{"version":1,"set":{...},"remove":[...]}`；核心参数使用独立可空字段。模型未选择显式模板时严格继承任务最终超参；选择显式模板时只叠加模型覆盖。启动接口读取模板最新版本并冻结最终参数快照，此后模板编辑不影响已提交、运行中或已完成任务。
 
 训练资源当前按已确认的工作区全局权限实现：所有认证用户可读和创建任务，创建者或系统管理员可修改草稿及执行生命周期操作；最终按功能/RBAC 的权限优化另行重构。任务 code 是不可变全局业务标识而非主键，UUID 继续承担路由和外键身份。
 
