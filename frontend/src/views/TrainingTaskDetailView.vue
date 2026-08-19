@@ -30,6 +30,7 @@ import VBar from '../ui/VBar.vue'
 import VButton from '../ui/VButton.vue'
 import VChip from '../ui/VChip.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -37,6 +38,9 @@ import { trainingStatus } from '../ui/status'
 
 const route = useRoute()
 const router = useRouter()
+const recentModelScope = computed(
+  () => `training-task:${String(route.params.id)}:models`,
+)
 const task = ref<TrainingTask>()
 const error = ref('')
 const preparationLog = ref('')
@@ -391,7 +395,12 @@ onBeforeUnmount(() => clearInterval(timer))
             :columns="COLUMNS"
             :headers="['顺序', '模型', '状态', '进度', '运行信息', '操作']"
           >
-            <VRow v-for="model in models" :key="model.id" :columns="COLUMNS">
+            <VRow
+              v-for="model in models"
+              :key="model.id"
+              :columns="COLUMNS"
+              :recent="isRecentRow(recentModelScope, model.id)"
+            >
               <span class="lane-order">q{{ String(model.queue_order).padStart(2, '0') }}</span>
 
               <div class="model-identity">
@@ -424,7 +433,10 @@ onBeforeUnmount(() => clearInterval(timer))
                 <span>持续 {{ duration(model.started_at, model.finished_at) }}</span>
               </div>
 
-              <div class="row-actions">
+              <div
+                class="row-actions"
+                @click.capture="markRecentRowFromAction($event, recentModelScope, model.id)"
+              >
                 <VButton
                   variant="default"
                   size="sm"

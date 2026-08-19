@@ -65,4 +65,15 @@ describe('recent row wiring', () => {
     expect(users).not.toContain('markRecentRowFromAction')
     expect(users).not.toContain('vdw-row--recent')
   })
+
+  it('scopes detail-page rows to their owning project or task', () => {
+    const models = source('src/views/ModelProjectDetailView.vue')
+    expect(models).toContain('`model-project:${projectId.value}:models`')
+    expect(models).toContain(':recent="isRecentRow(recentModelScope, model.id)"')
+
+    const task = source('src/views/TrainingTaskDetailView.vue')
+    expect(task).toContain('`training-task:${String(route.params.id)}:models`')
+    expect(task).toContain(':recent="isRecentRow(recentModelScope, model.id)"')
+    expect(task.match(/const recentModelScope/g)).toHaveLength(1)
+  })
 })

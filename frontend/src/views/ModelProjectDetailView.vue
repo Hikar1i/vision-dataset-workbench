@@ -25,12 +25,14 @@ import VChip from '../ui/VChip.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
 
 const route = useRoute()
 const projectId = computed(() => String(route.params.id))
+const recentModelScope = computed(() => `model-project:${projectId.value}:models`)
 const project = ref<ModelProject>()
 const models = ref<InferenceModel[]>([])
 const loading = ref(false)
@@ -230,7 +232,12 @@ watch(projectId, loadRouteProject, { immediate: true })
           :columns="COLUMNS"
           :headers="['模型', '状态', '文件', '添加时间', '更新时间', '操作']"
         >
-          <VRow v-for="model in models" :key="model.id" :columns="COLUMNS">
+          <VRow
+            v-for="model in models"
+            :key="model.id"
+            :columns="COLUMNS"
+            :recent="isRecentRow(recentModelScope, model.id)"
+          >
             <VCellName :name="model.name">
               <template #sub>
                 <span class="model-code">{{ model.model_code }}</span>
@@ -244,7 +251,10 @@ watch(projectId, loadRouteProject, { immediate: true })
             </span>
             <time>{{ model.created_at.slice(0, 10) }}</time>
             <time>{{ model.updated_at.slice(0, 10) }}</time>
-            <div class="row-actions">
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, recentModelScope, model.id)"
+            >
               <VButton
                 variant="default"
                 size="sm"
