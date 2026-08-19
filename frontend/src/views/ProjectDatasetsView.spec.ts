@@ -2,6 +2,7 @@ import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import ElementPlus, { ElMessageBox } from 'element-plus'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { clearRecentRows, isRecentRow } from '../ui/recentRows'
 import ProjectDatasetsView from './ProjectDatasetsView.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -40,6 +41,7 @@ const item = {
 }
 
 beforeEach(() => {
+  clearRecentRows()
   mocks.list.mockReset()
   mocks.get.mockReset()
   mocks.remove.mockReset()
@@ -100,13 +102,40 @@ it('lets a viewer inspect and download without delete controls', async () => {
   )
   await wrapper.get('[data-test="detail-export-id"]').trigger('click')
   await flushPromises()
+  expect(isRecentRow('project:project-id:datasets', 'export-id')).toBe(true)
+  const recentRow = wrapper.get('.el-table__body .el-table__row')
+  expect(recentRow.classes()).toContain('vdw-row--recent')
+  expect(recentRow.text()).toContain('最近交互')
+
   const body = new DOMWrapper(document.body)
   expect(body.get('[data-test="dataset-detail-content"]').classes()).toContain(
     'dataset-detail-content',
   )
+  const detailRows = body.findAll('.dataset-detail-content .el-table__row')
+  expect(detailRows.length).toBeGreaterThan(0)
+  expect(detailRows.every((row) => !row.classes().includes('vdw-row--recent'))).toBe(true)
   expect(body.get('[data-test="detail-frame-summary"]').text()).toContain('总计100')
   expect(body.text()).toContain('TESTV001')
   expect(body.text()).toContain('正样本')
+  wrapper.unmount()
+
+  const remounted = mountView('viewer')
+  await flushPromises()
+  expect(remounted.get('.el-table__body .el-table__row').classes()).toContain('vdw-row--recent')
+  remounted.unmount()
+})
+
+it('marks download interactions but ignores empty action-area clicks', async () => {
+  const wrapper = mountView('viewer')
+  await flushPromises()
+
+  await wrapper.get('.row-actions').trigger('click')
+  expect(isRecentRow('project:project-id:datasets', 'export-id')).toBe(false)
+
+  const download = wrapper.get('[data-test="download-export-id"]')
+  download.element.addEventListener('click', (event) => event.preventDefault())
+  await download.trigger('click')
+  expect(isRecentRow('project:project-id:datasets', 'export-id')).toBe(true)
   wrapper.unmount()
 })
 
@@ -116,6 +145,7 @@ it('lets an editor logically delete a completed export', async () => {
   await flushPromises()
 
   await wrapper.get('[data-test="delete-export-id"]').trigger('click')
+  expect(isRecentRow('project:project-id:datasets', 'export-id')).toBe(true)
   await flushPromises()
   expect(mocks.remove).toHaveBeenCalledWith('project-id', 'export-id')
   expect(mocks.list).toHaveBeenCalledTimes(2)

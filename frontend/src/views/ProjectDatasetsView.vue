@@ -13,6 +13,7 @@ import {
 } from '../api/datasetExports'
 import type { Project } from '../api/projects'
 import { useProjectHeaderHost } from '../ui/projectHeaderHost'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import { datasetExportStatus } from '../ui/status'
 import VButton from '../ui/VButton.vue'
 import VTag from '../ui/VTag.vue'
@@ -28,6 +29,7 @@ const detail = ref<DatasetExportDetail | null>(null)
 const detailLoading = ref(false)
 const deleting = ref('')
 const canEdit = computed(() => props.project.role !== 'viewer')
+const recentDatasetScope = computed(() => `project:${props.project.id}:datasets`)
 const manifestText = computed(() => (
   detail.value?.manifest ? JSON.stringify(detail.value.manifest, null, 2) : ''
 ))
@@ -37,6 +39,10 @@ const exclusionLabels: Record<string, string> = {
   no_sampled_frames: '未抽帧',
   no_enabled_frames: '无启用帧',
   created_after_export: '快照后新增',
+}
+
+function datasetRowClassName({ row }: { row: DatasetExport }) {
+  return isRecentRow(recentDatasetScope.value, row.id) ? 'vdw-row--recent' : ''
 }
 
 function dateTime(value: string | null) {
@@ -117,8 +123,21 @@ const headerHost = useProjectHeaderHost()
 
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <section v-loading="loading" class="datasets-table">
-      <el-table v-if="items.length" :data="items" row-key="id">
-        <el-table-column prop="name" label="数据集名称" min-width="180" />
+      <el-table
+        v-if="items.length"
+        :data="items"
+        row-key="id"
+        :row-class-name="datasetRowClassName"
+      >
+        <el-table-column prop="name" label="数据集名称" min-width="180">
+          <template #default="{ row }">
+            <span
+              v-if="isRecentRow(recentDatasetScope, row.id)"
+              class="vdw-sr-only"
+            >最近交互</span>
+            {{ row.name }}
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="94">
           <template #default="{ row }">
             <VTag :tone="datasetExportStatus(row.status).tone">
@@ -163,7 +182,10 @@ const headerHost = useProjectHeaderHost()
         </el-table-column>
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <div class="row-actions">
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, recentDatasetScope, row.id)"
+            >
               <VButton
                 variant="quiet"
                 size="sm"
