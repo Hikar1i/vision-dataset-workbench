@@ -75,6 +75,25 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+/* 最近交互是会话内定位辅助。background-image 叠在页面原有背景色上，
+   因此不会抹掉停用、hover 等既有行状态。 */
+.vdw-row--recent,
+.el-table__row.vdw-row--recent > .el-table__cell {
+  background-image: linear-gradient(rgb(0 115 143 / 8%), rgb(0 115 143 / 8%)) !important;
+}
+
+.vdw-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+}
+
 /* ============================================================================
    签名元素：准星角标。来自本产品自己的标注画布，只标记当前焦点对象。
    除此之外界面上没有装饰。

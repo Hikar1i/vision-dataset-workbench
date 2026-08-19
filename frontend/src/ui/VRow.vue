@@ -1,10 +1,16 @@
 <script setup lang="ts">
 /** VTable 的行。列宽必须与父表 columns 一致。 */
-defineProps<{ columns: string }>()
+defineProps<{ columns: string; recent?: boolean }>()
 </script>
 
 <template>
-  <div class="vdw-table__row" role="row" :style="{ gridTemplateColumns: columns }">
+  <div
+    class="vdw-table__row"
+    :class="{ 'vdw-row--recent': recent }"
+    role="row"
+    :aria-current="recent ? 'true' : undefined"
+    :style="{ gridTemplateColumns: columns }"
+  >
     <slot />
   </div>
 </template>
