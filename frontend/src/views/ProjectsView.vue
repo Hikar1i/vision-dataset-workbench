@@ -13,6 +13,7 @@ import VChip from '../ui/VChip.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -35,6 +36,7 @@ const valid = computed(() => name.value.trim().length > 0 && name.value.trim().l
 const roleLabels = { owner: '所有者', editor: '编辑者', viewer: '只读' } as const
 
 const COLUMNS = 'minmax(260px, 2fr) 96px minmax(120px, 0.7fr) 116px 150px'
+const RECENT_SCOPE = 'projects'
 
 async function load(nextPage = page.value) {
   loading.value = true
@@ -160,7 +162,12 @@ onMounted(() => load())
           :columns="COLUMNS"
           :headers="['项目', '权限', '所有者', '最近更新', '操作']"
         >
-          <VRow v-for="project in projects" :key="project.id" :columns="COLUMNS">
+          <VRow
+            v-for="project in projects"
+            :key="project.id"
+            :columns="COLUMNS"
+            :recent="isRecentRow(RECENT_SCOPE, project.id)"
+          >
             <VCellName :name="project.name" :sub="project.description || '暂无描述'">
               <template #badge>
                 <VChip variant="id">{{ project.id.slice(0, 6).toUpperCase() }}</VChip>
@@ -171,7 +178,10 @@ onMounted(() => load())
             </VTag>
             <span class="cell-muted">{{ project.creator_username }}</span>
             <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
-            <div class="row-actions">
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, project.id)"
+            >
               <VButton
                 variant="default"
                 size="sm"

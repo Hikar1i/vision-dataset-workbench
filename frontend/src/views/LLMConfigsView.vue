@@ -14,6 +14,7 @@ import VChip from '../ui/VChip.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -42,6 +43,7 @@ const form = reactive({
 })
 
 const COLUMNS = 'minmax(200px, 1.2fr) 110px minmax(160px, 0.7fr) 210px'
+const RECENT_SCOPE = 'llm-configs'
 
 const defaultGroups = computed(() => groupedLLMOptions(Object.keys(defaults)))
 const extraDefaultKeys = computed(() => ungroupedLLMOptions(Object.keys(defaults)))
@@ -208,7 +210,12 @@ onMounted(() => void load())
           :columns="COLUMNS"
           :headers="['配置', '状态', '连接', '操作']"
         >
-          <VRow v-for="item in configs" :key="item.id" :columns="COLUMNS">
+          <VRow
+            v-for="item in configs"
+            :key="item.id"
+            :columns="COLUMNS"
+            :recent="isRecentRow(RECENT_SCOPE, item.id)"
+          >
             <VCellName :name="item.name" :sub="`${item.base_url} · ${item.model_name}`">
               <template #after><VChip>{{ item.api_type }}</VChip></template>
             </VCellName>
@@ -218,7 +225,10 @@ onMounted(() => void load())
             <span class="llm-conn" :class="`is-${connection(item).tone}`">
               {{ connection(item).text }}
             </span>
-            <div class="row-actions">
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, item.id)"
+            >
               <VButton
                 variant="quiet"
                 size="sm"

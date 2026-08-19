@@ -14,6 +14,7 @@ import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -25,6 +26,7 @@ const deleting = ref('')
 const error = ref('')
 
 const COLUMNS = 'minmax(250px, 1fr) 80px 80px 90px 150px 290px'
+const RECENT_SCOPE = 'hyperparameter-templates'
 
 async function load() {
   loading.value = true
@@ -80,7 +82,12 @@ onMounted(load)
           :columns="COLUMNS"
           :headers="['模板', 'epochs', 'batch', 'image size', '编辑时间', '操作']"
         >
-          <VRow v-for="item in templates" :key="item.id" :columns="COLUMNS">
+          <VRow
+            v-for="item in templates"
+            :key="item.id"
+            :columns="COLUMNS"
+            :recent="isRecentRow(RECENT_SCOPE, item.id)"
+          >
             <VCellName :name="item.name" :sub="item.description || '暂无描述'">
               <template #after>
                 <VTag v-if="item.system_key" tone="idle">系统</VTag>
@@ -93,7 +100,10 @@ onMounted(load)
             </span>
             <span class="vdw-num cell-num">{{ item.image_size }}</span>
             <time :datetime="item.updated_at">{{ item.updated_at.slice(0, 10) }}</time>
-            <div class="row-actions">
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, item.id)"
+            >
               <VButton
                 variant="default"
                 size="sm"

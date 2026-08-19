@@ -21,6 +21,7 @@ import VCellName from '../ui/VCellName.vue'
 import VChip from '../ui/VChip.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -37,6 +38,7 @@ const filter = ref<Filter>('all')
 
 const COLUMNS =
   'minmax(260px, 1.4fr) 84px minmax(190px, 1fr) 142px 142px minmax(390px, 1.8fr)'
+const RECENT_SCOPE = 'training-tasks'
 
 const MODE_LABEL: Record<string, string> = {
   single_model: '单模型',
@@ -168,7 +170,12 @@ onMounted(load)
           :columns="COLUMNS"
           :headers="['训练任务', '模式', '状态 / 进度', '创建时间', '最近训练', '操作']"
         >
-          <VRow v-for="task in visible" :key="task.id" :columns="COLUMNS">
+          <VRow
+            v-for="task in visible"
+            :key="task.id"
+            :columns="COLUMNS"
+            :recent="isRecentRow(RECENT_SCOPE, task.id)"
+          >
             <VCellName
               :name="task.name"
               :sub="task.description || `${task.model_count} 个模型`"
@@ -200,7 +207,10 @@ onMounted(load)
               {{ task.last_run_at ? stamp(task.last_run_at) : '尚未开始' }}
             </time>
 
-            <div class="row-actions">
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, task.id)"
+            >
               <VButton
                 variant="quiet"
                 size="sm"

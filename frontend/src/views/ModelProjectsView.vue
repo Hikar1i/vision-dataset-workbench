@@ -19,6 +19,7 @@ import VChip from '../ui/VChip.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -37,6 +38,7 @@ const error = ref('')
 
 const COLUMNS =
   'minmax(240px, 1.4fr) minmax(130px, 0.7fr) 92px 84px 106px 106px 148px'
+const RECENT_SCOPE = 'model-projects'
 
 const valid = computed(() =>
   name.value.trim().length > 0 && name.value.trim().length <= 128 && tags.value.length > 0,
@@ -175,7 +177,12 @@ onMounted(load)
           :columns="COLUMNS"
           :headers="['项目', '标签', '类型', '权限', '创建时间', '更新时间', '操作']"
         >
-          <VRow v-for="project in projects" :key="project.id" :columns="COLUMNS">
+          <VRow
+            v-for="project in projects"
+            :key="project.id"
+            :columns="COLUMNS"
+            :recent="isRecentRow(RECENT_SCOPE, project.id)"
+          >
             <VCellName :name="project.name" :sub="project.description || '暂无描述'">
               <template #badge>
                 <VChip variant="id">{{ project.id.slice(0, 6).toUpperCase() }}</VChip>
@@ -190,7 +197,10 @@ onMounted(load)
             <span class="cell-muted">{{ project.can_manage ? '可管理' : '只读' }}</span>
             <time :datetime="project.created_at">{{ project.created_at.slice(0, 10) }}</time>
             <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
-            <div class="row-actions">
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, project.id)"
+            >
               <VButton
                 variant="default"
                 size="sm"

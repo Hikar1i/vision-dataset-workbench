@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { clearRecentRows, isRecentRow } from '../ui/recentRows'
 import LLMConfigsView from './LLMConfigsView.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -28,6 +29,7 @@ const config = {
 }
 
 beforeEach(() => {
+  clearRecentRows()
   vi.clearAllMocks()
   mocks.list.mockReset().mockResolvedValue([])
   mocks.defaults.mockReset().mockResolvedValue(defaults)
@@ -63,5 +65,11 @@ describe('LLMConfigsView', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('sk-test-******abcd')
     expect((wrapper.get('input[data-test="llm-api-key"]').element as HTMLInputElement).value).toBe('')
+    expect(isRecentRow('llm-configs', 'config-id')).toBe(true)
+    await wrapper.get('[data-test="llm-tab-defaults"]').trigger('click')
+    await wrapper.get('[data-test="llm-tab-list"]').trigger('click')
+    expect(
+      wrapper.get('[data-test="llm-edit-config-id"]').element.closest('[role="row"]')?.classList,
+    ).toContain('vdw-row--recent')
   })
 })

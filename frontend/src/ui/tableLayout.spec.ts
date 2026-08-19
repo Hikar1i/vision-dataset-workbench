@@ -44,3 +44,25 @@ describe('ledger column containment', () => {
     expect(editor).toContain('.inline :deep(.el-select)')
   })
 })
+
+describe('recent row wiring', () => {
+  it('opts the approved top-level VRow ledgers into recent interactions', () => {
+    for (const path of [
+      'src/views/ProjectsView.vue',
+      'src/views/ModelProjectsView.vue',
+      'src/views/HyperparameterTemplatesView.vue',
+      'src/views/TrainingTasksView.vue',
+      'src/views/LLMConfigsView.vue',
+    ]) {
+      const page = source(path)
+      expect(page).toContain('markRecentRowFromAction')
+      expect(page).toContain(':recent="isRecentRow(')
+    }
+  })
+
+  it('does not opt the pending user-permission rewrite into recent interactions', () => {
+    const users = source('src/views/AdminUsersView.vue')
+    expect(users).not.toContain('markRecentRowFromAction')
+    expect(users).not.toContain('vdw-row--recent')
+  })
+})

@@ -3,6 +3,7 @@ import ElementPlus from 'element-plus'
 import { ElMessageBox } from 'element-plus'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { clearRecentRows, isRecentRow } from '../ui/recentRows'
 import ProjectsView from './ProjectsView.vue'
 
 const push = vi.fn()
@@ -17,6 +18,7 @@ const admin = {
 }
 
 beforeEach(() => {
+  clearRecentRows()
   push.mockReset()
   replace.mockReset()
   vi.restoreAllMocks()
@@ -128,8 +130,23 @@ describe('ProjectsView', () => {
     // 短标识统一为 6 位大写，与模型项目、训练任务一致
     expect(wrapper.text()).toContain('123456')
     expect(wrapper.text()).toContain('所有者')
+    await wrapper.get('.row-actions').trigger('click')
+    expect(isRecentRow('projects', '12345678-project')).toBe(false)
+    await wrapper.get('[data-test="show-create"]').trigger('click')
+    expect(isRecentRow('projects', '12345678-project')).toBe(false)
     await wrapper.get('[data-test="open-12345678-project"]').trigger('click')
+    expect(isRecentRow('projects', '12345678-project')).toBe(true)
+    expect(
+      wrapper.get('[data-test="open-12345678-project"]').element.closest('[role="row"]')?.classList,
+    ).toContain('vdw-row--recent')
     expect(push).toHaveBeenCalledWith('/projects/12345678-project/videos')
+
+    wrapper.unmount()
+    const remounted = mountView()
+    await flushPromises()
+    expect(
+      remounted.get('[data-test="open-12345678-project"]').element.closest('[role="row"]')?.classList,
+    ).toContain('vdw-row--recent')
   })
 
   it('lets only the owner confirm and delete a project', async () => {
@@ -192,5 +209,6 @@ describe('ProjectsView', () => {
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(isRecentRow('projects', 'project-id')).toBe(true)
   })
 })
