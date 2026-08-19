@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { logout } from '../api/auth'
 import { getCapabilities } from '../api/capabilities'
 import { rememberResource } from '../navigation/recentResources'
+import { clearRecentRows, isRecentRow, markRecentRow } from '../ui/recentRows'
 import AppShell from './AppShell.vue'
 
 vi.mock('../api/auth', () => ({
@@ -124,6 +125,7 @@ async function mountShell() {
 describe('AppShell', () => {
   beforeEach(() => {
     vi.mocked(logout).mockClear()
+    clearRecentRows()
     localStorage.clear()
     sessionStorage.clear()
     vi.mocked(getCapabilities).mockResolvedValue(readyCapabilities)
@@ -277,9 +279,13 @@ describe('AppShell', () => {
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/account')
 
+    markRecentRow('projects', 'project-1')
+    expect(isRecentRow('projects', 'project-1')).toBe(true)
+
     dropdown.vm.$emit('command', 'logout')
     await flushPromises()
     expect(logout).toHaveBeenCalledOnce()
+    expect(isRecentRow('projects', 'project-1')).toBe(false)
     expect(router.currentRoute.value.path).toBe('/login')
   })
 

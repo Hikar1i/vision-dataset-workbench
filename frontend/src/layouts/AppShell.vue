@@ -32,6 +32,7 @@ import {
   readRecentResources,
   resolveRecentResources,
 } from "../navigation/recentResources";
+import { clearRecentRows } from "../ui/recentRows";
 
 const route = useRoute();
 const router = useRouter();
@@ -143,6 +144,7 @@ function projectDeleted(projectId: string) {
 
 async function signOut() {
   await logout();
+  clearRecentRows();
   await router.replace("/login");
 }
 
