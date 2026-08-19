@@ -53,7 +53,7 @@ function submit(action: 'apply' | 'save' | 'derive') {
   <el-dialog
     :model-value="modelValue"
     class="training-hyperparameter-dialog"
-    width="min(1180px, calc(100vw - 96px))"
+    width="min(1440px, calc(100vw - 48px))"
     destroy-on-close
     :close-on-click-modal="false"
     @update:model-value="emit('update:modelValue', $event)"
@@ -125,14 +125,42 @@ function submit(action: 'apply' | 'save' | 'derive') {
   gap: 8px;
 }
 
+:global(.training-hyperparameter-dialog) {
+  display: flex;
+  height: calc(100dvh - 48px);
+  margin: 24px auto;
+  flex-direction: column;
+}
+
 :global(.training-hyperparameter-dialog .el-dialog__body) {
-  max-height: calc(100vh - 220px);
-  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   background: var(--vdw-app);
 }
 
 :global(.training-hyperparameter-dialog .config-editor) {
+  height: 100%;
+  min-height: 0;
   grid-template-columns: minmax(500px, 1.15fr) minmax(340px, 0.85fr);
+}
+
+:global(.training-hyperparameter-dialog .form-pane),
+:global(.training-hyperparameter-dialog .raw-pane) {
+  min-height: 0;
+}
+
+:global(.training-hyperparameter-dialog .form-pane) {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+:global(.training-hyperparameter-dialog .raw-pane) {
+  overflow: hidden;
+}
+
+:global(.training-hyperparameter-dialog .config-editor .raw-pane textarea) {
+  min-height: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
