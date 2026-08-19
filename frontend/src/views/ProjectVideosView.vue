@@ -27,6 +27,7 @@ import ImportVideosDialog from '../components/ImportVideosDialog.vue'
 import SamplingDialog from '../components/SamplingDialog.vue'
 import VButton from '../ui/VButton.vue'
 import VTag from '../ui/VTag.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import { videoTone } from '../ui/status'
 import { videoWorkflowStatus } from './videoStatus'
 import { useProjectHeaderHost } from '../ui/projectHeaderHost'
@@ -34,6 +35,7 @@ import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 const props = defineProps<{ project: Project }>()
 const router = useRouter()
 const projectId = props.project.id
+const recentVideoScope = `project:${projectId}:videos`
 const videos = ref<Video[]>([])
 const page = ref(1)
 const pageSize = ref(50)
@@ -475,6 +477,9 @@ const headerHost = useProjectHeaderHost()
               v-for="video in videos"
               :key="video.id"
               class="ledger-row media-row"
+              :class="{ 'vdw-row--recent': isRecentRow(recentVideoScope, video.id) }"
+              :aria-current="isRecentRow(recentVideoScope, video.id) ? 'true' : undefined"
+              :data-test="`video-row-${video.id}`"
               :data-status="video.status"
               :data-enabled="video.enabled"
             >
@@ -542,7 +547,10 @@ const headerHost = useProjectHeaderHost()
                   {{ videoWorkflowStatus(video).detail }}
                 </small>
               </div>
-              <div class="row-actions">
+              <div
+                class="row-actions"
+                @click.capture="markRecentRowFromAction($event, recentVideoScope, video.id)"
+              >
                 <VButton
                   variant="quiet"
                   size="sm"

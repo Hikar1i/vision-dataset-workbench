@@ -2,6 +2,7 @@ import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { clearRecentRows, isRecentRow } from '../ui/recentRows'
 import ProjectVideosView from './ProjectVideosView.vue'
 
 const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }))
@@ -50,6 +51,7 @@ const video = {
 beforeEach(() => {
   vi.restoreAllMocks()
   routerPush.mockReset()
+  clearRecentRows()
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -100,11 +102,37 @@ describe('ProjectVideosView', () => {
     expect(wrapper.get('[data-test="annotate-video-id"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-test="download-video-id"]').exists()).toBe(false)
 
+    await wrapper.get('.row-actions').trigger('click')
+    await wrapper.get('[data-test="annotate-video-id"]').trigger('click')
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(false)
+
+    const framesButton = wrapper.get('[data-test="frames-video-id"]')
+    framesButton.element.addEventListener('click', (event) => event.stopImmediatePropagation(), {
+      capture: true,
+    })
+    await framesButton.trigger('click')
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(true)
+
+    clearRecentRows()
+    await flushPromises()
     await wrapper.get('[data-test="play-video-id"]').trigger('click')
     await flushPromises()
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(true)
+    expect(wrapper.get('[data-test="video-row-video-id"]').classes()).toContain('vdw-row--recent')
+    expect(wrapper.get('[data-test="video-row-video-id"]').attributes('aria-current')).toBe('true')
     expect(new DOMWrapper(document.body).get('video').attributes('src')).toBe(
       '/api/v1/projects/project-id/videos/video-id/content',
     )
+
+    window.dispatchEvent(new Event('vdm:tasks-settled'))
+    await flushPromises()
+    expect(wrapper.get('[data-test="video-row-video-id"]').classes()).toContain('vdw-row--recent')
+
+    wrapper.unmount()
+    const remounted = mountView()
+    await flushPromises()
+    expect(remounted.get('[data-test="video-row-video-id"]').classes()).toContain('vdw-row--recent')
+    expect(remounted.get('[data-test="video-row-video-id"]').attributes('aria-current')).toBe('true')
   })
 
   it('shows the import entry to owners and editors', async () => {
@@ -133,7 +161,11 @@ describe('ProjectVideosView', () => {
     expect(wrapper.find('[data-test="extract-video-id"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="annotate-video-id"]').attributes('disabled')).toBeUndefined()
 
+    await toolbarActions.get('[data-test="export-dataset"]').trigger('click')
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(false)
+
     await wrapper.get('[data-test="annotate-video-id"]').trigger('click')
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(true)
     expect(routerPush).toHaveBeenCalledWith('/projects/project-id/videos/video-id/annotation')
   })
 
@@ -157,11 +189,15 @@ describe('ProjectVideosView', () => {
 
     const actionLane = wrapper.get('[data-test="video-action-lane"]').element
     await wrapper.get('[data-test="select-video-id"] input').setValue(true)
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(false)
     expect(wrapper.get('[data-test="video-action-lane"]').element).toBe(actionLane)
     expect(
       wrapper.get('[data-test="select-all"] .el-checkbox__input').classes(),
     ).toContain('is-indeterminate')
     expect(wrapper.text()).toContain('已选择 1 个视频')
+
+    await wrapper.get('[data-test="batch-configure"]').trigger('click')
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(false)
 
     await wrapper.get('[data-test="select-all"] input').setValue(true)
     expect(wrapper.text()).toContain('已选择 2 个视频')
@@ -246,6 +282,7 @@ describe('ProjectVideosView', () => {
     const call = fetchMock.mock.calls.find(([path]) => String(path).endsWith('/enabled'))
     expect(call?.[1]?.method).toBe('PUT')
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ enabled: false, version: 2 })
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(false)
   })
 
   it('summarizes selected risk and splits configured videos from safe batch configuration', async () => {
