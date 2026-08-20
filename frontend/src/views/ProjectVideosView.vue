@@ -203,7 +203,11 @@ function configureAll() {
 
 function openAnnotation(video: Video) {
   if (!canEdit.value || !video.sampling?.extracted_frames) return
-  void router.push(`/projects/${projectId}/videos/${video.id}/annotation`)
+  void router.push({
+    name: 'video-annotation',
+    params: { id: projectId, videoId: video.id },
+    state: { annotationFromVideoList: true },
+  })
 }
 
 function openBatchAnnotation() {

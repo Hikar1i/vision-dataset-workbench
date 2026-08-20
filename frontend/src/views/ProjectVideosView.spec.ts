@@ -7,7 +7,10 @@ import { clearVideoWorkspaceState } from '../ui/videoWorkspaceState'
 import ProjectVideosView from './ProjectVideosView.vue'
 
 const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }))
-vi.mock('vue-router', () => ({ useRouter: () => ({ push: routerPush }) }))
+vi.mock('vue-router', () => ({
+  RouterView: { name: 'RouterView', template: '<div />' },
+  useRouter: () => ({ push: routerPush }),
+}))
 
 const project = {
   id: 'project-id',
@@ -168,7 +171,11 @@ describe('ProjectVideosView', () => {
 
     await wrapper.get('[data-test="annotate-video-id"]').trigger('click')
     expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(true)
-    expect(routerPush).toHaveBeenCalledWith('/projects/project-id/videos/video-id/annotation')
+    expect(routerPush).toHaveBeenCalledWith({
+      name: 'video-annotation',
+      params: { id: 'project-id', videoId: 'video-id' },
+      state: { annotationFromVideoList: true },
+    })
   })
 
   it('selects the current page and requests the explicit all page size', async () => {

@@ -19,7 +19,7 @@ import {
   ZoomOut,
 } from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 
 import {
   getFrameAnnotations,
@@ -77,6 +77,7 @@ const route = useRoute()
 const router = useRouter()
 const projectId = String(route.params.id)
 const videoId = String(route.params.videoId)
+const openedFromVideoList = window.history.state?.annotationFromVideoList === true
 const storedPreference = loadAnnotationPreference(projectId)
 const canvasRef = ref<CanvasApi | null>(null)
 const workbenchRoot = ref<HTMLElement | null>(null)
@@ -612,8 +613,11 @@ async function switchFrame(index: number) {
 
 async function closeWorkbench() {
   if (!await saveCurrent('close')) return
-  await router.push(`/projects/${projectId}/videos`)
+  if (openedFromVideoList) router.back()
+  else await router.replace(`/projects/${projectId}/videos`)
 }
+
+onBeforeRouteLeave(() => saveCurrent('close'))
 
 async function toggleFrameEnabled(value: boolean | string | number) {
   const frame = currentFrame.value

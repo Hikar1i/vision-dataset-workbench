@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AnnotationWorkbenchView from './AnnotationWorkbenchView.vue'
 
 const mocks = vi.hoisted(() => ({
-  routerPush: vi.fn(),
+  routeLeaveGuard: vi.fn(),
+  routerBack: vi.fn(),
   routerReplace: vi.fn(),
   getProject: vi.fn(),
   listVideos: vi.fn(),
@@ -34,8 +35,9 @@ vi.mock('element-plus', async (importOriginal) => ({
 }))
 
 vi.mock('vue-router', () => ({
+  onBeforeRouteLeave: mocks.routeLeaveGuard,
   useRoute: () => ({ params: { id: 'project-id', videoId: 'video-id' } }),
-  useRouter: () => ({ push: mocks.routerPush, replace: mocks.routerReplace }),
+  useRouter: () => ({ back: mocks.routerBack, replace: mocks.routerReplace }),
 }))
 vi.mock('../api/projects', () => ({ getProject: mocks.getProject }))
 vi.mock('../api/auth', () => ({ getCurrentUser: mocks.getCurrentUser }))
@@ -121,6 +123,7 @@ const frames = [1, 2].map((sequence) => ({
 
 beforeEach(() => {
   document.body.innerHTML = '<div id="focus-header-tools"></div>'
+  window.history.replaceState({ annotationFromVideoList: true }, '')
   localStorage.clear()
   for (const value of Object.values(mocks)) value.mockReset()
   mocks.confirmBatch.mockResolvedValue('confirm')
@@ -217,7 +220,32 @@ describe('AnnotationWorkbenchView', () => {
     document.querySelector<HTMLElement>('[data-test="close-annotation"]')?.click()
     await flushPromises()
     expect(mocks.replaceFrameAnnotations).toHaveBeenCalledTimes(2)
-    expect(mocks.routerPush).toHaveBeenCalledWith('/projects/project-id/videos')
+    expect(mocks.routerBack).toHaveBeenCalledOnce()
+    expect(mocks.routerReplace).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('falls back to the video list after direct entry and saves before route leave', async () => {
+    window.history.replaceState({}, '')
+    const wrapper = mount(AnnotationWorkbenchView, {
+      attachTo: document.body,
+      global: { stubs: { AnnotationCanvas: CanvasStub } },
+    })
+    await flushPromises()
+
+    document.querySelector<HTMLElement>('[data-test="close-annotation"]')?.click()
+    await flushPromises()
+    expect(mocks.routerBack).not.toHaveBeenCalled()
+    expect(mocks.routerReplace).toHaveBeenCalledWith('/projects/project-id/videos')
+
+    await wrapper.get('[data-test="canvas-change"]').trigger('click')
+    const guard = mocks.routeLeaveGuard.mock.calls[0][0]
+    expect(await guard()).toBe(true)
+    expect(mocks.replaceFrameAnnotations).toHaveBeenCalledOnce()
+
+    await wrapper.get('[data-test="canvas-change"]').trigger('click')
+    mocks.replaceFrameAnnotations.mockRejectedValueOnce(new Error('保存失败'))
+    expect(await guard()).toBe(false)
     wrapper.unmount()
   })
 
