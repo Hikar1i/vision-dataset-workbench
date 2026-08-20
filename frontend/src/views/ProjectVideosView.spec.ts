@@ -3,6 +3,7 @@ import ElementPlus from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { clearRecentRows, isRecentRow } from '../ui/recentRows'
+import { clearVideoWorkspaceState } from '../ui/videoWorkspaceState'
 import ProjectVideosView from './ProjectVideosView.vue'
 
 const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }))
@@ -52,6 +53,7 @@ beforeEach(() => {
   vi.restoreAllMocks()
   routerPush.mockReset()
   clearRecentRows()
+  clearVideoWorkspaceState()
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -214,6 +216,34 @@ describe('ProjectVideosView', () => {
     expect(wrapper.get('[data-test="page-stat"]').text()).toContain('2 个视频')
     expect(wrapper.get('[data-test="video-action-lane"]').text()).not.toContain('2 个视频')
     expect(wrapper.get('[data-test="video-toolbar-actions"]').text()).toContain('导入视频')
+  })
+
+  it('restores the list page and page size after the view remounts', async () => {
+    const fetch = vi.fn().mockImplementation((path: string) => {
+      const query = new URL(path, 'http://test').searchParams
+      const requestedPage = Number(query.get('page') ?? 1)
+      const requestedPageSize = Number(query.get('page_size') ?? 50)
+      return Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [video], page: requestedPage, page_size: requestedPageSize, total: 250 }
+          : project,
+      })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="page-size"]').setValue('100')
+    await flushPromises()
+    wrapper.getComponent({ name: 'ElPagination' }).vm.$emit('current-change', 2)
+    await flushPromises()
+    wrapper.unmount()
+
+    const remounted = mountView()
+    await flushPromises()
+    expect(fetch.mock.calls.at(-1)?.[0]).toContain('/videos?page=2&page_size=100')
+    expect(remounted.get('[data-test="page-size"]').element).toHaveProperty('value', '100')
   })
 
   it('disables importing at 999 videos', async () => {
