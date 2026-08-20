@@ -127,6 +127,20 @@ export function createAppRouter() {
                 name: "project-videos",
                 component: ProjectVideosView,
                 meta: { section: "数据集项目", page: "原始数据" },
+                children: [
+                  {
+                    path: ":videoId/annotation",
+                    component: FocusLayout,
+                    children: [
+                      {
+                        path: "",
+                        name: "video-annotation",
+                        component: AnnotationWorkbenchView,
+                        meta: { section: "数据集项目", page: "在线标注" },
+                      },
+                    ],
+                  },
+                ],
               },
               {
                 path: "labels",
@@ -163,18 +177,6 @@ export function createAppRouter() {
             name: "llm-configs",
             component: () => import("./views/LLMConfigsView.vue"),
             meta: { section: "系统", page: "大模型配置" },
-          },
-        ],
-      },
-      {
-        path: "/projects/:id/videos/:videoId/annotation",
-        component: FocusLayout,
-        children: [
-          {
-            path: "",
-            name: "video-annotation",
-            component: AnnotationWorkbenchView,
-            meta: { section: "数据集项目", page: "在线标注" },
           },
         ],
       },

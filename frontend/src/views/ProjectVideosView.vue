@@ -4,7 +4,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterView, useRouter } from 'vue-router'
 
 import { ApiError } from '../api/auth'
 import {
@@ -788,6 +788,9 @@ const headerHost = useProjectHeaderHost()
       @update:model-value="!$event && (frameVideo = null)"
       @updated="load()"
     />
+    <Teleport to="body">
+      <RouterView />
+    </Teleport>
   </main>
 </template>
 

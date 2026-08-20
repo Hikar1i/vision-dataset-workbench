@@ -89,7 +89,6 @@ watch(() => route.params.id, load, { immediate: true })
       <Transition name="page-fade" mode="out-in">
         <component
           :is="Component"
-          :key="String(route.name)"
           :project="project"
           @project-updated="setProject"
         />
