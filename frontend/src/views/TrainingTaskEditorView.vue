@@ -202,7 +202,7 @@ async function load() {
   }
 }
 const modelsHaveResources = computed(() =>
-  form.models.every((item) => hasEffectiveResources(item, form)),
+  form.models.every((item) => hasEffectiveResources(item, form, resources.value)),
 );
 const canAdd = computed(() =>
   form.models.length < 10 && form.mode !== "single_model" && modelsHaveResources.value,

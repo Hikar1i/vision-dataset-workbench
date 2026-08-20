@@ -7,6 +7,7 @@ import {
   groupedOptions,
   hasEffectiveResources,
   hyperparameterOverrideCount,
+  missingEffectiveResources,
 } from "./trainingResources";
 
 const row = {
@@ -28,21 +29,52 @@ const defaults = {
   default_extra_parameters_override: null,
   default_base_model_id: "base-default",
 };
+const readinessResources = {
+  datasets: [
+    { id: "dataset-default", name: "D", project_id: "p", project_name: "P", total_frames: 1, train_frames: 1, val_frames: 0, labels: [] },
+  ],
+  templates: [
+    { id: "template-default", name: "T", description: "", epochs: 100, batch_mode: "auto" as const, batch_value: null, image_size: 640, extra_parameters: {}, effective_parameters: {}, version: 1, updated_at: "2026-08-20T00:00:00Z", can_edit: false },
+  ],
+  base_models: [
+    { id: "base-row", name: "B", model_code: "b.pt", project_id: "p", project_name: "P" },
+  ],
+};
 
 describe("training resources", () => {
+  it("reports effective resource gaps across inherited and mixed sources", () => {
+    expect(missingEffectiveResources(row, defaults, readinessResources)).toEqual([]);
+    expect(missingEffectiveResources(
+      { ...row, base_model_id: null },
+      { ...defaults, default_base_model_id: null },
+      readinessResources,
+    )).toEqual(["baseModel"]);
+    expect(missingEffectiveResources(
+      {
+        ...row,
+        dataset_mode: "multi",
+        multi_dataset_config: { version: 1, dataset_export_ids: ["dataset-default"], target_classes: [] },
+      },
+      defaults,
+      readinessResources,
+    )).toEqual(["dataset"]);
+  });
+
   it("uses model resources before task defaults", () => {
     expect(effectiveResourceIds(row, defaults)).toEqual({
       datasetMode: "single", datasetId: "dataset-default", multiDatasetConfig: null,
       templateId: "template-default", baseModelId: "base-row",
     });
-    expect(hasEffectiveResources(row, defaults)).toBe(true);
+    expect(hasEffectiveResources(row, defaults, readinessResources)).toBe(true);
     expect(hasEffectiveResources(
-      { ...row, dataset_mode: "multi", dataset_export_id: null, multi_dataset_config: { version: 1, dataset_export_ids: ["a"], target_classes: ["car"] } },
+      { ...row, dataset_mode: "multi", dataset_export_id: null, multi_dataset_config: { version: 1, dataset_export_ids: ["dataset-default"], target_classes: ["car"] } },
       defaults,
+      readinessResources,
     )).toBe(true);
     expect(hasEffectiveResources(
       { ...row, dataset_mode: "multi", dataset_export_id: null, multi_dataset_config: null },
       defaults,
+      readinessResources,
     )).toBe(false);
   });
 

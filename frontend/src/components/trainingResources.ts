@@ -111,19 +111,37 @@ export function effectiveResourceIds(
   };
 }
 
-export function hasEffectiveResources(
+export type MissingEffectiveResource = "dataset" | "template" | "baseModel";
+
+export function missingEffectiveResources(
   row: TrainingModelDraft,
   defaults: TrainingDefaults,
-) {
+  resources: TrainingResources,
+): MissingEffectiveResource[] {
   const value = effectiveResourceIds(row, defaults);
   const datasetReady =
     value.datasetMode === "multi"
       ? Boolean(
           value.multiDatasetConfig?.dataset_export_ids.length &&
-            value.multiDatasetConfig.target_classes.length,
+            value.multiDatasetConfig.target_classes.length &&
+            value.multiDatasetConfig.dataset_export_ids.every((id) =>
+              resources.datasets.some((item) => item.id === id),
+            ),
         )
-      : Boolean(value.datasetId);
-  return Boolean(datasetReady && value.templateId && value.baseModelId);
+      : resources.datasets.some((item) => item.id === value.datasetId);
+  const missing: MissingEffectiveResource[] = [];
+  if (!datasetReady) missing.push("dataset");
+  if (!resources.templates.some((item) => item.id === value.templateId)) missing.push("template");
+  if (!resources.base_models.some((item) => item.id === value.baseModelId)) missing.push("baseModel");
+  return missing;
+}
+
+export function hasEffectiveResources(
+  row: TrainingModelDraft,
+  defaults: TrainingDefaults,
+  resources: TrainingResources,
+) {
+  return missingEffectiveResources(row, defaults, resources).length === 0;
 }
 
 export function groupedOptions(
