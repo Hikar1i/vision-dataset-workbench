@@ -29,7 +29,6 @@ import VButton from '../ui/VButton.vue'
 import VTag from '../ui/VTag.vue'
 import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import { videoTone } from '../ui/status'
-import { readVideoListState, saveVideoListState } from '../ui/videoWorkspaceState'
 import { videoWorkflowStatus } from './videoStatus'
 import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 
@@ -37,10 +36,9 @@ const props = defineProps<{ project: Project }>()
 const router = useRouter()
 const projectId = props.project.id
 const recentVideoScope = `project:${projectId}:videos`
-const initialListState = readVideoListState(projectId)
 const videos = ref<Video[]>([])
-const page = ref(initialListState.page)
-const pageSize = ref(initialListState.pageSize)
+const page = ref(1)
+const pageSize = ref(50)
 const total = ref(0)
 const loading = ref(false)
 const importOpen = ref(false)
@@ -128,7 +126,6 @@ async function load(
     page.value = videoResult.page
     pageSize.value = videoResult.page_size
     total.value = videoResult.total
-    saveVideoListState(projectId, { page: page.value, pageSize: pageSize.value })
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '视频工作区加载失败'
   } finally {

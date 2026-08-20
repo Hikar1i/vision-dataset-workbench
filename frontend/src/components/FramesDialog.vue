@@ -38,7 +38,6 @@ import {
   type Point,
 } from '../views/annotationGeometry'
 import VButton from '../ui/VButton.vue'
-import { readFrameGridScale, saveFrameGridScale } from '../ui/videoWorkspaceState'
 
 type PageSize = 50 | 100 | 200 | 'all'
 
@@ -155,12 +154,8 @@ watch(patternLength, (length) => {
 })
 watch(pageSize, () => { page.value = 1 })
 watch(() => props.modelValue, (open) => {
-  if (open) {
-    const savedScale = readFrameGridScale(props.projectId, props.videoId)
-    gridScaleInput.value = savedScale
-    gridScale.value = savedScale
-    void load()
-  } else resetTransientState()
+  if (open) void load()
+  else resetTransientState()
 }, { immediate: true })
 
 async function load() {
@@ -196,9 +191,7 @@ async function load() {
 }
 
 function applyGridScale(value: number | number[]) {
-  if (typeof value !== 'number') return
-  gridScale.value = value
-  saveFrameGridScale(props.projectId, props.videoId, value)
+  if (typeof value === 'number') gridScale.value = value
 }
 
 function resetTransientState() {
