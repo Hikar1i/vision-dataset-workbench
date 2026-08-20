@@ -42,4 +42,12 @@ describe("TrainingTaskEditorView layout", () => {
     expect(source).toContain('清空覆盖并使用新模板')
     expect(source).toContain("finishTemplateSwitch('cancel')")
   });
+
+  it("separates incomplete draft saving from launch readiness", () => {
+    expect(source).toContain("const draftValid = computed")
+    expect(source).toContain("const launchReady = computed")
+    expect(source).toContain(':disabled="!draftValid || saving"')
+    expect(source).toContain(':disabled="!launchReady || saving"')
+    expect(source).not.toContain('form.mode !== "single_model" && modelsHaveResources.value')
+  });
 });

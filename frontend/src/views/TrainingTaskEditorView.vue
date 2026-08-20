@@ -36,8 +36,8 @@ import {
   applyHyperparameterOverrides,
   diffHyperparameterConfig,
   groupedOptions,
-  hasEffectiveResources,
   hyperparameterOverrideCount,
+  missingEffectiveResources,
   templateConfig,
   type TrainingHyperparameterOverrides,
 } from "../components/trainingResources";
@@ -201,25 +201,60 @@ async function load() {
     loading.value = false;
   }
 }
+const modelResourceGaps = computed(() =>
+  form.models.map((item) => missingEffectiveResources(item, form, resources.value)),
+);
 const modelsHaveResources = computed(() =>
-  form.models.every((item) => hasEffectiveResources(item, form, resources.value)),
+  modelResourceGaps.value.every((items) => items.length === 0),
 );
 const canAdd = computed(() =>
-  form.models.length < 10 && form.mode !== "single_model" && modelsHaveResources.value,
+  form.models.length < 10 && form.mode !== "single_model" && !saving.value,
 );
 const datasetOptions = computed(() => groupedOptions(resources.value.datasets));
 const baseModelOptions = computed(() => groupedOptions(resources.value.base_models));
 const cascaderProps = { emitPath: false };
-const valid = computed(
-  () =>
+const modeModelCountValid = computed(() =>
+  form.mode === "single_model"
+    ? form.models.length === 1
+    : form.mode === "single_device_serial"
+      ? form.models.length >= 2
+      : form.models.length >= 1,
+);
+const draftValid = computed(() => Boolean(
     /^[a-z][a-z0-9-]{2,31}$/.test(form.code) &&
     codeState.value !== "conflict" &&
     form.name.trim() &&
-    form.models.length >= 1 &&
     form.models.length <= 10 &&
-    modelsHaveResources.value &&
+    modeModelCountValid.value &&
     form.models.every((item) => item.name.trim()),
+));
+const launchReady = computed(() =>
+  draftValid.value && modelsHaveResources.value && trainingAvailable.value,
 );
+const draftBlockReason = computed(() => {
+  if (!form.name.trim()) return "请填写训练任务名称";
+  if (!/^[a-z][a-z0-9-]{2,31}$/.test(form.code)) return "请填写合法的任务 code";
+  if (codeState.value === "conflict") return codeMessage.value || "任务 code 已存在";
+  if (form.models.length > 10) return "训练任务最多包含 10 个模型";
+  if (form.mode === "single_model" && form.models.length !== 1) return "单模型模式必须恰好包含一个模型";
+  if (form.mode === "single_device_serial" && form.models.length < 2) return "单算力串行模式至少需要两个模型";
+  const unnamed = form.models.findIndex((item) => !item.name.trim());
+  return unnamed >= 0 ? `请填写模型 ${unnamed + 1} 的名称` : "";
+});
+const launchBlockReason = computed(() => {
+  if (draftBlockReason.value) return draftBlockReason.value;
+  const index = modelResourceGaps.value.findIndex((items) => items.length > 0);
+  if (index >= 0) {
+    const labels = { dataset: "训练数据集", template: "超参模板", baseModel: "BaseModel" };
+    return `模型 ${index + 1} 缺少${modelResourceGaps.value[index].map((key) => labels[key]).join("、")}`;
+  }
+  return trainingAvailable.value ? "" : capabilityReason.value || "当前主机训练能力不可用";
+});
+const addModelTitle = computed(() => {
+  if (saving.value) return "正在保存训练任务";
+  if (form.mode === "single_model") return "单模型模式仅允许一个模型";
+  return form.models.length >= 10 ? "训练任务最多包含 10 个模型" : "添加模型";
+});
 function initialMapping(datasetId: string | null): MultiDatasetConfig | null {
   const dataset = resources.value.datasets.find((item) => item.id === datasetId);
   return dataset
@@ -512,7 +547,7 @@ async function checkCode() {
   }
 }
 async function save(start: boolean) {
-  if (!valid.value || saving.value) return;
+  if ((start ? !launchReady.value : !draftValid.value) || saving.value) return;
   saving.value = true;
   let saved = false;
   try {
@@ -570,9 +605,10 @@ onUnmounted(() => window.removeEventListener("focus", refreshResources));
       <template #meta><span>仅 YOLO Detect 轴对齐矩形框模型</span></template>
       <template #actions><div>
         <VButton variant="default" @click="router.push('/training-tasks')">取消</VButton
-        ><VButton variant="default" :loading="saving" :disabled="!valid || saving" @click="save(false)">保存草稿</VButton
+        ><VButton variant="default" :loading="saving" :disabled="!draftValid || saving" :title="draftBlockReason" @click="save(false)">保存草稿</VButton
         ><VButton variant="primary" :loading="saving"
-          :disabled="!valid || !trainingAvailable || saving"
+          :disabled="!launchReady || saving"
+          :title="launchBlockReason"
           @click="save(true)">保存并启动</VButton
         >
       </div></template>
@@ -716,7 +752,7 @@ onUnmounted(() => window.removeEventListener("focus", refreshResources));
             <h2>训练模型与执行顺序</h2>
           </div>
           <VButton variant="default" :disabled="!canAdd"
-            :title="modelsHaveResources ? '添加模型' : '请先补齐现有模型的数据集、超参模板和 BaseModel'"
+            :title="addModelTitle"
             @click="add">添加模型</VButton
           >
         </header>
