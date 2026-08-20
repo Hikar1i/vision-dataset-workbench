@@ -1,9 +1,9 @@
 # 训练任务草稿保存与启动就绪引导设计
 
-状态：交互与实现设计已批准，等待书面规格复核。
+状态：已实施，并于 2026-08-20 完成双分辨率 Chrome 验收和独立 UI/UX 复核。
 
 ```text
-UI/UX REVIEW REQUIRED
+UI/UX REVIEW PASSED
 ```
 
 ## 1. 问题与目标
@@ -127,3 +127,10 @@ Chrome 在 1920×1080 和 2560×1440 下核对：
 - 多模型卡片和半宽布局无横向溢出；
 - 禁用、hover、active、focus 和错误边框符合 `docs/10-ui-ux-design-system.md`；
 - 独立 reviewer 完成复查后，才可将本文标记改为 `UI/UX REVIEW PASSED`。
+
+实施验收结果（代码基线 `be55f7f`）：
+
+- 前端全量 Vitest：55 个测试文件、193 个测试通过；
+- 前端生产构建通过，仅保留既有 `:deep` 压缩和 chunk size 警告；
+- Chrome 在 1920×1080 与 2560×1440 下验证草稿/启动分层、继承/显式/混合资源来源、串行模式数量约束、就地错误提示和交互反馈，无页面级横向溢出；
+- 独立 reviewer 只读复核通过，无 Blocking 或 Non-blocking 问题，未执行保存或启动操作。
