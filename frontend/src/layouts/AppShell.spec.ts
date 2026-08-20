@@ -7,6 +7,11 @@ import { logout } from '../api/auth'
 import { getCapabilities } from '../api/capabilities'
 import { rememberResource } from '../navigation/recentResources'
 import { clearRecentRows, isRecentRow, markRecentRow } from '../ui/recentRows'
+import {
+  clearVideoWorkspaceState,
+  readVideoListState,
+  saveVideoListState,
+} from '../ui/videoWorkspaceState'
 import AppShell from './AppShell.vue'
 
 vi.mock('../api/auth', () => ({
@@ -126,6 +131,7 @@ describe('AppShell', () => {
   beforeEach(() => {
     vi.mocked(logout).mockClear()
     clearRecentRows()
+    clearVideoWorkspaceState()
     localStorage.clear()
     sessionStorage.clear()
     vi.mocked(getCapabilities).mockResolvedValue(readyCapabilities)
@@ -280,13 +286,28 @@ describe('AppShell', () => {
     expect(router.currentRoute.value.path).toBe('/account')
 
     markRecentRow('projects', 'project-1')
+    saveVideoListState('project-1', { page: 2, pageSize: 100 })
     expect(isRecentRow('projects', 'project-1')).toBe(true)
 
     dropdown.vm.$emit('command', 'logout')
     await flushPromises()
     expect(logout).toHaveBeenCalledOnce()
     expect(isRecentRow('projects', 'project-1')).toBe(false)
+    expect(readVideoListState('project-1')).toEqual({ page: 1, pageSize: 50 })
     expect(router.currentRoute.value.path).toBe('/login')
+  })
+
+  it('keeps video workspace state until logout succeeds', async () => {
+    vi.mocked(logout).mockImplementationOnce(() => new Promise<void>(() => {}))
+    const { router, wrapper } = await mountShell()
+    const dropdown = wrapper.getComponent({ name: 'ElDropdown' })
+    saveVideoListState('project-1', { page: 2, pageSize: 100 })
+
+    dropdown.vm.$emit('command', 'logout')
+    await flushPromises()
+
+    expect(readVideoListState('project-1')).toEqual({ page: 2, pageSize: 100 })
+    expect(router.currentRoute.value.path).toBe('/projects')
   })
 
   it('shows an unavailable GPU warning only once per browser session', async () => {

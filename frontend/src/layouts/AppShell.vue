@@ -33,6 +33,7 @@ import {
   resolveRecentResources,
 } from "../navigation/recentResources";
 import { clearRecentRows } from "../ui/recentRows";
+import { clearVideoWorkspaceState } from "../ui/videoWorkspaceState";
 
 const route = useRoute();
 const router = useRouter();
@@ -145,6 +146,7 @@ function projectDeleted(projectId: string) {
 async function signOut() {
   await logout();
   clearRecentRows();
+  clearVideoWorkspaceState();
   await router.replace("/login");
 }
 
