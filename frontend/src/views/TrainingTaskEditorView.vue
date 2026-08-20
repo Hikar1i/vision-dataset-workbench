@@ -255,6 +255,17 @@ const addModelTitle = computed(() => {
   if (form.mode === "single_model") return "单模型模式仅允许一个模型";
   return form.models.length >= 10 ? "训练任务最多包含 10 个模型" : "添加模型";
 });
+const taskNameError = computed(() => form.name.trim() ? "" : "请输入训练任务名称");
+const taskCodeError = computed(() => {
+  if (!form.code) return "请输入任务 code";
+  if (!/^[a-z][a-z0-9-]{2,31}$/.test(form.code)) return "请输入 3–32 位小写字母、数字或连字符，并以字母开头";
+  return codeState.value === "conflict" ? codeMessage.value || "任务 code 已存在" : "";
+});
+const modeModelCountError = computed(() => {
+  if (form.mode === "single_model" && form.models.length !== 1) return "单模型模式必须恰好包含一个模型";
+  if (form.mode === "single_device_serial" && form.models.length < 2) return "单算力串行模式至少需要两个模型";
+  return form.models.length > 10 ? "训练任务最多包含 10 个模型" : "";
+});
 function initialMapping(datasetId: string | null): MultiDatasetConfig | null {
   const dataset = resources.value.datasets.find((item) => item.id === datasetId);
   return dataset
@@ -630,19 +641,19 @@ onUnmounted(() => window.removeEventListener("focus", refreshResources));
         </header>
         <el-form label-position="top"
           ><div class="form-grid two">
-            <el-form-item label="训练任务名称"
+            <el-form-item label="训练任务名称" required :error="taskNameError"
               ><el-input v-model="form.name" maxlength="128" /></el-form-item
-            ><el-form-item label="任务 code"
+            ><el-form-item label="任务 code" required :error="taskCodeError"
               ><el-input
                 v-model="form.code"
                 :disabled="editing"
                 placeholder="如 firedet"
                 @blur="checkCode"
               />
-              <p v-if="codeMessage" class="field-note code-state" :class="codeState">
+              <p v-if="!taskCodeError && codeMessage" class="field-note code-state" :class="codeState">
                 {{ codeMessage }}
               </p>
-              <p v-else class="field-note">
+              <p v-else-if="!taskCodeError" class="field-note">
                 3–32 位小写字母、数字或连字符；创建后不可修改且删除后不复用。
               </p></el-form-item>
           </div>
@@ -757,9 +768,9 @@ onUnmounted(() => window.removeEventListener("focus", refreshResources));
           >
         </header>
         <el-form label-position="top" class="training-mode-field">
-          <el-form-item label="训练模式">
+          <el-form-item label="训练模式" :error="modeModelCountError">
             <el-segmented v-model="form.mode" :options="[{ label: '单模型', value: 'single_model' }, { label: '单算力串行', value: 'single_device_serial' }, { label: '自定义序列', value: 'custom_sequence' }]" />
-            <p class="field-note">准备训练数据始终在申请 GPU 前完成。</p>
+            <p v-if="!modeModelCountError" class="field-note">准备训练数据始终在申请 GPU 前完成。</p>
           </el-form-item>
         </el-form>
         <TrainingModelEditor

@@ -58,7 +58,10 @@ const stubs = {
     </div>`,
   },
   ElForm: { template: "<form><slot /></form>" },
-  ElFormItem: { template: "<label><slot /></label>" },
+  ElFormItem: {
+    props: ["error"],
+    template: "<label><slot name='label' /><slot />{{ error }}</label>",
+  },
   ElCascader: {
     props: ["placeholder"],
     template: '<div data-test="dataset-cascader">{{ placeholder }}</div>',
@@ -157,5 +160,13 @@ describe("TrainingModelEditor", () => {
 
     const select = explicitWrapper.findComponent({ name: "ElSelect" });
     expect(select.exists()).toBe(true);
+  });
+
+  it("shows inherited resource names and inline launch gaps", () => {
+    const wrapper = mountEditor(model(), { ...defaults, default_template_id: "t1" });
+
+    expect(wrapper.text()).toContain("已继承：基础模板");
+    expect(wrapper.text()).toContain("未配置：请在任务总体设置中提供默认值，或在当前模型中选择。");
+    expect(wrapper.text()).toContain("启动必填");
   });
 });

@@ -50,4 +50,10 @@ describe("TrainingTaskEditorView layout", () => {
     expect(source).toContain(':disabled="!launchReady || saving"')
     expect(source).not.toContain('form.mode !== "single_model" && modelsHaveResources.value')
   });
+
+  it("marks draft identity fields and explains invalid model counts inline", () => {
+    expect(source).toContain('label="训练任务名称" required')
+    expect(source).toContain('label="任务 code" required')
+    expect(source).toContain("单算力串行模式至少需要两个模型")
+  });
 });

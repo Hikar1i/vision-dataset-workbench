@@ -9,6 +9,8 @@ import {
   effectiveResourceIds,
   groupedOptions,
   hyperparameterOverrideCount,
+  missingEffectiveResources,
+  type MissingEffectiveResource,
   type TrainingDefaults,
 } from "./trainingResources";
 import VButton from '../ui/VButton.vue'
@@ -87,6 +89,24 @@ function inheritedOverrideCount() {
     imageSize: props.defaults.default_image_size_override,
     extra: props.defaults.default_extra_parameters_override,
   });
+}
+function missing(row: TrainingModelDraft, key: MissingEffectiveResource) {
+  return missingEffectiveResources(row, props.defaults, props.resources).includes(key);
+}
+function missingResourceMessage(row: TrainingModelDraft, key: MissingEffectiveResource) {
+  if (key === "dataset" && effectiveResourceIds(row, props.defaults).datasetMode === "multi")
+    return "映射未完成：至少选择一个数据集并保留一个目标类别。";
+  return "未配置：请在任务总体设置中提供默认值，或在当前模型中选择。";
+}
+function inheritedTemplateName(row: TrainingModelDraft) {
+  if (row.template_id || missing(row, "template")) return "";
+  const id = effectiveResourceIds(row, props.defaults).templateId;
+  return props.resources.templates.find((item) => item.id === id)?.name ?? "";
+}
+function inheritedBaseModelName(row: TrainingModelDraft) {
+  if (row.base_model_id || missing(row, "baseModel")) return "";
+  const id = effectiveResourceIds(row, props.defaults).baseModelId;
+  return props.resources.base_models.find((item) => item.id === id)?.name ?? "";
 }
 function overrideEnabled(row: TrainingModelDraft) {
   return row.epochs_override != null
@@ -175,12 +195,12 @@ function setDatasetMode(row: TrainingModelDraft, mode: TrainingModelDraft["datas
         <Transition name="model-details">
         <el-form :id="`${keyFor(row)}-details`" v-show="!collapsed.includes(row)" label-position="top">
           <div class="form-grid two">
-            <el-form-item label="模型名称"><el-input v-model="row.name" maxlength="128" @change="update" /></el-form-item>
+            <el-form-item label="模型名称" required :error="row.name.trim() ? '' : '请输入模型名称'"><el-input v-model="row.name" maxlength="128" @change="update" /></el-form-item>
             <el-form-item label="GPU / 序号"><div class="inline"><el-select v-model="row.gpu_index" @change="normalize();update()"><el-option v-for="gpu in devices" :key="gpu.index" :value="gpu.index" :label="`GPU ${gpu.index} · 显存 ${gpu.memory_percent}%`" /></el-select><el-input-number v-model="row.queue_order" :min="1" :max="10" :disabled="mode !== 'custom_sequence'" @change="update" /></div></el-form-item>
           </div>
           <el-form-item label="模型描述"><el-input v-model="row.description" type="textarea" :rows="2" maxlength="2000" /></el-form-item>
-          <section class="dataset-resource">
-            <header><div><strong>训练数据集</strong><small>{{ datasetSummary(row) }}</small></div></header>
+          <section class="dataset-resource" :class="{ 'is-error': missing(row, 'dataset') }">
+            <header><div><strong>训练数据集 <span class="required-mark">*</span><span class="required-note">启动必填</span></strong><small>{{ datasetSummary(row) }}</small></div></header>
             <el-segmented :model-value="row.dataset_mode" :options="[{ label: '继承任务默认', value: 'inherit' }, { label: '单数据集', value: 'single' }, { label: '多数据集', value: 'multi' }]" @change="setDatasetMode(row, $event as TrainingModelDraft['dataset_mode'])" />
             <template v-if="row.dataset_mode === 'inherit'">
               <DatasetSelectionSummary
@@ -202,10 +222,20 @@ function setDatasetMode(row: TrainingModelDraft, mode: TrainingModelDraft["datas
               :datasets="resources.datasets"
               @configure-mapping="emit('configureMapping', row)"
             />
+            <p v-if="missing(row, 'dataset')" class="resource-error">{{ missingResourceMessage(row, 'dataset') }}</p>
+            <p v-else-if="row.dataset_mode === 'inherit'" class="resource-inherited">已继承：{{ datasetSummary(row) }}</p>
           </section>
           <div class="form-grid resources-grid">
-            <el-form-item label="超参模板"><el-select :model-value="row.template_id" filterable clearable :placeholder="defaults.default_template_id ? '继承任务默认' : '请选择超参模板'" @change="emit('changeTemplate', row, ($event as string) || null)"><el-option v-for="item in resources.templates" :key="item.id" :value="item.id" :label="item.name" /></el-select></el-form-item>
-            <el-form-item label="Base model"><el-cascader v-model="row.base_model_id" :options="baseModelOptions" :props="cascaderProps" filterable clearable :placeholder="defaults.default_base_model_id ? '继承任务默认' : '请选择 BaseModel'" @change="update" /></el-form-item>
+            <el-form-item :error="missing(row, 'template') ? missingResourceMessage(row, 'template') : ''">
+              <template #label>超参模板 <span class="required-mark">*</span><span class="required-note">启动必填</span></template>
+              <el-select :model-value="row.template_id" filterable clearable :placeholder="defaults.default_template_id ? '继承任务默认' : '请选择超参模板'" @change="emit('changeTemplate', row, ($event as string) || null)"><el-option v-for="item in resources.templates" :key="item.id" :value="item.id" :label="item.name" /></el-select>
+              <p v-if="inheritedTemplateName(row)" class="resource-inherited">已继承：{{ inheritedTemplateName(row) }}</p>
+            </el-form-item>
+            <el-form-item :error="missing(row, 'baseModel') ? missingResourceMessage(row, 'baseModel') : ''">
+              <template #label>BaseModel <span class="required-mark">*</span><span class="required-note">启动必填</span></template>
+              <el-cascader v-model="row.base_model_id" :options="baseModelOptions" :props="cascaderProps" filterable clearable :placeholder="defaults.default_base_model_id ? '继承任务默认' : '请选择 BaseModel'" @change="update" />
+              <p v-if="inheritedBaseModelName(row)" class="resource-inherited">已继承：{{ inheritedBaseModelName(row) }}</p>
+            </el-form-item>
           </div>
           <section v-if="!row.template_id && inheritedTemplate()" class="override-panel inherited-template-panel">
             <header>
@@ -245,6 +275,6 @@ function setDatasetMode(row: TrainingModelDraft, mode: TrainingModelDraft["datas
 </template>
 
 <style scoped>
-.model-editor-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.model-editor-column{display:grid;gap:16px}.model-editor-card{min-width:0;border:1px solid var(--vdw-line);background:#fff}.model-editor-card>header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:var(--vdw-surface-2);border-bottom:1px solid var(--vdw-line)}.card-summary{display:flex;min-width:0;flex:1;flex-direction:column;align-items:flex-start;gap:3px;margin:-6px 0;padding:6px 8px;border:0;border-radius:var(--vdw-radius-control);background:transparent;text-align:left;cursor:pointer;transition:color var(--vdw-motion-fast) var(--vdw-ease),background-color var(--vdw-motion-fast) var(--vdw-ease),box-shadow var(--vdw-motion-fast) var(--vdw-ease)}.card-summary:hover{background:var(--vdw-accent-soft);box-shadow:inset 3px 0 var(--vdw-accent)}.card-summary:active{background:#cfe6ec;box-shadow:inset 3px 0 var(--vdw-accent-ink)}.card-summary span,.artifact-preview span{color:var(--vdw-accent);font:14px ui-monospace,monospace;letter-spacing:.08em}.card-summary strong,.card-summary small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.card-summary small{color:var(--vdw-ink-2);font-size:14px}.card-actions{display:flex;gap:6px}.model-editor-card form{padding:16px}.model-details-enter-active,.model-details-leave-active{overflow:hidden;transition:opacity 220ms var(--vdw-ease),transform 220ms var(--vdw-ease)}.model-details-enter-from,.model-details-leave-to{opacity:0;transform:translateY(-6px)}.form-grid{display:grid;gap:12px}.form-grid.two{grid-template-columns:1fr 1fr}.resources-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.inline{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:8px;width:100%;min-width:0}.inline :deep(.el-select),.inline :deep(.el-input-number){width:100%;min-width:0}.dataset-resource{display:grid;gap:10px;margin-bottom:12px;padding:12px;border:1px solid var(--vdw-line);background:var(--vdw-surface-2)}.dataset-resource>header{display:flex;align-items:center;justify-content:space-between;gap:12px}.dataset-resource>header>div{display:grid;min-width:0}.dataset-resource small{overflow:hidden;color:var(--vdw-ink-2);font-size:14px;text-overflow:ellipsis;white-space:nowrap}.dataset-resource :deep(.el-segmented){justify-self:start}.override-panel{display:grid;gap:12px;margin-top:2px;padding:12px;background:var(--vdw-app)}.override-panel>header{display:flex;align-items:center;justify-content:space-between}.override-panel>header div{display:flex;flex-direction:column}.override-panel small,.inherited-core{color:var(--vdw-ink-2);font-size:14px}.inherited-core{margin:0}.full-editor-row{display:flex;align-items:center;justify-content:flex-end;gap:10px}.applied-message{min-width:0;flex:1;color:var(--vdw-ok);font-size:14px}.artifact-preview{display:flex;gap:10px;margin:12px 0 0;padding:9px 11px;overflow:auto;background:var(--vdw-ink);color:var(--vdw-line)}.artifact-preview code{white-space:nowrap}
+.model-editor-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.model-editor-column{display:grid;gap:16px}.model-editor-card{min-width:0;border:1px solid var(--vdw-line);background:#fff}.model-editor-card>header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:var(--vdw-surface-2);border-bottom:1px solid var(--vdw-line)}.card-summary{display:flex;min-width:0;flex:1;flex-direction:column;align-items:flex-start;gap:3px;margin:-6px 0;padding:6px 8px;border:0;border-radius:var(--vdw-radius-control);background:transparent;text-align:left;cursor:pointer;transition:color var(--vdw-motion-fast) var(--vdw-ease),background-color var(--vdw-motion-fast) var(--vdw-ease),box-shadow var(--vdw-motion-fast) var(--vdw-ease)}.card-summary:hover{background:var(--vdw-accent-soft);box-shadow:inset 3px 0 var(--vdw-accent)}.card-summary:active{background:#cfe6ec;box-shadow:inset 3px 0 var(--vdw-accent-ink)}.card-summary span,.artifact-preview span{color:var(--vdw-accent);font:14px ui-monospace,monospace;letter-spacing:.08em}.card-summary strong,.card-summary small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.card-summary small{color:var(--vdw-ink-2);font-size:14px}.card-actions{display:flex;gap:6px}.model-editor-card form{padding:16px}.model-details-enter-active,.model-details-leave-active{overflow:hidden;transition:opacity 220ms var(--vdw-ease),transform 220ms var(--vdw-ease)}.model-details-enter-from,.model-details-leave-to{opacity:0;transform:translateY(-6px)}.form-grid{display:grid;gap:12px}.form-grid.two{grid-template-columns:1fr 1fr}.resources-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.inline{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:8px;width:100%;min-width:0}.inline :deep(.el-select),.inline :deep(.el-input-number){width:100%;min-width:0}.dataset-resource{display:grid;gap:10px;margin-bottom:12px;padding:12px;border:1px solid var(--vdw-line);background:var(--vdw-surface-2)}.dataset-resource.is-error{border-color:var(--vdw-danger)}.dataset-resource>header{display:flex;align-items:center;justify-content:space-between;gap:12px}.dataset-resource>header>div{display:grid;min-width:0}.dataset-resource small{overflow:hidden;color:var(--vdw-ink-2);font-size:14px;text-overflow:ellipsis;white-space:nowrap}.dataset-resource :deep(.el-segmented){justify-self:start}.required-mark{color:var(--vdw-danger)}.required-note{margin-left:6px;color:var(--vdw-ink-3);font-size:13px;font-weight:400}.resource-inherited,.resource-error{margin:0;font-size:13px}.resource-inherited{color:var(--vdw-ok)}.resource-error{color:var(--vdw-danger)}.override-panel{display:grid;gap:12px;margin-top:2px;padding:12px;background:var(--vdw-app)}.override-panel>header{display:flex;align-items:center;justify-content:space-between}.override-panel>header div{display:flex;flex-direction:column}.override-panel small,.inherited-core{color:var(--vdw-ink-2);font-size:14px}.inherited-core{margin:0}.full-editor-row{display:flex;align-items:center;justify-content:flex-end;gap:10px}.applied-message{min-width:0;flex:1;color:var(--vdw-ok);font-size:14px}.artifact-preview{display:flex;gap:10px;margin:12px 0 0;padding:9px 11px;overflow:auto;background:var(--vdw-ink);color:var(--vdw-line)}.artifact-preview code{white-space:nowrap}
 @media(prefers-reduced-motion:reduce){.model-details-enter-active,.model-details-leave-active{transition:none}}
 </style>
