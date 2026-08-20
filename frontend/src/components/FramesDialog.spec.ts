@@ -1,7 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { clearVideoWorkspaceState } from '../ui/videoWorkspaceState'
 import FramesDialog from './FramesDialog.vue'
 
 const sampling = {
@@ -71,6 +72,7 @@ function mountDialog(canEdit: boolean, fetch = fetchMock()) {
   }
 }
 
+beforeEach(clearVideoWorkspaceState)
 afterEach(() => vi.unstubAllGlobals())
 
 describe('FramesDialog', () => {
@@ -111,6 +113,13 @@ describe('FramesDialog', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.get('[data-test="grid-scale-value"]').text()).toBe('1.50×')
     expect(wrapper.get('[data-test="frames-grid"]').attributes('style')).toContain('--frame-card-width: 270px')
+
+    wrapper.unmount()
+    const { wrapper: remounted } = mountDialog(true)
+    await flushPromises()
+    expect(remounted.get('[data-test="grid-scale-value"]').text()).toBe('1.50×')
+    expect(remounted.get('[data-test="frames-grid"]').attributes('style'))
+      .toContain('--frame-card-width: 270px')
   })
 
   it('exposes the active range-selection state', async () => {
