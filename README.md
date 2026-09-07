@@ -74,22 +74,21 @@ GPU 服务器将后端安装命令改为 `uv sync --python 3.12 --dev --extra gp
 
 浏览器打开 `http://127.0.0.1:35173`，输入后端终端显示的一次性口令，选择工作区父目录并创建首个管理员；初始化后使用该账号登录。前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:38000`。视频处理还要求系统可执行 `ffmpeg` 和 `ffprobe`；API 与 Worker 必须指向同一工作区。
 
-验证命令见[测试策略](docs/06-testing-strategy.md)，配置和首次启动细节见[环境与启动](docs/08-environments.md)。
+验证命令见[测试策略](project-docs/06-testing-strategy.md)，配置和首次启动细节见[环境与启动](project-docs/08-environments.md)。
 
 ## 文档
 
-- [项目背景与目标](docs/01-project-background.md)
-- [架构](docs/02-architecture.md)
-- [数据库](docs/03-database.md)
-- [API](docs/04-api.md)
-- [代码规范](docs/05-code-style.md)
-- [测试策略](docs/06-testing-strategy.md)
-- [部署](docs/07-deployment.md)
-- [环境与启动](docs/08-environments.md)
-- [已知问题](docs/09-known-issues.md)
-- [UI/UX 设计系统](docs/10-ui-ux-design-system.md)
-- [UI/UX 整体重构设计](docs/11-ui-ux-refactor-design.md)
+- [项目背景与目标](project-docs/01-project-background.md)
+- [架构](project-docs/02-architecture.md)
+- [数据库](project-docs/03-database.md)
+- [API](project-docs/04-api.md)
+- [代码规范](project-docs/05-code-style.md)
+- [测试策略](project-docs/06-testing-strategy.md)
+- [部署](project-docs/07-deployment.md)
+- [环境与启动](project-docs/08-environments.md)
+- [已知问题](project-docs/09-known-issues.md)
+- [UI/UX 设计系统](project-docs/10-ui-ux-design-system.md)
 
 ## 本地 AI 工作区
 
-AI 生成的调查、设计、计划和临时产物存放在 `.ai-local/`，并通过 `.git/info/exclude` 排除。用户提供的 `.ai-local/references/` 只读；长期项目文档只存放在根目录 `README.md` 和 `docs/`。
+长期项目文档只存放在根目录 `README.md` 和 `project-docs/`，并由 Git 追踪。AI 生成的调查、设计、计划和临时产物存放在 `.ai-local/scratch-docs/`，根目录 `docs` 是指向该目录的兼容软链接；软链接由 Git 追踪，目标内容通过 `.git/info/exclude` 排除。用户提供的 `.ai-local/references/` 只读。
