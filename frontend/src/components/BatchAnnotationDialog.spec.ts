@@ -3,10 +3,12 @@ import ElementPlus from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import BatchAnnotationDialog from './BatchAnnotationDialog.vue'
+import AutoAnnotationCategorySelect from './AutoAnnotationCategorySelect.vue'
 
 const mocks = vi.hoisted(() => ({
   listProjects: vi.fn(), listModels: vi.fn(), listRemote: vi.fn(), getSetting: vi.fn(),
   listLLM: vi.fn(), create: vi.fn(),
+  listLabels: vi.fn(),
 }))
 vi.mock('../api/models', () => ({
   listModelProjects: mocks.listProjects,
@@ -16,6 +18,7 @@ vi.mock('../api/models', () => ({
   createProjectBatchAutoAnnotation: mocks.create,
 }))
 vi.mock('../api/llm', () => ({ listLLMConfigs: mocks.listLLM }))
+vi.mock('../api/labels', () => ({ listLabels: mocks.listLabels }))
 
 const baseVideo = {
   id: 'video-new', short_code: 'NEW', source_type: 'local' as const, title: 'new.mp4',
@@ -34,6 +37,10 @@ beforeEach(() => {
     configured: false, server_url: '', has_api_key: false, available: false,
   })
   mocks.listLLM.mockResolvedValue([{ id: 'llm-id', name: '视觉模型', enabled: true, available: true }])
+  mocks.listLabels.mockResolvedValue([
+    { id: 'person', name: 'person', enabled: true },
+    { id: 'disabled', name: 'disabled', enabled: false },
+  ])
 })
 afterEach(() => { document.body.innerHTML = '' })
 
@@ -77,7 +84,7 @@ describe('BatchAnnotationDialog', () => {
     expect(wrapper.get('[data-test="annotation-create-task"]').attributes('disabled')).toBeUndefined()
   })
 
-  it('uses the unified source order and submits an online model with typed categories', async () => {
+  it('uses the unified source order and submits selected plus typed categories', async () => {
     const wrapper = mountDialog('unannotated')
     await flushPromises()
 
@@ -88,7 +95,10 @@ describe('BatchAnnotationDialog', () => {
     source.vm.$emit('change', 'online')
     await flushPromises()
     expect(mocks.listLLM).toHaveBeenCalled()
-    await wrapper.get('[data-test="annotation-categories"]').setValue('person, car')
+    const categorySelect = wrapper.getComponent(AutoAnnotationCategorySelect)
+    categorySelect.vm.$emit('update:modelValue', ['person'])
+    categorySelect.vm.$emit('update:query', 'Helmet')
+    await flushPromises()
     await wrapper.get('[data-test="annotation-create-task"]').trigger('click')
     await flushPromises()
 
@@ -97,10 +107,20 @@ describe('BatchAnnotationDialog', () => {
       ['video-new'],
       expect.objectContaining({
         source: 'online', model_id: 'llm-id', remote_task_id: null,
-        categories: ['person', 'car'],
+        categories: ['person', 'helmet'],
       }),
       'unannotated',
       false,
     )
+  })
+
+  it('keeps typed category entry available when project labels fail to load', async () => {
+    mocks.listLabels.mockRejectedValueOnce(new Error('offline'))
+    const wrapper = mountDialog('unannotated')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('类别列表加载失败，可继续输入新类别。')
+    expect(wrapper.getComponent(AutoAnnotationCategorySelect).props('labels')).toEqual([])
+    expect(wrapper.getComponent(AutoAnnotationCategorySelect).props('disabled')).toBe(false)
   })
 })

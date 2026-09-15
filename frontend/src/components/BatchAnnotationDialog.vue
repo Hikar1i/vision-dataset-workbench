@@ -15,8 +15,10 @@ import {
   type XAnyLabelingSetting,
 } from '../api/models'
 import { listLLMConfigs, type LLMConfig } from '../api/llm'
+import { listLabels, type ProjectLabel } from '../api/labels'
 import type { Video } from '../api/media'
 import VButton from '../ui/VButton.vue'
+import AutoAnnotationCategorySelect from './AutoAnnotationCategorySelect.vue'
 import XAnyLabelingSettingsDialog from './XAnyLabelingSettingsDialog.vue'
 
 type ModelSourceValue = 'xanylabeling' | 'online' | `project:${string}`
@@ -37,16 +39,19 @@ const modelProjects = ref<ModelProject[]>([])
 const models = ref<InferenceModel[]>([])
 const remoteModels = ref<RemoteModelOption[]>([])
 const llmConfigs = ref<LLMConfig[]>([])
+const labels = ref<ProjectLabel[]>([])
 const xanylabelingSetting = ref<XAnyLabelingSetting | null>(null)
 const xanylabelingSettingsOpen = ref(false)
 const modelId = ref('')
-const categories = ref('')
+const categories = ref<string[]>(['__all__'])
+const categoryQuery = ref('')
 const confidence = ref(0.25)
 const iou = ref(0.45)
 const overwrite = ref(false)
 const riskConfirmed = ref(false)
 const loading = ref(false)
 const error = ref('')
+const categoryError = ref('')
 
 const annotatedCount = computed(() => props.videos.filter((video) => video.has_annotations).length)
 const unannotatedCount = computed(() => props.videos.length - annotatedCount.value)
@@ -106,6 +111,16 @@ async function loadSources() {
   }
 }
 
+async function loadProjectLabels() {
+  categoryError.value = ''
+  try {
+    labels.value = await listLabels(props.projectId)
+  } catch {
+    labels.value = []
+    categoryError.value = '类别列表加载失败，可继续输入新类别。'
+  }
+}
+
 async function changeSource(value: ModelSourceValue) {
   source.value = value
   modelId.value = ''
@@ -127,7 +142,10 @@ watch(() => props.modelValue, (open) => {
   if (open) {
     riskConfirmed.value = false
     overwrite.value = false
+    categories.value = ['__all__']
+    categoryQuery.value = ''
     void loadSources()
+    void loadProjectLabels()
   }
 }, { immediate: true })
 
@@ -135,6 +153,13 @@ async function submit() {
   if (!valid.value) return
   loading.value = true
   error.value = ''
+  const pendingCategory = categoryQuery.value.trim().toLowerCase()
+  const selectedCategories = pendingCategory
+    ? [...categories.value.filter((item) => item !== '__all__'), pendingCategory]
+    : categories.value
+  const categoryPrompts = selectedCategories.includes('__all__')
+    ? []
+    : [...new Set(selectedCategories.map((item) => item.trim().toLowerCase()).filter(Boolean))]
   const config: AutoAnnotationConfig = {
     source: source.value === 'xanylabeling'
       ? 'xanylabeling'
@@ -143,7 +168,7 @@ async function submit() {
     remote_task_id: source.value === 'xanylabeling'
       ? selectedRemoteModel.value?.task_id || null
       : null,
-    categories: categories.value.split(',').map((item) => item.trim()).filter(Boolean),
+    categories: categoryPrompts,
     confidence: confidence.value,
     iou: iou.value,
   }
@@ -227,9 +252,24 @@ async function submit() {
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="类别（可选，逗号分隔）">
-          <el-input v-model="categories" data-test="annotation-categories" :disabled="settingsDisabled" placeholder="例如：person, car" />
+        <el-form-item label="类别（可选）">
+          <AutoAnnotationCategorySelect
+            v-model="categories"
+            v-model:query="categoryQuery"
+            :labels="labels"
+            data-test="annotation-categories"
+            placeholder="选择或输入类别"
+            :disabled="settingsDisabled || !modelId"
+            style="width: 100%"
+          />
         </el-form-item>
+        <el-alert
+          v-if="categoryError"
+          :title="categoryError"
+          type="warning"
+          show-icon
+          :closable="false"
+        />
         <div class="annotation-number-row">
           <el-form-item label="置信度"><el-input-number v-model="confidence" :disabled="settingsDisabled" :min="0" :max="1" :step="0.05" /></el-form-item>
           <el-form-item label="IoU"><el-input-number v-model="iou" :disabled="settingsDisabled" :min="0" :max="1" :step="0.05" /></el-form-item>

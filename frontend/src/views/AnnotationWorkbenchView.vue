@@ -56,6 +56,7 @@ import {
 import { listLLMConfigs, type LLMConfig } from '../api/llm'
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
+import AutoAnnotationCategorySelect from '../components/AutoAnnotationCategorySelect.vue'
 import FrameAnnotationThumbnail from '../components/FrameAnnotationThumbnail.vue'
 import XAnyLabelingSettingsDialog from '../components/XAnyLabelingSettingsDialog.vue'
 import { formatFrameFileName } from '../components/framePresentation'
@@ -228,16 +229,6 @@ const annotationOrder = computed(() => new Map(
 const labelColors = computed(() => Object.fromEntries(
   labels.value.map((label) => [label.id, label.color]),
 ))
-const normalizedCategoryQuery = computed(() => categoryQuery.value.trim().toLowerCase())
-const visibleAutoLabels = computed(() => enabledLabels.value.filter(
-  (label) => !normalizedCategoryQuery.value || label.name.includes(normalizedCategoryQuery.value),
-))
-const newAutoCategory = computed(() => {
-  const name = normalizedCategoryQuery.value
-  if (!name || enabledLabels.value.some((label) => label.name === name)) return ''
-  return name
-})
-
 function clone(items: FrameAnnotation[]) {
   return items.map((item) => ({ ...item }))
 }
@@ -351,15 +342,6 @@ async function saveCurrent(context?: SaveContext) {
     saving.value = false
     saveContext.value = null
   }
-}
-
-function setAutoCategories(values: string[]) {
-  const selectedAll = values.includes('__all__')
-  const hadAll = autoCategories.value.includes('__all__')
-  autoCategories.value = selectedAll && !hadAll
-    ? ['__all__']
-    : values.filter((value) => value !== '__all__')
-  categoryQuery.value = ''
 }
 
 function selectedModelProjectId() {
@@ -868,22 +850,15 @@ watch(reuseLabel, (reuse) => {
             </template>
           </template>
         </el-select>
-        <el-select
-          :model-value="autoCategories"
+        <AutoAnnotationCategorySelect
+          v-model="autoCategories"
+          v-model:query="categoryQuery"
           class="category-select"
           data-test="auto-categories"
-          multiple
-          filterable
-          collapse-tags
+          :labels="labels"
           placeholder="类别"
           :disabled="batchActive || inferenceRunning || !autoModel"
-          :filter-method="(query: string) => { categoryQuery = query }"
-          @change="setAutoCategories"
-        >
-          <el-option v-if="newAutoCategory" :label="`新建类别：${newAutoCategory}`" :value="newAutoCategory" />
-          <el-option v-if="!normalizedCategoryQuery || 'all'.includes(normalizedCategoryQuery)" label="All / 全类别" value="__all__" />
-          <el-option v-for="label in visibleAutoLabels" :key="label.id" :label="label.name" :value="label.name" />
-        </el-select>
+        />
         <label>置信度 <el-input-number v-model="confidence" controls-position="right" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
         <label>IoU <el-input-number v-model="iou" controls-position="right" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
         <label>标签覆盖 <el-switch v-model="overwrite" data-test="overwrite-switch" :disabled="batchActive || inferenceRunning || !autoModel" /></label>

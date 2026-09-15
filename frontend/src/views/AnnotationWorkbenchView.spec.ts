@@ -1,8 +1,9 @@
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AnnotationWorkbenchView from './AnnotationWorkbenchView.vue'
+import AutoAnnotationCategorySelect from '../components/AutoAnnotationCategorySelect.vue'
 
 const mocks = vi.hoisted(() => ({
   routeLeaveGuard: vi.fn(),
@@ -581,16 +582,12 @@ describe('AnnotationWorkbenchView', () => {
     })
     await flushPromises()
 
-    ;(wrapper.getComponent('[data-test="auto-categories"]') as VueWrapper).vm.$emit(
-      'change', ['__all__', 'helmet'],
-    )
+    wrapper.getComponent(AutoAnnotationCategorySelect).vm.$emit('update:modelValue', ['helmet'])
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
     expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3].categories).toEqual(['helmet'])
 
-    ;(wrapper.getComponent('[data-test="auto-categories"]') as VueWrapper).vm.$emit(
-      'change', ['helmet', '__all__'],
-    )
+    wrapper.getComponent(AutoAnnotationCategorySelect).vm.$emit('update:modelValue', ['__all__'])
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
     expect(mocks.runFrameAutoAnnotation.mock.calls[1]?.[3].categories).toEqual([])
