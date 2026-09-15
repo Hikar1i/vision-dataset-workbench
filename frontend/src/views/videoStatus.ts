@@ -33,10 +33,6 @@ export function videoWorkflowStatus(video: Video): VideoWorkflowStatus {
   if (task?.status === 'running') {
     return result(`running-${task.type}`, `${taskName(task)}中`, `${task.progress}%`)
   }
-  if (task?.type === 'auto_annotate' && task.status === 'succeeded') {
-    return result('auto-annotated', '自动标注完成')
-  }
-
   const resourceUpdated = Math.max(
     timestamp(video.updated_at),
     timestamp(video.sampling?.updated_at),

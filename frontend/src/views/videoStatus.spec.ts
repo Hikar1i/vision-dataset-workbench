@@ -105,12 +105,23 @@ describe('videoStatusInfo', () => {
         latest_task: { ...task, type: 'auto_annotate', status: 'queued' },
       }),
     ).toBe('等待自动标注')
-    expect(
-      videoStatusInfo({
-        ...video,
-        latest_task: { ...task, type: 'auto_annotate', status: 'succeeded' },
-      }),
-    ).toBe('自动标注完成')
+  })
+
+  it.each([
+    ['单视频全手动标注', null],
+    ['单视频手动加部分自动标注', null],
+    ['单视频全自动标注', { ...task, type: 'auto_annotate' as const, status: 'succeeded' as const }],
+    ['多视频批量自动标注', null],
+  ])('%s 完成后统一展示当前数据状态', (_scenario, latestTask) => {
+    const status = videoWorkflowStatus({
+      ...video,
+      sampling,
+      has_annotations: true,
+      latest_task: latestTask,
+    })
+
+    expect(status.primary).toBe('已采样')
+    expect(status.flags).toContain('有标注')
   })
 
   it('ignores stale failed tasks and reports resource state', () => {
