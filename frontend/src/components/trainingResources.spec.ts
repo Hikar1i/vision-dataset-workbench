@@ -4,6 +4,7 @@ import {
   artifactPreview,
   diffHyperparameterConfig,
   effectiveResourceIds,
+  formatBaseModel,
   formatBatchSize,
   groupedOptions,
   hasEffectiveResources,
@@ -48,6 +49,11 @@ describe("training resources", () => {
     expect(formatBatchSize(0.8)).toBe("80%");
     expect(formatBatchSize(16)).toBe("16");
     expect(formatBatchSize(null)).toBe("—");
+  });
+
+  it("keeps both frozen BaseModel identifiers visible", () => {
+    expect(formatBaseModel("YOLO11s", "yolo11s")).toBe("YOLO11s / yolo11s");
+    expect(formatBaseModel(null, "legacy-code")).toBe("— / legacy-code");
   });
 
   it("reports effective resource gaps across inherited and mixed sources", () => {

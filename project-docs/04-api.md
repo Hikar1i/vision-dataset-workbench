@@ -73,7 +73,7 @@
 | `GET /api/v1/model-projects/{id}/models` | Session | 返回指定模型项目内模型 |
 | `GET /api/v1/model-project-tags` | Session | 返回工作区模型项目标签候选 |
 | `POST /api/v1/model-projects/{id}/models` | Session + same-origin；创建者或管理员 | 创建 `.pt` 模型导入任务 |
-| `GET/PATCH/DELETE /api/v1/models/{id}` | Session；写入需项目管理权 | 查看、编辑/移动或逻辑删除模型；详情响应对训练发布模型附带冻结的训练参数、basemodel 与数据集摘要 |
+| `GET/PATCH/DELETE /api/v1/models/{id}` | Session；写入需项目管理权 | 查看、编辑/移动或逻辑删除模型；详情响应对训练发布模型附带冻结的训练参数、`base_model_name`/`base_model_code` 与数据集摘要 |
 | `GET /api/v1/models/{id}/download` | Session | 下载 ready 且路径通过受管目录校验的 `.pt` 模型 |
 | `GET /api/v1/hyperparameter-catalog` | Session | 返回 Detect v1 参数目录、类型、默认值和约束 |
 | `POST /api/v1/hyperparameter-templates/validate-raw` | Session | 严格校验完整 RAW YAML；失败不返回可应用配置 |

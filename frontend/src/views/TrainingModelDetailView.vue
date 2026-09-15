@@ -13,7 +13,7 @@ import VChip from "../ui/VChip.vue";
 import VPanel from "../ui/VPanel.vue";
 import VTag from "../ui/VTag.vue";
 import { trainingStatus } from "../ui/status";
-import { formatBatchSize } from "../components/trainingResources";
+import { formatBaseModel, formatBatchSize } from "../components/trainingResources";
 import {
   cancelTrainingModel,
   deleteTrainingModel,
@@ -186,7 +186,7 @@ const summary = computed(() => {
     { key: "epoch", text: `${latest.value?.current_epoch || 0} / ${latest.value?.target_epochs || "—"}` },
     { key: "batchsize", text: formatBatchSize(parameters?.batch) },
     { key: "imagesize", text: String(parameters?.imgsz ?? "—") },
-    { key: "basemodel", text: String(base.model_code ?? base.name ?? "—") },
+    { key: "basemodel", text: formatBaseModel(base.name, base.model_code) },
     { key: "PID", text: String(latest.value?.pid || "—") },
     { key: "创建", text: formatTime(value.created_at) },
     { key: "开始", text: formatTime(value.started_at) },

@@ -17,6 +17,7 @@ import VChip from '../ui/VChip.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
 import VTag from '../ui/VTag.vue'
+import { formatBaseModel } from '../components/trainingResources'
 
 const route = useRoute()
 const modelId = String(route.params.modelId)
@@ -145,7 +146,7 @@ onMounted(load)
             <div><dt>epoch</dt><dd class="is-mono">{{ model.training.epochs ?? '—' }}</dd></div>
             <div><dt>batchsize</dt><dd class="is-mono">{{ model.training.batch_size ?? '—' }}</dd></div>
             <div><dt>imagesize</dt><dd class="is-mono">{{ model.training.image_size ?? '—' }}</dd></div>
-            <div><dt>basemodel</dt><dd class="is-mono">{{ model.training.base_model || '—' }}</dd></div>
+            <div><dt>basemodel</dt><dd class="is-mono">{{ formatBaseModel(model.training.base_model_name, model.training.base_model_code) }}</dd></div>
           </dl>
           <div class="training-datasets">
             <span>训练数据集</span>

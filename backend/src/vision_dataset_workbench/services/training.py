@@ -227,7 +227,8 @@ class TrainingService:
                 "epochs": parameters.get("epochs"),
                 "batch_size": parameters.get("batch"),
                 "image_size": parameters.get("imgsz"),
-                "base_model": base.get("model_code") or base.get("name"),
+                "base_model_name": base.get("name"),
+                "base_model_code": base.get("model_code"),
                 "datasets": datasets,
                 "parameters": parameters,
             }

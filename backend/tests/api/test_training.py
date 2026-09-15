@@ -212,7 +212,8 @@ def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypat
         "epochs": 2,
         "batch_size": -1,
         "image_size": 640,
-        "base_model": "yolo11s",
+        "base_model_name": "YOLO11s",
+        "base_model_code": "yolo11s",
         "datasets": [{"project_name": "Fire dataset", "dataset_name": "Fire v1"}],
         "parameters": detail["models"][0]["template_snapshot"]["parameters"],
     }

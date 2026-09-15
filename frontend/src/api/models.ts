@@ -7,7 +7,8 @@ export type ModelTrainingInfo = {
   epochs: number | null
   batch_size: number | null
   image_size: number | null
-  base_model: string | null
+  base_model_name: string | null
+  base_model_code: string | null
   datasets: { project_name: string; dataset_name: string }[]
   parameters: Record<string, unknown>
 }

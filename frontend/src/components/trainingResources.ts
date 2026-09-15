@@ -168,6 +168,10 @@ export function formatBatchSize(value: unknown) {
   return String(value);
 }
 
+export function formatBaseModel(name: unknown, code: unknown) {
+  return `${String(name || "—")} / ${String(code || "—")}`;
+}
+
 function safeBaseCode(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "yolo";
 }
