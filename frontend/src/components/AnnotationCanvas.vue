@@ -222,6 +222,7 @@ function handleDragEnd(event: Konva.KonvaEventObject<DragEvent>, item: FrameAnno
 }
 
 function handleTransformEnd(event: Konva.KonvaEventObject<Event>, item: FrameAnnotation) {
+  if (props.readonly) return
   const node = event.target
   const width = Math.max(2, node.width() * node.scaleX())
   const height = Math.max(2, node.height() * node.scaleY())
@@ -239,7 +240,7 @@ function syncTransformer() {
   void nextTick(() => {
     const transformer = transformerRef.value?.getNode()
     const stage = stageRef.value?.getNode()
-    const selected = props.selectedId
+    const selected = !props.readonly && props.selectedId
       ? stage?.findOne(`.annotation-${props.selectedId}`)
       : null
     transformer?.nodes(selected ? [selected] : [])
@@ -281,6 +282,7 @@ watch(() => [
   props.annotations,
   props.hiddenLabelIds,
   props.hiddenAnnotationIds,
+  props.readonly,
 ], syncTransformer, {
   deep: true,
 })
@@ -393,6 +395,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
             }"
           />
           <v-transformer
+            v-if="!readonly"
             ref="transformerRef"
             :config="{
               rotateEnabled: false,

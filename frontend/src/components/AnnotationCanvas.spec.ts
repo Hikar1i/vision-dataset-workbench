@@ -66,7 +66,7 @@ beforeAll(() => {
 })
 
 describe('AnnotationCanvas', () => {
-  it('omits hidden categories and disables dragging when read only', () => {
+  it('omits hidden categories and disables box editing when read only', async () => {
     const wrapper = mount(AnnotationCanvas, {
       props: {
         imageUrl: '/frame.jpg',
@@ -77,7 +77,7 @@ describe('AnnotationCanvas', () => {
           { id: 'helmet', name: 'helmet', color: '#16866f' },
           { id: 'person', name: 'person', color: '#e85d4a' },
         ],
-        selectedId: null,
+        selectedId: 'helmet-box',
         mode: 'select',
         readonly: true,
         hiddenLabelIds: ['person'],
@@ -94,6 +94,11 @@ describe('AnnotationCanvas', () => {
       draggable: false,
       stroke: '#16866f',
     })
+    expect(wrapper.findComponent(VTransformerStub).exists()).toBe(false)
+
+    boxes[0]!.vm.$emit('transformend', { target: {} })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('change')).toBeUndefined()
   })
 
   it('renders global labels, selected fill, pending bounds and blocks context menus', async () => {
