@@ -156,6 +156,82 @@ class TrainingService:
                 db.expunge(item)
             return items
 
+    @staticmethod
+    def _enrich_dataset_snapshot(db, snapshot: dict[str, object]) -> dict[str, object]:
+        if snapshot.get("kind") == "multi":
+            sources = snapshot.get("sources")
+            if isinstance(sources, list):
+                snapshot["sources"] = [
+                    TrainingService._enrich_dataset_source(db, source)
+                    if isinstance(source, dict)
+                    else source
+                    for source in sources
+                ]
+            return snapshot
+        return TrainingService._enrich_dataset_source(db, snapshot)
+
+    @staticmethod
+    def _enrich_dataset_source(db, source: dict[str, object]) -> dict[str, object]:
+        result = dict(source)
+        export_id = result.get("dataset_export_id") or result.get("id")
+        dataset = db.get(DatasetExport, export_id) if isinstance(export_id, str) else None
+        if dataset:
+            project = db.get(Project, dataset.project_id)
+            result.setdefault("dataset_export_id", dataset.id)
+            result.setdefault("dataset_name", dataset.name)
+            result.setdefault("project_id", dataset.project_id)
+            result.setdefault("project_name", project.name if project else "")
+        else:
+            result.setdefault("dataset_name", result.get("name", ""))
+            result.setdefault("project_name", "")
+        return result
+
+    def dataset_snapshot_for_display(self, model: TrainingModel) -> dict[str, object]:
+        try:
+            snapshot = json.loads(model.dataset_snapshot or "{}")
+        except (TypeError, json.JSONDecodeError):
+            snapshot = {}
+        with self._session_factory() as db:
+            return self._enrich_dataset_snapshot(db, snapshot)
+
+    def inference_model_training_info(self, inference_model_id: str) -> dict[str, object] | None:
+        with self._session_factory() as db:
+            inference_model = db.get(InferenceModel, inference_model_id)
+            if inference_model is None or not inference_model.training_model_id:
+                return None
+            training_model = db.get(TrainingModel, inference_model.training_model_id)
+            if training_model is None:
+                return None
+            try:
+                template = json.loads(training_model.template_snapshot or "{}")
+                base = json.loads(training_model.base_model_snapshot or "{}")
+                dataset = json.loads(training_model.dataset_snapshot or "{}")
+            except (TypeError, json.JSONDecodeError):
+                return None
+            parameters = template.get("parameters", {})
+            if not isinstance(parameters, dict):
+                parameters = {}
+            enriched = self._enrich_dataset_snapshot(db, dataset)
+            sources = enriched.get("sources") if enriched.get("kind") == "multi" else [enriched]
+            datasets = [
+                {
+                    "project_name": str(source.get("project_name") or "未知项目"),
+                    "dataset_name": str(
+                        source.get("dataset_name") or source.get("name") or "未知数据集"
+                    ),
+                }
+                for source in sources or []
+                if isinstance(source, dict)
+            ]
+            return {
+                "epochs": parameters.get("epochs"),
+                "batch_size": parameters.get("batch"),
+                "image_size": parameters.get("imgsz"),
+                "base_model": base.get("model_code") or base.get("name"),
+                "datasets": datasets,
+                "parameters": parameters,
+            }
+
     def task_preparation(self, task_id: str) -> TrainingPreparation | None:
         with self._session_factory() as db:
             item = db.scalar(
@@ -545,6 +621,12 @@ class TrainingService:
             "kind": "single",
             "id": dataset.id,
             "name": dataset.name,
+            "dataset_export_id": dataset.id,
+            "dataset_name": dataset.name,
+            "project_id": dataset.project_id,
+            "project_name": (
+                project.name if (project := db.get(Project, dataset.project_id)) else ""
+            ),
             "storage_path": dataset.storage_path,
             "manifest": json.loads(dataset.manifest or "{}"),
         }

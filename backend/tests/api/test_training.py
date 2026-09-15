@@ -18,6 +18,7 @@ from vision_dataset_workbench.models import (
     InferenceModel,
     ModelProject,
     Project,
+    TrainingModel,
     TrainingRun,
     User,
 )
@@ -194,7 +195,27 @@ def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypat
     assert client.get(f"/api/v1/training-runs/{run_id}/pr-curve").json()["kind"] == "interactive"
     projects = client.get("/api/v1/model-projects").json()
     trained = next(item for item in projects if item["series_type"] == "training")
-    assert len(client.get(f"/api/v1/model-projects/{trained['id']}/models").json()) == 2
+    published_models = client.get(f"/api/v1/model-projects/{trained['id']}/models").json()
+    assert len(published_models) == 2
+    with Session(app.state.auth_service.engine) as db:
+        stored = db.get(TrainingModel, detail["models"][0]["id"])
+        stored.dataset_snapshot = (
+            '{"version":1,"kind":"single","id":"export-id",'
+            '"name":"Fire v1","storage_path":"exports/dataset","manifest":{}}'
+        )
+        db.commit()
+    enriched = client.get(f"/api/v1/training-tasks/{task_id}").json()["models"][0]
+    assert enriched["dataset_snapshot"]["project_name"] == "Fire dataset"
+    published = next(item for item in published_models if item["name"] == "small")
+    published_detail = client.get(f"/api/v1/models/{published['id']}").json()
+    assert published_detail["training"] == {
+        "epochs": 2,
+        "batch_size": -1,
+        "image_size": 640,
+        "base_model": "yolo11s",
+        "datasets": [{"project_name": "Fire dataset", "dataset_name": "Fire v1"}],
+        "parameters": detail["models"][0]["template_snapshot"]["parameters"],
+    }
     model_id = detail["models"][0]["id"]
     first_retry = client.post(
         f"/api/v1/training-models/{model_id}/retry",

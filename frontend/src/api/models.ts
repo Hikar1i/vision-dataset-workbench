@@ -3,6 +3,15 @@ import { json } from './auth'
 import type { ProjectLabel } from './labels'
 import type { ProjectTask } from './media'
 
+export type ModelTrainingInfo = {
+  epochs: number | null
+  batch_size: number | null
+  image_size: number | null
+  base_model: string | null
+  datasets: { project_name: string; dataset_name: string }[]
+  parameters: Record<string, unknown>
+}
+
 export type InferenceModel = {
   id: string
   model_project_id: string
@@ -21,6 +30,7 @@ export type InferenceModel = {
   can_manage: boolean
   created_at: string
   updated_at: string
+  training: ModelTrainingInfo | null
 }
 
 export type ModelProject = {

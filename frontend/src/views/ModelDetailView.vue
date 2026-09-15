@@ -13,6 +13,7 @@ import {
 } from '../api/models'
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
+import VChip from '../ui/VChip.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
 import VTag from '../ui/VTag.vue'
@@ -139,6 +140,23 @@ onMounted(load)
           </dl>
         </VPanel>
 
+        <VPanel v-if="model.training" title="训练信息" data-test="model-training-info">
+          <dl class="fact-grid training-facts">
+            <div><dt>epoch</dt><dd class="is-mono">{{ model.training.epochs ?? '—' }}</dd></div>
+            <div><dt>batchsize</dt><dd class="is-mono">{{ model.training.batch_size ?? '—' }}</dd></div>
+            <div><dt>imagesize</dt><dd class="is-mono">{{ model.training.image_size ?? '—' }}</dd></div>
+            <div><dt>basemodel</dt><dd class="is-mono">{{ model.training.base_model || '—' }}</dd></div>
+          </dl>
+          <div class="training-datasets">
+            <span>训练数据集</span>
+            <div>
+              <VChip v-for="item in model.training.datasets" :key="`${item.project_name}/${item.dataset_name}`">
+                {{ item.project_name }} / {{ item.dataset_name }}
+              </VChip>
+            </div>
+          </div>
+        </VPanel>
+
         <VPanel title="描述">
           <p class="model-description">{{ model.description || '暂无描述' }}</p>
         </VPanel>
@@ -214,6 +232,30 @@ onMounted(load)
 
 .fact-grid dd.is-wrap {
   overflow-wrap: anywhere;
+}
+
+.training-facts {
+  margin-bottom: 16px;
+}
+
+.training-datasets {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--vdw-line);
+}
+
+.training-datasets > span {
+  color: var(--vdw-ink-3);
+  font-size: 13px;
+}
+
+.training-datasets > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
 }
 
 .model-description {

@@ -214,7 +214,7 @@ def model_response(svc: TrainingService, model: TrainingModel) -> dict[str, obje
         "derived_from_id": model.derived_from_id,
         "continuation_of_id": model.continuation_of_id,
         "continuation_checkpoint": model.continuation_checkpoint,
-        "dataset_snapshot": json.loads(model.dataset_snapshot),
+        "dataset_snapshot": svc.dataset_snapshot_for_display(model),
         "template_snapshot": json.loads(model.template_snapshot),
         "base_model_snapshot": json.loads(model.base_model_snapshot),
         "actions": svc.action_availability(model, latest),

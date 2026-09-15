@@ -83,6 +83,7 @@ class InferenceModelResponse(BaseModel):
     can_manage: bool
     created_at: str
     updated_at: str
+    training: dict[str, object] | None = None
 
 
 class RegisteredModelResponse(BaseModel):
@@ -122,7 +123,10 @@ def _project_response(
 
 
 def _model_response(
-    service: ModelService, actor: User, model: InferenceModel
+    service: ModelService,
+    actor: User,
+    model: InferenceModel,
+    training: dict[str, object] | None = None,
 ) -> InferenceModelResponse:
     project = service.get_project(actor, model.model_project_id)
     try:
@@ -147,7 +151,13 @@ def _model_response(
         can_manage=(service.can_manage(actor, project) and project.series_type == "archive"),
         created_at=_utc_text(model.created_at),
         updated_at=_utc_text(model.updated_at),
+        training=training,
     )
+
+
+def _training_info(request: Request, model_id: str) -> dict[str, object] | None:
+    training_service = request.app.state.training_service
+    return training_service.inference_model_training_info(model_id) if training_service else None
 
 
 def _raise_model_error(exc: ValueError) -> NoReturn:
@@ -180,7 +190,7 @@ def get_model(
         model = service.get_model(user, model_id)
     except ModelNotFound as exc:
         _raise_model_error(exc)
-    return _model_response(service, user, model)
+    return _model_response(service, user, model, _training_info(request, model.id))
 
 
 @router.get("/models/{model_id}/download")
@@ -209,7 +219,7 @@ def update_model(
         model = service.update_model(user, model_id, **payload.model_dump())
     except (ModelNotFound, ModelForbidden, ModelConflict, InvalidModel) as exc:
         _raise_model_error(exc)
-    return _model_response(service, user, model)
+    return _model_response(service, user, model, _training_info(request, model.id))
 
 
 @router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)

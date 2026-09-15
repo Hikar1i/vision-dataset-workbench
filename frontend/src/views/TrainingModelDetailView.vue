@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from "element-plus";
+import { ArrowDown, ArrowUp } from "@element-plus/icons-vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import PrecisionRecallChart from "../components/PrecisionRecallChart.vue";
@@ -37,6 +38,7 @@ const prCurve = ref<PrCurve>({ version: 1, kind: "unavailable", series: [] });
 const log = ref("");
 const logView = ref<HTMLElement>();
 const dialog = ref<"derive" | "extend" | null>(null);
+const panels = reactive({ raw: false, metrics: true, curves: true, log: true });
 const action = reactive({
   task_code: "",
   task_name: "",
@@ -176,9 +178,14 @@ async function submitAction() {
 const summary = computed(() => {
   if (!model.value) return [];
   const value = model.value;
+  const parameters = value.template_snapshot.parameters as Record<string, unknown> | undefined;
+  const base = value.base_model_snapshot;
   return [
     { key: "GPU / 顺序", text: `GPU ${value.gpu_index} / q${String(value.queue_order).padStart(2, "0")}` },
     { key: "epoch", text: `${latest.value?.current_epoch || 0} / ${latest.value?.target_epochs || "—"}` },
+    { key: "batchsize", text: String(parameters?.batch ?? "—") },
+    { key: "imagesize", text: String(parameters?.imgsz ?? "—") },
+    { key: "basemodel", text: String(base.model_code ?? base.name ?? "—") },
     { key: "PID", text: String(latest.value?.pid || "—") },
     { key: "创建", text: formatTime(value.created_at) },
     { key: "开始", text: formatTime(value.started_at) },
@@ -186,6 +193,17 @@ const summary = computed(() => {
     { key: "结束", text: formatTime(value.finished_at) },
   ];
 });
+const trainingDatasets = computed(() => {
+  const snapshot = model.value?.dataset_snapshot;
+  if (!snapshot) return [];
+  const sources = snapshot.kind === "multi" ? snapshot.sources : [snapshot];
+  return Array.isArray(sources)
+    ? sources.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+    : [];
+});
+const rawParameters = computed(() => JSON.stringify(
+  model.value?.template_snapshot.parameters ?? {}, null, 2,
+));
 onMounted(async () => {
   try {
     await load();
@@ -269,7 +287,33 @@ onBeforeUnmount(() => clearInterval(timer));
               <dd>{{ item.text }}</dd>
             </div>
           </dl>
+          <div class="dataset-summary" data-test="training-datasets">
+            <span>训练数据集</span>
+            <div>
+              <VChip v-for="item in trainingDatasets" :key="String(item.dataset_export_id ?? item.id)">
+                {{ item.project_name || '未知项目' }} / {{ item.dataset_name || item.name || '未知数据集' }}
+              </VChip>
+            </div>
+          </div>
         </div>
+      </VPanel>
+
+      <VPanel title="完整超参数" :flush="!panels.raw">
+        <template #actions>
+          <VButton
+            variant="quiet"
+            size="sm"
+            data-test="toggle-raw-parameters"
+            :aria-expanded="panels.raw"
+            @click="panels.raw = !panels.raw"
+          >
+            <template #icon><component :is="panels.raw ? ArrowUp : ArrowDown" /></template>
+            {{ panels.raw ? '收起' : '展开' }}
+          </VButton>
+        </template>
+        <Transition name="section-reveal">
+          <pre v-if="panels.raw" class="raw-parameters" data-test="raw-parameters">{{ rawParameters }}</pre>
+        </Transition>
       </VPanel>
 
       <el-alert v-if="latest?.error" :title="latest.error" type="error" show-icon :closable="false" />
@@ -281,15 +325,27 @@ onBeforeUnmount(() => clearInterval(timer));
         :closable="false"
       />
 
-      <VPanel title="训练指标">
+      <VPanel title="训练指标" :flush="!panels.metrics">
         <template #head>
           <p class="panel-note">悬浮指针可查看对应 epoch 的横纵轴数值。</p>
         </template>
-        <TrainingMetricsChart :metrics="metrics" />
+        <template #actions>
+          <VButton variant="quiet" size="sm" :aria-expanded="panels.metrics" @click="panels.metrics = !panels.metrics">
+            <template #icon><component :is="panels.metrics ? ArrowUp : ArrowDown" /></template>
+            {{ panels.metrics ? '收起' : '展开' }}
+          </VButton>
+        </template>
+        <Transition name="section-reveal"><TrainingMetricsChart v-if="panels.metrics" :metrics="metrics" /></Transition>
       </VPanel>
 
-      <VPanel title="评估曲线">
-        <div class="curves-grid">
+      <VPanel title="评估曲线" :flush="!panels.curves">
+        <template #actions>
+          <VButton variant="quiet" size="sm" :aria-expanded="panels.curves" @click="panels.curves = !panels.curves">
+            <template #icon><component :is="panels.curves ? ArrowUp : ArrowDown" /></template>
+            {{ panels.curves ? '收起' : '展开' }}
+          </VButton>
+        </template>
+        <Transition name="section-reveal"><div v-if="panels.curves" class="curves-grid">
           <article class="curve-card">
             <header><strong>PR curve</strong></header>
             <PrecisionRecallChart :curve="prCurve" />
@@ -320,11 +376,17 @@ onBeforeUnmount(() => clearInterval(timer));
               score
             />
           </article>
-        </div>
+        </div></Transition>
       </VPanel>
 
       <VPanel title="训练日志" flush>
-        <pre ref="logView" class="run-log">{{ log || '暂无日志输出' }}</pre>
+        <template #actions>
+          <VButton variant="quiet" size="sm" :aria-expanded="panels.log" @click="panels.log = !panels.log">
+            <template #icon><component :is="panels.log ? ArrowUp : ArrowDown" /></template>
+            {{ panels.log ? '收起' : '展开' }}
+          </VButton>
+        </template>
+        <Transition name="section-reveal"><pre v-if="panels.log" ref="logView" class="run-log">{{ log || '暂无日志输出' }}</pre></Transition>
       </VPanel>
     </div>
 
@@ -425,6 +487,47 @@ onBeforeUnmount(() => clearInterval(timer));
   font-size: 14px;
 }
 
+.dataset-summary {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--vdw-line);
+}
+
+.dataset-summary > span {
+  color: var(--vdw-ink-3);
+  font-size: 13px;
+}
+
+.dataset-summary > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.raw-parameters {
+  max-height: 360px;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  color: var(--vdw-focus-ink);
+  font: 13px/1.6 var(--vdw-mono);
+  background: var(--vdw-focus-canvas);
+}
+
+.section-reveal-enter-active,
+.section-reveal-leave-active {
+  transition: opacity 220ms var(--vdw-ease), transform 220ms var(--vdw-ease);
+}
+
+.section-reveal-enter-from,
+.section-reveal-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 .panel-note {
   margin: 0;
   color: var(--vdw-ink-2);
@@ -473,5 +576,12 @@ onBeforeUnmount(() => clearInterval(timer));
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-reveal-enter-active,
+  .section-reveal-leave-active {
+    transition: none;
+  }
 }
 </style>
