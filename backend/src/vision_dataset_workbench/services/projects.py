@@ -53,6 +53,7 @@ class ProjectView:
     project: Project
     role: ProjectRole
     creator_username: str
+    categories: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -127,7 +128,12 @@ class ProjectService:
         except Exception:
             directory.rmdir()
             raise
-        return ProjectView(project=project, role="owner", creator_username=actor.username)
+        return ProjectView(
+            project=project,
+            role="owner",
+            creator_username=actor.username,
+            categories=(),
+        )
 
     def list_projects(
         self, actor: User, *, page: int, page_size: int
@@ -151,7 +157,31 @@ class ProjectService:
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             ).all()
-            return [self._view(database, actor, project) for project in projects], total
+            categories_by_project: dict[str, list[str]] = {}
+            if projects:
+                category_rows = database.execute(
+                    select(ProjectLabel.project_id, ProjectLabel.name)
+                    .where(
+                        ProjectLabel.project_id.in_([project.id for project in projects]),
+                        ProjectLabel.enabled.is_(True),
+                    )
+                    .order_by(
+                        ProjectLabel.project_id,
+                        ProjectLabel.sort_order,
+                        ProjectLabel.id,
+                    )
+                ).all()
+                for project_id, name in category_rows:
+                    categories_by_project.setdefault(project_id, []).append(name)
+            return [
+                self._view(
+                    database,
+                    actor,
+                    project,
+                    tuple(categories_by_project.get(project.id, ())),
+                )
+                for project in projects
+            ], total
 
     def get_project(self, actor: User, project_id: str) -> ProjectView:
         with self._session_factory() as database:
@@ -440,10 +470,19 @@ class ProjectService:
         )
         assert creator_username is not None
         return ProjectView(
-            project=project, role=role, creator_username=creator_username
+            project=project,
+            role=role,
+            creator_username=creator_username,
+            categories=self._categories(database, project.id),
         )
 
-    def _view(self, database: Session, actor: User, project: Project) -> ProjectView:
+    def _view(
+        self,
+        database: Session,
+        actor: User,
+        project: Project,
+        categories: tuple[str, ...] | None = None,
+    ) -> ProjectView:
         role = self._role(database, actor, project)
         assert role is not None
         creator_username = database.scalar(
@@ -451,7 +490,27 @@ class ProjectService:
         )
         assert creator_username is not None
         return ProjectView(
-            project=project, role=role, creator_username=creator_username
+            project=project,
+            role=role,
+            creator_username=creator_username,
+            categories=(
+                categories
+                if categories is not None
+                else self._categories(database, project.id)
+            ),
+        )
+
+    @staticmethod
+    def _categories(database: Session, project_id: str) -> tuple[str, ...]:
+        return tuple(
+            database.scalars(
+                select(ProjectLabel.name)
+                .where(
+                    ProjectLabel.project_id == project_id,
+                    ProjectLabel.enabled.is_(True),
+                )
+                .order_by(ProjectLabel.sort_order, ProjectLabel.id)
+            ).all()
         )
 
     def _role(

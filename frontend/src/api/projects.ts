@@ -8,6 +8,7 @@ export type Project = {
   description: string
   creator_id: string
   creator_username: string
+  categories: string[]
   role: ProjectRole
   version: number
   created_at: string

@@ -43,6 +43,7 @@ class ProjectResponse(BaseModel):
     description: str
     creator_id: str
     creator_username: str
+    categories: list[str]
     role: Literal["owner", "editor", "viewer"]
     version: int
     created_at: str
@@ -85,6 +86,7 @@ def _project_response(view: ProjectView) -> ProjectResponse:
         description=project.description,
         creator_id=project.creator_id,
         creator_username=view.creator_username,
+        categories=list(view.categories),
         role=view.role,
         version=project.version,
         created_at=_utc_text(project.created_at),

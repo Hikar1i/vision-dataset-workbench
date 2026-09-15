@@ -292,3 +292,19 @@
 .utility-card form > .el-button {
   width: 100%;
 }
+
+/* 列表内标签最多展示两行；单个长标签也不能挤占相邻列。 */
+.vdw-chip-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  max-height: 47px;
+  overflow: hidden;
+}
+
+.vdw-chip-stack > .vdw-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -111,6 +111,7 @@ describe('ProjectsView', () => {
                       description: '',
                       creator_id: 'admin-id',
                       creator_username: 'admin',
+                      categories: ['helmet', 'person', 'fire'],
                       role: 'owner',
                       version: 1,
                       created_at: '2026-07-23T00:00:00Z',
@@ -129,6 +130,10 @@ describe('ProjectsView', () => {
 
     // 短标识统一为 6 位大写，与模型项目、训练任务一致
     expect(wrapper.text()).toContain('123456')
+    expect(wrapper.get('[data-test="project-categories-12345678-project"]').classes())
+      .toContain('vdw-chip-stack')
+    expect(wrapper.get('[data-test="project-categories-12345678-project"]').text())
+      .toContain('helmetpersonfire')
     expect(wrapper.text()).toContain('所有者')
     await wrapper.get('.row-actions').trigger('click')
     expect(isRecentRow('projects', '12345678-project')).toBe(false)

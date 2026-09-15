@@ -35,7 +35,7 @@ const valid = computed(() => name.value.trim().length > 0 && name.value.trim().l
 
 const roleLabels = { owner: '所有者', editor: '编辑者', viewer: '只读' } as const
 
-const COLUMNS = 'minmax(260px, 2fr) 96px minmax(120px, 0.7fr) 116px 150px'
+const COLUMNS = 'minmax(240px, 1.5fr) minmax(180px, 1fr) 96px minmax(120px, 0.7fr) 116px 150px'
 const RECENT_SCOPE = 'projects'
 
 async function load(nextPage = page.value) {
@@ -160,7 +160,7 @@ onMounted(() => load())
       <VPanel v-loading="loading" flush>
         <VTable
           :columns="COLUMNS"
-          :headers="['项目', '权限', '所有者', '最近更新', '操作']"
+          :headers="['项目', '类别', '权限', '所有者', '最近更新', '操作']"
         >
           <VRow
             v-for="project in projects"
@@ -173,6 +173,14 @@ onMounted(() => load())
                 <VChip variant="id">{{ project.id.slice(0, 6).toUpperCase() }}</VChip>
               </template>
             </VCellName>
+            <div
+              :data-test="`project-categories-${project.id}`"
+              class="vdw-chip-stack"
+              :title="(project.categories ?? []).join('、')"
+            >
+              <VChip v-for="category in project.categories ?? []" :key="category">{{ category }}</VChip>
+              <span v-if="!project.categories?.length" class="cell-muted">—</span>
+            </div>
             <VTag :tone="project.role === 'owner' ? 'run' : 'idle'">
               {{ roleLabels[project.role] }}
             </VTag>
