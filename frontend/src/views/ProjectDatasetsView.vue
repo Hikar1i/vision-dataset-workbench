@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Delete, Download, View } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, CopyDocument, Delete, Download, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
@@ -12,11 +12,13 @@ import {
   type DatasetExportDetail,
 } from '../api/datasetExports'
 import type { Project } from '../api/projects'
+import { copyText } from '../ui/clipboard'
 import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import { datasetExportStatus } from '../ui/status'
 import VButton from '../ui/VButton.vue'
 import VChip from '../ui/VChip.vue'
+import VPanel from '../ui/VPanel.vue'
 import VTag from '../ui/VTag.vue'
 
 const props = defineProps<{ project: Project }>()
@@ -29,6 +31,7 @@ const error = ref('')
 const detail = ref<DatasetExportDetail | null>(null)
 const detailLoading = ref(false)
 const deleting = ref('')
+const manifestOpen = ref(false)
 const canEdit = computed(() => props.project.role !== 'viewer')
 const recentDatasetScope = computed(() => `project:${props.project.id}:datasets`)
 const manifestText = computed(() => (
@@ -73,6 +76,7 @@ async function load(nextPage = page.value) {
 
 async function showDetail(item: DatasetExport) {
   detailLoading.value = true
+  manifestOpen.value = false
   error.value = ''
   try {
     detail.value = await getDatasetExport(props.project.id, item.id)
@@ -80,6 +84,15 @@ async function showDetail(item: DatasetExport) {
     error.value = reason instanceof Error ? reason.message : '数据集详情加载失败'
   } finally {
     detailLoading.value = false
+  }
+}
+
+async function copyManifest() {
+  try {
+    await copyText(manifestText.value)
+    ElMessage.success('manifest.json 已复制。')
+  } catch {
+    ElMessage.error('复制失败，请检查浏览器剪贴板权限。')
   }
 }
 
@@ -193,6 +206,15 @@ const headerHost = useProjectHeaderHost()
             </div>
           </template>
         </el-table-column>
+        <el-table-column label="样本视频" width="220">
+          <template #default="{ row }">
+            <div class="frame-summary" :data-test="`video-summary-${row.id}`">
+              <span><small>总计</small><b>{{ row.total_videos ?? '—' }}</b></span>
+              <span><small>训练</small><b>{{ row.train_videos ?? '—' }}</b></span>
+              <span><small>验证</small><b>{{ row.val_videos ?? '—' }}</b></span>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="训练集 : 验证集" width="210">
           <template #default="{ row }">
             <div class="ratio-summary" :data-test="`ratio-summary-${row.id}`">
@@ -273,6 +295,13 @@ const headerHost = useProjectHeaderHost()
                   <span><small>验证</small><b>{{ detail.val_frames }}</b></span>
                 </div>
               </el-descriptions-item>
+              <el-descriptions-item label="样本视频">
+                <div class="frame-summary" data-test="detail-video-summary">
+                  <span><small>总计</small><b>{{ detail.total_videos ?? '—' }}</b></span>
+                  <span><small>训练</small><b>{{ detail.train_videos ?? '—' }}</b></span>
+                  <span><small>验证</small><b>{{ detail.val_videos ?? '—' }}</b></span>
+                </div>
+              </el-descriptions-item>
               <el-descriptions-item label="导出时间">{{ dateTime(detail.completed_at) }}</el-descriptions-item>
             </el-descriptions>
           </section>
@@ -304,11 +333,32 @@ const headerHost = useProjectHeaderHost()
             </el-table>
           </section>
 
-          <el-collapse v-if="manifestText" class="detail-panel manifest-panel">
-            <el-collapse-item title="查看 manifest.json" name="manifest">
-              <pre>{{ manifestText }}</pre>
-            </el-collapse-item>
-          </el-collapse>
+          <VPanel v-if="manifestText" title="manifest.json" :flush="!manifestOpen">
+            <template #actions>
+              <VButton
+                variant="quiet"
+                size="sm"
+                data-test="copy-manifest"
+                title="复制 manifest.json"
+                @click="copyManifest"
+              ><template #icon><el-icon><CopyDocument /></el-icon></template>复制</VButton>
+              <VButton
+                variant="quiet"
+                size="sm"
+                data-test="toggle-manifest"
+                :title="manifestOpen ? '收起 manifest.json' : '展开 manifest.json'"
+                :aria-expanded="manifestOpen"
+                aria-controls="manifest-json-panel"
+                @click="manifestOpen = !manifestOpen"
+              >
+                <template #icon><component :is="manifestOpen ? ArrowUp : ArrowDown" /></template>
+                {{ manifestOpen ? '收起' : '展开' }}
+              </VButton>
+            </template>
+            <Transition name="section-reveal">
+              <pre v-if="manifestOpen" id="manifest-json-panel" data-test="manifest-json">{{ manifestText }}</pre>
+            </Transition>
+          </VPanel>
         </div>
       </div>
     </el-dialog>
@@ -337,7 +387,6 @@ const headerHost = useProjectHeaderHost()
 .detail-panel { overflow: hidden; background: white; border: 1px solid var(--vdw-line); }
 .detail-panel h2 { margin: 0; padding: 13px 16px; font: 700 17px var(--vdw-sans); border-bottom: 1px solid var(--vdw-line); }
 .detail-overview { padding: 0; }
-.manifest-panel { padding: 0 16px; }
 .dataset-detail-content pre { max-height: 420px; margin: 0; padding: 14px; overflow: auto; color: #d7e3ec; background: var(--vdw-ink); font: 13px/1.6 var(--vdw-mono); }
 .empty-state { padding: 72px 20px; text-align: center; }
 .empty-state h2 { margin: 0 0 8px; font-size: 18px; }

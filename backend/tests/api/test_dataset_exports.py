@@ -1,4 +1,5 @@
 import io
+import json
 import zipfile
 
 from fastapi.testclient import TestClient
@@ -273,10 +274,22 @@ def test_ready_export_download_and_logical_delete(tmp_path):
         record = session.get(DatasetExport, created["id"])
         record.status = "ready"
         record.storage_path = relative
-        record.manifest = '{"version": 1}'
+        record.manifest = json.dumps(
+            {
+                "version": 1,
+                "train_video_ids": ["train-1", "train-2"],
+                "val_video_ids": ["val-1"],
+                "disabled_video_ids": ["disabled-1"],
+            }
+        )
         task = session.get(Task, record.task_id)
         task.status = "succeeded"
         session.commit()
+
+    listed = viewer.get("/api/v1/projects/project-id/dataset-exports").json()
+    assert listed["items"][0]["total_videos"] == 3
+    assert listed["items"][0]["train_videos"] == 2
+    assert listed["items"][0]["val_videos"] == 1
 
     downloaded = viewer.get(
         f"/api/v1/projects/project-id/dataset-exports/{created['id']}/download"

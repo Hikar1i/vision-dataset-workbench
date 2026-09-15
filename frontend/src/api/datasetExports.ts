@@ -20,6 +20,9 @@ export type DatasetExport = {
   total_frames: number
   train_frames: number
   val_frames: number
+  total_videos: number | null
+  train_videos: number | null
+  val_videos: number | null
   labels: DatasetExportLabel[]
   error: string | null
   created_at: string
@@ -50,6 +53,9 @@ export type DatasetExportManifest = {
   total_frames: number
   train_frames: number
   val_frames: number
+  total_videos?: number
+  train_videos?: number
+  val_videos?: number
   labels: DatasetExportLabel[]
   train_video_ids: string[]
   val_video_ids: string[]

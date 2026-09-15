@@ -30,6 +30,9 @@ const item = {
   total_frames: 100,
   train_frames: 75,
   val_frames: 25,
+  total_videos: 3,
+  train_videos: 2,
+  val_videos: 1,
   labels: [
     { source_label_id: 'person', name: 'person', mapping: 0, enabled: true },
     { source_label_id: 'car', name: 'car', mapping: 1, enabled: false },
@@ -65,6 +68,7 @@ beforeEach(() => {
     },
   })
   mocks.remove.mockResolvedValue(undefined)
+  vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
 })
 
 afterEach(() => {
@@ -94,6 +98,9 @@ it('lets a viewer inspect and download without delete controls', async () => {
   expect(wrapper.get('[data-test="frame-summary-export-id"]').text()).toContain('总计100')
   expect(wrapper.get('[data-test="frame-summary-export-id"]').text()).toContain('训练75')
   expect(wrapper.get('[data-test="frame-summary-export-id"]').text()).toContain('验证25')
+  expect(wrapper.get('[data-test="video-summary-export-id"]').text()).toContain('总计3')
+  expect(wrapper.get('[data-test="video-summary-export-id"]').text()).toContain('训练2')
+  expect(wrapper.get('[data-test="video-summary-export-id"]').text()).toContain('验证1')
   expect(wrapper.get('[data-test="ratio-summary-export-id"]').text()).toContain('期望0.80 : 0.20')
   expect(wrapper.get('[data-test="ratio-summary-export-id"]').text()).toContain('实际0.75 : 0.25')
   expect(wrapper.get('[data-test="category-count-export-id"]').text()).toBe('1 类')
@@ -122,6 +129,12 @@ it('lets a viewer inspect and download without delete controls', async () => {
   expect(detailRows.length).toBeGreaterThan(0)
   expect(detailRows.every((row) => !row.classes().includes('vdw-row--recent'))).toBe(true)
   expect(body.get('[data-test="detail-frame-summary"]').text()).toContain('总计100')
+  expect(body.get('[data-test="detail-video-summary"]').text()).toContain('总计3')
+  expect(body.find('[data-test="manifest-json"]').exists()).toBe(false)
+  await body.get('[data-test="toggle-manifest"]').trigger('click')
+  expect(body.get('[data-test="manifest-json"]').text()).toContain('"train_video_ids"')
+  await body.get('[data-test="copy-manifest"]').trigger('click')
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('"version": 1'))
   expect(body.text()).toContain('TESTV001')
   expect(body.text()).toContain('正样本')
   wrapper.unmount()

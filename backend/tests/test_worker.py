@@ -734,6 +734,11 @@ def test_dataset_export_task_hardlinks_images_and_writes_sparse_labels(tmp_path)
     assert (target / "classes.txt").read_text() == "person\ncar\n"
     assert "nc: 2" in (target / "dataset.yaml").read_text()
     assert manifest["train_video_ids"] == ["export-video"]
+    assert (manifest["total_videos"], manifest["train_videos"], manifest["val_videos"]) == (
+        1,
+        1,
+        0,
+    )
     assert manifest["video_stats"][0]["positive_frames"] == 1
     assert manifest["video_stats"][0]["negative_frames"] == 1
     engine.dispose()
