@@ -5,14 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import BatchAnnotationDialog from './BatchAnnotationDialog.vue'
 
 const mocks = vi.hoisted(() => ({
-  listProjects: vi.fn(), listModels: vi.fn(), listRemote: vi.fn(), create: vi.fn(),
+  listProjects: vi.fn(), listModels: vi.fn(), listRemote: vi.fn(), getSetting: vi.fn(),
+  listLLM: vi.fn(), create: vi.fn(),
 }))
 vi.mock('../api/models', () => ({
   listModelProjects: mocks.listProjects,
   listModelProjectModels: mocks.listModels,
   listXAnyLabelingModels: mocks.listRemote,
+  getXAnyLabelingSetting: mocks.getSetting,
   createProjectBatchAutoAnnotation: mocks.create,
 }))
+vi.mock('../api/llm', () => ({ listLLMConfigs: mocks.listLLM }))
 
 const baseVideo = {
   id: 'video-new', short_code: 'NEW', source_type: 'local' as const, title: 'new.mp4',
@@ -25,8 +28,12 @@ const baseVideo = {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.listProjects.mockResolvedValue([{ id: 'project-models', name: '检测模型' }])
-  mocks.listModels.mockResolvedValue([{ id: 'model-id', name: 'YOLO11n' }])
+  mocks.listModels.mockResolvedValue([{ id: 'model-id', name: 'YOLO11n', status: 'ready' }])
   mocks.listRemote.mockResolvedValue([])
+  mocks.getSetting.mockResolvedValue({
+    configured: false, server_url: '', has_api_key: false, available: false,
+  })
+  mocks.listLLM.mockResolvedValue([{ id: 'llm-id', name: '视觉模型', enabled: true, available: true }])
 })
 afterEach(() => { document.body.innerHTML = '' })
 
@@ -64,5 +71,32 @@ describe('BatchAnnotationDialog', () => {
     await wrapper.get('[data-test="annotation-risk-confirm"] input').setValue(true)
     await flushPromises()
     expect(wrapper.get('[data-test="annotation-create-task"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('uses the unified source order and submits an online model with typed categories', async () => {
+    const wrapper = mountDialog('unannotated')
+    await flushPromises()
+
+    const source = wrapper.getComponent({ name: 'ElSelect' })
+    expect(source.findAllComponents({ name: 'ElOption' }).map((item) => item.props('value')))
+      .toEqual(['xanylabeling', 'online', 'project:project-models'])
+
+    source.vm.$emit('change', 'online')
+    await flushPromises()
+    expect(mocks.listLLM).toHaveBeenCalled()
+    await wrapper.get('[data-test="annotation-categories"]').setValue('person, car')
+    await wrapper.get('[data-test="annotation-create-task"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.create).toHaveBeenCalledWith(
+      'project-id',
+      ['video-new'],
+      expect.objectContaining({
+        source: 'online', model_id: 'llm-id', remote_task_id: null,
+        categories: ['person', 'car'],
+      }),
+      'unannotated',
+      false,
+    )
   })
 })

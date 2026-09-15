@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 
 import {
   createProjectBatchAutoAnnotation,
+  getXAnyLabelingSetting,
   listModelProjectModels,
   listModelProjects,
   listXAnyLabelingModels,
@@ -11,9 +12,14 @@ import {
   type InferenceModel,
   type ModelProject,
   type RemoteModelOption,
+  type XAnyLabelingSetting,
 } from '../api/models'
+import { listLLMConfigs, type LLMConfig } from '../api/llm'
 import type { Video } from '../api/media'
 import VButton from '../ui/VButton.vue'
+import XAnyLabelingSettingsDialog from './XAnyLabelingSettingsDialog.vue'
+
+type ModelSourceValue = 'xanylabeling' | 'online' | `project:${string}`
 
 const props = defineProps<{
   modelValue: boolean
@@ -26,11 +32,13 @@ const emit = defineEmits<{
   submitted: [accepted: string[]]
 }>()
 
-const source = ref<'local' | 'xanylabeling'>('local')
+const source = ref<ModelSourceValue>('' as ModelSourceValue)
 const modelProjects = ref<ModelProject[]>([])
 const models = ref<InferenceModel[]>([])
 const remoteModels = ref<RemoteModelOption[]>([])
-const projectId = ref('')
+const llmConfigs = ref<LLMConfig[]>([])
+const xanylabelingSetting = ref<XAnyLabelingSetting | null>(null)
+const xanylabelingSettingsOpen = ref(false)
 const modelId = ref('')
 const categories = ref('')
 const confidence = ref(0.25)
@@ -45,52 +53,95 @@ const unannotatedCount = computed(() => props.videos.length - annotatedCount.val
 const valid = computed(() => Boolean(modelId.value) && props.videos.length > 0)
 const settingsDisabled = computed(() => props.scope === 'all' && !riskConfirmed.value)
 
-function modelOptionId(item: InferenceModel | RemoteModelOption) {
-  return 'id' in item ? item.id : item.model_id
-}
+const selectedProjectId = computed(() => source.value.startsWith('project:')
+  ? source.value.slice('project:'.length)
+  : '')
+const selectedRemoteModel = computed(() =>
+  remoteModels.value.find((item) => item.key === modelId.value) ?? null,
+)
+const modelOptions = computed(() => source.value === 'xanylabeling'
+  ? remoteModels.value.map((item) => ({ id: item.key, name: item.name }))
+  : source.value === 'online'
+    ? llmConfigs.value.map((item) => ({ id: item.id, name: item.name }))
+    : models.value.map((item) => ({ id: item.id, name: item.name })))
 
 async function loadModels() {
   error.value = ''
   try {
     if (source.value === 'xanylabeling') {
       remoteModels.value = await listXAnyLabelingModels()
-      modelId.value = remoteModels.value[0]?.model_id || ''
+      modelId.value = remoteModels.value[0]?.key || ''
       return
     }
-    modelProjects.value = await listModelProjects()
-    if (!projectId.value || !modelProjects.value.some((item) => item.id === projectId.value)) {
-      projectId.value = modelProjects.value[0]?.id || ''
+    if (source.value === 'online') {
+      llmConfigs.value = (await listLLMConfigs()).filter((item) => item.enabled)
+      modelId.value = llmConfigs.value.find((item) => item.available)?.id || ''
+      return
     }
-    models.value = projectId.value ? await listModelProjectModels(projectId.value) : []
+    models.value = selectedProjectId.value
+      ? (await listModelProjectModels(selectedProjectId.value)).filter((item) => item.status === 'ready')
+      : []
     modelId.value = models.value[0]?.id || ''
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '模型列表加载失败'
   }
 }
 
+async function loadSources() {
+  error.value = ''
+  try {
+    const [projects, setting] = await Promise.all([
+      listModelProjects(),
+      getXAnyLabelingSetting(),
+    ])
+    modelProjects.value = projects
+    xanylabelingSetting.value = setting
+    const selectedExists = source.value === 'xanylabeling'
+      || source.value === 'online'
+      || projects.some((item) => `project:${item.id}` === source.value)
+    if (!selectedExists) source.value = projects[0] ? `project:${projects[0].id}` : 'online'
+    await loadModels()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '模型来源加载失败'
+  }
+}
+
+async function changeSource(value: ModelSourceValue) {
+  source.value = value
+  modelId.value = ''
+  if (value === 'xanylabeling') {
+    xanylabelingSettingsOpen.value = true
+    return
+  }
+  await loadModels()
+}
+
+function savedXAnyLabeling(setting: XAnyLabelingSetting, items: RemoteModelOption[]) {
+  xanylabelingSetting.value = setting
+  remoteModels.value = items
+  source.value = 'xanylabeling'
+  modelId.value = items[0]?.key || ''
+}
+
 watch(() => props.modelValue, (open) => {
   if (open) {
     riskConfirmed.value = false
     overwrite.value = false
-    void loadModels()
+    void loadSources()
   }
 }, { immediate: true })
-watch(source, () => void loadModels())
-watch(projectId, async (value) => {
-  if (source.value !== 'local' || !value) return
-  models.value = await listModelProjectModels(value)
-  modelId.value = models.value[0]?.id || ''
-})
 
 async function submit() {
   if (!valid.value) return
   loading.value = true
   error.value = ''
   const config: AutoAnnotationConfig = {
-    source: source.value,
-    model_id: modelId.value,
+    source: source.value === 'xanylabeling'
+      ? 'xanylabeling'
+      : source.value === 'online' ? 'online' : 'local',
+    model_id: selectedRemoteModel.value?.model_id ?? modelId.value,
     remote_task_id: source.value === 'xanylabeling'
-      ? remoteModels.value.find((item) => item.model_id === modelId.value)?.task_id || null
+      ? selectedRemoteModel.value?.task_id || null
       : null,
     categories: categories.value.split(',').map((item) => item.trim()).filter(Boolean),
     confidence: confidence.value,
@@ -138,29 +189,42 @@ async function submit() {
         <el-switch v-model="riskConfirmed" data-test="annotation-risk-confirm" />
       </div>
       <el-form label-position="top">
-        <el-form-item label="标注模型来源">
-          <el-radio-group v-model="source" :disabled="settingsDisabled">
-            <el-radio value="local">模型项目</el-radio>
-            <el-radio value="xanylabeling">X-anylabeling-server</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item v-if="source === 'local'" label="模型项目">
-          <el-select v-model="projectId" :disabled="settingsDisabled" placeholder="选择模型项目" style="width: 100%">
-            <el-option v-for="item in modelProjects" :key="item.id" :label="item.name" :value="item.id" />
+        <el-form-item label="模型项目">
+          <el-select
+            :model-value="source"
+            data-test="model-project-select"
+            :disabled="settingsDisabled"
+            placeholder="选择模型项目"
+            style="width: 100%"
+            @change="changeSource"
+          >
+            <el-option
+              data-test="model-source-option"
+              value="xanylabeling"
+              :label="`X-anylabeling-server（${xanylabelingSetting?.available ? '可用' : '不可用'}）`"
+            />
+            <el-option data-test="model-source-option" value="online" label="在线大模型" />
+            <el-option
+              v-for="item in modelProjects"
+              :key="item.id"
+              data-test="model-source-option"
+              :label="item.name"
+              :value="`project:${item.id}`"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="模型">
-          <el-select v-model="modelId" :disabled="settingsDisabled" placeholder="选择模型" style="width: 100%">
+          <el-select v-model="modelId" data-test="inference-model-select" :disabled="settingsDisabled" placeholder="选择模型" style="width: 100%">
             <el-option
-              v-for="item in (source === 'local' ? models : remoteModels)"
-              :key="modelOptionId(item)"
+              v-for="item in modelOptions"
+              :key="item.id"
               :label="item.name"
-              :value="modelOptionId(item)"
+              :value="item.id"
             />
           </el-select>
         </el-form-item>
         <el-form-item label="类别（可选，逗号分隔）">
-          <el-input v-model="categories" :disabled="settingsDisabled" placeholder="例如：person, car" />
+          <el-input v-model="categories" data-test="annotation-categories" :disabled="settingsDisabled" placeholder="例如：person, car" />
         </el-form-item>
         <div class="annotation-number-row">
           <el-form-item label="置信度"><el-input-number v-model="confidence" :disabled="settingsDisabled" :min="0" :max="1" :step="0.05" /></el-form-item>
@@ -175,6 +239,11 @@ async function submit() {
       <VButton variant="primary" data-test="annotation-create-task" :loading="loading" :disabled="!valid || settingsDisabled" @click="submit">创建任务</VButton>
     </template>
   </el-dialog>
+  <XAnyLabelingSettingsDialog
+    v-model="xanylabelingSettingsOpen"
+    :setting="xanylabelingSetting"
+    @saved="savedXAnyLabeling"
+  />
 </template>
 
 <style scoped>

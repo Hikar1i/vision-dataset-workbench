@@ -47,7 +47,6 @@ import {
   listModelProjects,
   listXAnyLabelingModels,
   runFrameAutoAnnotation,
-  saveXAnyLabelingSetting,
   type AutoAnnotationConfig,
   type InferenceModel,
   type ModelProject,
@@ -58,6 +57,7 @@ import { listLLMConfigs, type LLMConfig } from '../api/llm'
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
 import FrameAnnotationThumbnail from '../components/FrameAnnotationThumbnail.vue'
+import XAnyLabelingSettingsDialog from '../components/XAnyLabelingSettingsDialog.vue'
 import { formatFrameFileName } from '../components/framePresentation'
 import { type BoxBounds } from './annotationGeometry'
 import { createAnnotationHistory } from './annotationHistory'
@@ -66,7 +66,6 @@ import {
   loadAnnotationPreference,
   saveAnnotationPreference,
 } from './annotationPreferences'
-import VButton from '../ui/VButton.vue'
 
 type CanvasMode = 'select' | 'draw' | 'pan'
 type CanvasApi = { zoomBy: (factor: number) => void; resetView: () => void; zoomPercent: number }
@@ -117,10 +116,6 @@ const imageInfoExpanded = ref(true)
 const selectedSource = ref<ModelSourceValue>('' as ModelSourceValue)
 const modelListLoading = ref(false)
 const xanylabelingSettingsOpen = ref(false)
-const xanylabelingSettingsSaving = ref(false)
-const xanylabelingServerUrl = ref('')
-const xanylabelingApiKey = ref('')
-const clearXAnyLabelingApiKey = ref(false)
 const inferenceRunning = ref(false)
 const activeAutoTask = ref<ProjectTask | null>(null)
 const pendingBounds = ref<BoxBounds | null>(null)
@@ -377,9 +372,6 @@ async function openXAnyLabelingSettings() {
   if (!xanylabelingSetting.value) {
     xanylabelingSetting.value = await getXAnyLabelingSetting()
   }
-  xanylabelingServerUrl.value = xanylabelingSetting.value.server_url
-  xanylabelingApiKey.value = ''
-  clearXAnyLabelingApiKey.value = false
   xanylabelingSettingsOpen.value = true
 }
 
@@ -430,29 +422,14 @@ async function refreshSelectedModels() {
   }
 }
 
-async function saveXAnyLabelingSettings() {
-  if (!xanylabelingServerUrl.value.trim()) return
-  xanylabelingSettingsSaving.value = true
-  try {
-    const mode = clearXAnyLabelingApiKey.value
-      ? 'clear'
-      : xanylabelingApiKey.value ? 'replace' : 'retain'
-    const saved = await saveXAnyLabelingSetting(
-      xanylabelingServerUrl.value,
-      mode,
-      mode === 'replace' ? xanylabelingApiKey.value : null,
-    )
-    xanylabelingSetting.value = saved.setting
-    remoteModels.value = saved.models
-    selectedSource.value = 'xanylabeling'
-    autoModel.value = saved.models[0]?.key ?? ''
-    xanylabelingSettingsOpen.value = false
-    ElMessage.success('X-anylabeling-server 设置已保存。')
-  } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '远程服务器设置保存失败')
-  } finally {
-    xanylabelingSettingsSaving.value = false
-  }
+function savedXAnyLabelingSettings(
+  setting: XAnyLabelingSetting,
+  models: RemoteModelOption[],
+) {
+  xanylabelingSetting.value = setting
+  remoteModels.value = models
+  selectedSource.value = 'xanylabeling'
+  autoModel.value = models[0]?.key ?? ''
 }
 
 function autoConfig(): AutoAnnotationConfig | null {
@@ -1173,55 +1150,11 @@ watch(reuseLabel, (reuse) => {
       </div>
     </dl>
   </el-dialog>
-  <el-dialog
+  <XAnyLabelingSettingsDialog
     v-model="xanylabelingSettingsOpen"
-    data-test="xanylabeling-settings-dialog"
-    title="X-anylabeling-server 设置"
-    width="min(560px, calc(100vw - 32px))"
-    append-to-body
-    :close-on-click-modal="!xanylabelingSettingsSaving"
-    :close-on-press-escape="!xanylabelingSettingsSaving"
-    :show-close="!xanylabelingSettingsSaving"
-  >
-    <div class="xanylabeling-settings-form">
-      <label>
-        <span>服务器地址</span>
-        <el-input
-          v-model="xanylabelingServerUrl"
-          data-test="xanylabeling-server-url"
-          placeholder="http://127.0.0.1:44444"
-        />
-      </label>
-      <label>
-        <span>API 密钥（可选）</span>
-        <el-input
-          v-model="xanylabelingApiKey"
-          data-test="xanylabeling-api-key"
-          type="password"
-          show-password
-          autocomplete="new-password"
-          :placeholder="xanylabelingSetting?.has_api_key ? '已配置，留空则保留' : '未配置'"
-        />
-      </label>
-      <el-checkbox
-        v-if="xanylabelingSetting?.has_api_key"
-        v-model="clearXAnyLabelingApiKey"
-      >清除已保存的 API 密钥</el-checkbox>
-    </div>
-    <template #footer>
-      <VButton
-        variant="quiet"
-        :disabled="xanylabelingSettingsSaving"
-        @click="xanylabelingSettingsOpen = false"
-      >取消</VButton>
-      <VButton
-        variant="primary"
-        :loading="xanylabelingSettingsSaving"
-        :disabled="!xanylabelingServerUrl.trim()"
-        @click="saveXAnyLabelingSettings"
-      >确认</VButton>
-    </template>
-  </el-dialog>
+    :setting="xanylabelingSetting"
+    @saved="savedXAnyLabelingSettings"
+  />
 </template>
 
 <style scoped>
@@ -1395,9 +1328,6 @@ watch(reuseLabel, (reuse) => {
 .model-registration-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 12px; }
 .model-registration-form > label > span { color: var(--vdw-focus-ink-2); font-size: 14px; }
 .model-registration-form > p { margin: 0; color: var(--vdw-ink-2); font-size: 14px; }
-.xanylabeling-settings-form { display: grid; gap: 16px; }
-.xanylabeling-settings-form > label { display: grid; gap: 7px; }
-.xanylabeling-settings-form > label > span { color: var(--vdw-focus-ink-2); font-size: 14px; }
 
 @media (prefers-reduced-motion: reduce) {
   .info-expand-enter-active,
