@@ -73,7 +73,7 @@
 | `GET /api/v1/model-projects/{id}/models` | Session | 返回指定模型项目内模型 |
 | `GET /api/v1/model-project-tags` | Session | 返回工作区模型项目标签候选 |
 | `POST /api/v1/model-projects/{id}/models` | Session + same-origin；创建者或管理员 | 创建 `.pt` 模型导入任务 |
-| `GET/PATCH/DELETE /api/v1/models/{id}` | Session；写入需项目管理权 | 查看、编辑/移动或逻辑删除模型 |
+| `GET/PATCH/DELETE /api/v1/models/{id}` | Session；写入需项目管理权 | 查看、编辑/移动或逻辑删除模型；详情响应对训练发布模型附带冻结的训练参数、basemodel 与数据集摘要 |
 | `GET /api/v1/models/{id}/download` | Session | 下载 ready 且路径通过受管目录校验的 `.pt` 模型 |
 | `GET /api/v1/hyperparameter-catalog` | Session | 返回 Detect v1 参数目录、类型、默认值和约束 |
 | `POST /api/v1/hyperparameter-templates/validate-raw` | Session | 严格校验完整 RAW YAML；失败不返回可应用配置 |
@@ -83,7 +83,7 @@
 | `GET /api/v1/training/resources` | Session | 返回工作区 ready 数据集导出、含版本/完整参数/编辑权限的活动模板和 ready basemodel 候选 |
 | `GET /api/v1/training-tasks/code-availability` | Session | 校验新任务不可变 code 的格式和可用性 |
 | `GET/POST /api/v1/training-tasks` | Session；创建需同源 | 按最近训练倒序列出任务，或创建含 1–10 个模型的草稿 |
-| `GET/PATCH /api/v1/training-tasks/{id}` | Session；PATCH 需创建者/管理员与同源 | 查看任务详情；仅 draft 可按 `version` 修改，支持任务默认与模型显式稀疏超参覆盖且 code 不可变 |
+| `GET/PATCH /api/v1/training-tasks/{id}` | Session；PATCH 需创建者/管理员与同源 | 查看任务详情；已启动模型的数据集快照在读取时补全项目/数据集显示名；仅 draft 可按 `version` 修改，支持任务默认与模型显式稀疏超参覆盖且 code 不可变 |
 | `POST /api/v1/training-tasks/{id}/start|cancel` | 创建者/管理员 + 同源 | 原子预检并冻结；多数据集任务先进入无 GPU 的数据准备阶段，准备完成后才排队训练；取消覆盖准备和训练阶段 |
 | `POST /api/v1/training-tasks/{id}/retry-preparation` | 创建者/管理员 + 同源 | 仅为 `preparation_failed` 任务重建并排队数据准备记录 |
 | `GET /api/v1/training-tasks/{id}/preparation-log` | Session | 返回当前数据准备子进程的去 ANSI 文本日志快照 |

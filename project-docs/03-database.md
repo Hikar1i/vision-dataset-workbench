@@ -151,7 +151,7 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 | `system_key` | 可空唯一系统标识；`temporary` 对应兼容登记入口 |
 | `created_at` | 创建时间 |
 
-`model_project_tags` 保存工作区全局标签名称，`model_project_tag_links` 以 `(model_project_id, tag_id)` 复合主键保存多对多关系。每个模型项目必须有 1–20 个标签；迁移为既有项目关联“未分类”，训练任务自动发布的项目关联“训练”。
+`model_project_tags` 保存工作区全局标签名称，`model_project_tag_links` 以 `(model_project_id, tag_id)` 复合主键保存多对多关系。每个模型项目必须有 1–20 个标签；迁移为既有项目关联“未分类”，训练任务自动发布的项目关联“训练”。归档项目更新标签或删除后，同一事务会删除已无任何项目引用的标签记录。
 
 `inference_models` 表保存全局受管推理模型：
 
@@ -196,7 +196,7 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 
 任务状态为 `draft/preparing/preparation_failed/queued/running/canceling/canceled/start_failed/failed/partial/succeeded`；模型增加 `preparing/preparation_failed` 且不含 `partial`，运行仍从 `queued` 开始。`(task_id,gpu_index,queue_order)` 唯一，GPU lane 顺序从 1 开始；SQLite 部分唯一索引确保每张 GPU 最多一个 `running/canceling` run。任务进度在准备阶段保持 0，进入训练后按所有模型 epoch 进度等权聚合，列表按 `last_run_at` 倒序。
 
-任务和模型分别以 `default_dataset_mode/default_multi_dataset_config`、`dataset_mode/multi_dataset_config` 保存数据选择。多数据集配置冻结导出 UUID、连续目标类别顺序和精确区分大小写的来源类别映射。启动后先创建 `training_preparations`：子进程在同一文件系统的 staging 目录硬链接图片、改写 YOLO TXT 第一列并生成 `data.yaml`，校验完成后原子发布；原导出目录及其标签文件不修改。相同规范化配置可复用已发布目录。准备阶段不申请 GPU，成功后才创建并排队 initial run；失败保留安全错误和日志，可由任务级操作重试。
+任务和模型分别以 `default_dataset_mode/default_multi_dataset_config`、`dataset_mode/multi_dataset_config` 保存数据选择。单数据集快照冻结导出与项目身份、显示名、存储路径和 manifest；读取旧快照时可按导出 UUID 补全显示名但不回写冻结内容。多数据集配置冻结导出 UUID、连续目标类别顺序和精确区分大小写的来源类别映射。启动后先创建 `training_preparations`：子进程在同一文件系统的 staging 目录硬链接图片、改写 YOLO TXT 第一列并生成 `data.yaml`，校验完成后原子发布；原导出目录及其标签文件不修改。相同规范化配置可复用已发布目录。准备阶段不申请 GPU，成功后才创建并排队 initial run；失败保留安全错误和日志，可由任务级操作重试。
 
 启动成功前草稿仍可编辑。任务默认层与模型显式层使用版本 1 的 `{set,remove}` JSON 保存附加参数差异；模型模板为空时严格继承任务最终配置。启动事务读取模板最新版本、叠加覆盖并重新校验，随后冻结含模板版本和最终参数的 JSON 快照、不可变 artifact code 和 initial run。后续模板修改不影响已启动任务。`model_projects.training_task_id` 与 `inference_models.training_model_id` 都是唯一可空来源关系，确保一个训练任务最多发布一个训练项目、一个训练模型最多对应一个发布模型。
 
