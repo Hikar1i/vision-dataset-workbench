@@ -736,7 +736,7 @@ onBeforeUnmount(() => {
       <section v-if="previewFrame" data-test="frame-preview" class="frame-preview vdw-dark" @wheel="handlePreviewWheel">
         <header>
           <div class="preview-info">
-            <strong>#{{ previewFrame.sequence }} · {{ previewFileName }}</strong>
+            <strong>#{{ previewFrame.sequence }} / {{ frames.length }} · {{ previewFileName }}</strong>
             <span>{{ formatFrameTimestamp(previewFrame.time_offset) }}</span>
             <span>{{ imageWidth }} × {{ imageHeight }}</span>
             <span>{{ formatFileSize(previewFrame.file_size) }}</span>

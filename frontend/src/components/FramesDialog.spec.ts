@@ -138,6 +138,8 @@ describe('FramesDialog', () => {
     expect(wrapper.find('[data-test="frame-preview"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="frame-preview"]').text())
       .toContain('G989C14B_frame_000001.jpg')
+    expect(wrapper.get('[data-test="frame-preview"] .preview-info strong').text())
+      .toContain('#1 / 205')
     expect(wrapper.find('[data-test="preview-toggle-enabled"]').exists()).toBe(false)
   })
 

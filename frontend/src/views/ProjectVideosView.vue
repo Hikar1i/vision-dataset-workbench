@@ -469,10 +469,9 @@ const headerHost = useProjectHeaderHost()
               </span>
               <span>启用</span>
               <span>视频</span>
-              <span>来源</span>
+              <span>来源 / 状态</span>
               <span>规格</span>
               <span>启用/总数</span>
-              <span>状态</span>
               <span>业务状态</span>
               <span>操作</span>
             </header>
@@ -527,7 +526,12 @@ const headerHost = useProjectHeaderHost()
                   </p>
                 </div>
               </div>
-              <span class="source-mark">{{ video.source_type === 'local' ? 'LOCAL' : 'REMOTE' }}</span>
+              <div class="source-status" :data-test="`source-status-${video.id}`">
+                <span class="source-mark">{{ video.source_type === 'local' ? 'LOCAL' : 'REMOTE' }}</span>
+                <VTag :tone="video.status === 'ready' ? 'ok' : video.status === 'unavailable' ? 'danger' : 'idle'">
+                  {{ statusLabels[video.status] }}
+                </VTag>
+              </div>
               <div class="media-spec">
                 <span>{{ video.width && video.height ? `${video.width}×${video.height}` : '—' }}</span>
                 <small>{{ duration(video.duration) }} · {{ fileSize(video.file_size) }}</small>
@@ -535,9 +539,6 @@ const headerHost = useProjectHeaderHost()
               <span class="frame-count">
                 {{ video.sampling ? `${video.sampling.enabled_frames}/${video.sampling.extracted_frames || video.sampling.expected_frames}` : '—' }}
               </span>
-              <VTag :tone="video.status === 'ready' ? 'ok' : video.status === 'unavailable' ? 'danger' : 'idle'">
-                {{ statusLabels[video.status] }}
-              </VTag>
               <div class="status-info" :title="videoWorkflowStatus(video).detail">
                 <VTag :tone="videoTone(videoWorkflowStatus(video).code)">
                   {{ videoWorkflowStatus(video).primary }}
@@ -886,17 +887,16 @@ const headerHost = useProjectHeaderHost()
 
 .ledger-row {
   display: grid;
-  /* 来源/状态/启用总数三列原为 40/50/80px，表头文字被压得换行。
-     按内容需要的最小宽度给足，宁可挤压弹性列也不让表头折行。
+  /* 来源和资源状态合并为上下两行，把横向空间留给业务状态。
      末列 344px 是 5 个"图标+文字"操作的实测所需宽度；给少了会撑破网格
      并在台账里产生横向滚动。 */
   grid-template-columns:
-    16px 46px minmax(180px, 1.0fr) 54px 106px 76px 74px
-    minmax(180px, 1.1fr) 344px;
+    16px 46px minmax(180px, 1fr) 96px 106px 76px
+    minmax(260px, 1.35fr) 344px;
   gap: 8px;
   align-items: center;
   /* 固定列合计 + 两个弹性列的下限；小于此宽度时才允许台账横向滚动 */
-  min-width: 1348px;
+  min-width: 1260px;
   /* 与 VRow 保持一致的行内呼吸空间 */
   padding: 12px 12px;
 }
@@ -1032,6 +1032,12 @@ const headerHost = useProjectHeaderHost()
   color: #315d78;
   font: 14px var(--vdw-mono);
   border: 1px solid #a8bfcd;
+}
+
+.source-status {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
 }
 
 .media-spec {
