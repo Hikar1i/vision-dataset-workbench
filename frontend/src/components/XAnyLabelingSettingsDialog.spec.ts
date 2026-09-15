@@ -29,6 +29,16 @@ beforeEach(() => {
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('XAnyLabelingSettingsDialog', () => {
+  it('explains why confirmation is disabled without a server address', async () => {
+    mountDialog()
+    await flushPromises()
+    const body = new DOMWrapper(document.body)
+    await body.get('[data-test="xanylabeling-server-url"]').setValue('')
+    const confirm = body.get('[data-test="xanylabeling-settings-confirm"]')
+    expect(confirm.attributes('disabled')).toBeDefined()
+    expect(confirm.attributes('title')).toBe('请输入服务器地址')
+  })
+
   it('retains an existing key when the password is empty', async () => {
     const wrapper = mountDialog()
     await flushPromises()

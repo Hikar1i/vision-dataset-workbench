@@ -104,6 +104,7 @@ async function save() {
         data-test="xanylabeling-settings-confirm"
         :loading="saving"
         :disabled="!serverUrl.trim()"
+        :title="serverUrl.trim() ? '保存设置' : '请输入服务器地址'"
         @click="save"
       >确认</VButton>
     </template>

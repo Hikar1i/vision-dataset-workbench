@@ -67,7 +67,11 @@ describe('BatchAnnotationDialog', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('其中 1 个已有标注')
+    expect(wrapper.get('[data-test="annotation-risk-confirm"] input').attributes('aria-label'))
+      .toBe('确认对已有标注的视频执行自动标注')
     expect(wrapper.get('[data-test="annotation-create-task"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="annotation-create-task"]').attributes('title'))
+      .toBe('请先确认已标注视频处理风险')
     await wrapper.get('[data-test="annotation-risk-confirm"] input').setValue(true)
     await flushPromises()
     expect(wrapper.get('[data-test="annotation-create-task"]').attributes('disabled')).toBeUndefined()

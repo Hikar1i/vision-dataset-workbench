@@ -186,7 +186,11 @@ async function submit() {
       <p v-else>将处理 {{ unannotatedCount }} 个未标注视频。</p>
       <div v-if="scope === 'all'" class="risk-confirmation">
         <span>确认要对已标注的视频执行自动标注操作</span>
-        <el-switch v-model="riskConfirmed" data-test="annotation-risk-confirm" />
+        <el-switch
+          v-model="riskConfirmed"
+          data-test="annotation-risk-confirm"
+          aria-label="确认对已有标注的视频执行自动标注"
+        />
       </div>
       <el-form label-position="top">
         <el-form-item label="模型项目">
@@ -236,7 +240,14 @@ async function submit() {
     </div>
     <template #footer>
       <VButton variant="default" @click="emit('update:modelValue', false)">取消</VButton>
-      <VButton variant="primary" data-test="annotation-create-task" :loading="loading" :disabled="!valid || settingsDisabled" @click="submit">创建任务</VButton>
+      <VButton
+        variant="primary"
+        data-test="annotation-create-task"
+        :loading="loading"
+        :disabled="!valid || settingsDisabled"
+        :title="settingsDisabled ? '请先确认已标注视频处理风险' : !valid ? '请选择模型和待处理视频' : '创建批量自动标注任务'"
+        @click="submit"
+      >创建任务</VButton>
     </template>
   </el-dialog>
   <XAnyLabelingSettingsDialog
