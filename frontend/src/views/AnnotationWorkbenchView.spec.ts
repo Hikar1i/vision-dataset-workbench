@@ -154,7 +154,7 @@ beforeEach(() => {
     configured: false,
     server_url: '',
     has_api_key: false,
-    available: false,
+    available: null,
   })
   mocks.listXAnyLabelingModels.mockResolvedValue([])
   mocks.listVideos.mockResolvedValue({ items: [video], page: 1, page_size: 999, total: 1 })

@@ -34,7 +34,7 @@ beforeEach(() => {
   mocks.listModels.mockResolvedValue([{ id: 'model-id', name: 'YOLO11n', status: 'ready' }])
   mocks.listRemote.mockResolvedValue([])
   mocks.getSetting.mockResolvedValue({
-    configured: false, server_url: '', has_api_key: false, available: false,
+    configured: false, server_url: '', has_api_key: false, available: null,
   })
   mocks.listLLM.mockResolvedValue([{ id: 'llm-id', name: '视觉模型', enabled: true, available: true }])
   mocks.listLabels.mockResolvedValue([
@@ -91,6 +91,8 @@ describe('BatchAnnotationDialog', () => {
     const source = wrapper.getComponent({ name: 'ElSelect' })
     expect(source.findAllComponents({ name: 'ElOption' }).map((item) => item.props('value')))
       .toEqual(['xanylabeling', 'online', 'project:project-models'])
+    expect(source.findAllComponents({ name: 'ElOption' })[0]?.props('label'))
+      .toBe('X-anylabeling-server')
 
     source.vm.$emit('change', 'online')
     await flushPromises()

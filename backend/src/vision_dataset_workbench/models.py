@@ -415,6 +415,7 @@ class UserXAnyLabelingSetting(Base):
     )
     server_url: Mapped[str] = mapped_column(Text)
     api_key_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

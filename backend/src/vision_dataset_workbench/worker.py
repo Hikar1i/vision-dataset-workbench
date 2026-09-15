@@ -398,7 +398,9 @@ class TaskWorker:
                     ),
                     None,
                 )
+                self._remote_settings.mark_availability(submitted_by_id, True)
             except ValueError as exc:
+                self._remote_settings.mark_availability(submitted_by_id, False)
                 raise MediaToolError(str(exc)) from exc
             if remote_option is None:
                 raise MediaToolError("remote model is no longer available")
@@ -462,6 +464,8 @@ class TaskWorker:
             except TaskCanceled:
                 raise
             except (InferenceUnavailable, XAnyLabelingUnavailable, LLMAnnotationError, MediaToolError) as exc:
+                if source == "xanylabeling" and isinstance(exc, XAnyLabelingUnavailable):
+                    self._remote_settings.mark_availability(submitted_by_id, False)
                 video_results.append(
                     {
                         "video_id": video.id,

@@ -347,7 +347,10 @@ class AutoAnnotationService:
                 client, option = resolved
                 return client.predict(option, image_path, categories, confidence, iou)
             return predict_llm(resolved, image_path, categories, confidence)
-        except (InferenceUnavailable, XAnyLabelingUnavailable, LLMAnnotationError) as exc:
+        except XAnyLabelingUnavailable as exc:
+            self.remote_settings.mark_availability(actor.id, False)
+            raise AutoAnnotationUnavailable(str(exc)) from exc
+        except (InferenceUnavailable, LLMAnnotationError) as exc:
             raise AutoAnnotationUnavailable(str(exc)) from exc
 
     def _validate_model(
@@ -380,7 +383,9 @@ class AutoAnnotationService:
                 None,
             )
         except ValueError as exc:
+            self.remote_settings.mark_availability(actor.id, False)
             raise AutoAnnotationUnavailable(str(exc)) from exc
+        self.remote_settings.mark_availability(actor.id, True)
         if option is None:
             raise AutoAnnotationUnavailable("remote model is no longer available")
         return client, option

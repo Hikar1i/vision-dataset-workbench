@@ -34,7 +34,7 @@ class PublicXAnyLabelingSetting:
     configured: bool
     server_url: str
     has_api_key: bool
-    available: bool
+    available: bool | None
 
 
 @dataclass(frozen=True)
@@ -102,6 +102,7 @@ class XAnyLabelingSettingsService:
                     user_id=actor.id,
                     server_url=normalized_url,
                     api_key_ciphertext=encrypted,
+                    available=True,
                     created_at=now,
                     updated_at=now,
                 )
@@ -109,6 +110,7 @@ class XAnyLabelingSettingsService:
             else:
                 record.server_url = normalized_url
                 record.api_key_ciphertext = encrypted
+                record.available = True
                 record.updated_at = now
             database.commit()
             return self._public(record), models
@@ -116,11 +118,22 @@ class XAnyLabelingSettingsService:
     def list_models(self, actor: User) -> list[RemoteModelOption]:
         connection = self.connection_for(actor.id)
         try:
-            return self.client_factory(
+            models = self.client_factory(
                 connection.server_url, connection.api_key
             ).list_models()
         except XAnyLabelingUnavailable as exc:
+            self.mark_availability(actor.id, False)
             raise XAnyLabelingSettingUnavailable(str(exc)) from exc
+        self.mark_availability(actor.id, True)
+        return models
+
+    def mark_availability(self, user_id: str, available: bool) -> None:
+        with self._session_factory() as database:
+            record = database.get(UserXAnyLabelingSetting, user_id)
+            if record is None or record.available is available:
+                return
+            record.available = available
+            database.commit()
 
     def connection_for(self, user_id: str) -> XAnyLabelingConnection:
         with self._session_factory() as database:
@@ -150,7 +163,7 @@ class XAnyLabelingSettingsService:
             configured=record is not None,
             server_url=record.server_url if record else "",
             has_api_key=bool(record and record.api_key_ciphertext),
-            available=record is not None,
+            available=record.available if record else None,
         )
 
     def _resolve_api_key(

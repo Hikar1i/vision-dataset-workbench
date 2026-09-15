@@ -69,6 +69,11 @@ const modelOptions = computed(() => source.value === 'xanylabeling'
   : source.value === 'online'
     ? llmConfigs.value.map((item) => ({ id: item.id, name: item.name }))
     : models.value.map((item) => ({ id: item.id, name: item.name })))
+const xanylabelingLabel = computed(() => xanylabelingSetting.value?.available === true
+  ? 'X-anylabeling-server（可用）'
+  : xanylabelingSetting.value?.available === false
+    ? 'X-anylabeling-server（不可用）'
+    : 'X-anylabeling-server')
 
 async function loadModels() {
   error.value = ''
@@ -88,6 +93,9 @@ async function loadModels() {
       : []
     modelId.value = models.value[0]?.id || ''
   } catch (reason) {
+    if (source.value === 'xanylabeling' && xanylabelingSetting.value) {
+      xanylabelingSetting.value = { ...xanylabelingSetting.value, available: false }
+    }
     error.value = reason instanceof Error ? reason.message : '模型列表加载失败'
   }
 }
@@ -230,7 +238,7 @@ async function submit() {
             <el-option
               data-test="model-source-option"
               value="xanylabeling"
-              :label="`X-anylabeling-server（${xanylabelingSetting?.available ? '可用' : '不可用'}）`"
+              :label="xanylabelingLabel"
             />
             <el-option data-test="model-source-option" value="online" label="在线大模型" />
             <el-option

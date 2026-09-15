@@ -168,6 +168,16 @@ const selectedModelName = computed(() => selectedSource.value === 'xanylabeling'
   : selectedSource.value === 'online'
     ? selectedOnlineModel.value?.name ?? ''
   : selectedLocalModel.value?.name ?? '')
+const remoteSourceClass = computed(() => xanylabelingSetting.value?.available === true
+  ? 'remote-source-available'
+  : xanylabelingSetting.value?.available === false
+    ? 'remote-source-unavailable'
+    : '')
+const remoteSourceLabel = computed(() => xanylabelingSetting.value?.available === true
+  ? 'X-anylabeling-server（可用）'
+  : xanylabelingSetting.value?.available === false
+    ? 'X-anylabeling-server（不可用）'
+    : 'X-anylabeling-server')
 const batchActive = computed(() =>
   activeAutoTask.value?.type === 'auto_annotate'
   && ['queued', 'running'].includes(activeAutoTask.value.status),
@@ -457,6 +467,9 @@ async function runSingleAutoAnnotation() {
     pushDraft(overwrite.value ? inferred : [...annotations.value, ...inferred])
     ElMessage.success(`单张自动标注完成，识别 ${inferred.length} 个对象。`)
   } catch (reason) {
+    if (selectedSource.value === 'xanylabeling' && xanylabelingSetting.value) {
+      xanylabelingSetting.value = { ...xanylabelingSetting.value, available: false }
+    }
     ElMessage.error(reason instanceof Error ? reason.message : '单张自动标注失败')
   } finally {
     inferenceRunning.value = false
@@ -794,12 +807,10 @@ watch(reuseLabel, (reuse) => {
           :model-value="selectedSource"
           data-test="model-project-select"
           class="model-project-select"
-          :class="selectedSource === 'xanylabeling'
-            ? (xanylabelingSetting?.available ? 'remote-source-available' : 'remote-source-unavailable')
-            : ''"
+          :class="selectedSource === 'xanylabeling' ? remoteSourceClass : ''"
           placeholder="选择模型项目"
           :title="selectedSource === 'xanylabeling'
-            ? `X-anylabeling-server ${xanylabelingSetting?.available ? '可用' : '不可用'}`
+            ? remoteSourceLabel
             : '选择模型项目'"
           :disabled="batchActive || inferenceRunning"
           @change="changeModelSource"
@@ -807,10 +818,10 @@ watch(reuseLabel, (reuse) => {
           <el-option
             value="xanylabeling"
             label="X-anylabeling-server"
-            :class="xanylabelingSetting?.available ? 'remote-source-available' : 'remote-source-unavailable'"
+            :class="remoteSourceClass"
           >
             <span @click="openXAnyLabelingSettings">
-              X-anylabeling-server（{{ xanylabelingSetting?.available ? '可用' : '不可用' }}）
+              {{ remoteSourceLabel }}
             </span>
           </el-option>
           <el-option value="online" label="在线大模型" />

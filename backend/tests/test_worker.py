@@ -372,10 +372,14 @@ def test_remote_auto_annotation_uses_submitting_users_connection(tmp_path):
 
     class RemoteSettings:
         user_ids = []
+        availability = []
 
         def client_for(self, user_id):
             self.user_ids.append(user_id)
             return RemoteClient()
+
+        def mark_availability(self, user_id, available):
+            self.availability.append((user_id, available))
 
     remote_settings = RemoteSettings()
     worker, engine, _home, workspace = make_worker(
@@ -441,6 +445,7 @@ def test_remote_auto_annotation_uses_submitting_users_connection(tmp_path):
         assert task is not None and task.status == "succeeded", task.error if task else None
         assert [item.source for item in boxes] == ["model"]
     assert remote_settings.user_ids == ["one-id"]
+    assert remote_settings.availability == [("one-id", True)]
     engine.dispose()
 
 

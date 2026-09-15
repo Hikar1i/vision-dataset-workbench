@@ -24,7 +24,7 @@ from vision_dataset_workbench.models import (
     Video,
 )
 from vision_dataset_workbench.security.passwords import hash_password
-from vision_dataset_workbench.xanylabeling import RemoteModelOption
+from vision_dataset_workbench.xanylabeling import RemoteModelOption, XAnyLabelingUnavailable
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct horse battery staple"
@@ -190,10 +190,20 @@ def test_remote_single_and_batch_use_user_setting_and_source_payload(tmp_path):
     assert [item["label_name"] for item in single.json()["items"]] == ["dog"]
     assert batch.status_code == 202
     with Session(app.state.auth_service.engine) as session:
+        assert session.get(UserXAnyLabelingSetting, "owner-id").available is True
         task = session.get(Task, batch.json()["id"])
         task_payload = json.loads(task.payload)
     assert task_payload["source"] == "xanylabeling"
     assert task_payload["remote_task_id"] == "grounding"
+
+    class FailingRemoteClient(FakeRemoteClient):
+        def predict(self, *_args):
+            raise XAnyLabelingUnavailable("server timed out")
+
+    app.state.xanylabeling_settings_service.client_factory = FailingRemoteClient
+    assert owner.post(url(), headers=ORIGIN, json=payload).status_code == 503
+    with Session(app.state.auth_service.engine) as session:
+        assert session.get(UserXAnyLabelingSetting, "owner-id").available is False
 
 
 def test_single_inference_rejects_viewer_and_requires_same_origin(tmp_path):

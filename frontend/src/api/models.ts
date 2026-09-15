@@ -60,7 +60,7 @@ export type XAnyLabelingSetting = {
   configured: boolean
   server_url: string
   has_api_key: boolean
-  available: boolean
+  available: boolean | null
 }
 
 export type AutoAnnotationConfig = {

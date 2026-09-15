@@ -22,7 +22,7 @@ class XAnyLabelingSettingResponse(BaseModel):
     configured: bool
     server_url: str
     has_api_key: bool
-    available: bool
+    available: bool | None
 
 
 class RemoteModelResponse(BaseModel):
