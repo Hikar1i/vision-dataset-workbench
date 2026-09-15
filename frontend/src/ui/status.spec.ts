@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DatasetExportStatus } from '../api/datasetExports'
-import { datasetExportStatus, trainingStatus, userStatus } from './status'
+import { datasetExportStatus, mediaStatus, trainingStatus, userStatus } from './status'
 
 /** 与 api/datasetExports.ts 的 DatasetExportStatus 联合类型一一对应 */
 const EXPORT_STATUSES: DatasetExportStatus[] = [
@@ -24,10 +24,17 @@ describe('status 映射', () => {
     expect(datasetExportStatus('running').tone).toBe('run')
   })
 
+  it('统一呈现原始视频媒体状态', () => {
+    expect(mediaStatus('pending')).toEqual({ tone: 'idle', label: '导入中' })
+    expect(mediaStatus('ready')).toEqual({ tone: 'ok', label: '可用' })
+    expect(mediaStatus('unavailable')).toEqual({ tone: 'danger', label: '不可用' })
+  })
+
   it('未知状态不崩，回落为中性语气', () => {
     expect(datasetExportStatus('brand_new').tone).toBe('idle')
     expect(trainingStatus('brand_new').tone).toBe('idle')
     expect(userStatus('brand_new').tone).toBe('idle')
+    expect(mediaStatus('brand_new').tone).toBe('idle')
   })
 
   it('区分数据准备中与准备失败', () => {

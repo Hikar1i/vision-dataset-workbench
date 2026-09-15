@@ -28,7 +28,7 @@ import SamplingDialog from '../components/SamplingDialog.vue'
 import VButton from '../ui/VButton.vue'
 import VTag from '../ui/VTag.vue'
 import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
-import { videoTone } from '../ui/status'
+import { mediaStatus, videoTone } from '../ui/status'
 import { videoWorkflowStatus } from './videoStatus'
 import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 
@@ -87,8 +87,6 @@ const allSelected = computed(
 const someSelected = computed(
   () => selectedOnPage.value.length > 0 && !allSelected.value,
 )
-const statusLabels = { pending: '导入中', ready: '可用', unavailable: '不可用' } as const
-
 function duration(seconds: number) {
   const rounded = Math.max(0, Math.round(seconds))
   const hours = Math.floor(rounded / 3600)
@@ -528,8 +526,8 @@ const headerHost = useProjectHeaderHost()
               </div>
               <div class="source-status" :data-test="`source-status-${video.id}`">
                 <span class="source-mark">{{ video.source_type === 'local' ? 'LOCAL' : 'REMOTE' }}</span>
-                <VTag :tone="video.status === 'ready' ? 'ok' : video.status === 'unavailable' ? 'danger' : 'idle'">
-                  {{ statusLabels[video.status] }}
+                <VTag :tone="mediaStatus(video.status).tone">
+                  {{ mediaStatus(video.status).label }}
                 </VTag>
               </div>
               <div class="media-spec">

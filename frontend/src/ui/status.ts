@@ -39,6 +39,13 @@ const DATASET_EXPORT: Record<string, { tone: Tone; label: string }> = {
   canceled: { tone: 'idle', label: '已取消' },
 }
 
+/** 原始视频媒体文件状态（后端 Video.status） */
+const MEDIA: Record<string, { tone: Tone; label: string }> = {
+  pending: { tone: 'idle', label: '导入中' },
+  ready: { tone: 'ok', label: '可用' },
+  unavailable: { tone: 'danger', label: '不可用' },
+}
+
 /** 视频工作流状态码（views/videoStatus.ts 产出的 code 前缀） */
 const VIDEO_TONES: Array<[RegExp, Tone]> = [
   [/^running-/, 'run'],
@@ -64,6 +71,10 @@ export function datasetExportStatus(status: string) {
 
 export function userStatus(status: string) {
   return USER[status] ?? { tone: 'idle' as Tone, label: status }
+}
+
+export function mediaStatus(status: string) {
+  return MEDIA[status] ?? { tone: 'idle' as Tone, label: status }
 }
 
 export function videoTone(code: string): Tone {
