@@ -2,7 +2,7 @@ import json
 import secrets
 import shutil
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -182,8 +182,16 @@ class TrainingService:
             result.setdefault("project_id", dataset.project_id)
             result.setdefault("project_name", project.name if project else "")
         else:
+            storage_path = result.get("storage_path")
+            parts = PurePosixPath(storage_path).parts if isinstance(storage_path, str) else ()
+            project = (
+                db.get(Project, parts[1])
+                if len(parts) >= 3 and parts[0] == "projects" and parts[2] == "exports"
+                else None
+            )
             result.setdefault("dataset_name", result.get("name", ""))
-            result.setdefault("project_name", "")
+            result.setdefault("project_id", project.id if project else "")
+            result.setdefault("project_name", project.name if project else "")
         return result
 
     def dataset_snapshot_for_display(self, model: TrainingModel) -> dict[str, object]:

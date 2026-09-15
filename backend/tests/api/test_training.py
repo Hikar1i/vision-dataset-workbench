@@ -200,8 +200,9 @@ def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypat
     with Session(app.state.auth_service.engine) as db:
         stored = db.get(TrainingModel, detail["models"][0]["id"])
         stored.dataset_snapshot = (
-            '{"version":1,"kind":"single","id":"export-id",'
-            '"name":"Fire v1","storage_path":"exports/dataset","manifest":{}}'
+            '{"version":1,"kind":"single","id":"missing-export",'
+            '"name":"Fire v1","storage_path":"projects/project-id/exports/dataset",'
+            '"manifest":{}}'
         )
         db.commit()
     enriched = client.get(f"/api/v1/training-tasks/{task_id}").json()["models"][0]
