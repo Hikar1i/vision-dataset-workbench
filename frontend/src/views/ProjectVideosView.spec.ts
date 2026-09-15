@@ -17,6 +17,7 @@ const project = {
   description: '产线 A',
   creator_id: 'creator-id',
   creator_username: 'creator',
+  categories: [],
   role: 'viewer',
   version: 1,
   created_at: '2026-07-23T00:00:00Z',

@@ -32,6 +32,7 @@ describe('ledger column containment', () => {
     const projects = source('src/views/ModelProjectsView.vue')
 
     expect(projects).toContain('106px 106px 148px')
+    expect(projects).toContain('class="vdw-chip-stack"')
   })
 
   it('clips workflow details and form controls within their cells', () => {

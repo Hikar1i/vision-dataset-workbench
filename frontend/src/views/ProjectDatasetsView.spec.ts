@@ -78,7 +78,7 @@ function mountView(role: 'owner' | 'editor' | 'viewer') {
     props: {
       project: {
         id: 'project-id', name: 'project', description: '', creator_id: 'owner-id',
-        creator_username: 'owner', role, version: 1,
+        creator_username: 'owner', categories: [], role, version: 1,
         created_at: '2026-07-30T00:00:00Z', updated_at: '2026-07-30T00:00:00Z',
       },
     },
@@ -96,6 +96,13 @@ it('lets a viewer inspect and download without delete controls', async () => {
   expect(wrapper.get('[data-test="frame-summary-export-id"]').text()).toContain('验证25')
   expect(wrapper.get('[data-test="ratio-summary-export-id"]').text()).toContain('期望0.80 : 0.20')
   expect(wrapper.get('[data-test="ratio-summary-export-id"]').text()).toContain('实际0.75 : 0.25')
+  expect(wrapper.get('[data-test="category-count-export-id"]').text()).toBe('1 类')
+  expect(wrapper.get('[data-test="categories-export-id"]').text()).toContain('person')
+  expect(wrapper.get('[data-test="categories-export-id"]').text()).not.toContain('car')
+  expect(wrapper.get('[data-test="categories-export-id"]').classes()).toContain('vdw-chip-stack')
+  await wrapper.get('[data-test="category-count-export-id"]').trigger('click')
+  await flushPromises()
+  expect(new DOMWrapper(document.body).text()).toContain('1 · car（停用）')
   expect(wrapper.find('[data-test="delete-export-id"]').exists()).toBe(false)
   expect(wrapper.get('[data-test="download-export-id"]').attributes('href')).toBe(
     '/api/v1/projects/project-id/dataset-exports/export-id/download',

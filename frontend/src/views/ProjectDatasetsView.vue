@@ -16,6 +16,7 @@ import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import { datasetExportStatus } from '../ui/status'
 import VButton from '../ui/VButton.vue'
+import VChip from '../ui/VChip.vue'
 import VTag from '../ui/VTag.vue'
 
 const props = defineProps<{ project: Project }>()
@@ -52,6 +53,8 @@ function dateTime(value: string | null) {
 function ratio(value: number | null) {
   return value === null ? '—' : `${value.toFixed(2)} : ${(1 - value).toFixed(2)}`
 }
+
+const enabledLabels = (item: DatasetExport) => item.labels.filter((label) => label.enabled)
 
 async function load(nextPage = page.value) {
   loading.value = true
@@ -148,19 +151,37 @@ const headerHost = useProjectHeaderHost()
         <el-table-column label="导出时间" width="180">
           <template #default="{ row }">{{ dateTime(row.completed_at || row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="类别" min-width="180">
+        <el-table-column label="类别数量" width="112">
           <template #default="{ row }">
             <el-popover trigger="click" width="280">
               <template #reference>
-                <!-- 类别是数据而不是动作，用 quiet 触发弹层，不与操作列按钮争视觉 -->
-                <VButton variant="quiet" size="sm">{{ row.labels.filter((label: { enabled: boolean }) => label.enabled).slice(0, 3).map((label: { name: string }) => label.name).join(', ') || '无' }}</VButton>
+                <VButton
+                  variant="default"
+                  size="sm"
+                  :data-test="`category-count-${row.id}`"
+                  :title="`查看 ${enabledLabels(row).length} 个启用类别的映射关系`"
+                ><template #icon><el-icon><View /></el-icon></template>{{ enabledLabels(row).length }} 类</VButton>
               </template>
-              <div class="category-popover">
+              <div class="category-popover" :data-test="`category-mapping-${row.id}`">
                 <span v-for="label in row.labels" :key="label.source_label_id" :data-enabled="label.enabled">
                   {{ label.mapping }} · {{ label.name }}{{ label.enabled ? '' : '（停用）' }}
                 </span>
               </div>
             </el-popover>
+          </template>
+        </el-table-column>
+        <el-table-column label="类别" min-width="190">
+          <template #default="{ row }">
+            <div
+              class="vdw-chip-stack"
+              :data-test="`categories-${row.id}`"
+              :title="enabledLabels(row).map((label) => label.name).join('、')"
+            >
+              <VChip v-for="label in enabledLabels(row)" :key="label.source_label_id">
+                {{ label.name }}
+              </VChip>
+              <span v-if="!enabledLabels(row).length" class="cell-muted">—</span>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="样本帧" width="220">

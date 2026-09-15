@@ -188,7 +188,7 @@ onMounted(load)
                 <VChip variant="id">{{ project.id.slice(0, 6).toUpperCase() }}</VChip>
               </template>
             </VCellName>
-            <div class="project-tags">
+            <div class="vdw-chip-stack" :title="project.tags.join('、')">
               <VChip v-for="tag in project.tags" :key="tag">{{ tag }}</VChip>
             </div>
             <VTag :tone="project.series_type === 'training' ? 'run' : 'idle'">
@@ -258,13 +258,6 @@ onMounted(load)
   grid-column: 1 / -1;
   justify-content: flex-end;
   padding-top: 4px;
-}
-
-.project-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  min-width: 0;
 }
 
 .cell-muted,

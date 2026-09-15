@@ -25,6 +25,7 @@ const project = {
   description: '',
   creator_id: 'creator-id',
   creator_username: 'creator',
+  categories: [],
   role: 'owner' as const,
   version: 1,
   created_at: '2026-07-27T00:00:00Z',
