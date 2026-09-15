@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
+import { CopyDocument } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -17,6 +18,7 @@ import VChip from '../ui/VChip.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
 import VTag from '../ui/VTag.vue'
+import { copyText } from '../ui/clipboard'
 import { formatBaseModel } from '../components/trainingResources'
 
 const route = useRoute()
@@ -29,6 +31,7 @@ const error = ref('')
 const name = ref('')
 const description = ref('')
 const targetProjectId = ref('')
+const parameterText = computed(() => JSON.stringify(model.value?.parameters ?? {}, null, 2))
 
 const movableProjects = computed(() =>
   projects.value.filter(
@@ -104,6 +107,15 @@ async function save() {
   }
 }
 
+async function copyParameters() {
+  try {
+    await copyText(parameterText.value)
+    ElMessage.success('参数信息已复制。')
+  } catch {
+    ElMessage.error('复制失败，请检查浏览器剪贴板权限。')
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -163,7 +175,16 @@ onMounted(load)
         </VPanel>
 
         <VPanel title="参数信息" flush>
-          <pre class="model-parameters">{{ JSON.stringify(model.parameters, null, 2) }}</pre>
+          <template #actions>
+            <VButton
+              variant="quiet"
+              size="sm"
+              data-test="copy-model-parameters"
+              title="复制参数信息"
+              @click="copyParameters"
+            ><template #icon><el-icon><CopyDocument /></el-icon></template>复制</VButton>
+          </template>
+          <pre class="model-parameters">{{ parameterText }}</pre>
         </VPanel>
       </template>
     </div>

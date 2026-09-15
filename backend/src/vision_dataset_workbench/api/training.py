@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -797,6 +798,23 @@ def log(
         return {"content": "", "next_cursor": cursor}
     content, next_cursor = terminal_snapshot(path)
     return {"content": content, "next_cursor": next_cursor}
+
+
+@router.get("/training-runs/{run_id}/log/download", response_class=FileResponse)
+def download_log(
+    run_id: str,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> FileResponse:
+    _, directory = _run_path(request, run_id)
+    path = directory / "train.log"
+    if not path.is_file():
+        raise HTTPException(404, "training log not found")
+    return FileResponse(
+        path,
+        filename=f"{run_id}-train.log",
+        media_type="text/plain; charset=utf-8",
+    )
 
 
 def _run_path(request: Request, run_id: str) -> tuple[TrainingRun, Path]:

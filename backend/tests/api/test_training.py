@@ -193,6 +193,13 @@ def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypat
     metric_rows = client.get(f"/api/v1/training-runs/{run_id}/metrics").json()
     assert len(metric_rows) == 2 and metric_rows[0]["dfl_loss"] is not None
     assert client.get(f"/api/v1/training-runs/{run_id}/pr-curve").json()["kind"] == "interactive"
+    downloaded_log = client.get(f"/api/v1/training-runs/{run_id}/log/download")
+    assert downloaded_log.status_code == 200
+    assert "attachment" in downloaded_log.headers["content-disposition"]
+    with Session(app.state.auth_service.engine) as db:
+        run = db.get(TrainingRun, run_id)
+        assert run is not None
+        assert downloaded_log.content == (workspace / run.storage_path / "train.log").read_bytes()
     projects = client.get("/api/v1/model-projects").json()
     trained = next(item for item in projects if item["series_type"] == "training")
     published_models = client.get(f"/api/v1/model-projects/{trained['id']}/models").json()

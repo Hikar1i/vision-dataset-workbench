@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from "element-plus";
-import { ArrowDown, ArrowUp } from "@element-plus/icons-vue";
+import { ArrowDown, ArrowUp, CopyDocument, Download } from "@element-plus/icons-vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import PrecisionRecallChart from "../components/PrecisionRecallChart.vue";
@@ -12,6 +12,7 @@ import VButton from "../ui/VButton.vue";
 import VChip from "../ui/VChip.vue";
 import VPanel from "../ui/VPanel.vue";
 import VTag from "../ui/VTag.vue";
+import { copyText } from "../ui/clipboard";
 import { trainingStatus } from "../ui/status";
 import { formatBaseModel, formatBatchSize } from "../components/trainingResources";
 import {
@@ -25,6 +26,7 @@ import {
   getTrainingTask,
   resumeTrainingModel,
   retryTrainingModel,
+  trainingLogDownloadUrl,
   type TrainingMetric,
   type PrCurve,
   type TrainingModel,
@@ -205,6 +207,14 @@ const trainingDatasets = computed(() => {
 const rawParameters = computed(() => JSON.stringify(
   model.value?.template_snapshot.parameters ?? {}, null, 2,
 ));
+async function copyRawParameters() {
+  try {
+    await copyText(rawParameters.value);
+    ElMessage.success("完整超参数已复制。");
+  } catch {
+    ElMessage.error("复制失败，请检查浏览器剪贴板权限。");
+  }
+}
 onMounted(async () => {
   try {
     await load();
@@ -301,6 +311,13 @@ onBeforeUnmount(() => clearInterval(timer));
 
       <VPanel title="完整超参数" :flush="!panels.raw">
         <template #actions>
+          <VButton
+            variant="quiet"
+            size="sm"
+            data-test="copy-raw-parameters"
+            title="复制完整超参数"
+            @click="copyRawParameters"
+          ><template #icon><CopyDocument /></template>复制</VButton>
           <VButton
             variant="quiet"
             size="sm"
@@ -405,6 +422,14 @@ onBeforeUnmount(() => clearInterval(timer));
 
       <VPanel title="训练日志" flush>
         <template #actions>
+          <VButton
+            v-if="latest"
+            variant="quiet"
+            size="sm"
+            data-test="download-training-log"
+            title="下载完整训练日志"
+            :href="trainingLogDownloadUrl(latest.id)"
+          ><template #icon><Download /></template>下载日志</VButton>
           <VButton
             variant="quiet"
             size="sm"

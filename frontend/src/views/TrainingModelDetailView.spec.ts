@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync(resolve("src/views/TrainingModelDetailView.vue"), "utf8");
+const modelSource = readFileSync(resolve("src/views/ModelDetailView.vue"), "utf8");
 
 describe("TrainingModelDetailView disclosure controls", () => {
   it.each([
@@ -15,5 +16,14 @@ describe("TrainingModelDetailView disclosure controls", () => {
     expect(source).toContain(`id="${id}"`);
     expect(source).toContain(`'收起${label}'`);
     expect(source).toContain(`'展开${label}'`);
+  });
+
+  it("offers the full log download and parameter copy actions before disclosure controls", () => {
+    expect(source).toContain('data-test="download-training-log"');
+    expect(source).toContain('trainingLogDownloadUrl(latest.id)');
+    expect(source).toContain('data-test="copy-raw-parameters"');
+    expect(source.indexOf('data-test="copy-raw-parameters"'))
+      .toBeLessThan(source.indexOf('data-test="toggle-raw-parameters"'));
+    expect(modelSource).toContain('data-test="copy-model-parameters"');
   });
 });

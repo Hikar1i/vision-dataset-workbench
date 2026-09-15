@@ -341,6 +341,8 @@ export const getTrainingLog = (runId: string, cursor = 0) =>
   json<{ content: string; next_cursor: number }>(
     `/api/v1/training-runs/${runId}/log?cursor=${cursor}`,
   );
+export const trainingLogDownloadUrl = (runId: string) =>
+  `/api/v1/training-runs/${runId}/log/download`;
 export type PrCurve =
   | {
       version: number;
