@@ -2,7 +2,7 @@
 
 ## 最近迁移
 
-迁移 `0023_editable_hyperparameter_templates` 为模板增加乐观版本和编辑时间，并为任务默认层、模型显式层增加超参数覆盖字段。`0022_multi_dataset_training` 为训练任务和模型增加单/多数据集模式及映射配置，并新增独立的数据准备记录。`0021_user_llm_configs` 增加按用户隔离的大模型配置和默认参数表。API Key 使用工作区 Fernet 凭据密钥加密保存，响应仅返回是否存在密钥及脱敏值；配置记录保存连接测试状态、响应时延和高级选项 JSON。
+迁移 `0024_xanylabeling_availability` 为每用户 X-AnyLabeling 配置增加可空可用状态；空值表示尚未验证，成功探测写入真，目录或推理请求失败写入假。`0023_editable_hyperparameter_templates` 为模板增加乐观版本和编辑时间，并为任务默认层、模型显式层增加超参数覆盖字段。`0022_multi_dataset_training` 为训练任务和模型增加单/多数据集模式及映射配置，并新增独立的数据准备记录。
 
 状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、模型项目、超参数模板、训练任务/模型/运行/指标、用户远程配置、推理模型和数据集导出迁移已实现。
 
@@ -17,7 +17,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系；`0021_user_llm_configs` 增加用户大模型配置；`0022_multi_dataset_training` 增加多数据集训练准备；`0023_editable_hyperparameter_templates` 增加可编辑模板版本和训练覆盖。当前 `users` 表为：
+Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系；`0021_user_llm_configs` 增加用户大模型配置；`0022_multi_dataset_training` 增加多数据集训练准备；`0023_editable_hyperparameter_templates` 增加可编辑模板版本和训练覆盖；`0024_xanylabeling_availability` 增加远程标注服务三态可用性。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -204,7 +204,7 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 
 训练逻辑删除保留数据库审计记录并将受管运行目录移入 `.deleted/training-tasks|training-models/`。任务删除保留已发布模型；删除已发布子模型要求显式确认，并同时逻辑删除发布模型。当前不提供 `.deleted` 恢复、导入或自动清理。
 
-`user_xanylabeling_settings` 以 `user_id` 为主键保存每个用户的 `server_url`、可空 `api_key_ciphertext` 和时间字段。API 密钥使用部署级 `VDW_CREDENTIAL_ENCRYPTION_KEY` 加密，表中不保存明文；删除用户时配置级联删除。远程模型目录不写入本表或 `inference_models`。
+`user_xanylabeling_settings` 以 `user_id` 为主键保存每个用户的 `server_url`、可空 `api_key_ciphertext`、可空 `available` 和时间字段。`available=NULL/1/0` 分别表示未验证、最近一次连接成功、最近一次目录或推理请求失败；状态跨刷新和服务重启保留。API 密钥使用部署级 `VDW_CREDENTIAL_ENCRYPTION_KEY` 加密，表中不保存明文；删除用户时配置级联删除。远程模型目录不写入本表或 `inference_models`。
 
 `dataset_exports` 表保存项目级不可变导出记录：
 

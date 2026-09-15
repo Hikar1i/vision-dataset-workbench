@@ -92,9 +92,10 @@
 | `POST /api/v1/training-models/{id}/cancel|retry|resume` | 创建者/管理员 + 同源 | 单模型取消、从 epoch 0 重试或基于 last.pt 恢复中断 |
 | `POST /api/v1/training-models/{id}/derive|extend` | 创建者/管理员 + 同源 | 固定原数据集/basemodel 改超参派生，或从 best/last 追加 epoch |
 | `DELETE /api/v1/training-models/{id}` | 创建者/管理员 + 同源 | 活动模型拒绝；已发布模型要求 `confirm_published_model=true` |
-| `GET /api/v1/training-runs/{id}/metrics|log|pr-curve` | Session | epoch 指标、去 ANSI 且按回车覆盖语义还原的终端日志快照和交互 P-R JSON；不再提供静态图片降级 |
+| `GET /api/v1/training-runs/{id}/metrics|log|pr-curve` | Session | epoch 指标、去 ANSI 且按回车覆盖语义还原的末尾日志快照和交互 P-R JSON；日志页在活动训练期间每 1.5 秒轮询 |
+| `GET /api/v1/training-runs/{id}/log/download` | Session | 下载工作区内完整原始 `train.log`，不受页面末尾快照截断影响 |
 | `POST /api/v1/projects/{id}/models` | 系统管理员 + 项目访问 + 同源 | 登记 `~` 内 `.pt` YOLO 并归入临时模型项目 |
-| `GET /api/v1/me/x-anylabeling-server` | Session | 返回当前用户脱敏远程配置，不返回 API 密钥 |
+| `GET /api/v1/me/x-anylabeling-server` | Session | 返回当前用户脱敏远程配置和 `null|true|false` 最近可用状态，不返回 API 密钥 |
 | `PUT /api/v1/me/x-anylabeling-server` | Session + 同源 | 验证远程模型目录后保存 URL 和可选密钥 |
 | `GET /api/v1/me/x-anylabeling-server/models` | Session | 实时刷新当前用户远程模型目录 |
 | `GET/POST /api/v1/me/llm-configs` | Session；POST 需同源 | 列出或创建当前用户的大模型配置；密钥仅返回脱敏值 |
@@ -116,7 +117,7 @@
 
 认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误、状态或模式限制。禁用账号立即撤销其会话，且不能禁用最后一个有效系统管理员。
 
-项目名称允许重复，资源主键和路由身份使用 UUID。Video 响应额外返回不可变 `short_code`，用于界面显示和本地媒体/帧文件对应；短码不是路由参数，也不替代 UUID。无访问权的项目返回 404，避免泄露项目是否存在；viewer 修改返回 403；项目元数据版本不匹配返回 409。项目列表默认每页 50，最大 200。创建者是永久 owner，不存在 owner 成员记录或所有权转移接口。多用户模式下系统管理员不自动获得项目访问权；单用户模式下管理员运行时获得所有项目的 owner 等效权限，但不会改写成员数据。
+项目名称允许重复，资源主键和路由身份使用 UUID。项目列表与详情的 `categories` 仅包含按标签顺序排列的启用类别；停用类别仍保留在标签和数据集映射详情中。Video 响应额外返回不可变 `short_code`，用于界面显示和本地媒体/帧文件对应；短码不是路由参数，也不替代 UUID。无访问权的项目返回 404，避免泄露项目是否存在；viewer 修改返回 403；项目元数据版本不匹配返回 409。项目列表默认每页 50，最大 200。创建者是永久 owner，不存在 owner 成员记录或所有权转移接口。多用户模式下系统管理员不自动获得项目访问权；单用户模式下管理员运行时获得所有项目的 owner 等效权限，但不会改写成员数据。
 
 当前角色能力：
 
@@ -149,7 +150,7 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 
 项目删除要求 owner 权限，且任意 queued/running 项目任务都会返回 409。服务端先在项目目录写入包含项目、成员、标签、视频、采样方案、帧、标注、任务和数据集导出全部当前持久字段的 `project_metadata.json`，再将目录原子移动到 `.deleted/projects/<project UUID>/project/`，最后级联删除数据库记录；提交失败时尝试把目录移回。该快照仅对应生成时 schema，不承诺未来兼容，当前也不提供加载或恢复接口。
 
-创建导出要求训练集比例位于 `[0, 1]`、类别快照完整且映射连续，并至少启用一个类别；同一项目已有 queued/running 导出时返回 409。任务活动期间，参与视频的启停、帧启停、重抽帧和手动/自动标注写入返回 409，读取不受影响。导出详情只在 ready 后包含工作区绝对路径与 `manifest`；下载不生成持久 ZIP，删除将产物移动到 `.deleted/projects/<project UUID>/exports/` 并从普通列表隐藏。
+创建导出要求训练集比例位于 `[0, 1]`、类别快照完整且映射连续，并至少启用一个类别；同一项目已有 queued/running 导出时返回 409。任务活动期间，参与视频的启停、帧启停、重抽帧和手动/自动标注写入返回 409，读取不受影响。列表和详情返回 `total_videos/train_videos/val_videos`，总数仅为训练与验证视频之和，不含排除或停用视频；新生成的 manifest 同步写入这三项，旧 manifest 由视频 ID 数组派生响应。导出详情只在 ready 后包含工作区绝对路径与 `manifest`；下载不生成持久 ZIP，删除将产物移动到 `.deleted/projects/<project UUID>/exports/` 并从普通列表隐藏。
 
 标签名称由服务端转为小写并压缩空白，只允许英文字母、数字、空格、连字符和下划线；项目内不区分大小写唯一。`description_zh` 为最长 64 字符的可选显示说明，不作为模型类别或提示词。批量排序请求必须恰好包含项目当前全部标签 ID，否则返回 422。标签重名、过期版本以及删除已被标注引用的标签返回 409。内部标签身份使用 UUID，排序变化不修改标注关联。
 
@@ -159,7 +160,7 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 
 筛帧工作台先在浏览器维护启停草稿，保存时只提交与打开页面时基准不同的帧。`PUT .../frames/enabled` 请求体为 `{"changes":[{"frame_id":"...","enabled":false}],"frame_revision":4}`；同一请求中的帧 ID 必须唯一且都属于目标视频，服务端在一个事务内更新全部状态并只递增一次帧修订号。版本过期返回 409且不进行部分写入。标注帧摘要只返回存在至少一个已保存标注框的帧 ID；前端用该集合结合当前启停草稿实时计算标注帧启用/停用统计和“按标注启停”结果。批量按标注启停的 `scope=unscreened-only` 只处理有标注且 `frame_revision <= 1` 的视频；`scope=all` 可覆盖已筛帧视频，但存在 `frame_revision > 1` 的有标注视频时必须提交 `confirm_all=true`。无标注视频在两种范围中都进入 `rejected(code=no_annotations)`，其帧启停不变。
 
-单张自动标注在 API 同步线程池运行，只返回可编辑草稿，不修改当前标注。请求用 `source=local|xanylabeling|online`、`model_id` 和可空 `remote_task_id` 标识来源；本地模型使用进程内互斥锁，X-AnyLabeling 与在线视觉大模型读取当前用户配置。在线来源使用内置目标检测矩形框提示词，分别按 OpenAI-compatible 或 Anthropic 原生消息格式发送图片，不引入 Agent 框架。`categories` 接受项目英文标签或临时英文类别，`All` 表示使用模型可提供的全部类别；只有实际检出的缺失类别会加入项目标签。项目批量接口的 `scope=unannotated` 忽略已有标注视频且强制 `overwrite=false`，`scope=all` 可包含已有标注视频；前端在混合范围和覆盖场景分别确认。批量接口拒绝停用视频，并把 Worker 开始执行时启用的帧作为处理范围；任务只保存来源和模型选择，不保存服务器 URL、API 密钥或图片。`overwrite=false` 追加模型框，`overwrite=true` 覆盖整帧已有框。活动远程任务期间修改对应用户配置返回 409。
+单张自动标注在 API 同步线程池运行，只返回可编辑草稿，不修改当前标注。请求用 `source=local|xanylabeling|online`、`model_id` 和可空 `remote_task_id` 标识来源；本地模型使用进程内互斥锁，X-AnyLabeling 与在线视觉大模型读取当前用户配置。X-AnyLabeling 配置初始可用状态为 `null`；设置验证或模型目录刷新成功写入 `true`，目录、推理错误或超时写入 `false`。在线来源使用内置目标检测矩形框提示词，分别按 OpenAI-compatible 或 Anthropic 原生消息格式发送图片，不引入 Agent 框架。`categories` 接受项目英文标签或临时英文类别，`All` 表示使用模型可提供的全部类别；只有实际检出的缺失类别会加入项目标签。项目批量接口的 `scope=unannotated` 忽略已有标注视频且强制 `overwrite=false`，`scope=all` 可包含已有标注视频；前端在混合范围和覆盖场景分别确认。批量接口拒绝停用视频，并把 Worker 开始执行时启用的帧作为处理范围；任务只保存来源和模型选择，不保存服务器 URL、API 密钥或图片。`overwrite=false` 追加模型框，`overwrite=true` 覆盖整帧已有框。活动远程任务期间修改对应用户配置返回 409。
 
 大模型配置创建时 `version` 从 1 开始；更新使用乐观版本。API Key 写入前由工作区凭据密钥加密，配置响应不返回明文，仅提供 `has_api_key` 和类似 `sk-test-******abcd` 的 `masked_api_key`。编辑请求省略或留空 `api_key` 表示保留旧密钥。连接测试不依赖 `/models` 列表能力，而是按配置的 API 类型向指定模型发送最小请求，因此兼容不实现模型目录接口的本地和在线服务。
 
