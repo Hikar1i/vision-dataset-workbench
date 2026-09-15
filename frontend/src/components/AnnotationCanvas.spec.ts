@@ -18,6 +18,10 @@ const VGroupStub = defineComponent({
   props: ['config'],
   template: '<div class="group-stub"><slot /></div>',
 })
+const VTransformerStub = defineComponent({
+  props: ['config'],
+  template: '<div class="transformer-stub" />',
+})
 const stubs = {
   'v-stage': SlotStub,
   'v-layer': SlotStub,
@@ -25,7 +29,7 @@ const stubs = {
   'v-image': true,
   'v-rect': VRectStub,
   'v-text': VTextStub,
-  'v-transformer': true,
+  'v-transformer': VTransformerStub,
   'v-line': true,
 }
 const annotations: FrameAnnotation[] = [
@@ -127,6 +131,19 @@ describe('AnnotationCanvas', () => {
     )
     expect(labelGroups.map((item) => item.props('config').y)).toEqual([-6, 74])
     expect(boxes.some((item) => item.props('config').dash?.length)).toBe(true)
+    expect(wrapper.getComponent(VTransformerStub).props('config')).toMatchObject({
+      keepRatio: true,
+      enabledAnchors: [
+        'top-left',
+        'top-center',
+        'top-right',
+        'middle-right',
+        'bottom-right',
+        'bottom-center',
+        'bottom-left',
+        'middle-left',
+      ],
+    })
 
     const event = new Event('contextmenu', { cancelable: true })
     wrapper.get('[data-test="annotation-canvas"]').element.dispatchEvent(event)

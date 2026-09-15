@@ -397,7 +397,17 @@ defineExpose({ zoomBy, resetView, zoomPercent })
             :config="{
               rotateEnabled: false,
               flipEnabled: false,
-              enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
+              keepRatio: true,
+              enabledAnchors: [
+                'top-left',
+                'top-center',
+                'top-right',
+                'middle-right',
+                'bottom-right',
+                'bottom-center',
+                'bottom-left',
+                'middle-left',
+              ],
               anchorSize: 8,
               borderStroke: 'var(--vdw-focus-accent)',
               anchorStroke: 'var(--vdw-focus-panel)',
