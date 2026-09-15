@@ -198,3 +198,31 @@ def test_training_and_temporary_projects_are_not_manually_writable(tmp_path):
         headers=ORIGIN,
         json={"name": "forbidden", "source_path": "models/yolo.pt"},
     ).status_code == 403
+
+
+def test_unused_model_project_tags_are_pruned_after_update_and_delete(tmp_path):
+    _app, admin, _editor, _project_id = make_app(tmp_path)
+    first = admin.post(
+        "/api/v1/model-projects",
+        headers=ORIGIN,
+        json={"name": "First tagged", "description": "", "tags": ["共享", "仅一号"]},
+    ).json()
+    second = admin.post(
+        "/api/v1/model-projects",
+        headers=ORIGIN,
+        json={"name": "Second tagged", "description": "", "tags": ["共享"]},
+    ).json()
+
+    updated = admin.patch(
+        f"/api/v1/model-projects/{first['id']}",
+        headers=ORIGIN,
+        json={"name": first["name"], "description": "", "version": 1, "tags": ["替换"]},
+    )
+    assert updated.status_code == 200
+    assert "仅一号" not in admin.get("/api/v1/model-project-tags").json()
+    assert "共享" in admin.get("/api/v1/model-project-tags").json()
+
+    assert admin.delete(f"/api/v1/model-projects/{second['id']}", headers=ORIGIN).status_code == 204
+    assert "共享" not in admin.get("/api/v1/model-project-tags").json()
+    assert admin.delete(f"/api/v1/model-projects/{first['id']}", headers=ORIGIN).status_code == 204
+    assert "替换" not in admin.get("/api/v1/model-project-tags").json()

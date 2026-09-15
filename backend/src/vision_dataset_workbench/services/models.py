@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -165,6 +165,13 @@ class ModelService:
                 database.add(tag)
                 database.flush()
             database.add(ModelProjectTagLink(model_project_id=project_id, tag_id=tag.id))
+        database.flush()
+        ModelService._prune_unused_tags(database)
+
+    @staticmethod
+    def _prune_unused_tags(database) -> None:
+        used_tag_ids = select(ModelProjectTagLink.tag_id)
+        database.execute(delete(ModelProjectTag).where(ModelProjectTag.id.not_in(used_tag_ids)))
 
     def create_project(
         self, actor: User, name: str, description: str, tags: list[str]
@@ -449,6 +456,13 @@ class ModelService:
                 project.deleted_at = now
                 project.updated_at = now
                 project.version += 1
+                database.execute(
+                    delete(ModelProjectTagLink).where(
+                        ModelProjectTagLink.model_project_id == project.id
+                    )
+                )
+                database.flush()
+                self._prune_unused_tags(database)
                 database.commit()
             except Exception:
                 database.rollback()
