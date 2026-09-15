@@ -138,6 +138,9 @@ describe('AnnotationCanvas', () => {
     expect(boxes.some((item) => item.props('config').dash?.length)).toBe(true)
     expect(wrapper.getComponent(VTransformerStub).props('config')).toMatchObject({
       keepRatio: true,
+      borderStroke: '#3bb8d8',
+      anchorStroke: '#141f25',
+      anchorFill: '#3bb8d8',
       enabledAnchors: [
         'top-left',
         'top-center',
