@@ -36,6 +36,10 @@ describe('global design system', () => {
     expect(base).toContain('font-variant-numeric: tabular-nums')
   })
 
+  it('keeps Element Plus selection tags at the 13px text floor', () => {
+    expect(base).toMatch(/\.el-tag,[\s\S]*\.el-tag__content,[\s\S]*\.el-select__tags-text[\s\S]*font-size: 13px/)
+  })
+
   it('keeps interactions restrained and supports reduced motion', () => {
     expect(tokens).toContain('--vdw-motion-fast: 130ms')
     expect(tokens).toContain('--vdw-motion-base: 200ms')
