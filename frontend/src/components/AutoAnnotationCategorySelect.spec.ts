@@ -17,6 +17,7 @@ describe('AutoAnnotationCategorySelect', () => {
     })
     const select = wrapper.getComponent({ name: 'ElSelect' })
 
+    expect(wrapper.get('input[role="combobox"]').attributes('aria-label')).toBe('自动标注类别')
     expect(select.findAllComponents({ name: 'ElOption' }).map((item) => item.props('value')))
       .toEqual(['__all__', 'person'])
     select.props('filterMethod')?.('helmet')

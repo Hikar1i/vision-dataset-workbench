@@ -850,15 +850,18 @@ watch(reuseLabel, (reuse) => {
             </template>
           </template>
         </el-select>
-        <AutoAnnotationCategorySelect
-          v-model="autoCategories"
-          v-model:query="categoryQuery"
-          class="category-select"
-          data-test="auto-categories"
-          :labels="labels"
-          placeholder="类别"
-          :disabled="batchActive || inferenceRunning || !autoModel"
-        />
+        <label class="category-field">
+          类别
+          <AutoAnnotationCategorySelect
+            v-model="autoCategories"
+            v-model:query="categoryQuery"
+            class="category-select"
+            data-test="auto-categories"
+            :labels="labels"
+            placeholder="类别"
+            :disabled="batchActive || inferenceRunning || !autoModel"
+          />
+        </label>
         <label>置信度 <el-input-number v-model="confidence" controls-position="right" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
         <label>IoU <el-input-number v-model="iou" controls-position="right" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
         <label>标签覆盖 <el-switch v-model="overwrite" data-test="overwrite-switch" :disabled="batchActive || inferenceRunning || !autoModel" /></label>
@@ -1180,7 +1183,8 @@ watch(reuseLabel, (reuse) => {
 .remote-source-unavailable { color: var(--vdw-danger); }
 .remote-source-available :deep(.el-select__selected-item) { color: var(--vdw-focus-accent); }
 .remote-source-unavailable :deep(.el-select__selected-item) { color: var(--vdw-danger); }
-.category-select { width: 340px; }
+.category-field { width: 340px; }
+.category-select { min-width: 0; flex: 1; }
 .auto-controls :deep(.el-input-number) { width: 100px; }
 .auto-bar button { height: 30px; padding: 0 10px; color: var(--vdw-focus-ink); background: var(--vdw-focus-panel-2); border: 1px solid var(--vdw-focus-line); }
 .auto-bar button:disabled { color: #6f7d87; cursor: not-allowed; }

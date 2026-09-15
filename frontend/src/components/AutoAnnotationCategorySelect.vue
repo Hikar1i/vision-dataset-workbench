@@ -8,10 +8,12 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   dataTest?: string
   placeholder?: string
+  ariaLabel?: string
 }>(), {
   disabled: false,
   dataTest: 'auto-categories',
   placeholder: '类别',
+  ariaLabel: '自动标注类别',
 })
 
 const emit = defineEmits<{
@@ -48,6 +50,7 @@ function change(values: string[]) {
   <el-select
     :model-value="modelValue"
     :data-test="dataTest"
+    :aria-label="ariaLabel"
     multiple
     filterable
     collapse-tags
