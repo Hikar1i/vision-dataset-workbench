@@ -13,6 +13,7 @@ import VChip from "../ui/VChip.vue";
 import VPanel from "../ui/VPanel.vue";
 import VTag from "../ui/VTag.vue";
 import { trainingStatus } from "../ui/status";
+import { formatBatchSize } from "../components/trainingResources";
 import {
   cancelTrainingModel,
   deleteTrainingModel,
@@ -183,7 +184,7 @@ const summary = computed(() => {
   return [
     { key: "GPU / 顺序", text: `GPU ${value.gpu_index} / q${String(value.queue_order).padStart(2, "0")}` },
     { key: "epoch", text: `${latest.value?.current_epoch || 0} / ${latest.value?.target_epochs || "—"}` },
-    { key: "batchsize", text: String(parameters?.batch ?? "—") },
+    { key: "batchsize", text: formatBatchSize(parameters?.batch) },
     { key: "imagesize", text: String(parameters?.imgsz ?? "—") },
     { key: "basemodel", text: String(base.model_code ?? base.name ?? "—") },
     { key: "PID", text: String(latest.value?.pid || "—") },
@@ -304,7 +305,10 @@ onBeforeUnmount(() => clearInterval(timer));
             variant="quiet"
             size="sm"
             data-test="toggle-raw-parameters"
+            :title="panels.raw ? '收起完整超参数' : '展开完整超参数'"
+            :aria-label="panels.raw ? '收起完整超参数' : '展开完整超参数'"
             :aria-expanded="panels.raw"
+            aria-controls="raw-parameters-panel"
             @click="panels.raw = !panels.raw"
           >
             <template #icon><component :is="panels.raw ? ArrowUp : ArrowDown" /></template>
@@ -312,7 +316,7 @@ onBeforeUnmount(() => clearInterval(timer));
           </VButton>
         </template>
         <Transition name="section-reveal">
-          <pre v-if="panels.raw" class="raw-parameters" data-test="raw-parameters">{{ rawParameters }}</pre>
+          <pre v-if="panels.raw" id="raw-parameters-panel" class="raw-parameters" data-test="raw-parameters">{{ rawParameters }}</pre>
         </Transition>
       </VPanel>
 
@@ -330,22 +334,42 @@ onBeforeUnmount(() => clearInterval(timer));
           <p class="panel-note">悬浮指针可查看对应 epoch 的横纵轴数值。</p>
         </template>
         <template #actions>
-          <VButton variant="quiet" size="sm" :aria-expanded="panels.metrics" @click="panels.metrics = !panels.metrics">
+          <VButton
+            variant="quiet"
+            size="sm"
+            :title="panels.metrics ? '收起训练指标' : '展开训练指标'"
+            :aria-label="panels.metrics ? '收起训练指标' : '展开训练指标'"
+            :aria-expanded="panels.metrics"
+            aria-controls="training-metrics-panel"
+            @click="panels.metrics = !panels.metrics"
+          >
             <template #icon><component :is="panels.metrics ? ArrowUp : ArrowDown" /></template>
             {{ panels.metrics ? '收起' : '展开' }}
           </VButton>
         </template>
-        <Transition name="section-reveal"><TrainingMetricsChart v-if="panels.metrics" :metrics="metrics" /></Transition>
+        <Transition name="section-reveal">
+          <div v-if="panels.metrics" id="training-metrics-panel">
+            <TrainingMetricsChart :metrics="metrics" />
+          </div>
+        </Transition>
       </VPanel>
 
       <VPanel title="评估曲线" :flush="!panels.curves">
         <template #actions>
-          <VButton variant="quiet" size="sm" :aria-expanded="panels.curves" @click="panels.curves = !panels.curves">
+          <VButton
+            variant="quiet"
+            size="sm"
+            :title="panels.curves ? '收起评估曲线' : '展开评估曲线'"
+            :aria-label="panels.curves ? '收起评估曲线' : '展开评估曲线'"
+            :aria-expanded="panels.curves"
+            aria-controls="evaluation-curves-panel"
+            @click="panels.curves = !panels.curves"
+          >
             <template #icon><component :is="panels.curves ? ArrowUp : ArrowDown" /></template>
             {{ panels.curves ? '收起' : '展开' }}
           </VButton>
         </template>
-        <Transition name="section-reveal"><div v-if="panels.curves" class="curves-grid">
+        <Transition name="section-reveal"><div v-if="panels.curves" id="evaluation-curves-panel" class="curves-grid">
           <article class="curve-card">
             <header><strong>PR curve</strong></header>
             <PrecisionRecallChart :curve="prCurve" />
@@ -381,12 +405,20 @@ onBeforeUnmount(() => clearInterval(timer));
 
       <VPanel title="训练日志" flush>
         <template #actions>
-          <VButton variant="quiet" size="sm" :aria-expanded="panels.log" @click="panels.log = !panels.log">
+          <VButton
+            variant="quiet"
+            size="sm"
+            :title="panels.log ? '收起训练日志' : '展开训练日志'"
+            :aria-label="panels.log ? '收起训练日志' : '展开训练日志'"
+            :aria-expanded="panels.log"
+            aria-controls="training-log-panel"
+            @click="panels.log = !panels.log"
+          >
             <template #icon><component :is="panels.log ? ArrowUp : ArrowDown" /></template>
             {{ panels.log ? '收起' : '展开' }}
           </VButton>
         </template>
-        <Transition name="section-reveal"><pre v-if="panels.log" ref="logView" class="run-log">{{ log || '暂无日志输出' }}</pre></Transition>
+        <Transition name="section-reveal"><pre v-if="panels.log" id="training-log-panel" ref="logView" class="run-log">{{ log || '暂无日志输出' }}</pre></Transition>
       </VPanel>
     </div>
 

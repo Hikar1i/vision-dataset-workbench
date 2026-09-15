@@ -160,6 +160,14 @@ export function groupedOptions(
   return [...groups.values()];
 }
 
+export function formatBatchSize(value: unknown) {
+  const batch = Number(value);
+  if (value === null || value === undefined || value === "" || !Number.isFinite(batch)) return "—";
+  if (batch === -1) return "自动";
+  if (batch > 0 && batch < 1) return `${Math.round(batch * 100)}%`;
+  return String(value);
+}
+
 function safeBaseCode(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "yolo";
 }

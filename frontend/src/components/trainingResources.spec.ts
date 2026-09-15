@@ -4,6 +4,7 @@ import {
   artifactPreview,
   diffHyperparameterConfig,
   effectiveResourceIds,
+  formatBatchSize,
   groupedOptions,
   hasEffectiveResources,
   hyperparameterOverrideCount,
@@ -42,6 +43,13 @@ const readinessResources = {
 };
 
 describe("training resources", () => {
+  it("formats stored batch semantics for people", () => {
+    expect(formatBatchSize(-1)).toBe("自动");
+    expect(formatBatchSize(0.8)).toBe("80%");
+    expect(formatBatchSize(16)).toBe("16");
+    expect(formatBatchSize(null)).toBe("—");
+  });
+
   it("reports effective resource gaps across inherited and mixed sources", () => {
     expect(missingEffectiveResources(row, defaults, readinessResources)).toEqual([]);
     expect(missingEffectiveResources(
