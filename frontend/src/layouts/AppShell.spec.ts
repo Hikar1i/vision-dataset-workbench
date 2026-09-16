@@ -8,6 +8,7 @@ import { getCapabilities } from '../api/capabilities'
 import { rememberResource } from '../navigation/recentResources'
 import { clearRecentRows, isRecentRow, markRecentRow } from '../ui/recentRows'
 import AppShell from './AppShell.vue'
+import TaskCenterDrawer from '../components/TaskCenterDrawer.vue'
 
 vi.mock('../api/auth', () => ({
   getCurrentUser: vi.fn().mockResolvedValue({
@@ -313,5 +314,53 @@ describe('AppShell', () => {
     const second = await mountShell()
     expect(warning).toHaveBeenCalledOnce()
     second.wrapper.unmount()
+  })
+
+  it('groups new terminal task notifications and keeps cancellations quiet', async () => {
+    vi.useFakeTimers()
+    const success = vi.spyOn(ElNotification, 'success')
+    const error = vi.spyOn(ElNotification, 'error')
+    const { wrapper } = await mountShell()
+    const drawer = wrapper.findComponent(TaskCenterDrawer)
+    const base = {
+      project_id: 'project-1',
+      model_project_id: null,
+      video_id: null,
+      type: 'extract_frames' as const,
+      progress: 100,
+      error: null,
+      result: null,
+      cancel_requested: false,
+      attempts: 1,
+      retry_of_id: null,
+      created_at: '2026-07-24T00:00:00Z',
+      started_at: '2026-07-24T00:00:01Z',
+      finished_at: '2026-07-24T00:00:02Z',
+      updated_at: '2026-07-24T00:00:02Z',
+      project_name: 'Project 1',
+      resource_kind: 'project' as const,
+      resource_name: 'Project 1',
+      can_manage: true,
+    }
+    drawer.vm.$emit('settled', [
+      { ...base, id: 'success-1', status: 'succeeded' },
+      { ...base, id: 'success-2', status: 'succeeded' },
+      { ...base, id: 'failed-1', status: 'failed', error: 'failed' },
+      { ...base, id: 'canceled-1', status: 'canceled' },
+    ])
+    await flushPromises()
+
+    expect(success).toHaveBeenCalledWith(expect.objectContaining({
+      title: '2 个后台任务已完成',
+      duration: 4500,
+    }))
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({
+      title: '后台任务执行失败',
+      duration: 8000,
+    }))
+    expect(wrapper.get('[data-test="task-center"]').classes()).toContain('is-pulsing')
+    expect(wrapper.find('[data-test="task-center"] .task-center-bell').exists()).toBe(true)
+    vi.useRealTimers()
+    wrapper.unmount()
   })
 })

@@ -34,6 +34,51 @@ afterEach(() => {
 })
 
 describe('TaskCenterDrawer', () => {
+  it('seeds historical terminal tasks and emits only later transitions', async () => {
+    const running = {
+      ...failedTask,
+      id: 'running-task',
+      status: 'running',
+      error: null,
+      finished_at: null,
+    }
+    let poll = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => {
+        poll += 1
+        const items = poll === 1
+          ? [failedTask, running]
+          : [failedTask, { ...running, status: 'succeeded', progress: 100 }]
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            items,
+            page: 1,
+            page_size: 200,
+            total: items.length,
+            latest_terminal_at: poll === 1 ? failedTask.updated_at : '2026-07-24T00:00:03Z',
+          }),
+        })
+      }),
+    )
+    const wrapper = mount(TaskCenterDrawer, {
+      props: { modelValue: false },
+      global: { plugins: [ElementPlus], stubs: { teleport: false } },
+    })
+    await flushPromises()
+    expect(wrapper.emitted('settled')).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    await flushPromises()
+
+    expect(wrapper.emitted('settled')).toHaveLength(1)
+    expect(wrapper.emitted('settled')?.[0]?.[0]).toMatchObject([
+      { id: 'running-task', status: 'succeeded' },
+    ])
+    wrapper.unmount()
+  })
+
   it('marks terminal tasks unread and uses their project for retry', async () => {
     const fetchMock = vi.fn().mockImplementation((_path: string, init?: RequestInit) =>
       Promise.resolve({

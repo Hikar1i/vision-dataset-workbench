@@ -2,6 +2,7 @@
 import {
   ArrowDown,
   ArrowRight,
+  Bell,
   Box,
   Cpu,
   DataAnalysis,
@@ -12,7 +13,7 @@ import {
   Setting,
   User,
 } from "@element-plus/icons-vue";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { ElNotification } from "element-plus";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 
@@ -33,6 +34,7 @@ import {
   resolveRecentResources,
 } from "../navigation/recentResources";
 import { clearRecentRows } from "../ui/recentRows";
+import type { GlobalProjectTask } from "../api/media";
 
 const route = useRoute();
 const router = useRouter();
@@ -62,6 +64,8 @@ const collapsed = ref(
 );
 const taskCenterOpen = ref(false);
 const taskCenterUnread = ref(false);
+const taskBellPulse = ref(false);
+let taskBellTimer: number | undefined;
 type UserMenuCommand = "account" | "admin" | "logout";
 const capabilityNoticeKey = "vdm.gpu-capability-notice-shown";
 
@@ -158,7 +162,36 @@ async function handleUserMenu(command: UserMenuCommand) {
   }
 }
 
-function taskSettled() {
+function terminalSummary(tasks: GlobalProjectTask[]) {
+  const names = tasks.slice(0, 3).map((task) => task.resource_name);
+  return `${names.join("、")}${tasks.length > 3 ? ` 等 ${tasks.length} 项` : ""}`;
+}
+
+function taskSettled(tasks: GlobalProjectTask[]) {
+  taskBellPulse.value = true;
+  if (taskBellTimer !== undefined) window.clearTimeout(taskBellTimer);
+  taskBellTimer = window.setTimeout(() => {
+    taskBellPulse.value = false;
+    taskBellTimer = undefined;
+  }, 1100);
+  const succeeded = tasks.filter((task) => task.status === "succeeded");
+  const failed = tasks.filter((task) => task.status === "failed");
+  if (succeeded.length) {
+    ElNotification.success({
+      title: succeeded.length === 1 ? "后台任务已完成" : `${succeeded.length} 个后台任务已完成`,
+      message: terminalSummary(succeeded),
+      duration: 4500,
+      position: "top-right",
+    });
+  }
+  if (failed.length) {
+    ElNotification.error({
+      title: failed.length === 1 ? "后台任务执行失败" : `${failed.length} 个后台任务执行失败`,
+      message: terminalSummary(failed),
+      duration: 8000,
+      position: "top-right",
+    });
+  }
   window.dispatchEvent(new Event("vdm:tasks-settled"));
 }
 
@@ -195,6 +228,9 @@ onMounted(async () => {
   fallbackModelProjects.value = modelProjects;
   fallbackTrainingTasks.value = trainingTasks;
   await showCapabilityWarning();
+});
+onUnmounted(() => {
+  if (taskBellTimer !== undefined) window.clearTimeout(taskBellTimer);
 });
 </script>
 
@@ -383,11 +419,13 @@ onMounted(async () => {
         </nav>
         <button
           class="task-center-trigger"
+          :class="{ 'is-unread': taskCenterUnread, 'is-pulsing': taskBellPulse }"
           data-test="task-center"
           type="button"
           @click="taskCenterOpen = true"
         >
-          任务中心<span
+          <el-icon class="task-center-bell" aria-hidden="true"><Bell /></el-icon>
+          <span>任务中心</span><span
             v-if="taskCenterUnread"
             class="notification-dot"
             aria-label="有已完成任务"
