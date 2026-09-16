@@ -153,6 +153,11 @@ def test_copy_task_publishes_metadata_and_hash(tmp_path):
         assert video.file_path == "projects/project-id/videos/TESTV001.mkv"
         assert (workspace / video.file_path).read_bytes() == b"video bytes"
         assert video.width == 320
+        assert json.loads(task.result or "{}")["materialization"] in {
+            "reflink",
+            "hardlink",
+            "copy",
+        }
     engine.dispose()
 
 

@@ -44,6 +44,7 @@ from .services.llm_configs import LLMConfigService
 from .services.llm_annotation import LLMAnnotationError, predict as predict_llm
 from .storage.browser import VIDEO_EXTENSIONS
 from .storage.locator import WorkspaceLocator, default_locator_path
+from .storage.materialize import materialize_immutable_file
 from .storage.paths import HomePathResolver, UnsafePathError
 from .training.scheduler import TrainingScheduler
 from .xanylabeling import XAnyLabelingUnavailable
@@ -228,19 +229,17 @@ class TaskWorker:
         if not source.is_file() or source.suffix.lower() not in VIDEO_EXTENSIONS:
             raise MediaToolError("source is not a supported video file")
 
-        copied = task_temp / source.name
         total = source.stat().st_size
-        written = 0
         digest = hashlib.sha256()
+        read = 0
         last_update = 0.0
-        with source.open("rb") as reader, copied.open("xb") as writer:
+        with source.open("rb") as reader:
             while chunk := reader.read(COPY_CHUNK_SIZE):
-                writer.write(chunk)
                 digest.update(chunk)
-                written += len(chunk)
+                read += len(chunk)
                 current = time.monotonic()
-                if current - last_update >= 1 or written == total:
-                    self._heartbeat(task_id, round(written * 100 / total) if total else 100)
+                if current - last_update >= 1 or read == total:
+                    self._heartbeat(task_id, round(read * 50 / total) if total else 50)
                     last_update = current
                 if self._cancel_requested(task_id):
                     raise TaskCanceled("task canceled")
@@ -249,6 +248,20 @@ class TaskWorker:
         if self._local_duplicate(video, content_hash):
             self._finish_duplicate(task_id, "same video content already exists")
             return
+        copied = task_temp / source.name
+        materialization = materialize_immutable_file(
+            source,
+            copied,
+            copy_file=lambda source, target: self._copy_file_with_progress(
+                task_id,
+                source,
+                target,
+                total,
+                0,
+                progress_start=50,
+                progress_end=95,
+            ),
+        )
         metadata = self._probe(copied)
         thumbnail = self._make_thumbnail(copied, task_temp / f"{video.id}.jpg")
         self._publish(
@@ -258,6 +271,7 @@ class TaskWorker:
             metadata,
             thumbnail=thumbnail,
             content_sha256=content_hash,
+            materialization=materialization,
         )
 
     def _execute_import_model(self, task_id: str, task_temp: Path) -> None:
@@ -331,12 +345,20 @@ class TaskWorker:
         destination: Path,
         total: int,
         copied: int,
+        *,
+        progress_start: int = 0,
+        progress_end: int = 99,
     ) -> int:
         with source.open("rb") as reader, destination.open("xb") as writer:
             while chunk := reader.read(COPY_CHUNK_SIZE):
                 writer.write(chunk)
                 copied += len(chunk)
-                self._heartbeat(task_id, min(99, round(copied * 100 / total)) if total else 99)
+                progress = (
+                    progress_start + round(copied * (progress_end - progress_start) / total)
+                    if total
+                    else progress_end
+                )
+                self._heartbeat(task_id, min(progress_end, progress))
                 if self._cancel_requested(task_id):
                     raise TaskCanceled("task canceled")
         return copied
@@ -969,6 +991,7 @@ class TaskWorker:
         *,
         thumbnail: Path | None,
         content_sha256: str | None = None,
+        materialization: str | None = None,
     ) -> None:
         videos_dir = self.workspace / "projects" / video.project_id / "videos"
         thumbnails_dir = self.workspace / "projects" / video.project_id / "thumbnails"
@@ -1010,7 +1033,12 @@ class TaskWorker:
                 stored_video.updated_at = now
                 stored_task.status = "succeeded"
                 stored_task.progress = 100
-                stored_task.result = json.dumps({"outcome": "imported"})
+                stored_task.result = json.dumps(
+                    {
+                        "outcome": "imported",
+                        **({"materialization": materialization} if materialization else {}),
+                    }
+                )
                 stored_task.error = None
                 stored_task.finished_at = now
                 stored_task.updated_at = now
