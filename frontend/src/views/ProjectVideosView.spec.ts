@@ -253,6 +253,7 @@ describe('ProjectVideosView', () => {
     await wrapper.get('[data-test="video-search"]').setValue('line-b.mp4')
     await flushPromises()
 
+    expect(wrapper.get('[data-test="filter-summary"]').text()).toBe('匹配 1 / 总计 2')
     expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="video-row-video-two"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('已选择 1 个视频')
@@ -303,6 +304,7 @@ describe('ProjectVideosView', () => {
     expect(wrapper.get('[data-test="delete-video-id"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-test="delete-video-stopped"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('[data-test="select-video-stopped"] input').setValue(true)
+    expect(wrapper.get('[data-test="batch-delete"]').text()).toContain('删除 1 个停用视频')
     await wrapper.get('[data-test="batch-delete"]').trigger('click')
     await flushPromises()
 

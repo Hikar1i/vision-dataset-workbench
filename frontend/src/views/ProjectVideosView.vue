@@ -510,6 +510,9 @@ const headerHost = useProjectHeaderHost()
           </template>
           <span v-else-if="canEdit" class="lane-hint">勾选视频后可批量配置采样、抽帧与自动标注。</span>
           <div class="workspace-toolbar-actions" data-test="video-toolbar-actions">
+            <span class="filter-summary" data-test="filter-summary">
+              匹配 {{ filteredVideos.length }} / 总计 {{ videos.length }}
+            </span>
             <el-input
               data-test="video-search"
               class="video-search"
@@ -532,7 +535,7 @@ const headerHost = useProjectHeaderHost()
                 :disabled="!selectedStoppedVideos.length"
                 :title="selectedStoppedVideos.length ? `删除 ${selectedStoppedVideos.length} 个停用视频` : '所选视频中没有停用视频'"
                 @click="confirmDelete(selectedVideos, true)"
-              >批量删除</VButton>
+              >删除 {{ selectedStoppedVideos.length }} 个停用视频</VButton>
             </template>
             <template v-else-if="canEdit">
               <VButton data-test="export-dataset" @click="exportOpen = true">
@@ -985,6 +988,13 @@ const headerHost = useProjectHeaderHost()
 
 .video-search {
   width: 280px;
+}
+
+.filter-summary {
+  flex: none;
+  color: var(--vdw-ink-3);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 /* 页内工具行：未勾选时左侧是操作提示、右侧是页面动作；勾选后整行切换为
