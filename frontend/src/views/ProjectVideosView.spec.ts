@@ -319,6 +319,31 @@ describe('ProjectVideosView', () => {
     expect(wrapper.get('[data-test="filter-summary"]').text()).toBe('匹配 2 / 总计 2')
   })
 
+  it('keeps the enabled filter available when no videos match', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [video], page: 1, page_size: 999, total: 1 }
+          : { ...project, role: 'editor' },
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+    const trigger = wrapper.get('[data-test="enabled-filter-trigger"]')
+
+    await trigger.trigger('click')
+    await trigger.trigger('click')
+    expect(trigger.text()).toContain('仅停')
+    expect(wrapper.text()).toContain('没有匹配的视频')
+    expect(wrapper.get('[data-test="filter-summary"]').text()).toBe('匹配 0 / 总计 1')
+
+    await trigger.trigger('click')
+    expect(trigger.text()).toContain('启用')
+    expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(true)
+  })
+
   it('deletes only stopped videos and keeps enabled delete controls disabled', async () => {
     const stopped = { ...video, id: 'video-stopped', title: 'stopped', enabled: false }
     const fetchMock = vi.fn().mockImplementation((path: string, init?: RequestInit) => Promise.resolve({

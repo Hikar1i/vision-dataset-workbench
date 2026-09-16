@@ -581,7 +581,7 @@ const headerHost = useProjectHeaderHost()
 
         <section v-loading="loading" class="video-ledger">
           <div v-if="error" class="state-panel state-panel--error">{{ error }}</div>
-          <div v-if="visibleVideos.length" class="ledger-scroll">
+          <div v-if="videos.length" class="ledger-scroll">
             <header class="ledger-row ledger-head">
               <span class="selection-cell">
                 <el-checkbox
@@ -780,7 +780,7 @@ const headerHost = useProjectHeaderHost()
 
           <div v-if="!loading && !visibleVideos.length" class="empty-state">
             <h2>{{ videos.length ? '没有匹配的视频' : '项目中还没有视频' }}</h2>
-            <p v-if="videos.length">请调整搜索词或业务状态筛选。</p>
+            <p v-if="videos.length">请调整搜索词、启用状态或业务状态筛选。</p>
             <template v-else>
               <p>{{ canEdit ? '从本地目录或远程 URL 创建第一批导入任务。' : '项目编辑者导入视频后会显示在这里。' }}</p>
               <VButton variant="primary" v-if="canEdit" @click="importOpen = true">导入视频</VButton>
