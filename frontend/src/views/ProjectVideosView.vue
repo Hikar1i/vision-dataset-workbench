@@ -33,6 +33,8 @@ import { mediaStatus, videoTone } from '../ui/status'
 import { videoWorkflowLabels, videoWorkflowStatus } from './videoStatus'
 import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 
+type EnabledFilter = 'all' | 'enabled' | 'disabled'
+
 const props = defineProps<{ project: Project }>()
 const router = useRouter()
 const projectId = props.project.id
@@ -48,6 +50,7 @@ const playing = ref<Video | null>(null)
 const frameVideo = ref<Video | null>(null)
 const selected = ref<string[]>([])
 const searchQuery = ref('')
+const enabledFilter = ref<EnabledFilter>('all')
 const selectedStatuses = ref<string[]>([])
 const samplingOpen = ref(false)
 const samplingTargets = ref<Video[]>([])
@@ -69,6 +72,16 @@ const error = ref('')
 const canEdit = computed(() => props.project.role === 'owner' || props.project.role === 'editor')
 const importLimitReached = computed(() => total.value >= 999)
 const enabledTotal = computed(() => videos.value.filter((video) => video.enabled).length)
+const enabledFilterLabel = computed(() => ({
+  all: '启用',
+  enabled: '仅启',
+  disabled: '仅停',
+})[enabledFilter.value])
+const enabledFilterTitle = computed(() => ({
+  all: '启用状态：全部；点击后仅显示启用视频',
+  enabled: '启用状态：仅启用；点击后仅显示停用视频',
+  disabled: '启用状态：仅停用；点击后关闭过滤',
+})[enabledFilter.value])
 const statusOptions = computed(() => {
   const counts = new Map<string, number>()
   for (const video of videos.value) {
@@ -83,10 +96,12 @@ const filteredVideos = computed(() => {
   return videos.value.filter((video) => {
     const matchesQuery = !query || [video.title, video.source_name, video.id, video.short_code]
       .some((value) => value?.toLocaleLowerCase().includes(query))
+    const matchesEnabled = enabledFilter.value === 'all'
+      || video.enabled === (enabledFilter.value === 'enabled')
     const labels = videoWorkflowLabels(video)
     const matchesStatus = !selectedStatuses.value.length
       || selectedStatuses.value.some((status) => labels.includes(status))
-    return matchesQuery && matchesStatus
+    return matchesQuery && matchesEnabled && matchesStatus
   })
 })
 const visibleVideos = computed(() => {
@@ -174,6 +189,14 @@ function clearSelectionForCriteria() {
 function changeSearch(value: string) {
   clearSelectionForCriteria()
   searchQuery.value = value
+  page.value = 1
+}
+
+function cycleEnabledFilter() {
+  clearSelectionForCriteria()
+  enabledFilter.value = enabledFilter.value === 'all'
+    ? 'enabled'
+    : enabledFilter.value === 'enabled' ? 'disabled' : 'all'
   page.value = 1
 }
 
@@ -571,7 +594,20 @@ const headerHost = useProjectHeaderHost()
                   @change="toggleCurrentPage(Boolean($event))"
                 />
               </span>
-              <span>启用</span>
+              <span class="enabled-heading">
+                <button
+                  type="button"
+                  class="enabled-filter-trigger"
+                  :class="{ 'is-active': enabledFilter !== 'all' }"
+                  data-test="enabled-filter-trigger"
+                  :title="enabledFilterTitle"
+                  :aria-label="enabledFilterTitle"
+                  @click="cycleEnabledFilter"
+                >
+                  <span>{{ enabledFilterLabel }}</span>
+                  <el-icon><Filter /></el-icon>
+                </button>
+              </span>
               <span>视频</span>
               <span>来源 / 状态</span>
               <span>规格</span>
@@ -1082,6 +1118,39 @@ const headerHost = useProjectHeaderHost()
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+.enabled-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 26px;
+  gap: 2px;
+  padding: 0;
+  color: var(--vdw-ink-2);
+  font: 500 14px/1 var(--vdw-body);
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.enabled-filter-trigger .el-icon {
+  flex: none;
+  font-size: 14px;
+}
+
+.enabled-filter-trigger:hover,
+.enabled-filter-trigger.is-active {
+  color: var(--vdw-accent-strong);
+  background: var(--vdw-accent-soft);
+}
+
+.enabled-filter-trigger:focus-visible {
+  outline: 2px solid var(--vdw-accent-strong);
+  outline-offset: 2px;
 }
 
 .status-filter-trigger {

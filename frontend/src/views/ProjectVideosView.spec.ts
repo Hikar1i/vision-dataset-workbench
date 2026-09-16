@@ -285,6 +285,40 @@ describe('ProjectVideosView', () => {
     expect(wrapper.find('[data-test="video-row-video-stopped"]').exists()).toBe(true)
   })
 
+  it('cycles the enabled filter through enabled, disabled, and all', async () => {
+    const stopped = { ...video, id: 'video-stopped', enabled: false }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [video, stopped], page: 1, page_size: 999, total: 2 }
+          : { ...project, role: 'editor' },
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="select-video-id"] input').setValue(true)
+    const trigger = wrapper.get('[data-test="enabled-filter-trigger"]')
+
+    await trigger.trigger('click')
+    expect(trigger.text()).toContain('仅启')
+    expect(wrapper.get('[data-test="filter-summary"]').text()).toBe('匹配 1 / 总计 2')
+    expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="video-row-video-stopped"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('已选择 1 个视频')
+
+    await trigger.trigger('click')
+    expect(trigger.text()).toContain('仅停')
+    expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="video-row-video-stopped"]').exists()).toBe(true)
+
+    await trigger.trigger('click')
+    expect(trigger.text()).toContain('启用')
+    expect(wrapper.get('[data-test="filter-summary"]').text()).toBe('匹配 2 / 总计 2')
+  })
+
   it('deletes only stopped videos and keeps enabled delete controls disabled', async () => {
     const stopped = { ...video, id: 'video-stopped', title: 'stopped', enabled: false }
     const fetchMock = vi.fn().mockImplementation((path: string, init?: RequestInit) => Promise.resolve({
