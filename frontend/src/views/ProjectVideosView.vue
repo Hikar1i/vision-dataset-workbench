@@ -727,11 +727,12 @@ const headerHost = useProjectHeaderHost()
                   v-if="canEdit"
                   variant="quiet"
                   size="sm"
+                  icon-only
+                  :label="`删除视频 ${video.title}`"
                   class="row-delete"
                   :data-test="`delete-${video.id}`"
                   :disabled="video.enabled"
                   :title="video.enabled ? '请先停用视频再删除' : '删除视频'"
-                  :aria-label="`删除视频 ${video.title}`"
                   @click="confirmDelete([video])"
                 ><template #icon><el-icon><Delete /></el-icon></template></VButton>
               </div>
@@ -1296,6 +1297,11 @@ const headerHost = useProjectHeaderHost()
    与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
+}
+
+.row-actions :deep(.vdw-btn--sm) {
+  gap: 4px;
+  padding-inline: 4px;
 }
 
 .row-delete {
