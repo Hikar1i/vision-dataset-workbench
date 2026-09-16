@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.media import RemotePreview
-from vision_dataset_workbench.models import Project, ProjectMembership, Task, User, Video
+from vision_dataset_workbench.models import Frame, Project, ProjectMembership, Task, User, Video
 from vision_dataset_workbench.security.passwords import hash_password
 from vision_dataset_workbench.services.media import (
     MediaConflict,
@@ -336,6 +336,92 @@ def test_video_enabled_update_rejects_cross_project_video(tmp_path):
             enabled=False,
             version=imported.version,
         )
+    engine.dispose()
+
+
+def test_delete_videos_archives_disabled_media_and_keeps_task_history(tmp_path):
+    service, engine, actors = make_service(tmp_path)
+    imported = service.import_local(
+        actors["owner"], "project-id", ["clips/one.mp4"]
+    ).accepted[0]
+    project_root = service.workspace / "projects" / "project-id"
+    video_path = project_root / "videos" / f"{imported.video.short_code}.mp4"
+    thumbnail_path = project_root / "thumbnails" / f"{imported.video.short_code}.jpg"
+    frame_path = project_root / "frames" / imported.video.short_code / "frame.jpg"
+    for path in (video_path, thumbnail_path, frame_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(path.name.encode())
+    with Session(engine) as session:
+        video = session.get(Video, imported.video.id)
+        task = session.get(Task, imported.task.id)
+        assert video is not None and task is not None
+        video.enabled = False
+        video.status = "ready"
+        video.file_path = video_path.relative_to(service.workspace).as_posix()
+        video.thumbnail_path = thumbnail_path.relative_to(service.workspace).as_posix()
+        task.status = "succeeded"
+        session.add(
+            Frame(
+                id="frame-id",
+                video_id=video.id,
+                generation=1,
+                sequence=1,
+                source_frame_index=0,
+                time_offset=0,
+                file_path=frame_path.relative_to(service.workspace).as_posix(),
+            )
+        )
+        session.commit()
+
+    result = service.delete_videos(
+        actors["editor"], "project-id", [imported.video.id]
+    )
+
+    archive = (
+        service.workspace
+        / ".deleted"
+        / "projects"
+        / "project-id"
+        / "videos"
+        / imported.video.id
+    )
+    assert result.deleted == [imported.video.id]
+    assert (archive / "videos" / video_path.name).is_file()
+    assert (archive / "thumbnails" / thumbnail_path.name).is_file()
+    assert (archive / "frames" / imported.video.short_code / "frame.jpg").is_file()
+    assert (archive / "metadata.json").is_file()
+    with Session(engine) as session:
+        assert session.get(Video, imported.video.id) is None
+        assert session.get(Frame, "frame-id") is None
+        task = session.get(Task, imported.task.id)
+        assert task is not None and task.video_id is None
+    engine.dispose()
+
+
+def test_delete_videos_only_deletes_disabled_without_active_work(tmp_path):
+    service, engine, actors = make_service(tmp_path)
+    batch = service.import_local(
+        actors["owner"], "project-id", ["clips/one.mp4", "clips/two.MKV"]
+    )
+    enabled, active = batch.accepted
+    with Session(engine) as session:
+        active_video = session.get(Video, active.video.id)
+        assert active_video is not None
+        active_video.enabled = False
+        session.commit()
+
+    result = service.delete_videos(
+        actors["owner"], "project-id", [enabled.video.id, active.video.id, "missing"]
+    )
+
+    assert result.deleted == []
+    assert {item.reason for item in result.skipped} == {
+        "enabled video cannot be deleted",
+        "video has an active task",
+        "video not found",
+    }
+    with pytest.raises(ProjectForbidden):
+        service.delete_videos(actors["viewer"], "project-id", [active.video.id])
     engine.dispose()
 
 

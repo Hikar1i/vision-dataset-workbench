@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from ..media import InvalidMediaSource, MediaToolError, RemotePreview
 from ..models import Task, User, Video
 from ..services.media import (
+    DeleteBatch,
     ImportBatch,
     MediaConflict,
     MediaNotFound,
@@ -125,6 +126,20 @@ class VideoResponse(BaseModel):
 class VideoEnabledRequest(BaseModel):
     enabled: bool
     version: int = Field(ge=1)
+
+
+class VideoDeleteRequest(BaseModel):
+    video_ids: list[str] = Field(min_length=1, max_length=999)
+
+
+class VideoDeleteNoticeResponse(BaseModel):
+    video_id: str
+    reason: str
+
+
+class VideoDeleteResponse(BaseModel):
+    deleted: list[str]
+    skipped: list[VideoDeleteNoticeResponse]
 
 
 class AcceptedResponse(BaseModel):
@@ -298,6 +313,16 @@ def _batch_response(batch: ImportBatch) -> ImportBatchResponse:
     )
 
 
+def _delete_response(batch: DeleteBatch) -> VideoDeleteResponse:
+    return VideoDeleteResponse(
+        deleted=batch.deleted,
+        skipped=[
+            VideoDeleteNoticeResponse(video_id=item.video_id, reason=item.reason)
+            for item in batch.skipped
+        ],
+    )
+
+
 def _raise_media_error(exc: Exception) -> NoReturn:
     if isinstance(exc, (ProjectNotFound, MediaNotFound)):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -366,6 +391,21 @@ def update_video_enabled(
     except (ProjectNotFound, ProjectForbidden, MediaNotFound, MediaConflict) as exc:
         _raise_media_error(exc)
     return _video_response(video)
+
+
+@router.post("/videos/delete", response_model=VideoDeleteResponse)
+def delete_videos(
+    project_id: str,
+    payload: VideoDeleteRequest,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+) -> VideoDeleteResponse:
+    require_same_origin(request)
+    try:
+        result = media_service(request).delete_videos(user, project_id, payload.video_ids)
+    except (ProjectNotFound, ProjectForbidden) as exc:
+        _raise_media_error(exc)
+    return _delete_response(result)
 
 
 def _video_file(

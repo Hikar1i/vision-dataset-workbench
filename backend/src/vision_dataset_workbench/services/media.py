@@ -1,4 +1,6 @@
 import json
+import os
+import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -70,6 +72,18 @@ class ImportBatch:
     accepted: list[AcceptedImport]
     skipped: list[ImportNotice]
     rejected: list[ImportNotice]
+
+
+@dataclass(frozen=True)
+class DeleteNotice:
+    video_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class DeleteBatch:
+    deleted: list[str]
+    skipped: list[DeleteNotice]
 
 
 @dataclass(frozen=True)
@@ -310,6 +324,119 @@ class MediaService:
             video.updated_at = _utc_now()
             database.commit()
             return video
+
+    def delete_videos(
+        self, actor: User, project_id: str, video_ids: Sequence[str]
+    ) -> DeleteBatch:
+        self._require_editor(actor, project_id)
+        deleted: list[str] = []
+        skipped: list[DeleteNotice] = []
+        for video_id in dict.fromkeys(video_ids):
+            reason = self._delete_video(project_id, video_id)
+            if reason is None:
+                deleted.append(video_id)
+            else:
+                skipped.append(DeleteNotice(video_id, reason))
+        return DeleteBatch(deleted, skipped)
+
+    def _delete_video(self, project_id: str, video_id: str) -> str | None:
+        archive = self.workspace / ".deleted" / "projects" / project_id / "videos" / video_id
+        moved: list[tuple[Path, Path]] = []
+        with self._session_factory() as database:
+            database.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            video = database.get(Video, video_id)
+            if video is None or video.project_id != project_id:
+                return "video not found"
+            if video.enabled:
+                return "enabled video cannot be deleted"
+            if self._has_active_video_task(database, project_id, video_id):
+                return "video has an active task"
+            if video_has_active_export(database, project_id, video_id):
+                return "video is frozen by an active dataset export"
+            if archive.exists():
+                return "video archive already exists"
+
+            project_root = (self.workspace / "projects" / project_id).resolve()
+            paths = [video.file_path, video.thumbnail_path]
+            sources: list[Path] = []
+            missing: list[str] = []
+            try:
+                for relative in paths:
+                    if not relative:
+                        continue
+                    source = (self.workspace / relative).resolve(strict=False)
+                    if not source.is_relative_to(project_root):
+                        raise MediaConflict("managed video path escapes project")
+                    (sources if source.exists() else missing).append(
+                        source if source.exists() else Path(relative)
+                    )
+                frames = project_root / "frames" / video.short_code
+                (sources if frames.exists() else missing).append(
+                    frames if frames.exists() else frames.relative_to(self.workspace)
+                )
+
+                archive.mkdir(parents=True)
+                for source in sources:
+                    target = archive / source.relative_to(project_root)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(source, target)
+                    moved.append((source, target))
+                metadata = {
+                    "deleted_at": _utc_now().isoformat(timespec="seconds") + "Z",
+                    "video": {
+                        column.name: getattr(video, column.name)
+                        for column in Video.__table__.columns
+                        if column.name not in {"created_at", "updated_at"}
+                    },
+                    "created_at": video.created_at.isoformat(),
+                    "updated_at": video.updated_at.isoformat(),
+                    "moved": [
+                        target.relative_to(archive).as_posix() for _, target in moved
+                    ],
+                    "missing": [str(path) for path in missing],
+                }
+                (archive / "metadata.json").write_text(
+                    json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                database.delete(video)
+                database.commit()
+                return None
+            except Exception as exc:
+                database.rollback()
+                rollback_error = None
+                for source, target in reversed(moved):
+                    if not target.exists():
+                        continue
+                    try:
+                        source.parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(target, source)
+                    except OSError as error:
+                        rollback_error = error
+                if rollback_error is None:
+                    shutil.rmtree(archive, ignore_errors=True)
+                    return str(exc)
+                return f"video archive rollback failed: {rollback_error}"
+
+    @staticmethod
+    def _has_active_video_task(database, project_id: str, video_id: str) -> bool:
+        if database.scalar(
+            select(Task.id).where(
+                Task.video_id == video_id,
+                Task.status.in_(("queued", "running")),
+            )
+        ):
+            return True
+        for task in database.scalars(
+            select(Task).where(
+                Task.project_id == project_id,
+                Task.type == "auto_annotate",
+                Task.video_id.is_(None),
+                Task.status.in_(("queued", "running")),
+            )
+        ):
+            if video_id in json.loads(task.payload).get("video_ids", []):
+                return True
+        return False
 
     def latest_tasks(
         self, actor: User, project_id: str, video_ids: Sequence[str]

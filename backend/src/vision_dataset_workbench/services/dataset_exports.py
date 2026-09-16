@@ -42,18 +42,17 @@ def _utc_now() -> datetime:
 def video_has_active_export(
     database: Session, project_id: str, video_id: str
 ) -> bool:
-    snapshot = database.scalar(
+    snapshots = database.scalars(
         select(DatasetExport.source_snapshot).where(
             DatasetExport.project_id == project_id,
             DatasetExport.status.in_(("queued", "running")),
         )
+    ).all()
+    return any(
+        video_id
+        in {str(item["video_id"]) for item in json.loads(snapshot).get("videos", [])}
+        for snapshot in snapshots
     )
-    if snapshot is None:
-        return False
-    return video_id in {
-        str(item["video_id"])
-        for item in json.loads(snapshot).get("videos", [])
-    }
 
 
 class DatasetExportService:
