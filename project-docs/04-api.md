@@ -46,6 +46,7 @@
 | `POST /api/v1/filesystem/directories` | Session + 同源 | 在 `~` 边界内新建目录 |
 | `GET /api/v1/projects/{id}/videos` | 项目成员 | 分页读取视频、采样摘要和各视频最新任务；`page_size` 最大 999 |
 | `PUT /api/v1/projects/{id}/videos/{video_id}/enabled` | owner/editor + 同源 | 按 `version` 修改视频整体启用状态 |
+| `POST /api/v1/projects/{id}/videos/delete` | owner/editor + 同源 | 批量归档删除停用视频；逐项返回 `deleted` 与 `skipped`，启用视频不受影响 |
 | `POST /api/v1/projects/{id}/imports/local/preview` | owner/editor + 同源 | 预览单文件或目录第一层视频，不递归 |
 | `POST /api/v1/projects/{id}/imports/local` | owner/editor + 同源 | 批量创建本地复制任务，返回 202 |
 | `POST /api/v1/projects/{id}/imports/remote/preview` | owner/editor + 同源 | 用 yt-dlp 解析 HTTP(S) 单视频或播放列表 |
@@ -133,6 +134,7 @@
 | 预览/导入本地或远程视频 | 是 | 是 | 否 |
 | 取消/重试视频导入任务 | 是 | 是 | 否 |
 | 启停视频整体下游参与状态 | 是 | 是 | 否 |
+| 归档删除停用视频 | 是 | 是 | 否 |
 | 查看和下载采样帧 | 是 | 是 | 是 |
 | 配置采样方案、创建抽帧任务 | 是 | 是 | 否 |
 | 批量启停采样帧 | 是 | 是 | 否 |

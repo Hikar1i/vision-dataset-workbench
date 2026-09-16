@@ -119,7 +119,7 @@ VDW_CREDENTIAL_ENCRYPTION_KEY=<optional-fernet-key>
 - 两种模式共用数据库和项目成员数据。
 - 模式切换后重启生效。
 - `VDW_WORKSPACE` 优先于平台工作区定位文件；当前 API 启动命令没有单独的工作区 CLI 参数。
-- yt-dlp 默认不使用代理或 Cookie；仅在实例确有需要时配置上述两个变量。
+- yt-dlp 默认不使用代理或 Cookie；仅在实例确有需要时配置上述两个变量。`YTDLP_COOKIE_FILE` 必须是 yt-dlp 可读取的 Netscape 格式文件，不是 Chrome/Firefox 的 SQLite 配置目录。推荐由运维使用专用浏览器配置登录共享下载账号后导出，API 与 Worker 读取同一份只读文件；本地文件权限使用 `0600`，容器使用 Secret 或只读单文件挂载。Cookie 更新后无需把浏览器本身放入容器。
 - `VDW_CREDENTIAL_ENCRYPTION_KEY` 可显式覆盖用于加密用户远程 API 密钥的 Fernet 密钥。未配置时，初始化后的 API 会自动创建 `<workspace>/config/credential.key`（目录权限 `0700`、文件权限 `0600`），API 与 Worker 从同一工作区读取，因此无需用户手工维护。显式配置时两者仍必须一致。
 
 上述六个变量均已实现。布尔值只接受 `true` 或 `false`；`APP_MODE=single` 与 `REGISTRATION_ENABLED=true` 同时出现会使应用启动失败。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
@@ -162,4 +162,4 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 
 ## 外部工具验证
 
-视频导入和抽帧要求 `ffmpeg`、`ffprobe` 可执行；yt-dlp 是后端锁定的 Python 依赖。当前真实链路已验证三者可完成媒体探测、缩略图、本地复制、HTTP 下载、JPG/PNG 抽帧和重采样替换。抽帧使用兼容较旧 FFmpeg 的 `-vsync vfr`；启动时的显式能力/版本检查仍待实现。运行时版本必须与容器和 CI 基线一致；不得重现遗留项目中 README、pyproject 和 Docker 分别声明不同 Python 版本的情况。
+视频导入和抽帧要求 `ffmpeg`、`ffprobe` 可执行；yt-dlp 是后端锁定的 Python 依赖。当前真实链路已验证三者可完成媒体探测、缩略图、本地物化、HTTP 下载、JPG/PNG 抽帧和重采样替换。本地视频物化依次尝试 reflink、hardlink 和分块 copy，并在任务结果记录实际方式；删除外部源路径不影响已落地文件，但 hardlink 回退仍共享 inode，外部程序原地改写源文件会同时改变工作区副本。需要写隔离时应确保文件系统支持 reflink，或接受 copy 回退。抽帧使用兼容较旧 FFmpeg 的 `-vsync vfr`；启动时的显式能力/版本检查仍待实现。运行时版本必须与容器和 CI 基线一致；不得重现遗留项目中 README、pyproject 和 Docker 分别声明不同 Python 版本的情况。

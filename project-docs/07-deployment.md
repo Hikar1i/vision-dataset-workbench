@@ -41,6 +41,9 @@
 - 当前认证使用数据库可撤销 Session，部署时不需要共享浏览器 Token；不得记录 `vdw_session` Cookie 或数据库中的 token 摘要。
 - 当前同源校验直接使用请求 scheme 与 Host，不支持可信代理头。引入 TLS 终止代理前必须先明确并测试代理边界。
 - `YTDLP_PROXY` 可配置实例级代理，`YTDLP_COOKIE_FILE` 可指向 Netscape Cookie 文件；二者可能包含敏感信息，不得写入日志或仓库。
+- 生产远程下载采用一个由运维维护的共享下载账号。运维人员在主机上的专用浏览器配置中交互登录目标站点，确认登录有效后导出 Netscape `cookies.txt`；普通业务用户不上传 Cookie，服务也不内置无界面浏览器或映射日常浏览器配置目录。Cookie 到期时重复登录、导出和替换流程。
+- 原生部署把 Cookie 文件放在仓库与工作区之外，权限设为 `0600`，并让 API 与 Worker 的 `YTDLP_COOKIE_FILE` 指向同一只读文件。Docker 部署应把它作为 Secret 或只读单文件挂载同时注入 API 与 Worker，例如容器内 `/run/secrets/vdw_ytdlp_cookies`；不得挂载整个浏览器配置目录。固定 `YTDLP_PROXY` 可保持下载出口稳定；显式 User-Agent 注入尚未实现，遇到站点绑定 User-Agent 时必须先用实际 yt-dlp 链路验证，不能假定仅有 Cookie 即可长期工作。
+- 运维流程以 [yt-dlp Cookie FAQ](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) 和 [Docker Compose Secrets](https://docs.docker.com/compose/how-tos/use-secrets/) 为准；Cookie 文件按凭据管理和轮换，不进入普通配置备份、日志或问题截图。
 - 用户配置的 X-AnyLabeling Server 和在线大模型 API 密钥均使用工作区 Fernet 密钥加密后写入数据库。未设置 `VDW_CREDENTIAL_ENCRYPTION_KEY` 时，应用原子生成并复用 `<workspace>/config/credential.key`；应随工作区备份该权限为 `0600` 的文件，API 与 Worker 必须挂载同一工作区。也可显式设置环境变量覆盖自动密钥。
 - 可用 `cd backend && uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成显式部署密钥。轮换前必须先重新加密或清除现有用户凭据；直接替换环境变量或删除自动密钥会使旧密文不可读。
 - X-AnyLabeling Server 客户端直连用户配置的地址，不继承 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY`；需要跨网代理时应在网络层或服务入口统一配置。

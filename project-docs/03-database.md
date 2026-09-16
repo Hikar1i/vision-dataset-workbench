@@ -99,6 +99,8 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 
 视频 `enabled` 与媒体 `status` 相互独立。停用不删除文件、不取消任务，也不阻止播放、采样配置、抽帧、筛帧或手动/单张自动标注；停用视频不能新建批量自动标注任务，Worker 只处理开始执行时启用的帧，后续导出也必须显式过滤 `enabled = true`。备注、遗留自由文本 `status_info` 和不可逆业务状态枚举不进入新 schema；列表业务状态由任务、视频、采样版本、帧修订及标注存在性推导。
 
+只有 `enabled = false` 且不在活动任务或活动数据集导出中的视频可删除。删除会把原视频、缩略图和短码帧目录移动到 `.deleted/projects/<project UUID>/videos/<video UUID>/`，写入 `metadata.json`，再删除 Video；SamplingPlan、Frame 和 Annotation 级联删除，历史 Task 保留且 `video_id` 置空。缺失的可选文件记录进元数据但不阻止数据库清理；路径越界、移动失败或归档目录已存在时跳过该视频。当前不提供恢复或清理机制，因此该操作不会释放 `.deleted` 占用的磁盘空间。
+
 `sampling_plans` 每个视频最多一行：
 
 | 字段 | 约束/含义 |
