@@ -1,5 +1,5 @@
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElMessageBox } from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { clearRecentRows, isRecentRow } from '../ui/recentRows'
@@ -180,7 +180,7 @@ describe('ProjectVideosView', () => {
     })
   })
 
-  it('selects the current page and requests the explicit all page size', async () => {
+  it('loads the bounded project ledger once and paginates it locally', async () => {
     const second = { ...video, id: 'video-two', title: 'camera-02' }
     const fetchMock = vi.fn().mockImplementation((path: string) => {
       const pageSize = path.includes('/videos?')
@@ -221,10 +221,97 @@ describe('ProjectVideosView', () => {
       ),
     ).toBe(true)
     expect(wrapper.find('option[value="999"]').text()).toBe('全部')
+    await wrapper.get('[data-test="select-all"] input').setValue(false)
     // 视频总数只在 header 副信息里出现一次；页内工具行放本页动作，不再重复统计
     expect(wrapper.get('[data-test="page-stat"]').text()).toContain('2 个视频')
     expect(wrapper.get('[data-test="video-action-lane"]').text()).not.toContain('2 个视频')
     expect(wrapper.get('[data-test="video-toolbar-actions"]').text()).toContain('导入视频')
+  })
+
+  it('searches locally and clears selection when criteria change', async () => {
+    const second = {
+      ...video,
+      id: 'video-two',
+      short_code: '8M4N0R3Y',
+      title: 'camera-02',
+      source_name: 'line-b.mp4',
+      enabled: false,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [video, second], page: 1, page_size: 999, total: 2 }
+          : { ...project, role: 'editor' },
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="select-video-id"] input').setValue(true)
+    await wrapper.get('[data-test="video-search"]').setValue('line-b.mp4')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="video-row-video-two"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('已选择 1 个视频')
+  })
+
+  it('filters by the business statuses present in the project', async () => {
+    const stopped = { ...video, id: 'video-stopped', enabled: false }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [video, stopped], page: 1, page_size: 999, total: 2 }
+          : { ...project, role: 'editor' },
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="status-filter-trigger"]').trigger('click')
+    await flushPromises()
+    const body = new DOMWrapper(document.body)
+    const stoppedOption = body.findAll('.el-checkbox').find((item) => item.text().includes('视频停用'))
+    expect(stoppedOption?.text()).toContain('1')
+    await stoppedOption!.get('input').setValue(true)
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="video-row-video-stopped"]').exists()).toBe(true)
+  })
+
+  it('deletes only stopped videos and keeps enabled delete controls disabled', async () => {
+    const stopped = { ...video, id: 'video-stopped', title: 'stopped', enabled: false }
+    const fetchMock = vi.fn().mockImplementation((path: string, init?: RequestInit) => Promise.resolve({
+      ok: true,
+      json: async () => path.endsWith('/videos/delete')
+        ? { deleted: ['video-stopped'], skipped: [] }
+        : path.includes('/videos?')
+          ? { items: [video, stopped], page: 1, page_size: 999, total: 2 }
+          : { ...project, role: 'editor' },
+      init,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="delete-video-id"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="delete-video-stopped"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-test="select-video-stopped"] input').setValue(true)
+    await wrapper.get('[data-test="batch-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm.mock.calls[0]?.[2]).toMatchObject({
+      confirmButtonText: '删除1个停用状态的视频',
+      cancelButtonText: '取消',
+    })
+    const request = fetchMock.mock.calls.find(([path]) => String(path).endsWith('/videos/delete'))
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({ video_ids: ['video-stopped'] })
   })
 
   it('disables importing at 999 videos', async () => {

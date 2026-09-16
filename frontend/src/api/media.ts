@@ -116,6 +116,11 @@ export type ImportBatch = {
   rejected: ImportNotice[]
 }
 
+export type VideoDeleteResult = {
+  deleted: string[]
+  skipped: Array<{ video_id: string; reason: string }>
+}
+
 export type SamplingNotice = { input: string; reason: string; code: string }
 export type PlanBatch = {
   accepted: Array<{ video_id: string; plan: SamplingSummary }>
@@ -169,6 +174,13 @@ export const setVideoEnabled = (
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled, version }),
+  })
+
+export const deleteVideos = (projectId: string, videoIds: string[]) =>
+  json<VideoDeleteResult>(`${projectPath(projectId)}/videos/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ video_ids: videoIds }),
   })
 
 export type BatchEnabledByAnnotationResult = {

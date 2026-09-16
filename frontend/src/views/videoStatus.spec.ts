@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ProjectTask, SamplingSummary, Video } from '../api/media'
-import { videoStatusInfo, videoWorkflowStatus } from './videoStatus'
+import { videoStatusInfo, videoWorkflowLabels, videoWorkflowStatus } from './videoStatus'
 
 const sampling: SamplingSummary = {
   id: 'plan-id',
@@ -185,5 +185,6 @@ describe('videoStatusInfo', () => {
       '待重抽帧 · 当前 50 帧，新方案预计 80 帧',
     )
     expect(videoWorkflowStatus(changed).flags).toEqual(['已筛帧', '有标注', '视频停用'])
+    expect(videoWorkflowLabels(changed)).toEqual(['待重抽帧', '已筛帧', '有标注', '视频停用'])
   })
 })

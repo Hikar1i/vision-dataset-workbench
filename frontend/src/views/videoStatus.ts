@@ -75,3 +75,8 @@ export function videoStatusInfo(video: Video): string {
   const status = videoWorkflowStatus(video)
   return status.detail ? `${status.primary} · ${status.detail}` : status.primary
 }
+
+export function videoWorkflowLabels(video: Video): string[] {
+  const status = videoWorkflowStatus(video)
+  return [status.primary, ...status.flags]
+}

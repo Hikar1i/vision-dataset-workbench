@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import {
-  Aim, Download, Filter, Scissor, Setting, Upload, VideoPlay,
+  Aim, Delete, Download, Filter, Scissor, Search, Setting, Upload, VideoPlay,
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 
 import { ApiError } from '../api/auth'
 import {
   createExtractions,
+  deleteVideos,
   listVideos,
   setVideoEnabled,
   setVideosEnabledByAnnotation,
@@ -29,7 +30,7 @@ import VButton from '../ui/VButton.vue'
 import VTag from '../ui/VTag.vue'
 import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import { mediaStatus, videoTone } from '../ui/status'
-import { videoWorkflowStatus } from './videoStatus'
+import { videoWorkflowLabels, videoWorkflowStatus } from './videoStatus'
 import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 
 const props = defineProps<{ project: Project }>()
@@ -46,6 +47,8 @@ const exportOpen = ref(false)
 const playing = ref<Video | null>(null)
 const frameVideo = ref<Video | null>(null)
 const selected = ref<string[]>([])
+const searchQuery = ref('')
+const selectedStatuses = ref<string[]>([])
 const samplingOpen = ref(false)
 const samplingTargets = ref<Video[]>([])
 const configureChoiceTargets = ref<Video[]>([])
@@ -65,9 +68,33 @@ const error = ref('')
 
 const canEdit = computed(() => props.project.role === 'owner' || props.project.role === 'editor')
 const importLimitReached = computed(() => total.value >= 999)
-const enabledOnPage = computed(() => videos.value.filter((video) => video.enabled).length)
+const enabledTotal = computed(() => videos.value.filter((video) => video.enabled).length)
+const statusOptions = computed(() => {
+  const counts = new Map<string, number>()
+  for (const video of videos.value) {
+    for (const label of videoWorkflowLabels(video)) {
+      counts.set(label, (counts.get(label) ?? 0) + 1)
+    }
+  }
+  return [...counts].map(([label, count]) => ({ label, count }))
+})
+const filteredVideos = computed(() => {
+  const query = searchQuery.value.trim().toLocaleLowerCase()
+  return videos.value.filter((video) => {
+    const matchesQuery = !query || [video.title, video.source_name, video.id, video.short_code]
+      .some((value) => value?.toLocaleLowerCase().includes(query))
+    const labels = videoWorkflowLabels(video)
+    const matchesStatus = !selectedStatuses.value.length
+      || selectedStatuses.value.some((status) => labels.includes(status))
+    return matchesQuery && matchesStatus
+  })
+})
+const visibleVideos = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredVideos.value.slice(start, start + pageSize.value)
+})
 const selectableIds = computed(() =>
-  canEdit.value ? videos.value.filter((video) => video.status === 'ready').map((video) => video.id) : [],
+  canEdit.value ? visibleVideos.value.map((video) => video.id) : [],
 )
 const selectedOnPage = computed(() =>
   selected.value.filter((id) => selectableIds.value.includes(id)),
@@ -81,6 +108,9 @@ const selectedCounts = computed(() => ({
   screened: selectedVideos.value.filter((video) => (video.sampling?.frame_revision ?? 0) > 1).length,
   annotated: selectedVideos.value.filter((video) => video.has_annotations).length,
 }))
+const selectedStoppedVideos = computed(() =>
+  selectedVideos.value.filter((video) => !video.enabled),
+)
 const allSelected = computed(
   () => selectableIds.value.length > 0 && selectedOnPage.value.length === selectableIds.value.length,
 )
@@ -110,20 +140,19 @@ function hideBrokenThumbnail(event: Event) {
 
 async function load(
   nextPage = page.value,
-  nextPageSize = pageSize.value,
+  _nextPageSize = pageSize.value,
   preserveSelection = false,
 ) {
   loading.value = true
   error.value = ''
   try {
-    const videoResult = await listVideos(projectId, nextPage, nextPageSize)
+    const videoResult = await listVideos(projectId, 1, 999)
     videos.value = videoResult.items
     selected.value = preserveSelection
       ? selected.value.filter((id) => videoResult.items.some((video) => video.id === id))
       : []
-    page.value = videoResult.page
-    pageSize.value = videoResult.page_size
     total.value = videoResult.total
+    page.value = Math.min(nextPage, Math.max(1, Math.ceil(filteredVideos.value.length / pageSize.value)))
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '视频工作区加载失败'
   } finally {
@@ -132,8 +161,35 @@ async function load(
 }
 
 function changePageSize(event: Event) {
-  const nextPageSize = Number((event.target as HTMLSelectElement).value)
-  void load(1, nextPageSize)
+  pageSize.value = Number((event.target as HTMLSelectElement).value)
+  page.value = 1
+}
+
+function clearSelectionForCriteria() {
+  if (!selected.value.length) return
+  selected.value = []
+  ElMessage.info('筛选条件已变化，已清除已选视频。')
+}
+
+function changeSearch(value: string) {
+  clearSelectionForCriteria()
+  searchQuery.value = value
+  page.value = 1
+}
+
+function toggleStatus(label: string, checked: boolean) {
+  clearSelectionForCriteria()
+  selectedStatuses.value = checked
+    ? [...selectedStatuses.value, label]
+    : selectedStatuses.value.filter((item) => item !== label)
+  page.value = 1
+}
+
+function clearStatusFilter() {
+  if (!selectedStatuses.value.length) return
+  clearSelectionForCriteria()
+  selectedStatuses.value = []
+  page.value = 1
 }
 
 function toggleCurrentPage(checked: boolean) {
@@ -158,6 +214,35 @@ async function changeVideoEnabled(video: Video, enabled: boolean) {
     if (reason instanceof ApiError && reason.status === 409) await load()
   } finally {
     changingEnabled.value = ''
+  }
+}
+
+async function confirmDelete(targetVideos: Video[], batch = false) {
+  const stopped = targetVideos.filter((video) => !video.enabled)
+  if (!stopped.length) return
+  const single = !batch && targetVideos.length === 1
+  try {
+    await ElMessageBox.confirm(
+      single
+        ? `“${stopped[0].title}”将移入 .deleted 归档目录，且不会提供页面恢复入口。`
+        : `仅删除所选视频中 ${stopped.length} 个停用状态的视频；启用状态的视频不会受到影响。`,
+      single ? '确认删除视频' : '确认批量删除',
+      {
+        type: 'warning',
+        confirmButtonText: single ? '删除视频' : `删除${stopped.length}个停用状态的视频`,
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+      },
+    )
+    const result = await deleteVideos(projectId, stopped.map((video) => video.id))
+    selected.value = []
+    if (result.deleted.length) ElMessage.success(`已删除 ${result.deleted.length} 个停用视频。`)
+    if (result.skipped.length) ElMessage.warning(`${result.skipped.length} 个视频状态已变化，未删除。`)
+    await load(1)
+  } catch (reason) {
+    if (reason !== 'cancel' && reason !== 'close') {
+      ElMessage.error(reason instanceof Error ? reason.message : '视频删除失败')
+    }
   }
 }
 
@@ -408,7 +493,7 @@ const headerHost = useProjectHeaderHost()
     <section class="workspace">
         <!-- 视频总数与启用数是本页的统计，送进 header 的副信息位，页内不再重复 -->
         <Teleport defer :disabled="!headerHost" to="#project-page-meta">
-          <span data-test="page-stat">{{ total }} 个视频 · {{ enabledOnPage }} 个已启用</span>
+          <span data-test="page-stat">{{ total }} 个视频 · {{ enabledTotal }} 个已启用</span>
         </Teleport>
 
         <!-- 导出数据集与导入视频只作用于本页的原始数据，因此放在页内工具行而不是
@@ -422,16 +507,34 @@ const headerHost = useProjectHeaderHost()
                 已筛帧 {{ selectedCounts.screened }} · 有标注 {{ selectedCounts.annotated }}
               </small>
             </strong>
-            <div>
+          </template>
+          <span v-else-if="canEdit" class="lane-hint">勾选视频后可批量配置采样、抽帧与自动标注。</span>
+          <div class="workspace-toolbar-actions" data-test="video-toolbar-actions">
+            <el-input
+              data-test="video-search"
+              class="video-search"
+              :model-value="searchQuery"
+              clearable
+              placeholder="搜索视频标题、文件名或 ID"
+              aria-label="搜索视频"
+              @input="changeSearch(String($event))"
+            >
+              <template #prefix><el-icon><Search /></el-icon></template>
+            </el-input>
+            <template v-if="canEdit && selected.length">
             <VButton variant="default" data-test="batch-configure" @click="configure(selected)">批量配置采样</VButton>
             <VButton variant="default" data-test="batch-extract" @click="extract(selected)">批量抽帧</VButton>
             <VButton variant="default" data-test="batch-auto-annotate" @click="openBatchAnnotation">批量自动标注</VButton>
             <VButton variant="default" data-test="batch-enabled-by-annotation" @click="openEnabledByAnnotation">按标注启停</VButton>
-            </div>
-          </template>
-          <template v-else-if="canEdit">
-            <span class="lane-hint">勾选视频后可批量配置采样、抽帧与自动标注。</span>
-            <div class="workspace-toolbar-actions" data-test="video-toolbar-actions">
+              <VButton
+                variant="danger"
+                data-test="batch-delete"
+                :disabled="!selectedStoppedVideos.length"
+                :title="selectedStoppedVideos.length ? `删除 ${selectedStoppedVideos.length} 个停用视频` : '所选视频中没有停用视频'"
+                @click="confirmDelete(selectedVideos, true)"
+              >批量删除</VButton>
+            </template>
+            <template v-else-if="canEdit">
               <VButton data-test="export-dataset" @click="exportOpen = true">
                 <template #icon><el-icon><Download /></el-icon></template>
                 导出数据集
@@ -446,13 +549,13 @@ const headerHost = useProjectHeaderHost()
                 <template #icon><el-icon><Upload /></el-icon></template>
                 导入视频
               </VButton>
-            </div>
-          </template>
+            </template>
+          </div>
         </section>
 
         <section v-loading="loading" class="video-ledger">
           <div v-if="error" class="state-panel state-panel--error">{{ error }}</div>
-          <div v-if="videos.length" class="ledger-scroll">
+          <div v-if="visibleVideos.length" class="ledger-scroll">
             <header class="ledger-row ledger-head">
               <span class="selection-cell">
                 <el-checkbox
@@ -470,12 +573,41 @@ const headerHost = useProjectHeaderHost()
               <span>来源 / 状态</span>
               <span>规格</span>
               <span>启用/总数</span>
-              <span>业务状态</span>
+              <span class="status-heading">
+                业务状态
+                <el-popover trigger="click" placement="bottom" :width="250">
+                  <template #reference>
+                    <button
+                      type="button"
+                      class="status-filter-trigger"
+                      :class="{ 'is-active': selectedStatuses.length }"
+                      data-test="status-filter-trigger"
+                      title="按业务状态筛选"
+                      aria-label="按业务状态筛选"
+                    >
+                      <el-icon><Filter /></el-icon>
+                      <small v-if="selectedStatuses.length">{{ selectedStatuses.length }}</small>
+                    </button>
+                  </template>
+                  <div class="status-filter-panel" data-test="status-filter-panel">
+                    <div class="status-filter-title">
+                      <strong>业务状态</strong>
+                      <button type="button" :disabled="!selectedStatuses.length" @click="clearStatusFilter">清除</button>
+                    </div>
+                    <el-checkbox
+                      v-for="option in statusOptions"
+                      :key="option.label"
+                      :model-value="selectedStatuses.includes(option.label)"
+                      @change="toggleStatus(option.label, Boolean($event))"
+                    >{{ option.label }} <small>{{ option.count }}</small></el-checkbox>
+                  </div>
+                </el-popover>
+              </span>
               <span>操作</span>
             </header>
 
             <article
-              v-for="video in videos"
+              v-for="video in visibleVideos"
               :key="video.id"
               class="ledger-row media-row"
               :class="{ 'vdw-row--recent': isRecentRow(recentVideoScope, video.id) }"
@@ -591,17 +723,31 @@ const headerHost = useProjectHeaderHost()
                   :disabled="!video.sampling?.extracted_frames"
                   @click="frameVideo = video"
                 ><template #icon><el-icon><Filter /></el-icon></template>筛帧</VButton>
+                <VButton
+                  v-if="canEdit"
+                  variant="quiet"
+                  size="sm"
+                  class="row-delete"
+                  :data-test="`delete-${video.id}`"
+                  :disabled="video.enabled"
+                  :title="video.enabled ? '请先停用视频再删除' : '删除视频'"
+                  :aria-label="`删除视频 ${video.title}`"
+                  @click="confirmDelete([video])"
+                ><template #icon><el-icon><Delete /></el-icon></template></VButton>
               </div>
             </article>
           </div>
 
-          <div v-if="!loading && !videos.length" class="empty-state">
-            <h2>项目中还没有视频</h2>
-            <p>{{ canEdit ? '从本地目录或远程 URL 创建第一批导入任务。' : '项目编辑者导入视频后会显示在这里。' }}</p>
-            <VButton variant="primary" v-if="canEdit" @click="importOpen = true">导入视频</VButton>
+          <div v-if="!loading && !visibleVideos.length" class="empty-state">
+            <h2>{{ videos.length ? '没有匹配的视频' : '项目中还没有视频' }}</h2>
+            <p v-if="videos.length">请调整搜索词或业务状态筛选。</p>
+            <template v-else>
+              <p>{{ canEdit ? '从本地目录或远程 URL 创建第一批导入任务。' : '项目编辑者导入视频后会显示在这里。' }}</p>
+              <VButton variant="primary" v-if="canEdit" @click="importOpen = true">导入视频</VButton>
+            </template>
           </div>
 
-          <footer v-if="total" class="ledger-footer">
+          <footer v-if="filteredVideos.length" class="ledger-footer">
             <label>
               每页
               <select data-test="page-size" :value="pageSize" @change="changePageSize">
@@ -616,8 +762,8 @@ const headerHost = useProjectHeaderHost()
               layout="prev, pager, next"
               :current-page="page"
               :page-size="pageSize"
-              :total="total"
-              @current-change="load($event, pageSize)"
+              :total="filteredVideos.length"
+              @current-change="page = $event"
             />
           </footer>
         </section>
@@ -836,6 +982,10 @@ const headerHost = useProjectHeaderHost()
   gap: 8px;
 }
 
+.video-search {
+  width: 280px;
+}
+
 /* 页内工具行：未勾选时左侧是操作提示、右侧是页面动作；勾选后整行切换为
    批量动作。同一位置同一语义（"对当前列表做什么"），不会出现两排按钮。 */
 .video-action-lane {
@@ -915,6 +1065,71 @@ const headerHost = useProjectHeaderHost()
   white-space: nowrap;
   background: var(--vdw-surface-2);
   border-bottom: 1px solid var(--vdw-line);
+}
+
+.status-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  color: var(--vdw-ink-2);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.status-filter-trigger:hover,
+.status-filter-trigger.is-active {
+  color: var(--vdw-accent-strong);
+  background: var(--vdw-accent-soft);
+}
+
+.status-filter-trigger small {
+  margin-left: 2px;
+  font: 700 11px var(--vdw-mono);
+}
+
+.status-filter-panel {
+  display: grid;
+  gap: 4px;
+}
+
+.status-filter-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.status-filter-title button {
+  color: var(--vdw-accent-strong);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.status-filter-title button:disabled {
+  color: var(--vdw-ink-3);
+  cursor: default;
+}
+
+.status-filter-panel :deep(.el-checkbox) {
+  margin-right: 0;
+}
+
+.status-filter-panel small {
+  margin-left: 4px;
+  color: var(--vdw-ink-3);
+  font-family: var(--vdw-mono);
 }
 
 /* 数据行同样全列左对齐，与表头保持同一起点（见 .ledger-row > *） */
@@ -1081,6 +1296,11 @@ const headerHost = useProjectHeaderHost()
    与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
+}
+
+.row-delete {
+  width: 30px;
+  padding-inline: 0;
 }
 
 .ledger-footer {
