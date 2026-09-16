@@ -56,6 +56,8 @@ const facts = computed(() => {
   const value = model.value
   if (!value) return []
   return [
+    { key: '创建时间', text: value.created_at.slice(0, 16).replace('T', ' '), mono: true },
+    { key: '更新时间', text: value.updated_at.slice(0, 16).replace('T', ' '), mono: true },
     { key: '模型 code', text: value.model_code, mono: true },
     { key: '来源文件', text: value.source_name },
     {
@@ -65,8 +67,6 @@ const facts = computed(() => {
         : `${(value.file_size / 1024 / 1024).toFixed(2)} MB`,
       mono: true,
     },
-    { key: '创建时间', text: value.created_at.slice(0, 16).replace('T', ' '), mono: true },
-    { key: '更新时间', text: value.updated_at.slice(0, 16).replace('T', ' '), mono: true },
     { key: 'SHA-256', text: value.sha256 || '—', mono: true, wrap: true },
     { key: '存储路径', text: value.storage_path || '—', mono: true, wrap: true },
   ]
@@ -233,7 +233,7 @@ onMounted(load)
 
 .fact-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 16px 20px;
   margin: 0;
 }

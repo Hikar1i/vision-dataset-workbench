@@ -1086,8 +1086,8 @@ const headerHost = useProjectHeaderHost()
      末列 344px 是 5 个"图标+文字"操作的实测所需宽度；给少了会撑破网格
      并在台账里产生横向滚动。 */
   grid-template-columns:
-    16px 46px minmax(180px, 1fr) 96px 106px 76px
-    minmax(260px, 1.35fr) 344px;
+    16px 46px minmax(180px, 1fr) 80px 110px 76px
+    minmax(260px, 1.35fr) 340px;
   gap: 8px;
   align-items: center;
   /* 固定列合计 + 两个弹性列的下限；小于此宽度时才允许台账横向滚动 */

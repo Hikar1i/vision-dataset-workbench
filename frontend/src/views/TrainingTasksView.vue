@@ -37,7 +37,7 @@ const error = ref('')
 const filter = ref<Filter>('all')
 
 const COLUMNS =
-  'minmax(260px, 1.4fr) 84px minmax(190px, 1fr) 142px 142px minmax(390px, 1.8fr)'
+  'minmax(240px, 1.5fr) 75px minmax(150px, 1fr) 135px 135px minmax(390px, 2fr)'
 const RECENT_SCOPE = 'training-tasks'
 
 const MODE_LABEL: Record<string, string> = {

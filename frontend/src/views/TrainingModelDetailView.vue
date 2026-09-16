@@ -184,16 +184,16 @@ const summary = computed(() => {
   const parameters = value.template_snapshot.parameters as Record<string, unknown> | undefined;
   const base = value.base_model_snapshot;
   return [
+    { key: "创建", text: formatTime(value.created_at) },
+    { key: "开始", text: formatTime(value.started_at) },
+    { key: "持续", text: duration(value.started_at, value.finished_at) },
+    { key: "结束", text: formatTime(value.finished_at) },
+    { key: "PID", text: String(latest.value?.pid || "—") },
     { key: "GPU / 顺序", text: `GPU ${value.gpu_index} / q${String(value.queue_order).padStart(2, "0")}` },
     { key: "epoch", text: `${latest.value?.current_epoch || 0} / ${latest.value?.target_epochs || "—"}` },
     { key: "batchsize", text: formatBatchSize(parameters?.batch) },
     { key: "imagesize", text: String(parameters?.imgsz ?? "—") },
     { key: "basemodel", text: formatBaseModel(base.name, base.model_code) },
-    { key: "PID", text: String(latest.value?.pid || "—") },
-    { key: "创建", text: formatTime(value.created_at) },
-    { key: "开始", text: formatTime(value.started_at) },
-    { key: "持续", text: duration(value.started_at, value.finished_at) },
-    { key: "结束", text: formatTime(value.finished_at) },
   ];
 });
 const trainingDatasets = computed(() => {
@@ -526,7 +526,7 @@ onBeforeUnmount(() => clearInterval(timer));
 
 .run-summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 14px;
   margin: 2px 0 0;
   padding-top: 14px;
