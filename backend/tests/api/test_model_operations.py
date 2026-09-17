@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+from io import BytesIO
+from PIL import Image
 from sqlalchemy.orm import Session
 
 from vision_dataset_workbench.capabilities import (
@@ -12,6 +14,7 @@ from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.main import create_app
 from vision_dataset_workbench.models import InferenceModel, ModelArtifact, Task, User
+from vision_dataset_workbench.inference import Detection
 from vision_dataset_workbench.security.passwords import hash_password
 
 ORIGIN = {"Origin": "http://testserver"}
@@ -140,3 +143,29 @@ def test_model_artifact_api_permissions_download_and_stale_state(tmp_path):
     assert admin.delete(
         f"/api/v1/model-artifacts/{artifact_id}", headers=ORIGIN
     ).status_code == 204
+
+
+def test_image_inference_api_restores_downloads_and_saves_session(tmp_path):
+    app, admin, _viewer, _workspace = setup_app(tmp_path)
+
+    class Runner:
+        def predict(self, *_args, **_kwargs):
+            return [Detection("car", 1, 1, 10, 10, 0.9)]
+
+    app.state.model_inference_service.runner = Runner()
+    image = BytesIO()
+    Image.new("RGB", (24, 24), "white").save(image, format="PNG")
+    created = admin.post(
+        "/api/v1/models/model-id/inference?input_type=image&format=pt",
+        headers={**ORIGIN, "X-Filename": "sample.png"},
+        content=image.getvalue(),
+    )
+    assert created.status_code == 202, created.text
+    run = created.json()
+    assert run["status"] == "succeeded" and run["statistics"]["detections"] == 1
+    assert admin.get("/api/v1/models/model-id/inference/current").json()["id"] == run["id"]
+    assert admin.get(f"/api/v1/model-inference/{run['id']}/files/source").status_code == 200
+    assert admin.get(f"/api/v1/model-inference/{run['id']}/files/result").status_code == 200
+    saved = admin.post(f"/api/v1/model-inference/{run['id']}/save", headers=ORIGIN)
+    assert saved.status_code == 200 and saved.json()["saved_at"]
+    assert admin.get("/api/v1/models/model-id/inference/current").json() is None

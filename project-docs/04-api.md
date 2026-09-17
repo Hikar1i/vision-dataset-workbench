@@ -80,6 +80,14 @@
 | `POST /api/v1/models/{id}/artifacts` | 模型项目管理员 + 同源 | 创建 ONNX 或 TensorRT 转换任务；同一模型同一格式只保留一个当前产物 |
 | `GET /api/v1/model-artifacts/{id}/download` | Session | 下载 ready 转换产物；TensorRT 响应携带仅限当前服务器使用的兼容性提示头 |
 | `DELETE /api/v1/model-artifacts/{id}` | 模型项目管理员 + 同源 | 删除转换产物；活动任务正在使用时返回 409 |
+| `GET /api/v1/models/{id}/inference/current` | Session | 恢复当前用户在该模型下唯一的未保存推理会话 |
+| `POST /api/v1/models/{id}/inference` | Session + 同源 | 以原始请求体流式上传图片或视频；图片最大 20 MB、视频最大 500 MB，视频返回后台任务会话 |
+| `GET /api/v1/models/{id}/inference/saved` | Session | 列出模型项目内已保存的共享推理结果 |
+| `GET /api/v1/model-inference/{id}` | 会话所有者；已保存结果对登录用户可读 | 查询图片/视频推理状态、参数和统计 |
+| `POST /api/v1/model-inference/{id}/keepalive` | 会话所有者 + 同源 | 将未保存会话的 24 小时过期时间向后延长 |
+| `POST /api/v1/model-inference/{id}/save` | 模型项目管理员 + 同源 | 保存成功结果并取消自动过期 |
+| `DELETE /api/v1/model-inference/{id}` | 会话所有者 + 同源 | 清理会话；运行中的视频任务先请求取消，再由 Worker 安全移除文件 |
+| `GET /api/v1/model-inference/{id}/files/{source|preview|result}` | 同推理结果读取权限 | 下载源文件、读取浏览器预览或下载检测结果 |
 | `GET /api/v1/hyperparameter-catalog` | Session | 返回 Detect v1 参数目录、类型、默认值和约束 |
 | `POST /api/v1/hyperparameter-templates/validate-raw` | Session | 严格校验完整 RAW YAML；失败不返回可应用配置 |
 | `GET/POST /api/v1/hyperparameter-templates` | Session；创建需同源 | 列出或创建工作区全局参数预设，可指定派生来源 |

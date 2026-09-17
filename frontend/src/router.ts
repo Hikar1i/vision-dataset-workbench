@@ -61,6 +61,12 @@ export function createAppRouter() {
             meta: { section: "模型项目", page: "模型详情" },
           },
           {
+            path: "model-projects/:id/models/:modelId/inference",
+            name: "model-inference",
+            component: () => import("./views/ModelInferenceView.vue"),
+            meta: { section: "模型项目", page: "在线推理" },
+          },
+          {
             path: "hyperparameter-templates",
             name: "hyperparameter-templates",
             component: () => import("./views/HyperparameterTemplatesView.vue"),

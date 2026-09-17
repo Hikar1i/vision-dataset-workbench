@@ -27,12 +27,18 @@ from .dataset_export_task import DatasetExportTaskCanceled, execute_dataset_expo
 from .media import MediaMetadata, MediaToolError, normalize_remote_url, probe_video, ytdlp_base_args
 from .inference import InferenceRunner, InferenceUnavailable
 from .model_artifact_task import ModelConversionDeferred, execute_model_conversion
+from .model_inference_task import (
+    ModelInferenceCanceled,
+    ModelInferenceDeferred,
+    execute_video_inference,
+)
 from .models import (
     DatasetExport,
     Frame,
     FrameAnnotation,
     InferenceModel,
     ModelArtifact,
+    ModelInferenceRun,
     ProjectLabel,
     SamplingPlan,
     Task,
@@ -138,6 +144,7 @@ class TaskWorker:
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="vdw-task")
         self._futures: dict[str, Future[None]] = {}
         self._stop = threading.Event()
+        self._last_inference_sweep = 0.0
         self._training_scheduler = TrainingScheduler(
             engine,
             self.workspace,
@@ -232,15 +239,28 @@ class TaskWorker:
                     self._heartbeat,
                     self._gpu_leases,
                 )
+            elif task_type == "infer_video":
+                execute_video_inference(
+                    self._session_factory,
+                    self.workspace,
+                    task_id,
+                    task_temp,
+                    self._now,
+                    self._heartbeat,
+                    self._cancel_requested,
+                    self._gpu_leases,
+                    self._inference_runner,
+                )
             else:
                 raise RuntimeError("unsupported task type")
-        except ModelConversionDeferred:
+        except (ModelConversionDeferred, ModelInferenceDeferred):
             self._requeue(task_id)
-        except (TaskCanceled, DatasetExportTaskCanceled):
+        except (TaskCanceled, DatasetExportTaskCanceled, ModelInferenceCanceled):
             self._finish_canceled(task_id)
         except Exception as exc:
             self._finish_failed(task_id, exc)
         finally:
+            self._cleanup_deleted_inference(task_id)
             self._remove_task_temp(task_temp)
 
     def _execute_copy(self, task_id: str, task_temp: Path) -> None:
@@ -1125,6 +1145,7 @@ class TaskWorker:
             self._fail_imported_model(database, task, "model import canceled")
             self._finish_dataset_export(database, task, "canceled", "dataset export canceled")
             self._finish_model_artifact(database, task, "failed", "model conversion canceled")
+            self._finish_model_inference(database, task, "canceled", "inference canceled")
             database.commit()
 
     def _safe_error(self, exc: Exception) -> str:
@@ -1147,6 +1168,7 @@ class TaskWorker:
             self._fail_imported_model(database, task, task.error)
             self._finish_dataset_export(database, task, "failed", task.error)
             self._finish_model_artifact(database, task, "failed", task.error)
+            self._finish_model_inference(database, task, "failed", task.error)
             database.commit()
 
     def _requeue(self, task_id: str) -> None:
@@ -1166,6 +1188,12 @@ class TaskWorker:
                 if artifact is not None:
                     artifact.status = "queued"
                     artifact.updated_at = now
+            elif task.type == "infer_video":
+                run_id = str(json.loads(task.payload).get("run_id") or "")
+                run = database.get(ModelInferenceRun, run_id)
+                if run is not None:
+                    run.status = "queued"
+                    run.started_at = None
             database.commit()
 
     @staticmethod
@@ -1201,6 +1229,17 @@ class TaskWorker:
             artifact.error = error
             artifact.updated_at = task.updated_at
 
+    @staticmethod
+    def _finish_model_inference(database, task: Task, status: str, error: str) -> None:
+        if task.type != "infer_video":
+            return
+        run_id = str(json.loads(task.payload).get("run_id") or "")
+        run = database.get(ModelInferenceRun, run_id)
+        if run is not None:
+            run.status = status
+            run.error = error
+            run.finished_at = task.updated_at
+
     def _remove_task_temp(self, path: Path) -> None:
         expected_parent = (self.workspace / "tmp").resolve()
         if path.parent.resolve() != expected_parent:
@@ -1208,8 +1247,46 @@ class TaskWorker:
         if path.exists():
             shutil.rmtree(path)
 
+    def _cleanup_deleted_inference(self, task_id: str) -> None:
+        with self._session_factory() as database:
+            task = database.get(Task, task_id)
+            if task is None or task.type != "infer_video":
+                return
+            run = database.get(
+                ModelInferenceRun, str(json.loads(task.payload).get("run_id") or "")
+            )
+            if run is not None and run.deleted_at is not None:
+                shutil.rmtree(
+                    self.workspace / "models" / run.model_id / "inference" / run.id,
+                    ignore_errors=True,
+                )
+
+    def _sweep_inference_runs(self) -> None:
+        current = time.monotonic()
+        if current - self._last_inference_sweep < 60:
+            return
+        self._last_inference_sweep = current
+        now = self._now()
+        paths = []
+        with self._session_factory() as database:
+            rows = database.scalars(
+                select(ModelInferenceRun).where(
+                    ModelInferenceRun.saved_at.is_(None),
+                    ModelInferenceRun.deleted_at.is_(None),
+                    ModelInferenceRun.expires_at < now,
+                    ModelInferenceRun.status.in_(("succeeded", "failed", "canceled")),
+                )
+            ).all()
+            for run in rows:
+                run.deleted_at = now
+                paths.append(self.workspace / "models" / run.model_id / "inference" / run.id)
+            database.commit()
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+
     def run_once(self) -> None:
         self._training_scheduler.tick()
+        self._sweep_inference_runs()
         for task_id, future in list(self._futures.items()):
             if future.done():
                 future.result()

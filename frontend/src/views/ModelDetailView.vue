@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import { ArrowDown, CopyDocument, Download, Operation } from '@element-plus/icons-vue'
+import { ArrowDown, CopyDocument, Download, Operation, VideoCamera } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -147,6 +147,9 @@ onMounted(load)
         <VTag :tone="status.tone">{{ status.label }}</VTag>
       </template>
       <template #actions>
+        <VButton v-if="model?.status === 'ready'" :href="`/model-projects/${route.params.id}/models/${modelId}/inference`">
+          <template #icon><el-icon><VideoCamera /></el-icon></template>在线推理
+        </VButton>
         <VButton v-if="model?.can_convert" @click="artifactDialogOpen = true">
           <template #icon><el-icon><Operation /></el-icon></template>格式转换
         </VButton>
