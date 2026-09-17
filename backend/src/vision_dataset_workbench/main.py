@@ -13,6 +13,7 @@ from .api.media import global_task_router, router as media_router
 from .api.models import router as models_router
 from .api.model_artifacts import router as model_artifacts_router
 from .api.model_inference import router as model_inference_router
+from .api.model_evaluations import router as model_evaluations_router
 from .api.hyperparameters import router as hyperparameters_router
 from .api.projects import router as projects_router
 from .api.registrations import router as registrations_router
@@ -33,6 +34,7 @@ from .services.media import MediaService
 from .services.models import ModelService
 from .services.model_artifacts import ModelArtifactService
 from .services.model_inference import ModelInferenceService
+from .services.model_evaluations import ModelEvaluationService
 from .services.gpu_leases import GpuLeaseService
 from .inference import InferenceRunner
 from .services.labels import LabelService
@@ -128,6 +130,11 @@ def create_app(
         if auth_service is not None and workspace is not None
         else None
     )
+    app.state.model_evaluation_service = (
+        ModelEvaluationService(auth_service.engine, workspace, app.state.model_artifact_service)
+        if auth_service is not None and workspace is not None
+        else None
+    )
     app.state.training_service = (
         TrainingService(auth_service.engine, workspace)
         if auth_service is not None and workspace is not None
@@ -199,6 +206,7 @@ def create_app(
     app.include_router(models_router)
     app.include_router(model_artifacts_router)
     app.include_router(model_inference_router)
+    app.include_router(model_evaluations_router)
     app.include_router(hyperparameters_router)
     app.include_router(training_router)
     app.include_router(xanylabeling_settings_router)

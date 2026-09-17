@@ -32,13 +32,21 @@ from .model_inference_task import (
     ModelInferenceDeferred,
     execute_video_inference,
 )
+from .evaluation_dataset_task import EvaluationDatasetCanceled, execute_evaluation_dataset_import
+from .model_evaluation_task import (
+    ModelEvaluationCanceled,
+    ModelEvaluationDeferred,
+    execute_model_evaluation,
+)
 from .models import (
     DatasetExport,
+    EvaluationDataset,
     Frame,
     FrameAnnotation,
     InferenceModel,
     ModelArtifact,
     ModelInferenceRun,
+    ModelEvaluation,
     ProjectLabel,
     SamplingPlan,
     Task,
@@ -251,11 +259,38 @@ class TaskWorker:
                     self._gpu_leases,
                     self._inference_runner,
                 )
+            elif task_type == "import_evaluation_dataset":
+                execute_evaluation_dataset_import(
+                    self._session_factory,
+                    self.workspace,
+                    task_id,
+                    task_temp,
+                    self._now,
+                    self._heartbeat,
+                    self._cancel_requested,
+                )
+            elif task_type == "evaluate_model":
+                execute_model_evaluation(
+                    self._session_factory,
+                    self.workspace,
+                    task_id,
+                    task_temp,
+                    self._now,
+                    self._heartbeat,
+                    self._cancel_requested,
+                    self._gpu_leases,
+                )
             else:
                 raise RuntimeError("unsupported task type")
-        except (ModelConversionDeferred, ModelInferenceDeferred):
+        except (ModelConversionDeferred, ModelInferenceDeferred, ModelEvaluationDeferred):
             self._requeue(task_id)
-        except (TaskCanceled, DatasetExportTaskCanceled, ModelInferenceCanceled):
+        except (
+            TaskCanceled,
+            DatasetExportTaskCanceled,
+            ModelInferenceCanceled,
+            EvaluationDatasetCanceled,
+            ModelEvaluationCanceled,
+        ):
             self._finish_canceled(task_id)
         except Exception as exc:
             self._finish_failed(task_id, exc)
@@ -1146,6 +1181,7 @@ class TaskWorker:
             self._finish_dataset_export(database, task, "canceled", "dataset export canceled")
             self._finish_model_artifact(database, task, "failed", "model conversion canceled")
             self._finish_model_inference(database, task, "canceled", "inference canceled")
+            self._finish_evaluation_resource(database, task, "canceled", "evaluation canceled")
             database.commit()
 
     def _safe_error(self, exc: Exception) -> str:
@@ -1169,6 +1205,7 @@ class TaskWorker:
             self._finish_dataset_export(database, task, "failed", task.error)
             self._finish_model_artifact(database, task, "failed", task.error)
             self._finish_model_inference(database, task, "failed", task.error)
+            self._finish_evaluation_resource(database, task, "failed", task.error)
             database.commit()
 
     def _requeue(self, task_id: str) -> None:
@@ -1194,6 +1231,12 @@ class TaskWorker:
                 if run is not None:
                     run.status = "queued"
                     run.started_at = None
+            elif task.type == "evaluate_model":
+                evaluation_id = str(json.loads(task.payload).get("evaluation_id") or "")
+                evaluation = database.get(ModelEvaluation, evaluation_id)
+                if evaluation is not None:
+                    evaluation.status = "queued"
+                    evaluation.started_at = None
             database.commit()
 
     @staticmethod
@@ -1239,6 +1282,22 @@ class TaskWorker:
             run.status = status
             run.error = error
             run.finished_at = task.updated_at
+
+    @staticmethod
+    def _finish_evaluation_resource(database, task: Task, status: str, error: str) -> None:
+        payload = json.loads(task.payload)
+        if task.type == "import_evaluation_dataset":
+            dataset = database.get(EvaluationDataset, str(payload.get("dataset_id") or ""))
+            if dataset is not None:
+                dataset.status = "failed"
+                dataset.error = error
+                dataset.completed_at = task.updated_at
+        elif task.type == "evaluate_model":
+            evaluation = database.get(ModelEvaluation, str(payload.get("evaluation_id") or ""))
+            if evaluation is not None:
+                evaluation.status = status
+                evaluation.error = error
+                evaluation.finished_at = task.updated_at
 
     def _remove_task_temp(self, path: Path) -> None:
         expected_parent = (self.workspace / "tmp").resolve()

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import { ArrowDown, CopyDocument, Download, Operation, VideoCamera } from '@element-plus/icons-vue'
+import { ArrowDown, CopyDocument, DataAnalysis, Download, Operation, VideoCamera } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -140,7 +140,7 @@ onMounted(load)
       :title="model?.name || '模型详情'"
       kind="model"
       :code="model?.model_code"
-      :back-to="`/model-projects/${route.params.id}`"
+      :back-to="`/model-projects/${route.params.id}/models`"
       back-label="返回模型列表"
     >
       <template v-if="model" #eyebrow>
@@ -149,6 +149,9 @@ onMounted(load)
       <template #actions>
         <VButton v-if="model?.status === 'ready'" :href="`/model-projects/${route.params.id}/models/${modelId}/inference`">
           <template #icon><el-icon><VideoCamera /></el-icon></template>在线推理
+        </VButton>
+        <VButton v-if="model?.status === 'ready'" :href="`/model-projects/${route.params.id}/evaluations?modelId=${modelId}`">
+          <template #icon><el-icon><DataAnalysis /></el-icon></template>在线评估
         </VButton>
         <VButton v-if="model?.can_convert" @click="artifactDialogOpen = true">
           <template #icon><el-icon><Operation /></el-icon></template>格式转换

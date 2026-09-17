@@ -88,6 +88,12 @@
 | `POST /api/v1/model-inference/{id}/save` | 模型项目管理员 + 同源 | 保存成功结果并取消自动过期 |
 | `DELETE /api/v1/model-inference/{id}` | 会话所有者 + 同源 | 清理会话；运行中的视频任务先请求取消，再由 Worker 安全移除文件 |
 | `GET /api/v1/model-inference/{id}/files/{source|preview|result}` | 同推理结果读取权限 | 下载源文件、读取浏览器预览或下载检测结果 |
+| `GET/POST /api/v1/model-projects/{id}/evaluation-datasets` | Session；写入需项目管理权与同源 | 列出测试集快照，或以原始请求体流式上传最大 1 GB 的 ZIP 并创建后台校验任务 |
+| `DELETE /api/v1/evaluation-datasets/{id}` | 模型项目管理员 + 同源 | 逻辑删除未被活动评估使用的测试集；文件移入 `.deleted`，历史评估保留名称与哈希快照 |
+| `GET/POST /api/v1/model-projects/{id}/evaluations` | Session；写入需项目管理权与同源 | 列出评估记录，或为一个具体模型、测试集和可用格式创建固定参数评估任务 |
+| `GET /api/v1/model-evaluations/{id}` | Session | 返回冻结来源、总体/分类别指标和图表可用状态 |
+| `POST /api/v1/model-evaluations/{id}/cancel` | 模型项目管理员 + 同源 | 请求取消排队中或运行中的评估 |
+| `GET /api/v1/model-evaluations/{id}/plots/{confusion|pr-curve}` | Session | 读取受管目录内的混淆矩阵或 PR 曲线图片 |
 | `GET /api/v1/hyperparameter-catalog` | Session | 返回 Detect v1 参数目录、类型、默认值和约束 |
 | `POST /api/v1/hyperparameter-templates/validate-raw` | Session | 严格校验完整 RAW YAML；失败不返回可应用配置 |
 | `GET/POST /api/v1/hyperparameter-templates` | Session；创建需同源 | 列出或创建工作区全局参数预设，可指定派生来源 |

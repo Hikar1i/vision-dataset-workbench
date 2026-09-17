@@ -204,6 +204,10 @@ watch(projectId, loadRouteProject, { immediate: true })
           导入模型
         </VButton>
       </template>
+      <template #tabs>
+        <RouterLink :to="`/model-projects/${projectId}/models`">模型列表</RouterLink>
+        <RouterLink :to="`/model-projects/${projectId}/evaluations`">模型评估</RouterLink>
+      </template>
     </PageHeader>
 
     <div v-loading="loading" class="content-body detail-body">

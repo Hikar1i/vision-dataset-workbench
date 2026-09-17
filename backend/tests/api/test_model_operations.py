@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
 from io import BytesIO
+import json
+import zipfile
 from PIL import Image
 from sqlalchemy.orm import Session
 
@@ -13,7 +15,13 @@ from vision_dataset_workbench.capabilities import (
 from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.main import create_app
-from vision_dataset_workbench.models import InferenceModel, ModelArtifact, Task, User
+from vision_dataset_workbench.models import (
+    EvaluationDataset,
+    InferenceModel,
+    ModelArtifact,
+    Task,
+    User,
+)
 from vision_dataset_workbench.inference import Detection
 from vision_dataset_workbench.security.passwords import hash_password
 
@@ -169,3 +177,39 @@ def test_image_inference_api_restores_downloads_and_saves_session(tmp_path):
     saved = admin.post(f"/api/v1/model-inference/{run['id']}/save", headers=ORIGIN)
     assert saved.status_code == 200 and saved.json()["saved_at"]
     assert admin.get("/api/v1/models/model-id/inference/current").json() is None
+
+
+def test_evaluation_dataset_and_evaluation_api_permissions(tmp_path):
+    app, admin, viewer, workspace = setup_app(tmp_path)
+    image = BytesIO()
+    Image.new("RGB", (8, 8), "white").save(image, format="PNG")
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("classes.txt", "car\n")
+        bundle.writestr("images/sample.png", image.getvalue())
+        bundle.writestr("labels/sample.txt", "0 0.5 0.5 0.2 0.2\n")
+    project_id = admin.get("/api/v1/model-projects").json()[0]["id"]
+    url = f"/api/v1/model-projects/{project_id}/evaluation-datasets?name=Safety"
+    headers = {**ORIGIN, "X-Filename": "set.zip"}
+    assert viewer.post(url, headers=headers, content=archive.getvalue()).status_code == 403
+    created = admin.post(url, headers=headers, content=archive.getvalue())
+    assert created.status_code == 202, created.text
+    dataset_id = created.json()["dataset"]["id"]
+    dataset_path = workspace / "model-projects" / project_id / "evaluation-datasets" / dataset_id
+    (dataset_path / "images").mkdir(parents=True)
+    with app.state.model_evaluation_service._session_factory() as database:
+        dataset = database.get(EvaluationDataset, dataset_id)
+        dataset.status = "ready"
+        dataset.storage_path = dataset_path.relative_to(workspace).as_posix()
+        dataset.content_sha256 = "d" * 64
+        dataset.classes = json.dumps(["car"])
+        dataset.image_count = dataset.label_count = 1
+        database.commit()
+    evaluation = admin.post(
+        f"/api/v1/model-projects/{project_id}/evaluations",
+        headers=ORIGIN,
+        json={"model_id": "model-id", "dataset_id": dataset_id, "format": "pt"},
+    )
+    assert evaluation.status_code == 202, evaluation.text
+    assert evaluation.json()["evaluation"]["config"]["conf"] == 0.001
+    assert viewer.get(f"/api/v1/model-projects/{project_id}/evaluations").status_code == 200

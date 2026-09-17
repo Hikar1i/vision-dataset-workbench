@@ -50,9 +50,19 @@ export function createAppRouter() {
           },
           {
             path: "model-projects/:id",
-            name: "model-project-detail",
+            redirect: { name: "model-project-models" },
+          },
+          {
+            path: "model-projects/:id/models",
+            name: "model-project-models",
             component: () => import("./views/ModelProjectDetailView.vue"),
             meta: { section: "模型项目", page: "模型列表" },
+          },
+          {
+            path: "model-projects/:id/evaluations",
+            name: "model-project-evaluations",
+            component: () => import("./views/ModelProjectEvaluationView.vue"),
+            meta: { section: "模型项目", page: "模型评估" },
           },
           {
             path: "model-projects/:id/models/:modelId",
