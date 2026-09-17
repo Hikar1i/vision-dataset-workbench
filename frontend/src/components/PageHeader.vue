@@ -144,6 +144,9 @@ withDefaults(defineProps<{
 
 /* 同样定高：有的页面没有副信息，若高度跟随内容，末行会整体上移 */
 .page-header__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   height: 21px;
   margin: 5px 0 0;
   overflow: hidden;
