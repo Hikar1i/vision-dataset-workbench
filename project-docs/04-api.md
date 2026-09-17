@@ -76,6 +76,10 @@
 | `POST /api/v1/model-projects/{id}/models` | Session + same-origin；创建者或管理员 | 创建 `.pt` 模型导入任务 |
 | `GET/PATCH/DELETE /api/v1/models/{id}` | Session；写入需项目管理权 | 查看、编辑/移动或逻辑删除模型；详情响应对训练发布模型附带冻结的训练参数、`base_model_name`/`base_model_code` 与数据集摘要 |
 | `GET /api/v1/models/{id}/download` | Session | 下载 ready 且路径通过受管目录校验的 `.pt` 模型 |
+| `GET /api/v1/models/{id}/artifacts` | Session | 列出模型的 ONNX/TensorRT 转换产物；源模型或 TensorRT 构建环境变化时返回 `stale` |
+| `POST /api/v1/models/{id}/artifacts` | 模型项目管理员 + 同源 | 创建 ONNX 或 TensorRT 转换任务；同一模型同一格式只保留一个当前产物 |
+| `GET /api/v1/model-artifacts/{id}/download` | Session | 下载 ready 转换产物；TensorRT 响应携带仅限当前服务器使用的兼容性提示头 |
+| `DELETE /api/v1/model-artifacts/{id}` | 模型项目管理员 + 同源 | 删除转换产物；活动任务正在使用时返回 409 |
 | `GET /api/v1/hyperparameter-catalog` | Session | 返回 Detect v1 参数目录、类型、默认值和约束 |
 | `POST /api/v1/hyperparameter-templates/validate-raw` | Session | 严格校验完整 RAW YAML；失败不返回可应用配置 |
 | `GET/POST /api/v1/hyperparameter-templates` | Session；创建需同源 | 列出或创建工作区全局参数预设，可指定派生来源 |

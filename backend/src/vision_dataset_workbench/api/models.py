@@ -81,6 +81,7 @@ class InferenceModelResponse(BaseModel):
     error: str | None
     version: int
     can_manage: bool
+    can_convert: bool
     created_at: str
     updated_at: str
     training: dict[str, object] | None = None
@@ -149,6 +150,7 @@ def _model_response(
         error=model.error,
         version=model.version,
         can_manage=(service.can_manage(actor, project) and project.series_type == "archive"),
+        can_convert=service.can_manage(actor, project),
         created_at=_utc_text(model.created_at),
         updated_at=_utc_text(model.updated_at),
         training=training,

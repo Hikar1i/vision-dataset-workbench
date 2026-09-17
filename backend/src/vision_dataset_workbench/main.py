@@ -11,6 +11,7 @@ from .api.filesystem import router as filesystem_router
 from .api.labels import router as labels_router
 from .api.media import global_task_router, router as media_router
 from .api.models import router as models_router
+from .api.model_artifacts import router as model_artifacts_router
 from .api.hyperparameters import router as hyperparameters_router
 from .api.projects import router as projects_router
 from .api.registrations import router as registrations_router
@@ -29,6 +30,7 @@ from .services.dataset_exports import DatasetExportService
 from .services.hyperparameters import HyperparameterTemplateService
 from .services.media import MediaService
 from .services.models import ModelService
+from .services.model_artifacts import ModelArtifactService
 from .services.labels import LabelService
 from .services.projects import ProjectService
 from .services.sampling import SamplingService
@@ -104,6 +106,15 @@ def create_app(
     app.state.hyperparameter_template_service = (
         HyperparameterTemplateService(auth_service.engine) if auth_service is not None else None
     )
+    app.state.model_artifact_service = (
+        ModelArtifactService(
+            auth_service.engine,
+            workspace,
+            app.state.capabilities,
+        )
+        if auth_service is not None and workspace is not None
+        else None
+    )
     app.state.training_service = (
         TrainingService(auth_service.engine, workspace)
         if auth_service is not None and workspace is not None
@@ -173,6 +184,7 @@ def create_app(
     app.include_router(auto_annotations_router)
     app.include_router(dataset_exports_router)
     app.include_router(models_router)
+    app.include_router(model_artifacts_router)
     app.include_router(hyperparameters_router)
     app.include_router(training_router)
     app.include_router(xanylabeling_settings_router)

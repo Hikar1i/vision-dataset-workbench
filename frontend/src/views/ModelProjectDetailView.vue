@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Delete, Download, Edit, Plus, Refresh, View } from '@element-plus/icons-vue'
+import { Delete, Download, Edit, MoreFilled, Operation, Plus, Refresh, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -18,6 +18,7 @@ import {
 import { MODEL_EXTENSIONS } from '../api/filesystem'
 import ServerFilePicker from '../components/ServerFilePicker.vue'
 import PageHeader from '../components/PageHeader.vue'
+import ModelArtifactDialog from '../components/ModelArtifactDialog.vue'
 import { rememberResource } from '../navigation/recentResources'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
@@ -48,6 +49,8 @@ const importName = ref('')
 const importDescription = ref('')
 const saving = ref(false)
 const importing = ref(false)
+const conversionModel = ref<InferenceModel>()
+const conversionOpen = ref(false)
 const readyCount = computed(() => models.value.filter((model) => model.status === 'ready').length)
 let loadVersion = 0
 
@@ -156,6 +159,18 @@ async function removeModel(model: InferenceModel) {
   }
 }
 
+function handleModelMore(command: string) {
+  const [action, modelId] = command.split(':')
+  const selected = models.value.find((item) => item.id === modelId)
+  if (!selected) return
+  if (action === 'download') {
+    window.location.assign(modelDownloadUrl(selected.id))
+    return
+  }
+  conversionModel.value = selected
+  conversionOpen.value = true
+}
+
 watch(projectId, loadRouteProject, { immediate: true })
 </script>
 
@@ -260,12 +275,22 @@ watch(projectId, loadRouteProject, { immediate: true })
                 size="sm"
                 @click="$router.push(`/model-projects/${projectId}/models/${model.id}`)"
               ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
-              <VButton
-                v-if="model.status === 'ready'"
-                variant="quiet"
-                size="sm"
-                :href="modelDownloadUrl(model.id)"
-              ><template #icon><el-icon><Download /></el-icon></template>下载</VButton>
+              <el-dropdown v-if="model.status === 'ready'" trigger="click" @command="handleModelMore">
+                <VButton variant="quiet" size="sm">
+                  <template #icon><el-icon><MoreFilled /></el-icon></template>更多
+                </VButton>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item :command="`download:${model.id}`">
+                      <el-icon><Download /></el-icon>下载 .pt
+                    </el-dropdown-item>
+                    <el-dropdown-item
+                      :command="`convert:${model.id}`"
+                      :disabled="!project?.can_manage"
+                    ><el-icon><Operation /></el-icon>格式转换</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
               <VButton
                 v-if="model.can_manage"
                 variant="danger"
@@ -375,6 +400,13 @@ watch(projectId, loadRouteProject, { immediate: true })
         >创建导入任务</VButton>
       </template>
     </el-dialog>
+
+    <ModelArtifactDialog
+      v-if="conversionModel"
+      v-model="conversionOpen"
+      :model-id="conversionModel.id"
+      :model-name="conversionModel.name"
+    />
   </main>
 </template>
 

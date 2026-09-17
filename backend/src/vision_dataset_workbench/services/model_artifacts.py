@@ -168,7 +168,7 @@ class ModelArtifactService:
             database.expunge(task)
             return artifact, task
 
-    def downloadable(self, actor: User, artifact_id: str) -> tuple[ModelArtifact, Path]:
+    def downloadable(self, actor: User, artifact_id: str) -> tuple[ModelArtifact, Path, str]:
         with self._session_factory() as database:
             artifact = database.get(ModelArtifact, artifact_id)
             if artifact is None or artifact.deleted_at is not None:
@@ -183,7 +183,7 @@ class ModelArtifactService:
             if not path.is_file() or not path.is_relative_to(root):
                 raise ModelArtifactNotFound("model artifact file not found")
             database.expunge(artifact)
-            return artifact, path
+            return artifact, path, model.model_code
 
     def delete(self, actor: User, artifact_id: str) -> None:
         now = _now()

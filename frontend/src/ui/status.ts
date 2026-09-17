@@ -46,6 +46,14 @@ const MEDIA: Record<string, { tone: Tone; label: string }> = {
   unavailable: { tone: 'danger', label: '不可用' },
 }
 
+const MODEL_ARTIFACT: Record<string, { tone: Tone; label: string }> = {
+  queued: { tone: 'idle', label: '排队中' },
+  converting: { tone: 'run', label: '转换中' },
+  ready: { tone: 'ok', label: '可下载' },
+  failed: { tone: 'danger', label: '转换失败' },
+  stale: { tone: 'warn', label: '已失效' },
+}
+
 /** 视频工作流状态码（views/videoStatus.ts 产出的 code 前缀） */
 const VIDEO_TONES: Array<[RegExp, Tone]> = [
   [/^running-/, 'run'],
@@ -75,6 +83,10 @@ export function userStatus(status: string) {
 
 export function mediaStatus(status: string) {
   return MEDIA[status] ?? { tone: 'idle' as Tone, label: status }
+}
+
+export function modelArtifactStatus(status: string) {
+  return MODEL_ARTIFACT[status] ?? { tone: 'idle' as Tone, label: status }
 }
 
 export function videoTone(code: string): Tone {

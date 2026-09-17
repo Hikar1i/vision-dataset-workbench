@@ -1,7 +1,10 @@
 import json
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from vision_dataset_workbench.capabilities import (
     CapabilityStatus,
@@ -11,7 +14,15 @@ from vision_dataset_workbench.capabilities import (
     SystemCapabilities,
 )
 from vision_dataset_workbench.database import create_workspace_database, make_engine
-from vision_dataset_workbench.models import InferenceModel, ModelArtifact, ModelProject, User
+from vision_dataset_workbench.models import (
+    InferenceModel,
+    ModelArtifact,
+    ModelProject,
+    Task,
+    User,
+)
+from vision_dataset_workbench.model_artifact_task import execute_model_conversion
+from vision_dataset_workbench.services.gpu_leases import GpuLeaseService
 from vision_dataset_workbench.services.model_artifacts import (
     InvalidModelArtifact,
     ModelArtifactConflict,
@@ -158,4 +169,50 @@ def test_source_hash_change_invalidates_ready_onnx(tmp_path):
         database.commit()
 
     assert service.list(owner, "model-id")[0].status == "stale"
+    engine.dispose()
+
+
+def test_conversion_worker_atomically_publishes_validated_onnx(tmp_path, monkeypatch):
+    engine, service, owner, _viewer = setup_service(tmp_path)
+    artifact, task = service.create(owner, "model-id", "onnx")
+    with service._session_factory() as database:
+        stored_task = database.get(Task, task.id)
+        stored_task.status = "running"
+        database.commit()
+    task_temp = service.workspace / "tmp" / task.id
+    task_temp.mkdir(parents=True)
+
+    class FakeYolo:
+        def __init__(self, source):
+            self.source = Path(source)
+
+        def export(self, **_arguments):
+            output = self.source.with_suffix(".onnx")
+            output.write_bytes(b"valid-onnx")
+            return output
+
+    import vision_dataset_workbench.model_artifact_task as executor
+
+    monkeypatch.setattr(
+        executor.importlib,
+        "import_module",
+        lambda name: SimpleNamespace(YOLO=FakeYolo) if name == "ultralytics" else None,
+    )
+    monkeypatch.setattr(executor, "_validate_export", lambda _path, _format: None)
+    execute_model_conversion(
+        sessionmaker(engine, expire_on_commit=False),
+        service.workspace,
+        task.id,
+        task_temp,
+        datetime.now,
+        lambda _task_id, _progress: None,
+        GpuLeaseService(engine, devices=()),
+    )
+
+    with service._session_factory() as database:
+        stored = database.get(ModelArtifact, artifact.id)
+        stored_task = database.get(Task, task.id)
+        assert stored.status == "ready"
+        assert (service.workspace / stored.storage_path).read_bytes() == b"valid-onnx"
+        assert stored_task.status == "succeeded"
     engine.dispose()

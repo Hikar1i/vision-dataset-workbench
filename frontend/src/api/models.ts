@@ -29,6 +29,7 @@ export type InferenceModel = {
   error: string | null
   version: number
   can_manage: boolean
+  can_convert: boolean
   created_at: string
   updated_at: string
   training: ModelTrainingInfo | null

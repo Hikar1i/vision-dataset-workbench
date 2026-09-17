@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import { CopyDocument } from '@element-plus/icons-vue'
+import { ArrowDown, CopyDocument, Download, Operation } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -12,6 +12,12 @@ import {
   type InferenceModel,
   type ModelProject,
 } from '../api/models'
+import {
+  listModelArtifacts,
+  modelArtifactDownloadUrl,
+  type ModelArtifact,
+} from '../api/modelArtifacts'
+import ModelArtifactDialog from '../components/ModelArtifactDialog.vue'
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 import VChip from '../ui/VChip.vue'
@@ -20,10 +26,13 @@ import VPanel from '../ui/VPanel.vue'
 import VTag from '../ui/VTag.vue'
 import { copyText } from '../ui/clipboard'
 import { formatBaseModel } from '../components/trainingResources'
+import { modelArtifactStatus } from '../ui/status'
 
 const route = useRoute()
 const modelId = String(route.params.modelId)
 const model = ref<InferenceModel>()
+const artifacts = ref<ModelArtifact[]>([])
+const artifactDialogOpen = ref(false)
 const projects = ref<ModelProject[]>([])
 const editing = ref(false)
 const saving = ref(false)
@@ -74,13 +83,19 @@ const facts = computed(() => {
 
 async function load() {
   try {
-    ;[model.value, projects.value] = await Promise.all([
+    ;[model.value, projects.value, artifacts.value] = await Promise.all([
       getInferenceModel(modelId),
       listModelProjects(),
+      listModelArtifacts(modelId),
     ])
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '模型详情加载失败'
   }
+}
+
+function downloadArtifact(command: string | number | object) {
+  const artifact = artifacts.value.find((item) => item.id === command)
+  if (artifact?.status === 'ready') window.location.assign(modelArtifactDownloadUrl(artifact.id))
 }
 
 function edit() {
@@ -132,10 +147,30 @@ onMounted(load)
         <VTag :tone="status.tone">{{ status.label }}</VTag>
       </template>
       <template #actions>
-        <VButton
-          v-if="model?.status === 'ready'"
-          :href="modelDownloadUrl(model.id)"
-        >下载模型</VButton>
+        <VButton v-if="model?.can_convert" @click="artifactDialogOpen = true">
+          <template #icon><el-icon><Operation /></el-icon></template>格式转换
+        </VButton>
+        <div v-if="model?.status === 'ready'" class="download-split">
+          <VButton :href="modelDownloadUrl(model.id)">
+            <template #icon><el-icon><Download /></el-icon></template>下载 .pt
+          </VButton>
+          <el-dropdown trigger="click" @command="downloadArtifact">
+            <VButton icon-only label="选择转换格式" title="选择转换格式">
+              <template #icon><el-icon><ArrowDown /></el-icon></template>
+            </VButton>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="artifact in artifacts"
+                  :key="artifact.id"
+                  :command="artifact.id"
+                  :disabled="artifact.status !== 'ready'"
+                >下载 {{ artifact.format === 'onnx' ? 'ONNX' : 'TensorRT' }}</el-dropdown-item>
+                <el-dropdown-item v-if="!artifacts.length" disabled>暂无转换产物</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
         <VButton v-if="model?.can_manage" variant="primary" @click="edit">编辑模型</VButton>
       </template>
     </PageHeader>
@@ -151,6 +186,34 @@ onMounted(load)
               <dd :class="{ 'is-mono': fact.mono, 'is-wrap': fact.wrap }">{{ fact.text }}</dd>
             </div>
           </dl>
+        </VPanel>
+
+        <VPanel title="转换产物">
+          <template #actions>
+            <VButton v-if="model.can_convert" size="sm" @click="artifactDialogOpen = true">
+              <template #icon><el-icon><Operation /></el-icon></template>管理转换
+            </VButton>
+          </template>
+          <div v-if="artifacts.length" class="artifact-summary">
+            <article v-for="artifact in artifacts" :key="artifact.id">
+              <div>
+                <strong>{{ artifact.format === 'onnx' ? 'ONNX' : 'TensorRT' }}</strong>
+                <span>{{ artifact.export_config.imgsz }}px · {{ artifact.format === 'engine' ? artifact.export_config.precision?.toUpperCase() : (artifact.export_config.dynamic ? '动态输入' : '固定输入') }}</span>
+              </div>
+              <VTag :tone="modelArtifactStatus(artifact.status).tone">
+                {{ modelArtifactStatus(artifact.status).label }}
+              </VTag>
+              <span class="artifact-size">{{ artifact.file_size == null ? '—' : `${(artifact.file_size / 1024 / 1024).toFixed(1)} MB` }}</span>
+              <VButton
+                variant="quiet"
+                size="sm"
+                :href="artifact.status === 'ready' ? modelArtifactDownloadUrl(artifact.id) : undefined"
+                :disabled="artifact.status !== 'ready'"
+                :title="artifact.error || '下载转换产物'"
+              ><template #icon><el-icon><Download /></el-icon></template>下载</VButton>
+            </article>
+          </div>
+          <p v-else class="artifact-empty">尚未生成转换产物，可按部署环境选择 ONNX 或 TensorRT。</p>
         </VPanel>
 
         <VPanel v-if="model.training" title="训练信息" data-test="model-training-info">
@@ -221,6 +284,14 @@ onMounted(load)
         </VButton>
       </template>
     </el-dialog>
+
+    <ModelArtifactDialog
+      v-if="model"
+      v-model="artifactDialogOpen"
+      :model-id="model.id"
+      :model-name="model.name"
+      @changed="load"
+    />
   </main>
 </template>
 
@@ -230,6 +301,18 @@ onMounted(load)
   align-content: start;
   gap: 14px;
 }
+
+.download-split { display: inline-flex; }
+.download-split > :first-child { border-radius: var(--vdw-radius-control) 0 0 var(--vdw-radius-control); }
+.download-split :deep(.el-dropdown .vdw-btn) { width: 34px; padding: 0; border-left: 0; border-radius: 0 var(--vdw-radius-control) var(--vdw-radius-control) 0; }
+
+.artifact-summary { display: grid; gap: 8px; }
+.artifact-summary article { display: grid; grid-template-columns: minmax(180px, 1fr) 110px 90px 78px; align-items: center; gap: 14px; min-height: 56px; padding: 9px 12px; background: var(--vdw-surface-2); border: 1px solid var(--vdw-line); border-radius: var(--vdw-radius-control); }
+.artifact-summary article > div { display: grid; gap: 4px; min-width: 0; }
+.artifact-summary strong { font-size: 14px; }
+.artifact-summary article > div span, .artifact-size { color: var(--vdw-ink-3); font-size: 13px; }
+.artifact-size { font-family: var(--vdw-mono); }
+.artifact-empty { margin: 0; color: var(--vdw-ink-2); font-size: 14px; }
 
 .fact-grid {
   display: grid;
