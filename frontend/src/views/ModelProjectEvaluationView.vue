@@ -177,7 +177,7 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
       <template v-if="tab === 'records'">
         <div class="toolbar">
           <span>固定参数：conf 0.001 · IOU 0.70 · batch 1 · max_det 300</span>
-          <VButton v-if="project?.can_manage" variant="primary" :disabled="!readyModels.length || !readyDatasets.length" @click="evaluationOpen = true"><template #icon><el-icon><Plus /></el-icon></template>新建评估</VButton>
+          <VButton v-if="project?.can_manage" variant="primary" :disabled="!readyModels.length || !readyDatasets.length" :title="!readyModels.length ? '暂无可用模型' : !readyDatasets.length ? '请先导入并校验测试集' : '新建评估'" @click="evaluationOpen = true"><template #icon><el-icon><Plus /></el-icon></template>新建评估</VButton>
         </div>
         <VPanel flush><VTable :columns="RECORD_COLUMNS" :headers="['模型', '测试集', '格式', '状态', 'mAP50-95', '操作']">
           <VRow v-for="item in evaluations" :key="item.id" :columns="RECORD_COLUMNS">
@@ -186,7 +186,7 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
             <VTag tone="idle">{{ item.format.toUpperCase() }}</VTag>
             <VTag :tone="status(item.status).tone" :title="item.error || undefined">{{ status(item.status).label }}</VTag>
             <span class="metric">{{ percent(item.metrics.map50_95) }}</span>
-            <VButton size="sm" :disabled="item.status !== 'succeeded'" @click="detail = item"><template #icon><el-icon><View /></el-icon></template>详情</VButton>
+            <VButton size="sm" :disabled="item.status !== 'succeeded'" :title="item.status !== 'succeeded' ? '评估完成后可查看详情' : '查看评估详情'" @click="detail = item"><template #icon><el-icon><View /></el-icon></template>详情</VButton>
           </VRow>
           <template #empty><VEmpty v-if="!evaluations.length" title="暂无评估记录" note="先导入测试集，再为具体模型创建一次可复现评估。" /></template>
         </VTable></VPanel>
@@ -203,7 +203,7 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
             <span class="metric">{{ item.image_count }}</span><span class="metric">{{ item.classes.length }}</span>
             <span class="mono ellipsis" :title="item.content_sha256 || ''">{{ item.content_sha256 || '校验后生成' }}</span>
             <VTag :tone="status(item.status).tone" :title="item.error || undefined">{{ status(item.status).label }}</VTag>
-            <VButton v-if="project?.can_manage" variant="danger" size="sm" :disabled="['queued','validating'].includes(item.status)" @click="removeDataset(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
+            <VButton v-if="project?.can_manage" variant="danger" size="sm" :disabled="['queued','validating'].includes(item.status)" :title="['queued','validating'].includes(item.status) ? '测试集校验期间不可删除' : '删除测试集'" @click="removeDataset(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
           </VRow>
           <template #empty><VEmpty v-if="!datasets.length" title="还没有测试集" note="上传结构受控的 ZIP 后，系统会在后台完成安全校验。" /></template>
         </VTable></VPanel>
@@ -222,7 +222,7 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
           <label class="file-drop">选择 ZIP<input type="file" accept=".zip,application/zip" @change="pickDataset" /><span>{{ datasetFile?.name || '点击选择文件' }}</span></label>
         </div>
       </div>
-      <template #footer><VButton variant="quiet" @click="importOpen = false">取消</VButton><VButton variant="primary" :loading="submitting" :disabled="!datasetFile || !datasetName.trim()" @click="importDataset">上传并校验</VButton></template>
+      <template #footer><VButton variant="quiet" @click="importOpen = false">取消</VButton><VButton variant="primary" :loading="submitting" :disabled="!datasetFile || !datasetName.trim()" :title="!datasetFile ? '请选择 ZIP 文件' : !datasetName.trim() ? '请填写测试集名称' : '上传并校验'" @click="importDataset">上传并校验</VButton></template>
     </el-dialog>
 
     <el-dialog v-model="evaluationOpen" title="新建模型评估" width="620px">
@@ -232,7 +232,7 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
         <label>模型格式<el-select v-model="format"><el-option v-for="item in formats" :key="item.value" :label="item.label" :value="item.value" :disabled="!item.enabled" /></el-select></label>
         <el-alert title="评估参数固定以保证不同模型结果可直接比较。" type="info" :closable="false" show-icon />
       </div>
-      <template #footer><VButton variant="quiet" @click="evaluationOpen = false">取消</VButton><VButton variant="primary" :loading="submitting" :disabled="!modelId || !datasetId" @click="createEvaluation">开始评估</VButton></template>
+      <template #footer><VButton variant="quiet" @click="evaluationOpen = false">取消</VButton><VButton variant="primary" :loading="submitting" :disabled="!modelId || !datasetId" :title="!modelId ? '请选择模型' : !datasetId ? '请选择测试集' : '开始评估'" @click="createEvaluation">开始评估</VButton></template>
     </el-dialog>
 
     <el-dialog :model-value="!!detail" title="评估详情" width="min(1040px, calc(100vw - 40px))" @update:model-value="!$event && (detail = undefined)">

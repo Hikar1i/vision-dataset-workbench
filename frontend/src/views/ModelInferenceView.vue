@@ -158,7 +158,7 @@ onBeforeUnmount(() => {
 <template>
   <main class="content-page inference-page">
     <PageHeader :title="model ? `${model.name} · 在线推理` : '在线推理'" kind="model" :code="model?.model_code" :back-to="`/model-projects/${route.params.id}/models/${modelId}`" back-label="返回模型详情">
-      <template #stats><span>图片最大 20 MB</span><span>视频最大 500 MB</span><span>会话 24 小时无访问后清理</span></template>
+      <template #meta><span>图片最大 20 MB</span><span>视频最大 500 MB</span><span>会话 24 小时无访问后清理</span></template>
       <template #actions><VButton v-if="current" variant="danger" @click="clear"><template #icon><el-icon><Delete /></el-icon></template>清理</VButton></template>
     </PageHeader>
 
@@ -198,18 +198,18 @@ onBeforeUnmount(() => {
       <aside class="control-column">
         <VPanel title="推理设置">
           <div class="control-stack">
-            <label>模型格式<el-select v-model="format" :disabled="isWorking"><el-option v-for="item in formats" :key="item.value" :value="item.value" :label="item.label" :disabled="!item.enabled" /></el-select></label>
+            <label>模型格式<el-select v-model="format" :disabled="isWorking" :title="isWorking ? '当前推理期间不可切换格式' : undefined"><el-option v-for="item in formats" :key="item.value" :value="item.value" :label="item.label" :disabled="!item.enabled" /></el-select></label>
             <label>置信度 <b>{{ parameters.confidence.toFixed(2) }}</b><el-slider v-model="parameters.confidence" :min="0" :max="1" :step="0.01" /></label>
             <label>IOU <b>{{ parameters.iou.toFixed(2) }}</b><el-slider v-model="parameters.iou" :min="0" :max="1" :step="0.01" /></label>
-            <label>图像尺寸<el-input-number v-model="parameters.image_size" :min="32" :max="8192" :step="32" :disabled="selectedFormat?.fixed != null" /><small v-if="selectedFormat?.fixed">该转换产物固定为 {{ selectedFormat.fixed }}px</small></label>
-            <button class="advanced-toggle" type="button" @click="advanced = !advanced">{{ advanced ? '收起高级设置' : '展开高级设置' }}</button>
-            <div v-if="advanced" class="advanced-fields">
+            <label>图像尺寸<el-input-number v-model="parameters.image_size" :min="32" :max="8192" :step="32" :disabled="selectedFormat?.fixed != null" :title="selectedFormat?.fixed != null ? '该转换产物使用固定输入尺寸' : undefined" /><small v-if="selectedFormat?.fixed">该转换产物固定为 {{ selectedFormat.fixed }}px</small></label>
+            <button class="advanced-toggle" type="button" aria-controls="inference-advanced-fields" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起高级设置' : '展开高级设置' }}</button>
+            <div v-if="advanced" id="inference-advanced-fields" class="advanced-fields">
               <label>最大检测数<el-input-number v-model="parameters.max_det" :min="1" :max="3000" /></label>
               <label>视频抽帧步长<el-input-number v-model="parameters.stride" :min="1" :max="120" /><small>每 N 帧处理 1 帧，结果视频帧率同步降低。</small></label>
             </div>
             <input ref="fileInput" class="visually-hidden" type="file" accept="image/*,video/*" @change="selected" />
             <VButton class="upload-button" @click="chooseFile"><template #icon><el-icon><UploadFilled /></el-icon></template>{{ pendingFile?.name || '选择图片或视频' }}</VButton>
-            <VButton variant="primary" :disabled="!pendingFile || isWorking" :loading="busy" @click="run">开始推理</VButton>
+            <VButton variant="primary" :disabled="!pendingFile || isWorking" :loading="busy" :title="isWorking ? '当前推理完成后可再次开始' : !pendingFile ? '请先选择图片或视频' : '开始推理'" @click="run">开始推理</VButton>
           </div>
         </VPanel>
       </aside>

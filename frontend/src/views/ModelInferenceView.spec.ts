@@ -13,5 +13,8 @@ describe('ModelInferenceView', () => {
     expect(source).toContain('5 * 60 * 1000')
     expect(source).toContain('500 * 1024 * 1024')
     expect(source).toContain('20 * 1024 * 1024')
+    expect(source).toContain('<template #meta>')
+    expect(source).toContain("请先选择图片或视频")
+    expect(source).toContain('aria-controls="inference-advanced-fields"')
   })
 })

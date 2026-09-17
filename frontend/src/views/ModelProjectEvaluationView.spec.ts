@@ -12,5 +12,7 @@ describe('ModelProjectEvaluationView', () => {
     expect(source).toContain('评估记录')
     expect(source).toContain('测试集管理')
     expect(source).toContain('PR Curve')
+    expect(source).toContain('请先导入并校验测试集')
+    expect(source).toContain('评估完成后可查看详情')
   })
 })
