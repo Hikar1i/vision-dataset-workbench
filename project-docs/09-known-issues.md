@@ -8,7 +8,7 @@
 - 超参数参数目录当前固定为 `detect-v1`，覆盖常用 YOLO Detect 训练设置，不承诺与任意 Ultralytics 版本的全部配置键一一对应；未知键和系统控制键严格拒绝，新增键需先升级目录与验证规则。
 - systemd、Windows 启动器和 Docker Compose 尚未实现；当前 Worker 需单独手工启动。
 - PyTorch/Ultralytics 基础能力仍在 API 启动时检测；训练能力接口另以 2 秒缓存读取动态显存和利用率。GPU 高占用只警告、不阻止启动，外部进程不受本系统调度；本系统训练同卡严格串行。
-- 训练子进程、事件、指标、双 GPU 并行和发布已由确定性假训练集成测试覆盖，并已用真实 YOLO11n 在 GPU 1 完成 2 epoch 冒烟；尚未用长时训练执行 retry/resume/derive/extend 全操作矩阵。本次应用内浏览器没有可用实例，训练新页面仍缺少截图式视觉回归验收。
+- 训练子进程、事件、指标、双 GPU 并行和发布已由确定性假训练集成测试覆盖，并已用真实 YOLO11n 在 GPU 1 完成 2 epoch 冒烟；尚未用长时训练执行 retry/resume/derive/extend 全操作矩阵。模型转换、在线推理和评估页面已在 Chrome 以 1920×1080、2560×1440 完成人工视觉验收，但项目仍未配置自动化像素级视觉回归。
 - Ultralytics 的 AMP 检查会下载与用户 basemodel 无关的辅助权重；当前已把子进程工作目录固定到工作区缓存，避免其落入源码目录。训练回调异常会记录 warning 而不再把已完成训练误判为失败，最终验证阶段的重复 epoch 回调也会被忽略。
 - 模型 `ready` 仅表示受管 `.pt` 副本复制完成，YOLO 权重的运行兼容性到首次推理、转换或评估时才确认。系统支持固化 ONNX 和当前主机专用 TensorRT `.engine`，但不支持本地 GroundingDINO 或 Transformers；X-AnyLabeling Server 内部使用何种模型不影响本系统依赖。
 - TensorRT `.engine` 只保证在构建主机使用，不承诺复制到不同 GPU、驱动、CUDA 或 TensorRT 环境后可运行。真实 GPU 转换、近 1 GB 评估 ZIP 和长视频在线推理仍需部署级容量冒烟。
