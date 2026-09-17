@@ -17,6 +17,8 @@
 
 `gpu` extra 锁定 ONNX、ONNX Slim、ONNX Runtime GPU 与 TensorRT Python 包。TensorRT wheel 自带的 CUDA 主版本必须与部署主机兼容；安装成功不等于可用，启动能力检查会实际创建 TensorRT Builder。检查失败时 API 正常启动，但 TensorRT 转换和运行保持禁用，不允许 Ultralytics 在业务请求中自动安装依赖。生产部署优先使用与主机驱动、CUDA、TensorRT 明确匹配的 NVIDIA 容器镜像。
 
+ONNX 是可下载和可复用的通用转换产物；TensorRT `.engine` 绑定构建时的 GPU、驱动、CUDA、TensorRT 与构建参数，只保证在当前构建主机使用，不作为跨设备交付格式。转换、视频推理、测试集导入和评估由 Worker 执行，API 与 Worker 必须挂载同一工作区；评估 ZIP 上限 1 GB，解压后上限 5 GB，部署时需据此设置反向代理请求体限制和工作区磁盘告警。
+
 - Linux 原生使用两个 systemd 服务管理 API 与 Worker。
 - Windows 本地使用一个启动器管理两个子进程。
 - Docker Compose 使用 API 和 Worker 服务，共享本机工作区挂载。
@@ -70,6 +72,7 @@
 - 日志包含时间、级别、服务、请求/任务 ID 和项目 ID，不记录 Cookie、Token、完整代理 URL 或用户文件内容。
 - 指标至少覆盖请求错误、任务队列长度/耗时/失败、Worker 心跳、磁盘空间和数据库连接。
 - 长任务日志和最终错误需可由任务 ID 查询。
+- 监控转换产物、临时推理会话、保存结果和评估集占用；未保存推理会话按 24 小时访问超时由后台清理，保存结果只由用户显式删除。
 
 ## 备份与回滚
 

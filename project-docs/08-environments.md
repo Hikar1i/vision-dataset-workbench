@@ -1,6 +1,6 @@
 # 环境与启动
 
-状态：后端、前端、首次初始化、认证模式、GPU 能力与实时显存检测，以及视频导入、抽帧、模型入库、自动标注和 YOLO Detect 训练可在开发环境运行；正式部署启动器尚未实现。
+状态：后端、前端、首次初始化、认证模式、GPU 能力与实时显存检测，以及视频导入、抽帧、模型入库、自动标注、YOLO Detect 训练、模型转换、在线推理和测试集评估可在开发环境运行；正式部署启动器尚未实现。
 
 ## 当前可执行操作
 
@@ -21,7 +21,9 @@ uv run python -c "from vision_dataset_workbench.capabilities import detect_capab
 
 当前锁定组合包含 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8、Ultralytics 8.4.x、ONNX、ONNX Runtime GPU 和 TensorRT。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。能力检查以 ONNX Runtime 的 `CUDAExecutionProvider` 和实际 TensorRT Builder 初始化结果为准，而不是只检查包是否存在。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)和 [PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)。
 
-本地自动标注和训练时 API 与 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理并为每个训练模型启动独立 Python/Ultralytics 子进程。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理或训练预检后由运行时确认。本系统不再安装或加载本地 ONNX、Transformers 或 GroundingDINO 模型。
+本地自动标注、训练、模型转换、在线推理和测试集评估时，API 与 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理、转换、评估并为每个训练模型启动独立 Python/Ultralytics 子进程。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理、转换、评估或训练预检后由运行时确认。系统可从 `.pt` 固化 ONNX 和当前主机专用 TensorRT `.engine` 产物，并用 `.pt`、ONNX 或 `.engine` 执行在线推理；不安装本地 Transformers 或 GroundingDINO。
+
+在线推理每用户、每模型只保留一个未保存会话；图片上限 20 MB、视频上限 500 MB，未保存会话在最后访问 24 小时后清理。测试集只接收最多 1 GB 的 ZIP，解压后最多 5 GB、5000 张图片和 10500 个条目，目录固定为 `classes.txt`、`images/`、`labels/`；负样本需提供同名空标签。重复内容按 SHA-256 拒绝，不维护系统自动版本树。
 
 训练子进程的当前目录固定为 `<workspace>/cache/ultralytics/`。Ultralytics 首次 AMP 检查可能在此下载辅助权重（例如 `yolo26n.pt`）；这是运行缓存，不是用户选择的 basemodel，也不得出现在源码目录。单数据集训练继续生成运行级 `dataset.yaml`；多数据集训练会先由独立、无 GPU 的准备子进程在工作区训练数据缓存中硬链接图片、重写标签并原子发布合并数据集，成功后训练进程直接使用该目录的 `data.yaml`。准备阶段需要与源导出位于支持硬链接的同一文件系统，并预留改写标签和元数据所需空间。
 
@@ -82,7 +84,7 @@ uv run python -c "from vision_dataset_workbench.database import sqlite_supports_
 - Linux 或 Windows 上的前端、FastAPI、Worker 和 SQLite。
 - 默认工作区为用户选择位置下的 `.vision-dataset-workbench`。
 - 支持使用假下载适配器和短测试视频，无需访问真实平台即可开发主流程。
-- 已实现启动时一次性 GPU/运行时探测；未检测到 GPU 时正常启动并禁用自动标注和训练。
+- 已实现启动时一次性 GPU/运行时探测；未检测到 GPU 时正常启动并禁用需要 GPU 的自动标注、训练、转换、推理和评估能力。
 
 ### Test
 

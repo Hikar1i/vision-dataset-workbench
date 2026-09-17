@@ -1,16 +1,17 @@
 # 已知问题
 
-状态：应用基础、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、YOLO 模型入库、模型项目、超参数模板、训练任务和本地/远程自动标注已实现；下表同时记录当前限制与遗留风险。
+状态：应用基础、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、YOLO 模型入库、模型项目、超参数模板、训练任务、本地/远程自动标注、模型转换、在线推理和测试集评估已实现；下表同时记录当前限制与遗留风险。
 
 ## 当前项目限制
 
-- 当前已能初始化、登录、管理及归档删除数据集项目、管理标签、导入媒体、采样、筛帧、矩形标注、管理模型项目与不可变超参数模板、执行 YOLO Detect 在线训练、按本地模型项目、X-AnyLabeling Server 或用户配置的在线视觉大模型自动标注及导出数据集；`.deleted` 恢复/导入/自动运维和所有权转移尚未提供。
+- 当前已能初始化、登录、管理及归档删除数据集项目、管理标签、导入媒体、采样、筛帧、矩形标注、管理模型项目与可编辑超参数预设、执行 YOLO Detect 在线训练、按本地模型项目、X-AnyLabeling Server 或用户配置的在线视觉大模型自动标注、转换/推理/评估模型及导出数据集；`.deleted` 恢复/导入/自动运维和所有权转移尚未提供。
 - 超参数参数目录当前固定为 `detect-v1`，覆盖常用 YOLO Detect 训练设置，不承诺与任意 Ultralytics 版本的全部配置键一一对应；未知键和系统控制键严格拒绝，新增键需先升级目录与验证规则。
 - systemd、Windows 启动器和 Docker Compose 尚未实现；当前 Worker 需单独手工启动。
 - PyTorch/Ultralytics 基础能力仍在 API 启动时检测；训练能力接口另以 2 秒缓存读取动态显存和利用率。GPU 高占用只警告、不阻止启动，外部进程不受本系统调度；本系统训练同卡严格串行。
 - 训练子进程、事件、指标、双 GPU 并行和发布已由确定性假训练集成测试覆盖，并已用真实 YOLO11n 在 GPU 1 完成 2 epoch 冒烟；尚未用长时训练执行 retry/resume/derive/extend 全操作矩阵。本次应用内浏览器没有可用实例，训练新页面仍缺少截图式视觉回归验收。
 - Ultralytics 的 AMP 检查会下载与用户 basemodel 无关的辅助权重；当前已把子进程工作目录固定到工作区缓存，避免其落入源码目录。训练回调异常会记录 warning 而不再把已完成训练误判为失败，最终验证阶段的重复 epoch 回调也会被忽略。
-- 模型 `ready` 仅表示受管 `.pt` 副本复制完成，YOLO 权重的运行兼容性到首次推理时才确认。本系统不支持本地 GroundingDINO、Transformers 或 ONNX；X-AnyLabeling Server 内部使用何种模型不影响本系统依赖。
+- 模型 `ready` 仅表示受管 `.pt` 副本复制完成，YOLO 权重的运行兼容性到首次推理、转换或评估时才确认。系统支持固化 ONNX 和当前主机专用 TensorRT `.engine`，但不支持本地 GroundingDINO 或 Transformers；X-AnyLabeling Server 内部使用何种模型不影响本系统依赖。
+- TensorRT `.engine` 只保证在构建主机使用，不承诺复制到不同 GPU、驱动、CUDA 或 TensorRT 环境后可运行。真实 GPU 转换、近 1 GB 评估 ZIP 和长视频在线推理仍需部署级容量冒烟。
 - 单张自动标注在 API 同步线程池执行，并按模型加进程内互斥锁；大模型首次加载会让该次请求持续较久。批量自动标注在 Worker 逐帧提交，失败或取消会保留此前成功帧，不做整批回滚。
 - 本地 YOLO 路径已用假推理器覆盖 API 和 Worker 契约，但尚未用用户实际 `.pt` 权重执行端到端 GPU 冒烟；X-AnyLabeling Server 已通过协议单元测试、API/Worker 集成测试和真实服务冒烟。标注工作台尚未完成自动化像素级视觉验收。
 - X-AnyLabeling Server 当前只接受矩形检测结果；点选、关键点、多边形、分割、分类和描述任务会被过滤。远程服务暂时按请求重新读取用户配置，配置变更与同用户正在执行的远程批量任务互斥。
@@ -110,7 +111,7 @@
 - 已实现按用户保存的 X-AnyLabeling Server 配置、可选 API 密钥加密、保存前模型目录校验、矩形任务过滤、单张及批量远程推理；任务记录不保存服务地址、密钥或图片内容。
 - 已实现按用户隔离的 OpenAI-compatible/Anthropic 大模型配置、工作区自动凭据密钥、脱敏回显、真实模型连接探测，以及基于内置提示词的单张/批量在线视觉标注。
 - 已实现批量自动标注的范围选择与覆盖风险解锁；按标注启停只处理有标注视频，安全范围排除已筛帧视频，覆盖筛帧结果由前端 3 秒确认和后端 `confirm_all` 双重守卫。
-- 已彻底移除本地 DINO、Transformers、ONNX 运行能力和依赖；`gpu` extra 只保留 PyTorch、torchvision 与 Ultralytics。RTX A4000、Quadro RTX 4000 和 PyTorch CUDA 12.8 此前已实测通过。
+- 已移除本地 DINO 与 Transformers；`gpu` extra 包含 PyTorch、torchvision、Ultralytics、ONNX、ONNX Runtime GPU、ONNX Slim 与 TensorRT。RTX A4000、Quadro RTX 4000 和 PyTorch CUDA 12.8 此前已实测通过，ONNX Runtime CUDA 与 TensorRT 以启动时真实能力探测结果为准。
 - 当前 SQLite 运行库不满足安全 WAL 版本条件时自动使用 rollback journal。
 
 后续关闭其他问题时应记录关联变更、验证测试、数据迁移或运维动作，并删除已经不再成立的临时限制。
