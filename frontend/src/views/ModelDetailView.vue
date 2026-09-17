@@ -222,6 +222,19 @@ onMounted(load)
           <p v-else class="artifact-empty">尚未生成转换产物，可按部署环境选择 ONNX 或 TensorRT。</p>
         </VPanel>
 
+        <VPanel v-if="model.metrics?.training_peak || model.metrics?.latest_evaluation" title="指标摘要">
+          <div class="metric-summary">
+            <RouterLink
+              v-if="model.metrics.training_peak"
+              :to="`/training-tasks/${model.metrics.training_peak.training_task_id}/models/${model.metrics.training_peak.training_model_id}`"
+            ><span>训练峰值 mAP50-95</span><strong>{{ (model.metrics.training_peak.map50_95 * 100).toFixed(1) }}%</strong><small>epoch {{ model.metrics.training_peak.epoch }}</small></RouterLink>
+            <RouterLink
+              v-if="model.metrics.latest_evaluation"
+              :to="`/model-projects/${route.params.id}/evaluations`"
+            ><span>最近评估 mAP50-95</span><strong>{{ (model.metrics.latest_evaluation.map50_95 * 100).toFixed(1) }}%</strong><small>{{ model.metrics.latest_evaluation.dataset_name }} · {{ model.metrics.latest_evaluation.format.toUpperCase() }}</small></RouterLink>
+          </div>
+        </VPanel>
+
         <VPanel v-if="model.training" title="训练信息" data-test="model-training-info">
           <dl class="fact-grid training-facts">
             <div><dt>epoch</dt><dd class="is-mono">{{ model.training.epochs ?? '—' }}</dd></div>
@@ -319,6 +332,13 @@ onMounted(load)
 .artifact-summary article > div span, .artifact-size { color: var(--vdw-ink-3); font-size: 13px; }
 .artifact-size { font-family: var(--vdw-mono); }
 .artifact-empty { margin: 0; color: var(--vdw-ink-2); font-size: 14px; }
+
+.metric-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.metric-summary a { display: grid; grid-template-columns: 1fr auto; gap: 7px 12px; padding: 14px; color: var(--vdw-ink); text-decoration: none; background: var(--vdw-surface-2); border: 1px solid var(--vdw-line); border-radius: var(--vdw-radius-control); }
+.metric-summary a:hover { border-color: var(--vdw-accent-line); background: var(--vdw-accent-soft); }
+.metric-summary span { color: var(--vdw-ink-2); font-size: 14px; }
+.metric-summary strong { font: 600 20px/1 var(--vdw-mono); }
+.metric-summary small { grid-column: 1 / -1; overflow: hidden; color: var(--vdw-ink-3); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 
 .fact-grid {
   display: grid;

@@ -33,6 +33,22 @@ export type InferenceModel = {
   created_at: string
   updated_at: string
   training: ModelTrainingInfo | null
+  metrics: {
+    training_peak: {
+      map50_95: number
+      epoch: number
+      training_task_id: string
+      training_model_id: string
+      training_run_id: string
+    } | null
+    latest_evaluation: {
+      id: string
+      map50_95: number
+      format: 'pt' | 'onnx' | 'engine'
+      dataset_name: string
+      dataset_hash: string
+    } | null
+  } | null
 }
 
 export type ModelProject = {

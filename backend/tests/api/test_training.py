@@ -204,6 +204,8 @@ def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypat
     trained = next(item for item in projects if item["series_type"] == "training")
     published_models = client.get(f"/api/v1/model-projects/{trained['id']}/models").json()
     assert len(published_models) == 2
+    assert published_models[0]["metrics"]["training_peak"]["map50_95"] is not None
+    assert published_models[0]["metrics"]["training_peak"]["epoch"] >= 1
     with Session(app.state.auth_service.engine) as db:
         stored = db.get(TrainingModel, detail["models"][0]["id"])
         stored.dataset_snapshot = (

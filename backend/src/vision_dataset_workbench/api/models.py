@@ -85,6 +85,7 @@ class InferenceModelResponse(BaseModel):
     created_at: str
     updated_at: str
     training: dict[str, object] | None = None
+    metrics: dict[str, object] | None = None
 
 
 class RegisteredModelResponse(BaseModel):
@@ -128,6 +129,7 @@ def _model_response(
     actor: User,
     model: InferenceModel,
     training: dict[str, object] | None = None,
+    metrics: dict[str, object] | None = None,
 ) -> InferenceModelResponse:
     project = service.get_project(actor, model.model_project_id)
     try:
@@ -154,12 +156,26 @@ def _model_response(
         created_at=_utc_text(model.created_at),
         updated_at=_utc_text(model.updated_at),
         training=training,
+        metrics=metrics,
     )
 
 
 def _training_info(request: Request, model_id: str) -> dict[str, object] | None:
     training_service = request.app.state.training_service
     return training_service.inference_model_training_info(model_id) if training_service else None
+
+
+def _metric_info(request: Request, model_id: str) -> dict[str, object]:
+    training_service = request.app.state.training_service
+    evaluation_service = request.app.state.model_evaluation_service
+    return {
+        "training_peak": training_service.inference_model_metric_summary(model_id)
+        if training_service
+        else None,
+        "latest_evaluation": evaluation_service.latest_model_metric(model_id)
+        if evaluation_service
+        else None,
+    }
 
 
 def _raise_model_error(exc: ValueError) -> NoReturn:
@@ -178,7 +194,10 @@ def list_models(
     user: Annotated[User, Depends(current_user)],
 ) -> list[InferenceModelResponse]:
     service = model_service(request)
-    return [_model_response(service, user, item) for item in service.list_models(user)]
+    return [
+        _model_response(service, user, item, metrics=_metric_info(request, item.id))
+        for item in service.list_models(user)
+    ]
 
 
 @router.get("/models/{model_id}", response_model=InferenceModelResponse)
@@ -192,7 +211,13 @@ def get_model(
         model = service.get_model(user, model_id)
     except ModelNotFound as exc:
         _raise_model_error(exc)
-    return _model_response(service, user, model, _training_info(request, model.id))
+    return _model_response(
+        service,
+        user,
+        model,
+        training=_training_info(request, model.id),
+        metrics=_metric_info(request, model.id),
+    )
 
 
 @router.get("/models/{model_id}/download")
@@ -221,7 +246,13 @@ def update_model(
         model = service.update_model(user, model_id, **payload.model_dump())
     except (ModelNotFound, ModelForbidden, ModelConflict, InvalidModel) as exc:
         _raise_model_error(exc)
-    return _model_response(service, user, model, _training_info(request, model.id))
+    return _model_response(
+        service,
+        user,
+        model,
+        training=_training_info(request, model.id),
+        metrics=_metric_info(request, model.id),
+    )
 
 
 @router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -329,7 +360,10 @@ def list_project_models(
         items = service.list_project_models(user, project_id)
     except ModelNotFound as exc:
         _raise_model_error(exc)
-    return [_model_response(service, user, item) for item in items]
+    return [
+        _model_response(service, user, item, metrics=_metric_info(request, item.id))
+        for item in items
+    ]
 
 
 @router.post(

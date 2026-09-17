@@ -39,6 +39,8 @@ export type ModelEvaluation = {
   finished_at: string | null
   has_confusion_matrix: boolean
   has_pr_curve: boolean
+  model_deleted: boolean
+  dataset_deleted: boolean
 }
 
 export const listEvaluationDatasets = (projectId: string) =>

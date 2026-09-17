@@ -119,6 +119,17 @@ async function save() {
   ElMessage.success('推理结果已保存。')
 }
 
+async function removeSaved(item: ModelInferenceRun) {
+  try {
+    await ElMessageBox.confirm('永久删除该推理源文件和检测结果？', '删除已保存结果', { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' })
+  } catch { return }
+  try {
+    await deleteInference(item.id)
+    saved.value = saved.value.filter((value) => value.id !== item.id)
+    ElMessage.success('已保存推理结果已删除。')
+  } catch (reason) { ElMessage.error(reason instanceof Error ? reason.message : '删除失败') }
+}
+
 function startPolling() {
   stopPolling()
   if (!isWorking.value || !current.value) return
@@ -204,7 +215,7 @@ onBeforeUnmount(() => {
       </aside>
 
       <VPanel v-if="saved.length" class="saved-panel" title="已保存结果">
-        <div class="saved-grid"><article v-for="item in saved" :key="item.id"><div><strong>{{ item.input_type === 'image' ? '图片推理' : '视频推理' }}</strong><span>{{ item.saved_at?.slice(0, 16).replace('T', ' ') }}</span></div><VTag tone="ok">{{ item.format.toUpperCase() }}</VTag><VButton size="sm" :href="inferenceFileUrl(item.id, 'result')">下载结果</VButton></article></div>
+        <div class="saved-grid"><article v-for="item in saved" :key="item.id"><div><strong>{{ item.input_type === 'image' ? '图片推理' : '视频推理' }}</strong><span>{{ item.saved_at?.slice(0, 16).replace('T', ' ') }}</span></div><VTag tone="ok">{{ item.format.toUpperCase() }}</VTag><div class="saved-actions"><VButton size="sm" :href="inferenceFileUrl(item.id, 'result')">下载结果</VButton><VButton v-if="model?.can_manage" variant="danger" size="sm" @click="removeSaved(item)">删除</VButton></div></article></div>
       </VPanel>
     </div>
   </main>
@@ -237,6 +248,7 @@ onBeforeUnmount(() => {
 .saved-panel { grid-column: 1 / -1; }
 .saved-grid { display: grid; gap: 8px; }
 .saved-grid article { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--vdw-line); border-radius: var(--vdw-radius-control); }
+.saved-actions { display: flex; gap: 6px; }
 .saved-grid article span { display: block; margin-top: 3px; color: var(--vdw-ink-3); font-size: 13px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 @keyframes spin { to { transform: rotate(360deg); } }

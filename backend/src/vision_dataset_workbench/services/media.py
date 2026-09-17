@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased, sessionmaker
@@ -16,6 +16,10 @@ from ..config import RuntimeSettings
 from ..media import RemotePreview, normalize_remote_url, preview_remote
 from ..models import (
     DatasetExport,
+    EvaluationDataset,
+    ModelArtifact,
+    ModelEvaluation,
+    ModelInferenceRun,
     ModelProject,
     Project,
     ProjectMembership,
@@ -513,15 +517,34 @@ class MediaService:
                 select(func.count())
                 .select_from(Task)
                 .outerjoin(Project, Project.id == Task.project_id)
+                .outerjoin(ModelProject, ModelProject.id == Task.model_project_id)
             )
             terminal_query = (
                 select(func.max(Task.updated_at))
                 .select_from(Task)
                 .outerjoin(Project, Project.id == Task.project_id)
+                .outerjoin(ModelProject, ModelProject.id == Task.model_project_id)
                 .where(Task.status.in_(("succeeded", "failed", "canceled")))
             )
             if not unrestricted:
-                visible = or_(Task.model_project_id.is_not(None), visible_project)
+                model_manager = (
+                    Task.model_project_id.is_not(None)
+                    if actor.is_system_admin
+                    else ModelProject.created_by_id == actor.id
+                )
+                model_visible = and_(
+                    Task.model_project_id.is_not(None),
+                    or_(
+                        Task.type.not_in(("infer_video", "evaluate_model")),
+                        Task.submitted_by_id == actor.id,
+                        model_manager,
+                        and_(
+                            Task.type == "evaluate_model",
+                            Task.status.in_(("succeeded", "failed", "canceled")),
+                        ),
+                    ),
+                )
+                visible = or_(model_visible, visible_project)
                 items_query = items_query.where(visible)
                 total_query = total_query.where(visible)
                 terminal_query = terminal_query.where(visible)
@@ -560,6 +583,31 @@ class MediaService:
             if task.status == "queued":
                 task.status = "canceled"
                 task.finished_at = now
+                payload = json.loads(task.payload)
+                if task.type == "convert_model":
+                    resource = database.get(ModelArtifact, payload.get("artifact_id"))
+                    if resource:
+                        resource.status = "failed"
+                        resource.error = "model conversion canceled"
+                        resource.completed_at = now
+                elif task.type == "infer_video":
+                    resource = database.get(ModelInferenceRun, payload.get("run_id"))
+                    if resource:
+                        resource.status = "canceled"
+                        resource.error = "inference canceled"
+                        resource.finished_at = now
+                elif task.type == "import_evaluation_dataset":
+                    resource = database.get(EvaluationDataset, payload.get("dataset_id"))
+                    if resource:
+                        resource.status = "failed"
+                        resource.error = "evaluation dataset import canceled"
+                        resource.completed_at = now
+                elif task.type == "evaluate_model":
+                    resource = database.get(ModelEvaluation, payload.get("evaluation_id"))
+                    if resource:
+                        resource.status = "canceled"
+                        resource.error = "evaluation canceled"
+                        resource.finished_at = now
             elif task.status == "running":
                 task.cancel_requested = True
             else:

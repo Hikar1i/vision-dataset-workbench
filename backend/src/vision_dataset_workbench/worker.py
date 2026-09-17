@@ -26,7 +26,11 @@ from .database import make_engine
 from .dataset_export_task import DatasetExportTaskCanceled, execute_dataset_export
 from .media import MediaMetadata, MediaToolError, normalize_remote_url, probe_video, ytdlp_base_args
 from .inference import InferenceRunner, InferenceUnavailable
-from .model_artifact_task import ModelConversionDeferred, execute_model_conversion
+from .model_artifact_task import (
+    ModelConversionCanceled,
+    ModelConversionDeferred,
+    execute_model_conversion,
+)
 from .model_inference_task import (
     ModelInferenceCanceled,
     ModelInferenceDeferred,
@@ -246,6 +250,7 @@ class TaskWorker:
                     self._now,
                     self._heartbeat,
                     self._gpu_leases,
+                    self._cancel_requested,
                 )
             elif task_type == "infer_video":
                 execute_video_inference(
@@ -290,6 +295,7 @@ class TaskWorker:
             ModelInferenceCanceled,
             EvaluationDatasetCanceled,
             ModelEvaluationCanceled,
+            ModelConversionCanceled,
         ):
             self._finish_canceled(task_id)
         except Exception as exc:

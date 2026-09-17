@@ -8,7 +8,15 @@ from sqlalchemy.orm import Session
 from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.media import RemotePreview
-from vision_dataset_workbench.models import Frame, Project, ProjectMembership, Task, User, Video
+from vision_dataset_workbench.models import (
+    Frame,
+    ModelProject,
+    Project,
+    ProjectMembership,
+    Task,
+    User,
+    Video,
+)
 from vision_dataset_workbench.security.passwords import hash_password
 from vision_dataset_workbench.services.media import (
     MediaConflict,
@@ -227,6 +235,38 @@ def test_visible_tasks_follow_project_permissions(tmp_path):
     assert service.list_visible_tasks(
         actors["outsider"], page=1, page_size=20
     )[0][0].task.id == "hidden-task"
+    engine.dispose()
+
+
+def test_private_inference_and_active_evaluation_tasks_are_not_globally_visible(tmp_path):
+    service, engine, actors = make_service(tmp_path)
+    now = datetime(2026, 9, 17, 8, 0, 0)
+    with Session(engine) as session:
+        session.add(
+            ModelProject(
+                id="models",
+                name="Models",
+                name_normalized="models",
+                series_type="archive",
+                created_by_id="owner-id",
+            )
+        )
+        session.flush()
+        session.add_all(
+            [
+                Task(id="private-inference", model_project_id="models", submitted_by_id="viewer-id", type="infer_video", status="running", created_at=now, updated_at=now),
+                Task(id="active-evaluation", model_project_id="models", submitted_by_id="viewer-id", type="evaluate_model", status="running", created_at=now, updated_at=now),
+                Task(id="shared-evaluation", model_project_id="models", submitted_by_id="viewer-id", type="evaluate_model", status="succeeded", created_at=now, updated_at=now),
+            ]
+        )
+        session.commit()
+
+    outsider_ids = {item.task.id for item in service.list_visible_tasks(actors["outsider"], page=1, page_size=20)[0]}
+    assert outsider_ids == {"shared-evaluation"}
+    viewer_ids = {item.task.id for item in service.list_visible_tasks(actors["viewer"], page=1, page_size=20)[0]}
+    assert viewer_ids == {"private-inference", "active-evaluation", "shared-evaluation"}
+    owner_ids = {item.task.id for item in service.list_visible_tasks(actors["owner"], page=1, page_size=20)[0]}
+    assert owner_ids == viewer_ids
     engine.dispose()
 
 

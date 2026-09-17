@@ -235,6 +235,37 @@ class ModelEvaluationService:
             database.expunge(row)
             return row
 
+    def latest_model_metric(self, model_id: str) -> dict[str, object] | None:
+        with self._session_factory() as database:
+            row = database.scalar(
+                select(ModelEvaluation)
+                .where(
+                    ModelEvaluation.model_id == model_id,
+                    ModelEvaluation.status == "succeeded",
+                )
+                .order_by(ModelEvaluation.finished_at.desc(), ModelEvaluation.id.desc())
+                .limit(1)
+            )
+            if row is None:
+                return None
+            metrics = json.loads(row.metrics)
+            return {
+                "id": row.id,
+                "map50_95": metrics.get("map50_95"),
+                "format": row.format,
+                "dataset_name": row.dataset_name,
+                "dataset_hash": row.dataset_sha256,
+            }
+
+    def evaluation_availability(self, evaluation: ModelEvaluation) -> dict[str, bool]:
+        with self._session_factory() as database:
+            model = database.get(InferenceModel, evaluation.model_id)
+            dataset = database.get(EvaluationDataset, evaluation.evaluation_dataset_id)
+            return {
+                "model_deleted": model is None or model.deleted_at is not None,
+                "dataset_deleted": dataset is None or dataset.deleted_at is not None,
+            }
+
     def cancel(self, actor: User, evaluation_id: str):
         with self._session_factory() as database:
             row = database.get(ModelEvaluation, evaluation_id)

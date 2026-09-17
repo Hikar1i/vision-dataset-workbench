@@ -131,4 +131,11 @@ def test_evaluation_remaps_class_order_and_persists_metrics(tmp_path, monkeypatc
         assert stored.status == "succeeded"
         assert json.loads(stored.metrics)["map50_95"] == 0.6
         assert stored.confusion_matrix_path and stored.pr_curve_path
+    assert service.latest_model_metric("model") == {
+        "id": evaluation.id,
+        "map50_95": 0.6,
+        "format": "pt",
+        "dataset_name": "Eval",
+        "dataset_hash": "b" * 64,
+    }
     engine.dispose()

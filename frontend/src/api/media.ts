@@ -61,7 +61,7 @@ export type ProjectTask = {
   project_id: string | null
   model_project_id: string | null
   video_id: string | null
-  type: 'copy_video' | 'download_video' | 'extract_frames' | 'import_model' | 'auto_annotate' | 'export_dataset'
+  type: 'copy_video' | 'download_video' | 'extract_frames' | 'import_model' | 'auto_annotate' | 'export_dataset' | 'convert_model' | 'infer_video' | 'import_evaluation_dataset' | 'evaluate_model'
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
   progress: number
   error: string | null

@@ -19,6 +19,10 @@ class ModelConversionDeferred(RuntimeError):
     pass
 
 
+class ModelConversionCanceled(RuntimeError):
+    pass
+
+
 def execute_model_conversion(
     session_factory: sessionmaker,
     workspace: Path,
@@ -27,6 +31,7 @@ def execute_model_conversion(
     now: Callable[[], datetime],
     heartbeat: Callable[[str, int | None], None],
     gpu_leases: GpuLeaseService,
+    canceled: Callable[[str], bool] = lambda _task_id: False,
 ) -> None:
     with session_factory() as database:
         task = database.get(Task, task_id)
@@ -76,6 +81,8 @@ def execute_model_conversion(
         os.environ.setdefault("YOLO_AUTOINSTALL", "false")
         ultralytics = importlib.import_module("ultralytics")
         model_runner = ultralytics.YOLO(str(staged_source))
+        if canceled(task_id):
+            raise ModelConversionCanceled("model conversion canceled")
         arguments = {
             "format": artifact_format,
             "imgsz": int(config["imgsz"]),
@@ -90,6 +97,8 @@ def execute_model_conversion(
             arguments["half"] = config.get("precision") == "fp16"
         heartbeat(task_id, 10)
         exported = Path(str(model_runner.export(**arguments))).resolve(strict=True)
+        if canceled(task_id):
+            raise ModelConversionCanceled("model conversion canceled")
         suffix = ".onnx" if artifact_format == "onnx" else ".engine"
         if exported.suffix.lower() != suffix or exported.stat().st_size == 0:
             raise RuntimeError("model export produced an invalid file")

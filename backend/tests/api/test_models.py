@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.main import create_app
-from vision_dataset_workbench.models import InferenceModel, User
+from vision_dataset_workbench.models import InferenceModel, Task, User
 from vision_dataset_workbench.security.passwords import hash_password
 
 ORIGIN = {"Origin": "http://testserver"}
@@ -226,3 +226,37 @@ def test_unused_model_project_tags_are_pruned_after_update_and_delete(tmp_path):
     assert "共享" not in admin.get("/api/v1/model-project-tags").json()
     assert admin.delete(f"/api/v1/model-projects/{first['id']}", headers=ORIGIN).status_code == 204
     assert "替换" not in admin.get("/api/v1/model-project-tags").json()
+
+
+def test_active_model_capability_task_blocks_model_deletion(tmp_path):
+    app, admin, _editor, _project_id = make_app(tmp_path)
+    project = admin.post(
+        "/api/v1/model-projects",
+        headers=ORIGIN,
+        json={"name": "Active conversion", "description": ""},
+    ).json()
+    model = admin.post(
+        f"/api/v1/model-projects/{project['id']}/models",
+        headers=ORIGIN,
+        json={"name": "YOLO", "source_path": "models/yolo.pt"},
+    ).json()["model"]
+    service = app.state.model_service
+    with service._session_factory() as database:
+        database.add(
+            Task(
+                id="active-conversion",
+                model_project_id=project["id"],
+                submitted_by_id="admin-id",
+                type="convert_model",
+                status="running",
+                payload=f'{{"model_id":"{model["id"]}"}}',
+            )
+        )
+        database.commit()
+
+    assert admin.delete(f"/api/v1/models/{model['id']}", headers=ORIGIN).status_code == 409
+
+    with service._session_factory() as database:
+        database.get(Task, "active-conversion").status = "canceled"
+        database.commit()
+    assert admin.delete(f"/api/v1/models/{model['id']}", headers=ORIGIN).status_code == 204

@@ -73,6 +73,8 @@ class ModelEvaluationResponse(BaseModel):
     finished_at: str | None
     has_confusion_matrix: bool
     has_pr_curve: bool
+    model_deleted: bool
+    dataset_deleted: bool
 
 
 class CreatedEvaluationResponse(BaseModel):
@@ -114,7 +116,7 @@ def _dataset_response(value: EvaluationDataset):
     )
 
 
-def _evaluation_response(value: ModelEvaluation):
+def _evaluation_response(value: ModelEvaluation, availability: dict[str, bool]):
     return ModelEvaluationResponse(
         id=value.id,
         model_project_id=value.model_project_id,
@@ -136,6 +138,7 @@ def _evaluation_response(value: ModelEvaluation):
         finished_at=_utc(value.finished_at),
         has_confusion_matrix=bool(value.confusion_matrix_path),
         has_pr_curve=bool(value.pr_curve_path),
+        **availability,
     )
 
 
@@ -219,9 +222,10 @@ def list_evaluations(
     project_id: str, request: Request, user: Annotated[User, Depends(current_user)]
 ):
     try:
+        evaluation_service = service(request)
         return [
-            _evaluation_response(item)
-            for item in service(request).list_evaluations(user, project_id)
+            _evaluation_response(item, evaluation_service.evaluation_availability(item))
+            for item in evaluation_service.list_evaluations(user, project_id)
         ]
     except ModelEvaluationError as exc:
         _raise(exc)
@@ -244,7 +248,10 @@ def create_evaluation(
             user, project_id, payload.model_id, payload.dataset_id, payload.format
         )
         return CreatedEvaluationResponse(
-            evaluation=_evaluation_response(evaluation), task=_task_response(task)
+            evaluation=_evaluation_response(
+                evaluation, {"model_deleted": False, "dataset_deleted": False}
+            ),
+            task=_task_response(task),
         )
     except ModelEvaluationError as exc:
         _raise(exc)
@@ -255,7 +262,11 @@ def get_evaluation(
     evaluation_id: str, request: Request, user: Annotated[User, Depends(current_user)]
 ):
     try:
-        return _evaluation_response(service(request).get_evaluation(user, evaluation_id))
+        evaluation_service = service(request)
+        evaluation = evaluation_service.get_evaluation(user, evaluation_id)
+        return _evaluation_response(
+            evaluation, evaluation_service.evaluation_availability(evaluation)
+        )
     except ModelEvaluationError as exc:
         _raise(exc)
 

@@ -54,7 +54,7 @@ const conversionOpen = ref(false)
 const readyCount = computed(() => models.value.filter((model) => model.status === 'ready').length)
 let loadVersion = 0
 
-const COLUMNS = 'minmax(230px, 1.4fr) 104px 92px 104px 104px 176px'
+const COLUMNS = 'minmax(210px,1.25fr) 92px 82px minmax(220px,1.1fr) 96px 96px 176px'
 
 /** 模型入库状态 → 语气与中文。后端只给英文码。 */
 const MODEL_STATUS: Record<string, { tone: 'ok' | 'warn' | 'danger'; label: string }> = {
@@ -249,7 +249,7 @@ watch(projectId, loadRouteProject, { immediate: true })
       <VPanel flush>
         <VTable
           :columns="COLUMNS"
-          :headers="['模型', '状态', '文件', '添加时间', '更新时间', '操作']"
+          :headers="['模型', '状态', '文件', '指标摘要', '添加时间', '更新时间', '操作']"
         >
           <VRow
             v-for="model in models"
@@ -268,6 +268,19 @@ watch(projectId, loadRouteProject, { immediate: true })
             <span class="vdw-num cell-num">
               {{ model.file_size == null ? '—' : `${(model.file_size / 1024 / 1024).toFixed(1)} MB` }}
             </span>
+            <div class="metric-cell">
+              <RouterLink
+                v-if="model.metrics?.training_peak"
+                :to="`/training-tasks/${model.metrics.training_peak.training_task_id}/models/${model.metrics.training_peak.training_model_id}`"
+                :title="`训练峰值 mAP50-95 · epoch ${model.metrics.training_peak.epoch}`"
+              >训练峰值 {{ (model.metrics.training_peak.map50_95 * 100).toFixed(1) }}% · E{{ model.metrics.training_peak.epoch }}</RouterLink>
+              <RouterLink
+                v-if="model.metrics?.latest_evaluation"
+                :to="`/model-projects/${projectId}/evaluations`"
+                :title="`${model.metrics.latest_evaluation.dataset_name} · ${model.metrics.latest_evaluation.dataset_hash}`"
+              >最近评估 {{ (model.metrics.latest_evaluation.map50_95 * 100).toFixed(1) }}% · {{ model.metrics.latest_evaluation.dataset_name }}</RouterLink>
+              <span v-if="!model.metrics?.training_peak && !model.metrics?.latest_evaluation">暂无指标</span>
+            </div>
             <time>{{ model.created_at.slice(0, 10) }}</time>
             <time>{{ model.updated_at.slice(0, 10) }}</time>
             <div
@@ -427,6 +440,11 @@ watch(projectId, loadRouteProject, { immediate: true })
   gap: 16px 20px;
   margin: 0;
 }
+
+.metric-cell { display: grid; min-width: 0; gap: 5px; }
+.metric-cell a, .metric-cell span { min-width: 0; overflow: hidden; color: var(--vdw-ink-3); font-size: 13px; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.metric-cell a { color: var(--vdw-accent-ink); }
+.metric-cell a:hover { text-decoration: underline; }
 
 .fact-grid__wide {
   grid-column: 1 / -1;

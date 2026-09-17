@@ -200,8 +200,14 @@ class ModelArtifactService:
                     select(Task).where(Task.status.in_(("queued", "running")))
                 )
             )
-            if any(self._task_references(item, artifact.id) for item in active):
-                raise ModelArtifactConflict("model artifact is used by an active task")
+            for task in active:
+                if not self._task_references(task, artifact.id):
+                    continue
+                task.cancel_requested = True
+                if task.status == "queued":
+                    task.status = "canceled"
+                    task.finished_at = now
+                    task.updated_at = now
             if artifact.storage_path:
                 path = (self.workspace / artifact.storage_path).resolve()
                 root = (self.workspace / "models" / model.id / "artifacts").resolve()

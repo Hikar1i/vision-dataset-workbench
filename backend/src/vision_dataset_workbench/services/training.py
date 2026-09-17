@@ -241,6 +241,34 @@ class TrainingService:
                 "parameters": parameters,
             }
 
+    def inference_model_metric_summary(self, inference_model_id: str) -> dict[str, object] | None:
+        with self._session_factory() as db:
+            inference_model = db.get(InferenceModel, inference_model_id)
+            if inference_model is None or not inference_model.training_model_id:
+                return None
+            training_model = db.get(TrainingModel, inference_model.training_model_id)
+            if training_model is None:
+                return None
+            row = db.execute(
+                select(TrainingMetric, TrainingRun.id)
+                .join(TrainingRun, TrainingRun.id == TrainingMetric.training_run_id)
+                .where(
+                    TrainingRun.training_model_id == training_model.id,
+                    TrainingMetric.map50_95.is_not(None),
+                )
+                .order_by(TrainingMetric.map50_95.desc(), TrainingMetric.epoch.desc())
+                .limit(1)
+            ).first()
+            if row is None:
+                return None
+            return {
+                "map50_95": row[0].map50_95,
+                "epoch": row[0].epoch,
+                "training_task_id": training_model.training_task_id,
+                "training_model_id": training_model.id,
+                "training_run_id": row[1],
+            }
+
     def task_preparation(self, task_id: str) -> TrainingPreparation | None:
         with self._session_factory() as db:
             item = db.scalar(

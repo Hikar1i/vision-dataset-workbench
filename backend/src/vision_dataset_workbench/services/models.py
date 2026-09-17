@@ -15,6 +15,9 @@ from sqlalchemy.orm import sessionmaker
 from ..config import RuntimeSettings
 from ..models import (
     InferenceModel,
+    ModelArtifact,
+    ModelEvaluation,
+    ModelInferenceRun,
     ModelProject,
     ModelProjectTag,
     ModelProjectTagLink,
@@ -385,7 +388,7 @@ class ModelService:
             if project is None or not self.can_manage(actor, project):
                 raise ModelForbidden("model is read-only")
             if self._model_in_use(database, model.id):
-                raise ModelConflict("model has active annotation tasks")
+                raise ModelConflict("model has active tasks")
             if destination.exists():
                 raise ModelConflict("model archive already exists")
             moved = False
@@ -397,6 +400,7 @@ class ModelService:
                 model.deleted_at = now
                 model.updated_at = now
                 model.version += 1
+                self._delete_model_capabilities(database, model.id, now)
                 database.commit()
             except Exception:
                 database.rollback()
@@ -423,7 +427,14 @@ class ModelService:
                 )
             )
             if any(self._model_in_use(database, model.id) for model in models):
-                raise ModelConflict("model project has active annotation tasks")
+                raise ModelConflict("model project has active model tasks")
+            if database.scalar(
+                select(Task).where(
+                    Task.model_project_id == project_id,
+                    Task.status.in_(("queued", "running")),
+                )
+            ):
+                raise ModelConflict("model project has active tasks")
             if archive.exists():
                 raise ModelConflict("model project archive already exists")
             moved: list[tuple[Path, Path]] = []
@@ -439,6 +450,12 @@ class ModelService:
                     model.deleted_at = now
                     model.updated_at = now
                     model.version += 1
+                    self._delete_model_capabilities(database, model.id, now)
+                project_data = self.workspace / "model-projects" / project_id
+                if project_data.exists():
+                    project_target = archive / "project-data"
+                    os.replace(project_data, project_target)
+                    moved.append((project_data, project_target))
                 (archive / "metadata.json").write_text(
                     json.dumps(
                         {
@@ -475,15 +492,42 @@ class ModelService:
     @staticmethod
     def _model_in_use(database, model_id: str) -> bool:
         tasks = database.scalars(
-            select(Task).where(Task.type == "auto_annotate", Task.status.in_(("queued", "running")))
+            select(Task).where(Task.status.in_(("queued", "running")))
         )
         for task in tasks:
             try:
-                if json.loads(task.payload).get("model_id") == model_id:
+                payload = json.loads(task.payload)
+                if task.type in {"auto_annotate", "convert_model"} and payload.get("model_id") == model_id:
                     return True
+                if task.type == "infer_video":
+                    run = database.get(ModelInferenceRun, payload.get("run_id"))
+                    if run is not None and run.model_id == model_id:
+                        return True
+                if task.type == "evaluate_model":
+                    evaluation = database.get(ModelEvaluation, payload.get("evaluation_id"))
+                    if evaluation is not None and evaluation.model_id == model_id:
+                        return True
             except (TypeError, ValueError):
                 continue
         return False
+
+    @staticmethod
+    def _delete_model_capabilities(database, model_id: str, now: datetime) -> None:
+        for artifact in database.scalars(
+            select(ModelArtifact).where(
+                ModelArtifact.model_id == model_id,
+                ModelArtifact.deleted_at.is_(None),
+            )
+        ):
+            artifact.deleted_at = now
+            artifact.updated_at = now
+        for run in database.scalars(
+            select(ModelInferenceRun).where(
+                ModelInferenceRun.model_id == model_id,
+                ModelInferenceRun.deleted_at.is_(None),
+            )
+        ):
+            run.deleted_at = now
 
     def ready_model(self, model_id: str) -> tuple[InferenceModel, Path]:
         with self._session_factory() as database:
