@@ -202,7 +202,7 @@ onBeforeUnmount(() => {
             <label>置信度 <b>{{ parameters.confidence.toFixed(2) }}</b><el-slider v-model="parameters.confidence" :min="0" :max="1" :step="0.01" /></label>
             <label>IOU <b>{{ parameters.iou.toFixed(2) }}</b><el-slider v-model="parameters.iou" :min="0" :max="1" :step="0.01" /></label>
             <label>图像尺寸<el-input-number v-model="parameters.image_size" :min="32" :max="8192" :step="32" :disabled="selectedFormat?.fixed != null" :title="selectedFormat?.fixed != null ? '该转换产物使用固定输入尺寸' : undefined" /><small v-if="selectedFormat?.fixed">该转换产物固定为 {{ selectedFormat.fixed }}px</small></label>
-            <button class="advanced-toggle" type="button" aria-controls="inference-advanced-fields" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起高级设置' : '展开高级设置' }}</button>
+            <VButton class="advanced-toggle" variant="quiet" size="sm" :title="advanced ? '收起高级设置' : '展开高级设置'" aria-controls="inference-advanced-fields" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起高级设置' : '展开高级设置' }}</VButton>
             <div v-if="advanced" id="inference-advanced-fields" class="advanced-fields">
               <label>最大检测数<el-input-number v-model="parameters.max_det" :min="1" :max="3000" /></label>
               <label>视频抽帧步长<el-input-number v-model="parameters.stride" :min="1" :max="120" /><small>每 N 帧处理 1 帧，结果视频帧率同步降低。</small></label>
@@ -237,7 +237,7 @@ onBeforeUnmount(() => {
 .control-stack label { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; color: var(--vdw-ink-2); font-size: 14px; }
 .control-stack label > :deep(.el-select), .control-stack label > :deep(.el-input-number), .control-stack label > :deep(.el-slider), .control-stack label > small { grid-column: 1 / -1; width: 100%; }
 .control-stack small { color: var(--vdw-ink-3); line-height: 1.5; }
-.advanced-toggle { justify-self: start; padding: 0; color: var(--vdw-accent-ink); background: none; border: 0; cursor: pointer; font: 500 14px/1 var(--vdw-sans); }
+.advanced-toggle { justify-self: start; }
 .upload-button { max-width: 100%; overflow: hidden; }
 .result-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .result-summary div { padding: 14px; background: var(--vdw-surface-2); border: 1px solid var(--vdw-line); border-radius: var(--vdw-radius-control); }

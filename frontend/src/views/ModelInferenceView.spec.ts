@@ -16,5 +16,6 @@ describe('ModelInferenceView', () => {
     expect(source).toContain('<template #meta>')
     expect(source).toContain("请先选择图片或视频")
     expect(source).toContain('aria-controls="inference-advanced-fields"')
+    expect(source).toContain('<VButton class="advanced-toggle" variant="quiet" size="sm"')
   })
 })
