@@ -206,6 +206,15 @@ const headerHost = useProjectHeaderHost()
             </div>
           </template>
         </el-table-column>
+        <el-table-column label="样本视频" width="220">
+          <template #default="{ row }">
+            <div class="frame-summary" :data-test="`video-summary-${row.id}`">
+              <span><small>总计</small><b>{{ row.total_videos }}</b></span>
+              <span><small>训练</small><b>{{ row.train_videos }}</b></span>
+              <span><small>验证</small><b>{{ row.val_videos }}</b></span>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="训练集 : 验证集" width="210">
           <template #default="{ row }">
             <div class="ratio-summary" :data-test="`ratio-summary-${row.id}`">
