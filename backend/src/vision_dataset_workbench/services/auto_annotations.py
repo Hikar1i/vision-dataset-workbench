@@ -27,6 +27,7 @@ from .xanylabeling_settings import XAnyLabelingSettingsService
 from .llm_configs import LLMConfigService
 from .llm_annotation import LLMAnnotationError, predict as predict_llm
 from .dataset_exports import video_has_active_export
+from .gpu_leases import GpuLeaseService
 from ..xanylabeling import XAnyLabelingUnavailable
 
 
@@ -85,7 +86,9 @@ class AutoAnnotationService:
         self.capabilities = capabilities
         self.remote_settings = remote_settings
         self.llm_configs = llm_configs
-        self.runner = runner or InferenceRunner()
+        self.runner = runner or InferenceRunner(
+            GpuLeaseService(engine, devices=capabilities.gpu.devices)
+        )
         self.sampling = SamplingService(engine, settings, workspace)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 

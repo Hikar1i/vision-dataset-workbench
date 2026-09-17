@@ -16,10 +16,10 @@ GPU 服务器安装可选模型运行依赖：
 ```bash
 cd backend
 uv sync --python 3.12 --dev --extra gpu
-uv run python -c "import torch, ultralytics; print(torch.cuda.is_available()); print(torch.__version__, ultralytics.__version__)"
+uv run python -c "from vision_dataset_workbench.capabilities import detect_capabilities; print(detect_capabilities())"
 ```
 
-当前锁定组合为 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8 和 Ultralytics 8.4.x。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)和 [PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)。
+当前锁定组合包含 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8、Ultralytics 8.4.x、ONNX、ONNX Runtime GPU 和 TensorRT。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。能力检查以 ONNX Runtime 的 `CUDAExecutionProvider` 和实际 TensorRT Builder 初始化结果为准，而不是只检查包是否存在。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)和 [PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)。
 
 本地自动标注和训练时 API 与 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理并为每个训练模型启动独立 Python/Ultralytics 子进程。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理或训练预检后由运行时确认。本系统不再安装或加载本地 ONNX、Transformers 或 GroundingDINO 模型。
 

@@ -26,11 +26,13 @@ from .database import make_engine
 from .dataset_export_task import DatasetExportTaskCanceled, execute_dataset_export
 from .media import MediaMetadata, MediaToolError, normalize_remote_url, probe_video, ytdlp_base_args
 from .inference import InferenceRunner, InferenceUnavailable
+from .model_artifact_task import ModelConversionDeferred, execute_model_conversion
 from .models import (
     DatasetExport,
     Frame,
     FrameAnnotation,
     InferenceModel,
+    ModelArtifact,
     ProjectLabel,
     SamplingPlan,
     Task,
@@ -38,6 +40,7 @@ from .models import (
 )
 from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
 from .services.labels import automatic_label_color, normalize_label_name
+from .services.gpu_leases import GpuLeaseService
 from .services.xanylabeling_settings import XAnyLabelingSettingsService
 from .security.credentials import resolve_credential_key
 from .services.llm_configs import LLMConfigService
@@ -56,6 +59,10 @@ LIMITS = {
     "import_model": 1,
     "auto_annotate": 2,
     "export_dataset": 1,
+    "convert_model": 2,
+    "infer_video": 2,
+    "import_evaluation_dataset": 1,
+    "evaluate_model": 2,
 }
 LEASE_SECONDS = 30
 COPY_CHUNK_SIZE = 1024 * 1024
@@ -123,7 +130,8 @@ class TaskWorker:
         self._run = run
         self._now = now
         self.worker_id = worker_id or str(uuid4())
-        self._inference_runner = inference_runner or InferenceRunner()
+        self._gpu_leases = GpuLeaseService(engine)
+        self._inference_runner = inference_runner or InferenceRunner(self._gpu_leases)
         self._remote_settings = remote_settings or XAnyLabelingSettingsService(engine, settings)
         self._llm_configs = LLMConfigService(engine, settings)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
@@ -131,7 +139,11 @@ class TaskWorker:
         self._futures: dict[str, Future[None]] = {}
         self._stop = threading.Event()
         self._training_scheduler = TrainingScheduler(
-            engine, self.workspace, worker_id=self.worker_id, popen=popen
+            engine,
+            self.workspace,
+            worker_id=self.worker_id,
+            popen=popen,
+            gpu_leases=self._gpu_leases,
         )
 
     def claim_available(self) -> list[Task]:
@@ -210,8 +222,20 @@ class TaskWorker:
                     self._heartbeat,
                     self._cancel_requested,
                 )
+            elif task_type == "convert_model":
+                execute_model_conversion(
+                    self._session_factory,
+                    self.workspace,
+                    task_id,
+                    task_temp,
+                    self._now,
+                    self._heartbeat,
+                    self._gpu_leases,
+                )
             else:
                 raise RuntimeError("unsupported task type")
+        except ModelConversionDeferred:
+            self._requeue(task_id)
         except (TaskCanceled, DatasetExportTaskCanceled):
             self._finish_canceled(task_id)
         except Exception as exc:
@@ -1100,6 +1124,7 @@ class TaskWorker:
             task.lease_expires_at = None
             self._fail_imported_model(database, task, "model import canceled")
             self._finish_dataset_export(database, task, "canceled", "dataset export canceled")
+            self._finish_model_artifact(database, task, "failed", "model conversion canceled")
             database.commit()
 
     def _safe_error(self, exc: Exception) -> str:
@@ -1121,6 +1146,26 @@ class TaskWorker:
             task.lease_expires_at = None
             self._fail_imported_model(database, task, task.error)
             self._finish_dataset_export(database, task, "failed", task.error)
+            self._finish_model_artifact(database, task, "failed", task.error)
+            database.commit()
+
+    def _requeue(self, task_id: str) -> None:
+        now = self._now()
+        with self._session_factory() as database:
+            task = database.get(Task, task_id)
+            if task is None:
+                return
+            task.status = "queued"
+            task.started_at = None
+            task.updated_at = now
+            task.lease_owner = None
+            task.lease_expires_at = None
+            if task.type == "convert_model":
+                artifact_id = str(json.loads(task.payload).get("artifact_id") or "")
+                artifact = database.get(ModelArtifact, artifact_id)
+                if artifact is not None:
+                    artifact.status = "queued"
+                    artifact.updated_at = now
             database.commit()
 
     @staticmethod
@@ -1144,6 +1189,17 @@ class TaskWorker:
             record.status = status
             record.error = error
             record.completed_at = task.updated_at
+
+    @staticmethod
+    def _finish_model_artifact(database, task: Task, status: str, error: str) -> None:
+        if task.type != "convert_model":
+            return
+        artifact_id = str(json.loads(task.payload).get("artifact_id") or "")
+        artifact = database.get(ModelArtifact, artifact_id)
+        if artifact is not None:
+            artifact.status = status
+            artifact.error = error
+            artifact.updated_at = task.updated_at
 
     def _remove_task_temp(self, path: Path) -> None:
         expected_parent = (self.workspace / "tmp").resolve()

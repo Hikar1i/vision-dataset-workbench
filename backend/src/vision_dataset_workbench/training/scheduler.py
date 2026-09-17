@@ -17,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 
 from ..models import (
     InferenceModel,
+    ModelArtifact,
     ModelProject,
     ModelProjectTag,
     ModelProjectTagLink,
@@ -30,6 +31,7 @@ from .events import validate_event
 from .retention import cleanup_intermediate_checkpoints
 from .state import aggregate_progress, aggregate_task_state
 from .telemetry import training_telemetry
+from ..services.gpu_leases import GpuLeaseService
 
 
 def _now() -> datetime:
@@ -45,11 +47,13 @@ class TrainingScheduler:
         worker_id: str,
         popen=subprocess.Popen,
         fake: bool | None = None,
+        gpu_leases: GpuLeaseService | None = None,
     ):
         self.workspace = workspace.resolve()
         self.worker_id = worker_id
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
         self._popen = popen
+        self._gpu_leases = gpu_leases
         self.fake = bool(os.environ.get("VDW_FAKE_TRAINING") == "1") if fake is None else fake
 
     def tick(self) -> None:
@@ -335,6 +339,8 @@ class TrainingScheduler:
                         pass
                 if alive:
                     run.lease_expires_at = _now() + timedelta(seconds=30)
+                    if self._gpu_leases is not None:
+                        self._gpu_leases.renew("training", run.id, database=db)
                     db.commit()
                     continue
                 # The child may have completed between the first file read and the
@@ -457,6 +463,10 @@ class TrainingScheduler:
                 )
                 if earlier:
                     continue
+                if self._gpu_leases is not None and self._gpu_leases.acquire(
+                    "training", run.id, gpu_index=run.gpu_index
+                ) is None:
+                    continue
                 run.status = "running"
                 run.started_at = _now()
                 run.worker_id = self.worker_id
@@ -478,6 +488,8 @@ class TrainingScheduler:
                     if run:
                         self._finish_run(db, run, "start_failed", str(exc))
                         db.commit()
+                    elif self._gpu_leases is not None:
+                        self._gpu_leases.release("training", run_id)
 
     def _spawn(self, run_id: str) -> None:
         with self._session_factory() as db:
@@ -576,6 +588,8 @@ class TrainingScheduler:
         run.error = error[:2000] if error else None
         run.finished_at = now
         run.lease_expires_at = None
+        if self._gpu_leases is not None:
+            self._gpu_leases.release("training", run.id, database=db)
         model = db.get(TrainingModel, run.training_model_id)
         assert model
         model.status = status
@@ -673,3 +687,14 @@ class TrainingScheduler:
         published.updated_at = now
         published.deleted_at = None
         published.status = "ready"
+        for artifact in db.scalars(
+            select(ModelArtifact).where(
+                ModelArtifact.model_id == published.id,
+                ModelArtifact.deleted_at.is_(None),
+                ModelArtifact.status != "stale",
+            )
+        ):
+            if artifact.source_model_sha256 != published.sha256:
+                artifact.status = "stale"
+                artifact.error = "源模型已更新，请删除后重新转换"
+                artifact.updated_at = now

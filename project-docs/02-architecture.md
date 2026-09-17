@@ -1,6 +1,6 @@
 # 架构
 
-状态：初始化、认证、项目权限、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、模型项目、超参数模板、训练任务、自动标注和数据集导出已实现。
+状态：初始化、认证、项目权限、视频导入、采样、抽帧、筛帧、项目标签、在线矩形标注、模型项目、超参数模板、训练任务、自动标注和数据集导出已实现；模型转换、在线推理与在线评估的数据基础和统一 GPU 租约已建立。
 
 ## 当前仓库状态
 
@@ -26,8 +26,8 @@ Vue setup/auth/admin/project/media pages
   │    ├─ project-scoped English classes + stable UUID
   │    └─ owner/editor writes + viewer reads
   ├─ /api/v1/capabilities → startup-cached capability probe
-  │    ├─ nvidia-smi device inventory
-  │    └─ PyTorch CUDA / Ultralytics readiness
+  │    ├─ nvidia-smi index/UUID/Compute Capability/device inventory
+  │    └─ PyTorch CUDA、Ultralytics、ONNX CUDA Provider 与 TensorRT Builder readiness
   ├─ /api/v1/filesystem → HomePathResolver
   ├─ /api/v1/projects/<id>/videos|imports|tasks → MediaService
        ├─ SQLite Video / Task state
@@ -65,6 +65,7 @@ Vue setup/auth/admin/project/media pages
 
 Independent Python Worker
   ├─ SQLite lease / progress / cancel / retry
+  ├─ GPU UUID lease shared by training and managed inference
   ├─ local copy + SHA-256 + ffprobe + FFmpeg thumbnail
   ├─ yt-dlp HTTP(S) download + remote identity deduplication
   ├─ FFmpeg frame extraction + atomic generation replacement

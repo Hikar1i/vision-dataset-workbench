@@ -407,6 +407,226 @@ class InferenceModel(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ModelArtifact(Base):
+    __tablename__ = "model_artifacts"
+    __table_args__ = (
+        CheckConstraint("format IN ('onnx','engine')", name="ck_model_artifacts_format"),
+        CheckConstraint(
+            "status IN ('queued','converting','ready','failed','stale')",
+            name="ck_model_artifacts_status",
+        ),
+        CheckConstraint(
+            "file_size IS NULL OR file_size >= 0", name="ck_model_artifacts_file_size"
+        ),
+        Index(
+            "uq_model_artifacts_active_format",
+            "model_id",
+            "format",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    model_id: Mapped[str] = mapped_column(
+        ForeignKey("inference_models.id", ondelete="RESTRICT"), index=True
+    )
+    format: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    source_model_sha256: Mapped[str] = mapped_column(String(64))
+    export_config: Mapped[str] = mapped_column(Text, default="{}")
+    storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    environment_fingerprint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gpu_uuid: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    gpu_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ModelInferenceRun(Base):
+    __tablename__ = "model_inference_runs"
+    __table_args__ = (
+        CheckConstraint("format IN ('pt','onnx','engine')", name="ck_model_inference_format"),
+        CheckConstraint("input_type IN ('image','video')", name="ck_model_inference_input"),
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed','canceled')",
+            name="ck_model_inference_status",
+        ),
+        Index(
+            "uq_model_inference_runs_active_session",
+            "model_id",
+            "created_by_id",
+            unique=True,
+            sqlite_where=text("saved_at IS NULL AND deleted_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    model_id: Mapped[str] = mapped_column(
+        ForeignKey("inference_models.id", ondelete="RESTRICT"), index=True
+    )
+    source_model_sha256: Mapped[str] = mapped_column(String(64))
+    format: Mapped[str] = mapped_column(String(16))
+    artifact_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    input_type: Mapped[str] = mapped_column(String(16))
+    source_path: Mapped[str] = mapped_column(Text)
+    result_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parameters: Mapped[str] = mapped_column(Text, default="{}")
+    statistics: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EvaluationDataset(Base):
+    __tablename__ = "evaluation_datasets"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','validating','ready','failed')",
+            name="ck_evaluation_datasets_status",
+        ),
+        CheckConstraint(
+            "image_count >= 0 AND label_count >= 0 AND negative_count >= 0 "
+            "AND total_bytes >= 0",
+            name="ck_evaluation_datasets_counts",
+        ),
+        Index(
+            "uq_evaluation_datasets_active_hash",
+            "model_project_id",
+            "content_sha256",
+            unique=True,
+            sqlite_where=text("status = 'ready' AND deleted_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    model_project_id: Mapped[str] = mapped_column(
+        ForeignKey("model_projects.id", ondelete="RESTRICT"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(128))
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    classes: Mapped[str] = mapped_column(Text, default="[]")
+    image_count: Mapped[int] = mapped_column(Integer, default=0)
+    label_count: Mapped[int] = mapped_column(Integer, default=0)
+    negative_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ModelEvaluation(Base):
+    __tablename__ = "model_evaluations"
+    __table_args__ = (
+        CheckConstraint("format IN ('pt','onnx','engine')", name="ck_model_evaluations_format"),
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed','canceled')",
+            name="ck_model_evaluations_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    model_project_id: Mapped[str] = mapped_column(
+        ForeignKey("model_projects.id", ondelete="RESTRICT"), index=True
+    )
+    model_id: Mapped[str] = mapped_column(
+        ForeignKey("inference_models.id", ondelete="RESTRICT"), index=True
+    )
+    model_name: Mapped[str] = mapped_column(String(128))
+    source_model_sha256: Mapped[str] = mapped_column(String(64))
+    format: Mapped[str] = mapped_column(String(16))
+    artifact_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    evaluation_dataset_id: Mapped[str] = mapped_column(
+        ForeignKey("evaluation_datasets.id", ondelete="RESTRICT"), index=True
+    )
+    dataset_name: Mapped[str] = mapped_column(String(128))
+    dataset_sha256: Mapped[str] = mapped_column(String(64))
+    class_mapping: Mapped[str] = mapped_column(Text, default="{}")
+    config: Mapped[str] = mapped_column(Text, default="{}")
+    metrics: Mapped[str] = mapped_column(Text, default="{}")
+    per_class_metrics: Mapped[str] = mapped_column(Text, default="[]")
+    confusion_matrix_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pr_curve_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class GpuLease(Base):
+    __tablename__ = "gpu_leases"
+    __table_args__ = (
+        UniqueConstraint("owner_type", "owner_id", name="uq_gpu_leases_owner"),
+    )
+
+    gpu_uuid: Mapped[str] = mapped_column(String(80), primary_key=True)
+    gpu_index: Mapped[int] = mapped_column(Integer)
+    owner_type: Mapped[str] = mapped_column(String(32))
+    owner_id: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class UserXAnyLabelingSetting(Base):
     __tablename__ = "user_xanylabeling_settings"
 
@@ -762,12 +982,16 @@ class Task(Base):
     __table_args__ = (
         CheckConstraint(
             "type IN ('copy_video', 'download_video', 'extract_frames', "
-            "'import_model', 'auto_annotate', 'export_dataset')",
+            "'import_model', 'auto_annotate', 'export_dataset', 'convert_model', "
+            "'infer_video', 'import_evaluation_dataset', 'evaluate_model')",
             name="ck_tasks_type",
         ),
         CheckConstraint(
-            "(type = 'import_model' AND model_project_id IS NOT NULL AND project_id IS NULL) "
-            "OR (type <> 'import_model' AND project_id IS NOT NULL AND model_project_id IS NULL)",
+            "(type IN ('import_model','convert_model','infer_video',"
+            "'import_evaluation_dataset','evaluate_model') "
+            "AND model_project_id IS NOT NULL AND project_id IS NULL) OR "
+            "(type IN ('copy_video','download_video','extract_frames','auto_annotate',"
+            "'export_dataset') AND project_id IS NOT NULL AND model_project_id IS NULL)",
             name="ck_tasks_resource",
         ),
         CheckConstraint(

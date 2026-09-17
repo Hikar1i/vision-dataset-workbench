@@ -2,9 +2,9 @@
 
 ## 最近迁移
 
-迁移 `0024_xanylabeling_availability` 为每用户 X-AnyLabeling 配置增加可空可用状态；空值表示尚未验证，成功探测写入真，目录或推理请求失败写入假。`0023_editable_hyperparameter_templates` 为模板增加乐观版本和编辑时间，并为任务默认层、模型显式层增加超参数覆盖字段。`0022_multi_dataset_training` 为训练任务和模型增加单/多数据集模式及映射配置，并新增独立的数据准备记录。
+迁移 `0025_model_operations` 新增模型转换产物、在线推理运行、评估测试集、模型评估和 GPU 租约表，并扩展持久任务类型。`0024_xanylabeling_availability` 为每用户 X-AnyLabeling 配置增加可空可用状态。
 
-状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、模型项目、超参数模板、训练任务/模型/运行/指标、用户远程配置、推理模型和数据集导出迁移已实现。
+状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、模型项目、超参数模板、训练任务/模型/运行/指标、用户远程配置、推理模型、数据集导出及模型操作迁移已实现。
 
 ## 数据库选型
 
@@ -17,7 +17,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系；`0021_user_llm_configs` 增加用户大模型配置；`0022_multi_dataset_training` 增加多数据集训练准备；`0023_editable_hyperparameter_templates` 增加可编辑模板版本和训练覆盖；`0024_xanylabeling_availability` 增加远程标注服务三态可用性。当前 `users` 表为：
+Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系；`0021_user_llm_configs` 增加用户大模型配置；`0022_multi_dataset_training` 增加多数据集训练准备；`0023_editable_hyperparameter_templates` 增加可编辑模板版本和训练覆盖；`0024_xanylabeling_availability` 增加远程标注服务三态可用性；`0025_model_operations` 增加 `model_artifacts`、`model_inference_runs`、`evaluation_datasets`、`model_evaluations`、`gpu_leases`，并让模型相关任务归属 `model_project_id`。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |

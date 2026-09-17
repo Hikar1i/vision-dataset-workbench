@@ -53,8 +53,29 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         "user_xanylabeling_settings",
         "dataset_exports",
         "training_preparations",
+        "model_artifacts",
+        "model_inference_runs",
+        "evaluation_datasets",
+        "model_evaluations",
+        "gpu_leases",
     }.issubset(
         inspect(engine).get_table_names()
+    )
+    artifact_indexes = {
+        index["name"]: tuple(index["column_names"])
+        for index in inspect(engine).get_indexes("model_artifacts")
+    }
+    inference_indexes = {
+        index["name"]: tuple(index["column_names"])
+        for index in inspect(engine).get_indexes("model_inference_runs")
+    }
+    assert artifact_indexes["uq_model_artifacts_active_format"] == (
+        "model_id",
+        "format",
+    )
+    assert inference_indexes["uq_model_inference_runs_active_session"] == (
+        "model_id",
+        "created_by_id",
     )
     assert {"default_dataset_mode", "default_multi_dataset_config"} <= {
         column["name"] for column in inspect(engine).get_columns("training_tasks")

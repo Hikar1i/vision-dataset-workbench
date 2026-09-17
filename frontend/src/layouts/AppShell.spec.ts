@@ -53,6 +53,9 @@ const readyCapabilities = {
     manual_annotation: { available: true, reason: null },
     yolo_auto_annotation: { available: true, reason: null },
     model_training: { available: true, reason: null },
+    onnx_export: { available: true, reason: null },
+    onnx_inference: { available: true, reason: null },
+    tensorrt: { available: true, reason: null },
   },
 }
 

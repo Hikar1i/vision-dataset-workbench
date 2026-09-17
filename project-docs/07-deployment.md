@@ -13,7 +13,9 @@
 - 工作区 SQLite。
 - 受控媒体存储。
 - FFmpeg/ffprobe；远程下载功能还需要 yt-dlp 及网络配置。
-- 本地自动标注和训练还需要 `gpu` extra、NVIDIA 驱动和已入库的 YOLO `.pt` 文件；远程自动标注要求 API 与 Worker 均可访问用户配置的 X-AnyLabeling Server。
+- 本地自动标注、训练、ONNX CUDA 推理和 TensorRT 构建还需要 `gpu` extra、NVIDIA 驱动和已入库的 YOLO `.pt` 文件；远程自动标注要求 API 与 Worker 均可访问用户配置的 X-AnyLabeling Server。
+
+`gpu` extra 锁定 ONNX、ONNX Slim、ONNX Runtime GPU 与 TensorRT Python 包。TensorRT wheel 自带的 CUDA 主版本必须与部署主机兼容；安装成功不等于可用，启动能力检查会实际创建 TensorRT Builder。检查失败时 API 正常启动，但 TensorRT 转换和运行保持禁用，不允许 Ultralytics 在业务请求中自动安装依赖。生产部署优先使用与主机驱动、CUDA、TensorRT 明确匹配的 NVIDIA 容器镜像。
 
 - Linux 原生使用两个 systemd 服务管理 API 与 Worker。
 - Windows 本地使用一个启动器管理两个子进程。
