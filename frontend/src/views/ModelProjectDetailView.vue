@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { Delete, Download, Edit, MoreFilled, Operation, Plus, Refresh, View } from '@element-plus/icons-vue'
+import { ArrowDown, DataAnalysis, Delete, Download, Edit, MoreFilled, Operation, Plus, Refresh, VideoCamera, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import {
   deleteInferenceModel,
@@ -16,6 +16,7 @@ import {
   type ModelProject,
 } from '../api/models'
 import { MODEL_EXTENSIONS } from '../api/filesystem'
+import { listModelArtifacts, modelArtifactDownloadUrl, type ModelArtifact } from '../api/modelArtifacts'
 import ServerFilePicker from '../components/ServerFilePicker.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ModelArtifactDialog from '../components/ModelArtifactDialog.vue'
@@ -32,10 +33,12 @@ import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
 
 const route = useRoute()
+const router = useRouter()
 const projectId = computed(() => String(route.params.id))
 const recentModelScope = computed(() => `model-project:${projectId.value}:models`)
 const project = ref<ModelProject>()
 const models = ref<InferenceModel[]>([])
+const artifactsByModel = ref<Record<string, ModelArtifact[]>>({})
 const loading = ref(false)
 const error = ref('')
 const editOpen = ref(false)
@@ -54,7 +57,7 @@ const conversionOpen = ref(false)
 const readyCount = computed(() => models.value.filter((model) => model.status === 'ready').length)
 let loadVersion = 0
 
-const COLUMNS = 'minmax(210px,1.25fr) 92px 82px minmax(220px,1.1fr) 96px 96px 176px'
+const COLUMNS = 'minmax(230px,1.25fr) 84px 90px minmax(220px,1fr) 112px 350px'
 
 /** 模型入库状态 → 语气与中文。后端只给英文码。 */
 const MODEL_STATUS: Record<string, { tone: 'ok' | 'warn' | 'danger'; label: string }> = {
@@ -87,6 +90,10 @@ async function load() {
     if (version !== loadVersion) return
     project.value = nextProject
     models.value = nextModels
+    artifactsByModel.value = Object.fromEntries(await Promise.all(nextModels.map(async (model) => [
+      model.id,
+      model.status === 'ready' ? await listModelArtifacts(model.id) : [],
+    ])))
     availableTags.value = nextTags
     rememberResource('vdm.recent-model-projects', nextProject)
   } catch (reason) {
@@ -100,6 +107,7 @@ async function load() {
 function loadRouteProject() {
   project.value = undefined
   models.value = []
+  artifactsByModel.value = {}
   void load()
 }
 
@@ -159,16 +167,25 @@ async function removeModel(model: InferenceModel) {
   }
 }
 
+function downloadArtifact(command: string | number | object) {
+  const artifact = Object.values(artifactsByModel.value).flat().find((item) => item.id === command)
+  if (artifact?.status === 'ready') window.location.assign(modelArtifactDownloadUrl(artifact.id))
+}
+
 function handleModelMore(command: string) {
   const [action, modelId] = command.split(':')
   const selected = models.value.find((item) => item.id === modelId)
   if (!selected) return
-  if (action === 'download') {
-    window.location.assign(modelDownloadUrl(selected.id))
+  if (action === 'evaluate') {
+    void router.push(`/model-projects/${projectId.value}/evaluations?modelId=${selected.id}`)
     return
   }
-  conversionModel.value = selected
-  conversionOpen.value = true
+  if (action === 'convert') {
+    conversionModel.value = selected
+    conversionOpen.value = true
+    return
+  }
+  if (action === 'delete') void removeModel(selected)
 }
 
 watch(projectId, loadRouteProject, { immediate: true })
@@ -186,24 +203,6 @@ watch(projectId, loadRouteProject, { immediate: true })
       <template #meta>
         <span data-test="page-stat">{{ readyCount }} / {{ models.length }} 个可用</span>
       </template>
-      <template #actions>
-        <VButton :loading="loading" @click="load">
-          <template #icon><el-icon><Refresh /></el-icon></template>
-          刷新
-        </VButton>
-        <VButton v-if="project?.can_manage" @click="openEdit">
-          <template #icon><el-icon><Edit /></el-icon></template>
-          编辑项目
-        </VButton>
-        <VButton
-          v-if="project?.can_manage && project.series_type === 'archive'"
-          variant="primary"
-          @click="importOpen = true"
-        >
-          <template #icon><el-icon><Plus /></el-icon></template>
-          导入模型
-        </VButton>
-      </template>
       <template #tabs>
         <RouterLink :to="`/model-projects/${projectId}/models`">模型列表</RouterLink>
         <RouterLink :to="`/model-projects/${projectId}/evaluations`">模型评估</RouterLink>
@@ -212,13 +211,21 @@ watch(projectId, loadRouteProject, { immediate: true })
 
     <div v-loading="loading" class="content-body detail-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-      <el-alert
-        v-if="project?.series_type === 'training'"
-        title="训练项目由训练任务同步，不能手工导入或移动模型。"
-        type="info"
-        :closable="false"
-        show-icon
-      />
+      <div v-if="project" class="model-list-toolbar">
+        <el-alert
+          :title="project.series_type === 'training'
+            ? '训练项目由训练任务同步，不能手工导入或移动模型。'
+            : '归档项目支持手工导入、编辑和移动模型。'"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+        <div class="model-list-toolbar__actions">
+          <VButton :loading="loading" @click="load"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton>
+          <VButton v-if="project.can_manage" @click="openEdit"><template #icon><el-icon><Edit /></el-icon></template>编辑项目</VButton>
+          <VButton v-if="project.can_manage && project.series_type === 'archive'" variant="primary" @click="importOpen = true"><template #icon><el-icon><Plus /></el-icon></template>导入模型</VButton>
+        </div>
+      </div>
       <el-alert
         v-if="project?.system_key"
         title="临时模型项目为历史兼容资源，已设为只读。"
@@ -249,7 +256,7 @@ watch(projectId, loadRouteProject, { immediate: true })
       <VPanel flush>
         <VTable
           :columns="COLUMNS"
-          :headers="['模型', '状态', '文件', '指标摘要', '添加时间', '更新时间', '操作']"
+          :headers="['模型', '状态', '文件', '指标摘要', '更新时间', '操作']"
         >
           <VRow
             v-for="model in models"
@@ -270,18 +277,17 @@ watch(projectId, loadRouteProject, { immediate: true })
             </span>
             <div class="metric-cell">
               <RouterLink
-                v-if="model.metrics?.training_peak"
+                v-if="model.metrics?.evaluation_peak"
+                :to="`/model-projects/${projectId}/evaluations?modelId=${model.id}`"
+                :title="`${model.metrics.evaluation_peak.dataset_name} · ${model.metrics.evaluation_peak.dataset_hash}`"
+              ><strong>评估峰值 {{ (model.metrics.evaluation_peak.map50_95 * 100).toFixed(1) }}%</strong><span>{{ model.metrics.evaluation_peak.dataset_name }} · {{ model.metrics.evaluation_peak.format.toUpperCase() }}</span></RouterLink>
+              <RouterLink
+                v-else-if="model.metrics?.training_peak"
                 :to="`/training-tasks/${model.metrics.training_peak.training_task_id}/models/${model.metrics.training_peak.training_model_id}`"
                 :title="`训练峰值 mAP50-95 · epoch ${model.metrics.training_peak.epoch}`"
-              >训练峰值 {{ (model.metrics.training_peak.map50_95 * 100).toFixed(1) }}% · E{{ model.metrics.training_peak.epoch }}</RouterLink>
-              <RouterLink
-                v-if="model.metrics?.latest_evaluation"
-                :to="`/model-projects/${projectId}/evaluations`"
-                :title="`${model.metrics.latest_evaluation.dataset_name} · ${model.metrics.latest_evaluation.dataset_hash}`"
-              >最近评估 {{ (model.metrics.latest_evaluation.map50_95 * 100).toFixed(1) }}% · {{ model.metrics.latest_evaluation.dataset_name }}</RouterLink>
-              <span v-if="!model.metrics?.training_peak && !model.metrics?.latest_evaluation">暂无指标</span>
+              ><strong>训练峰值 {{ (model.metrics.training_peak.map50_95 * 100).toFixed(1) }}%</strong><span>epoch {{ model.metrics.training_peak.epoch }}</span></RouterLink>
+              <span v-else>暂无指标</span>
             </div>
-            <time>{{ model.created_at.slice(0, 10) }}</time>
             <time>{{ model.updated_at.slice(0, 10) }}</time>
             <div
               class="row-actions"
@@ -292,28 +298,38 @@ watch(projectId, loadRouteProject, { immediate: true })
                 size="sm"
                 @click="$router.push(`/model-projects/${projectId}/models/${model.id}`)"
               ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
-              <el-dropdown v-if="model.status === 'ready'" trigger="click" @command="handleModelMore">
+              <div class="download-split">
+                <VButton size="sm" :href="model.status === 'ready' ? modelDownloadUrl(model.id) : undefined" :disabled="model.status !== 'ready'" title="下载 PyTorch 模型">
+                  <template #icon><el-icon><Download /></el-icon></template>下载
+                </VButton>
+                <el-dropdown trigger="click" :disabled="model.status !== 'ready'" @command="downloadArtifact">
+                  <VButton icon-only size="sm" label="选择转换格式" title="选择转换格式" :disabled="model.status !== 'ready'">
+                    <template #icon><el-icon><ArrowDown /></el-icon></template>
+                  </VButton>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item v-for="artifact in artifactsByModel[model.id] || []" :key="artifact.id" :command="artifact.id" :disabled="artifact.status !== 'ready'">下载 {{ artifact.format === 'onnx' ? 'ONNX' : 'TensorRT' }}</el-dropdown-item>
+                      <el-dropdown-item v-if="!(artifactsByModel[model.id] || []).length" disabled>暂无转换产物</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+              <VButton size="sm" :disabled="model.status !== 'ready'" :title="model.status === 'ready' ? '在线推理' : '模型可用后才能推理'" @click="$router.push(`/model-projects/${projectId}/models/${model.id}/inference`)"><template #icon><el-icon><VideoCamera /></el-icon></template>推理</VButton>
+              <el-dropdown trigger="click" @command="handleModelMore">
                 <VButton variant="quiet" size="sm">
                   <template #icon><el-icon><MoreFilled /></el-icon></template>更多
                 </VButton>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item :command="`download:${model.id}`">
-                      <el-icon><Download /></el-icon>下载 .pt
-                    </el-dropdown-item>
+                    <el-dropdown-item :command="`evaluate:${model.id}`" :disabled="model.status !== 'ready'"><el-icon><DataAnalysis /></el-icon>在线评估</el-dropdown-item>
                     <el-dropdown-item
                       :command="`convert:${model.id}`"
-                      :disabled="!project?.can_manage"
+                      :disabled="model.status !== 'ready' || !project?.can_manage"
                     ><el-icon><Operation /></el-icon>格式转换</el-dropdown-item>
+                    <el-dropdown-item v-if="model.can_manage" divided :command="`delete:${model.id}`"><el-icon><Delete /></el-icon>删除模型</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
-              <VButton
-                v-if="model.can_manage"
-                variant="danger"
-                size="sm"
-                @click="removeModel(model)"
-              ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
             </div>
           </VRow>
 
@@ -423,6 +439,7 @@ watch(projectId, loadRouteProject, { immediate: true })
       v-model="conversionOpen"
       :model-id="conversionModel.id"
       :model-name="conversionModel.name"
+      @changed="load"
     />
   </main>
 </template>
@@ -434,6 +451,10 @@ watch(projectId, loadRouteProject, { immediate: true })
   gap: 14px;
 }
 
+.model-list-toolbar { display: flex; align-items: center; gap: 12px; }
+.model-list-toolbar :deep(.el-alert) { flex: 1; min-width: 0; }
+.model-list-toolbar__actions { display: flex; flex: 0 0 auto; gap: 8px; }
+
 .fact-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -441,8 +462,10 @@ watch(projectId, loadRouteProject, { immediate: true })
   margin: 0;
 }
 
-.metric-cell { display: grid; min-width: 0; gap: 5px; }
-.metric-cell a, .metric-cell span { min-width: 0; overflow: hidden; color: var(--vdw-ink-3); font-size: 13px; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.metric-cell { display: grid; min-width: 0; }
+.metric-cell a { display: grid; min-width: 0; gap: 5px; }
+.metric-cell a, .metric-cell span, .metric-cell strong { min-width: 0; overflow: hidden; color: var(--vdw-ink-3); font-size: 13px; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.metric-cell strong { color: var(--vdw-accent-ink); font-size: 14px; font-weight: 600; }
 .metric-cell a { color: var(--vdw-accent-ink); }
 .metric-cell a:hover { text-decoration: underline; }
 
@@ -480,8 +503,13 @@ time {
    与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
 }
+
+.download-split { display: inline-flex; flex: 0 0 auto; }
+.download-split > :first-child { border-radius: var(--vdw-radius-control) 0 0 var(--vdw-radius-control); }
+.download-split :deep(.el-dropdown .vdw-btn) { width: 32px; padding: 0; border-left: 0; border-radius: 0 var(--vdw-radius-control) var(--vdw-radius-control) 0; }
 
 .dialog-form {
   display: grid;

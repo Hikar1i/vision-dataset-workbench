@@ -41,7 +41,7 @@ export type InferenceModel = {
       training_model_id: string
       training_run_id: string
     } | null
-    latest_evaluation: {
+    evaluation_peak: {
       id: string
       map50_95: number
       format: 'pt' | 'onnx' | 'engine'

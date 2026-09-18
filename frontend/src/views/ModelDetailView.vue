@@ -222,16 +222,16 @@ onMounted(load)
           <p v-else class="artifact-empty">尚未生成转换产物，可按部署环境选择 ONNX 或 TensorRT。</p>
         </VPanel>
 
-        <VPanel v-if="model.metrics?.training_peak || model.metrics?.latest_evaluation" title="指标摘要">
+        <VPanel v-if="model.metrics?.training_peak || model.metrics?.evaluation_peak" title="指标摘要">
           <div class="metric-summary">
             <RouterLink
               v-if="model.metrics.training_peak"
               :to="`/training-tasks/${model.metrics.training_peak.training_task_id}/models/${model.metrics.training_peak.training_model_id}`"
             ><span>训练峰值 mAP50-95</span><strong>{{ (model.metrics.training_peak.map50_95 * 100).toFixed(1) }}%</strong><small>epoch {{ model.metrics.training_peak.epoch }}</small></RouterLink>
             <RouterLink
-              v-if="model.metrics.latest_evaluation"
+              v-if="model.metrics.evaluation_peak"
               :to="`/model-projects/${route.params.id}/evaluations`"
-            ><span>最近评估 mAP50-95</span><strong>{{ (model.metrics.latest_evaluation.map50_95 * 100).toFixed(1) }}%</strong><small>{{ model.metrics.latest_evaluation.dataset_name }} · {{ model.metrics.latest_evaluation.format.toUpperCase() }}</small></RouterLink>
+            ><span>评估峰值 mAP50-95</span><strong>{{ (model.metrics.evaluation_peak.map50_95 * 100).toFixed(1) }}%</strong><small>{{ model.metrics.evaluation_peak.dataset_name }} · {{ model.metrics.evaluation_peak.format.toUpperCase() }}</small></RouterLink>
           </div>
         </VPanel>
 

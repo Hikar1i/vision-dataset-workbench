@@ -172,7 +172,7 @@ def _metric_info(request: Request, model_id: str) -> dict[str, object]:
         "training_peak": training_service.inference_model_metric_summary(model_id)
         if training_service
         else None,
-        "latest_evaluation": evaluation_service.latest_model_metric(model_id)
+        "evaluation_peak": evaluation_service.peak_model_metric(model_id)
         if evaluation_service
         else None,
     }

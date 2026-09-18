@@ -159,9 +159,6 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
       <template #meta>
         <span>{{ evaluations.length }} 条评估</span><span>{{ readyDatasets.length }} 个可用测试集</span>
       </template>
-      <template #actions>
-        <VButton :loading="loading" @click="load()"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton>
-      </template>
       <template #tabs>
         <RouterLink :to="`/model-projects/${projectId}/models`">模型列表</RouterLink>
         <RouterLink :to="`/model-projects/${projectId}/evaluations`">模型评估</RouterLink>
@@ -175,9 +172,9 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
       </div>
 
       <template v-if="tab === 'records'">
-        <div class="toolbar">
+        <div class="toolbar evaluation-toolbar">
           <span>固定参数：conf 0.001 · IOU 0.70 · batch 1 · max_det 300</span>
-          <VButton v-if="project?.can_manage" variant="primary" :disabled="!readyModels.length || !readyDatasets.length" :title="!readyModels.length ? '暂无可用模型' : !readyDatasets.length ? '请先导入并校验测试集' : '新建评估'" @click="evaluationOpen = true"><template #icon><el-icon><Plus /></el-icon></template>新建评估</VButton>
+          <div class="toolbar-actions"><VButton :loading="loading" @click="load()"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton><VButton v-if="project?.can_manage" variant="primary" :disabled="!readyModels.length || !readyDatasets.length" :title="!readyModels.length ? '暂无可用模型' : !readyDatasets.length ? '请先导入并校验测试集' : '新建评估'" @click="evaluationOpen = true"><template #icon><el-icon><Plus /></el-icon></template>新建评估</VButton></div>
         </div>
         <VPanel flush><VTable :columns="RECORD_COLUMNS" :headers="['模型', '测试集', '格式', '状态', 'mAP50-95', '操作']">
           <VRow v-for="item in evaluations" :key="item.id" :columns="RECORD_COLUMNS">
@@ -193,9 +190,9 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
       </template>
 
       <template v-else>
-        <div class="toolbar">
+        <div class="toolbar evaluation-toolbar">
           <span>测试集为不可变内容快照；同项目内按内容哈希去重。</span>
-          <VButton v-if="project?.can_manage" variant="primary" @click="importOpen = true"><template #icon><el-icon><UploadFilled /></el-icon></template>导入测试集</VButton>
+          <div class="toolbar-actions"><VButton :loading="loading" @click="load()"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton><VButton v-if="project?.can_manage" variant="primary" @click="importOpen = true"><template #icon><el-icon><UploadFilled /></el-icon></template>导入测试集</VButton></div>
         </div>
         <VPanel flush><VTable :columns="DATASET_COLUMNS" :headers="['测试集', '图像', '类别', '内容哈希', '状态', '操作']">
           <VRow v-for="item in datasets" :key="item.id" :columns="DATASET_COLUMNS">
@@ -246,6 +243,6 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
 </template>
 
 <style scoped>
-.evaluation-body{display:grid;gap:14px;align-content:start}.subnav{display:flex;gap:4px;padding:4px;width:fit-content;background:var(--vdw-surface-2);border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-control)}.subnav button{height:32px;padding:0 14px;border:0;border-radius:calc(var(--vdw-radius-control) - 2px);color:var(--vdw-ink-2);background:transparent;cursor:pointer;font:500 14px/1 var(--vdw-sans)}.subnav button.active{color:var(--vdw-ink);background:var(--vdw-surface);box-shadow:var(--vdw-shadow-1)}.toolbar{display:flex;align-items:center;justify-content:space-between;min-height:38px;color:var(--vdw-ink-3);font-size:14px}.cell-main{min-width:0}.cell-main strong,.cell-main span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cell-main span{margin-top:4px;color:var(--vdw-ink-3);font-size:13px}.mono{font-family:var(--vdw-mono)}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.metric{font:600 14px/1 var(--vdw-mono)}.import-layout{display:grid;grid-template-columns:260px 1fr;gap:22px}.zip-example{padding:16px;background:#10181c;border-radius:var(--vdw-radius-card);color:#dbe4e7}.zip-example pre{margin:12px 0;color:#83d2df;font:13px/1.55 var(--vdw-mono)}.zip-example p{margin:0;color:#9eafb5;font-size:13px;line-height:1.55}.dialog-fields{display:grid;gap:18px}.dialog-fields label{display:grid;gap:8px;color:var(--vdw-ink-2);font-size:14px}.file-drop{padding:18px;border:1px dashed var(--vdw-line-strong);border-radius:var(--vdw-radius-control);cursor:pointer}.file-drop input{position:absolute;width:1px;height:1px;opacity:0}.file-drop span{color:var(--vdw-accent-ink)}.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}.metric-grid div{padding:14px;border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-control);background:var(--vdw-surface-2)}.metric-grid span,.metric-grid strong{display:block}.metric-grid span{color:var(--vdw-ink-3);font-size:13px}.metric-grid strong{margin-top:6px;font:600 22px/1 var(--vdw-mono)}.plot-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}.plot-grid figure{margin:0;padding:10px;border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-card)}.plot-grid img{display:block;width:100%;max-height:360px;object-fit:contain}.plot-grid figcaption{margin-top:8px;color:var(--vdw-ink-3);text-align:center;font-size:13px}
+.evaluation-body{display:grid;gap:14px;align-content:start}.subnav{display:flex;gap:4px;padding:4px;width:fit-content;background:var(--vdw-surface-2);border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-control)}.subnav button{height:32px;padding:0 14px;border:0;border-radius:calc(var(--vdw-radius-control) - 2px);color:var(--vdw-ink-2);background:transparent;cursor:pointer;font:500 14px/1 var(--vdw-sans)}.subnav button.active{color:var(--vdw-ink);background:var(--vdw-surface);box-shadow:var(--vdw-shadow-1)}.toolbar{display:flex;align-items:center;justify-content:space-between;min-height:38px;color:var(--vdw-ink-3);font-size:14px}.toolbar-actions{display:flex;gap:8px}.cell-main{min-width:0}.cell-main strong,.cell-main span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cell-main span{margin-top:4px;color:var(--vdw-ink-3);font-size:13px}.mono{font-family:var(--vdw-mono)}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.metric{font:600 14px/1 var(--vdw-mono)}.import-layout{display:grid;grid-template-columns:260px 1fr;gap:22px}.zip-example{padding:16px;background:#10181c;border-radius:var(--vdw-radius-card);color:#dbe4e7}.zip-example pre{margin:12px 0;color:#83d2df;font:13px/1.55 var(--vdw-mono)}.zip-example p{margin:0;color:#9eafb5;font-size:13px;line-height:1.55}.dialog-fields{display:grid;gap:18px}.dialog-fields label{display:grid;gap:8px;color:var(--vdw-ink-2);font-size:14px}.file-drop{padding:18px;border:1px dashed var(--vdw-line-strong);border-radius:var(--vdw-radius-control);cursor:pointer}.file-drop input{position:absolute;width:1px;height:1px;opacity:0}.file-drop span{color:var(--vdw-accent-ink)}.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}.metric-grid div{padding:14px;border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-control);background:var(--vdw-surface-2)}.metric-grid span,.metric-grid strong{display:block}.metric-grid span{color:var(--vdw-ink-3);font-size:13px}.metric-grid strong{margin-top:6px;font:600 22px/1 var(--vdw-mono)}.plot-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}.plot-grid figure{margin:0;padding:10px;border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-card)}.plot-grid img{display:block;width:100%;max-height:360px;object-fit:contain}.plot-grid figcaption{margin-top:8px;color:var(--vdw-ink-3);text-align:center;font-size:13px}
 .cell-main small{margin-left:5px;color:var(--vdw-danger);font-size:13px;font-weight:500}
 </style>

@@ -235,19 +235,22 @@ class ModelEvaluationService:
             database.expunge(row)
             return row
 
-    def latest_model_metric(self, model_id: str) -> dict[str, object] | None:
+    def peak_model_metric(self, model_id: str) -> dict[str, object] | None:
         with self._session_factory() as database:
-            row = database.scalar(
+            rows = database.scalars(
                 select(ModelEvaluation)
                 .where(
                     ModelEvaluation.model_id == model_id,
                     ModelEvaluation.status == "succeeded",
                 )
                 .order_by(ModelEvaluation.finished_at.desc(), ModelEvaluation.id.desc())
-                .limit(1)
-            )
-            if row is None:
+            ).all()
+            if not rows:
                 return None
+            row = max(
+                rows,
+                key=lambda item: float(json.loads(item.metrics)["map50_95"]),
+            )
             metrics = json.loads(row.metrics)
             return {
                 "id": row.id,

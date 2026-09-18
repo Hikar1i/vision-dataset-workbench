@@ -131,7 +131,25 @@ def test_evaluation_remaps_class_order_and_persists_metrics(tmp_path, monkeypatc
         assert stored.status == "succeeded"
         assert json.loads(stored.metrics)["map50_95"] == 0.6
         assert stored.confusion_matrix_path and stored.pr_curve_path
-    assert service.latest_model_metric("model") == {
+        database.add(
+            ModelEvaluation(
+                id="newer-lower-score",
+                model_project_id="project",
+                model_id="model",
+                model_name="Detector",
+                source_model_sha256="a" * 64,
+                format="pt",
+                evaluation_dataset_id="dataset",
+                dataset_name="Newer Eval",
+                dataset_sha256="c" * 64,
+                metrics=json.dumps({"map50_95": 0.5}),
+                status="succeeded",
+                created_by_id="owner",
+                finished_at=datetime(2030, 1, 1),
+            )
+        )
+        database.commit()
+    assert service.peak_model_metric("model") == {
         "id": evaluation.id,
         "map50_95": 0.6,
         "format": "pt",
