@@ -139,6 +139,7 @@ def _detect_onnx_inference(
 def _detect_tensorrt(
     gpu: GpuStatus,
     load_module: Callable[[str], ModuleType],
+    find_module: Callable[[str], object | None],
 ) -> CapabilityStatus:
     if not gpu.available:
         return CapabilityStatus(False, gpu.reason or "NVIDIA GPU 不可用")
@@ -150,6 +151,11 @@ def _detect_tensorrt(
         return CapabilityStatus(False, "未安装 TensorRT 运行依赖")
     except Exception:
         return CapabilityStatus(False, "TensorRT Builder 初始化失败")
+    try:
+        if find_module("modelopt") is None:
+            return CapabilityStatus(False, "未安装 TensorRT FP16 转换依赖：NVIDIA ModelOpt")
+    except Exception:
+        return CapabilityStatus(False, "NVIDIA ModelOpt 依赖检测失败")
     return CapabilityStatus(True)
 
 
@@ -176,6 +182,6 @@ def detect_capabilities(
             model_training=pytorch_cuda,
             onnx_export=onnx_export,
             onnx_inference=onnx_inference,
-            tensorrt=_detect_tensorrt(gpu, load_module),
+            tensorrt=_detect_tensorrt(gpu, load_module, find_module),
         ),
     )

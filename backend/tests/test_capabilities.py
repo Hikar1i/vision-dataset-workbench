@@ -43,11 +43,12 @@ def module_loader(*, torch=True, onnxruntime=True, tensorrt=True):
     return load
 
 
-def module_finder(*, ultralytics=True, onnx=True, onnxslim=True):
+def module_finder(*, ultralytics=True, onnx=True, onnxslim=True, modelopt=True):
     available = {
         "ultralytics": ultralytics,
         "onnx": onnx,
         "onnxslim": onnxslim,
+        "modelopt": modelopt,
     }
     return lambda name: object() if available.get(name, False) else None
 
@@ -125,6 +126,19 @@ def test_model_runtime_capabilities_report_missing_components():
     assert "ONNX Runtime" in (capabilities.features.onnx_inference.reason or "")
     assert capabilities.features.tensorrt.available is False
     assert "TensorRT" in (capabilities.features.tensorrt.reason or "")
+
+
+def test_tensorrt_requires_modelopt_for_fp16_exports():
+    capabilities = detect_capabilities(
+        run_command=lambda _: "0, GPU-a, NVIDIA RTX A4000, 8.6, 16376\n",
+        load_module=module_loader(),
+        find_module=module_finder(modelopt=False),
+    )
+
+    assert capabilities.features.tensorrt.available is False
+    assert capabilities.features.tensorrt.reason == (
+        "未安装 TensorRT FP16 转换依赖：NVIDIA ModelOpt"
+    )
 
 
 def test_onnx_inference_requires_cuda_execution_provider():
