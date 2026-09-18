@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Download, UploadFilled } from '@element-plus/icons-vue'
+import { ArrowDown, Delete, Download, UploadFilled } from '@element-plus/icons-vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { getInferenceModel, type InferenceModel } from '../api/models'
-import { listModelArtifacts, type ModelArtifact } from '../api/modelArtifacts'
+import { getInferenceModel, modelDownloadUrl, type InferenceModel } from '../api/models'
+import { listModelArtifacts, modelArtifactDownloadUrl, type ModelArtifact } from '../api/modelArtifacts'
 import {
   createInference,
   deleteInference,
@@ -32,7 +32,6 @@ const fileInput = ref<HTMLInputElement>()
 const pendingFile = ref<File>()
 const view = ref<'source' | 'result'>('result')
 const busy = ref(false)
-const advanced = ref(false)
 const format = ref<'pt' | 'onnx' | 'engine'>('pt')
 const parameters = ref({ confidence: 0.25, iou: 0.7, image_size: 640, max_det: 300, stride: 1 })
 let pollTimer: number | undefined
@@ -55,6 +54,11 @@ const statusLabel = computed(() => {
   return labels[current.value?.status || ''] || '未开始'
 })
 const statusTone = computed<'ok' | 'danger' | 'warn' | 'idle'>(() => current.value?.status === 'succeeded' ? 'ok' : current.value?.status === 'failed' ? 'danger' : isWorking.value ? 'warn' : 'idle')
+
+function downloadArtifact(command: string | number | object) {
+  const artifact = artifacts.value.find((item) => item.id === command)
+  if (artifact?.status === 'ready') window.location.assign(modelArtifactDownloadUrl(artifact.id))
+}
 
 watch(selectedFormat, (value) => {
   if (value?.fixed) parameters.value.image_size = value.fixed
@@ -159,7 +163,17 @@ onBeforeUnmount(() => {
   <main class="content-page inference-page">
     <PageHeader :title="model ? `${model.name} · 在线推理` : '在线推理'" kind="model" :code="model?.model_code" :back-to="`/model-projects/${route.params.id}/models/${modelId}`" back-label="返回模型详情">
       <template #meta><span>图片最大 20 MB</span><span>视频最大 500 MB</span><span>会话 24 小时无访问后清理</span></template>
-      <template #actions><VButton v-if="current" variant="danger" @click="clear"><template #icon><el-icon><Delete /></el-icon></template>清理</VButton></template>
+      <template #actions>
+        <div v-if="model?.status === 'ready'" class="download-split">
+          <VButton :href="modelDownloadUrl(model.id)" title="下载 PyTorch 模型"><template #icon><el-icon><Download /></el-icon></template>下载模型</VButton>
+          <el-dropdown trigger="click" @command="downloadArtifact">
+            <VButton icon-only label="选择转换格式" title="选择转换格式"><template #icon><el-icon><ArrowDown /></el-icon></template></VButton>
+            <template #dropdown><el-dropdown-menu><el-dropdown-item v-for="artifact in artifacts" :key="artifact.id" :command="artifact.id" :disabled="artifact.status !== 'ready'">下载 {{ artifact.format === 'onnx' ? 'ONNX' : 'TensorRT' }}</el-dropdown-item><el-dropdown-item v-if="!artifacts.length" disabled>暂无转换产物</el-dropdown-item></el-dropdown-menu></template>
+          </el-dropdown>
+        </div>
+        <VButton v-if="current?.status === 'succeeded' && model?.can_manage" variant="primary" @click="save">保存推理结果</VButton>
+        <VButton v-if="current" variant="danger" @click="clear"><template #icon><el-icon><Delete /></el-icon></template>清理</VButton>
+      </template>
     </PageHeader>
 
     <div class="content-body inference-layout">
@@ -190,7 +204,6 @@ onBeforeUnmount(() => {
           <div class="result-actions">
             <VButton :href="inferenceFileUrl(current.id, 'source')"><template #icon><el-icon><Download /></el-icon></template>下载源文件</VButton>
             <VButton :href="inferenceFileUrl(current.id, 'result')"><template #icon><el-icon><Download /></el-icon></template>下载检测结果</VButton>
-            <VButton v-if="model?.can_manage" variant="primary" @click="save">保存推理结果</VButton>
           </div>
         </VPanel>
       </section>
@@ -202,11 +215,6 @@ onBeforeUnmount(() => {
             <label>置信度 <b>{{ parameters.confidence.toFixed(2) }}</b><el-slider v-model="parameters.confidence" :min="0" :max="1" :step="0.01" /></label>
             <label>IOU <b>{{ parameters.iou.toFixed(2) }}</b><el-slider v-model="parameters.iou" :min="0" :max="1" :step="0.01" /></label>
             <label>图像尺寸<el-input-number v-model="parameters.image_size" :min="32" :max="8192" :step="32" :disabled="selectedFormat?.fixed != null" :title="selectedFormat?.fixed != null ? '该转换产物使用固定输入尺寸' : undefined" /><small v-if="selectedFormat?.fixed">该转换产物固定为 {{ selectedFormat.fixed }}px</small></label>
-            <VButton class="advanced-toggle" variant="quiet" size="sm" :title="advanced ? '收起高级设置' : '展开高级设置'" aria-controls="inference-advanced-fields" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起高级设置' : '展开高级设置' }}</VButton>
-            <div v-if="advanced" id="inference-advanced-fields" class="advanced-fields">
-              <label>最大检测数<el-input-number v-model="parameters.max_det" :min="1" :max="3000" /></label>
-              <label>视频抽帧步长<el-input-number v-model="parameters.stride" :min="1" :max="120" /><small>每 N 帧处理 1 帧，结果视频帧率同步降低。</small></label>
-            </div>
             <input ref="fileInput" class="visually-hidden" type="file" accept="image/*,video/*" @change="selected" />
             <VButton class="upload-button" @click="chooseFile"><template #icon><el-icon><UploadFilled /></el-icon></template>{{ pendingFile?.name || '选择图片或视频' }}</VButton>
             <VButton variant="primary" :disabled="!pendingFile || isWorking" :loading="busy" :title="isWorking ? '当前推理完成后可再次开始' : !pendingFile ? '请先选择图片或视频' : '开始推理'" @click="run">开始推理</VButton>
@@ -225,19 +233,21 @@ onBeforeUnmount(() => {
 .inference-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
 .stage-column { display: grid; gap: 18px; min-width: 0; }
 .control-column { position: sticky; top: 16px; }
-.inference-stage { position: relative; display: grid; place-items: center; min-height: 540px; overflow: hidden; background: #10181c; border-radius: 0 0 var(--vdw-radius-panel) var(--vdw-radius-panel); }
-.inference-stage img, .inference-stage video { display: block; width: 100%; height: 540px; object-fit: contain; }
+.inference-stage { position: relative; display: grid; place-items: center; min-height: 580px; overflow: hidden; background: #10181c; border-radius: 0 0 var(--vdw-radius-panel) var(--vdw-radius-panel); }
+.inference-stage img, .inference-stage video { display: block; width: 100%; height: 580px; object-fit: contain; }
 .stage-empty, .stage-overlay { display: grid; place-items: center; gap: 10px; color: #dbe4e7; text-align: center; }
 .stage-empty svg { width: 42px; fill: #73868d; }
 .stage-empty span, .stage-overlay small { color: #92a3a9; font-size: 14px; }
 .stage-overlay { position: absolute; inset: 0; background: rgb(10 18 22 / 82%); }
 .stage-overlay.is-error strong { color: #ffb5ab; }
 .stage-spinner { width: 30px; height: 30px; border: 3px solid rgb(255 255 255 / 22%); border-top-color: #61c6d7; border-radius: 50%; animation: spin .8s linear infinite; }
-.control-stack, .advanced-fields { display: grid; gap: 18px; }
+.control-stack { display: grid; gap: 18px; }
 .control-stack label { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; color: var(--vdw-ink-2); font-size: 14px; }
 .control-stack label > :deep(.el-select), .control-stack label > :deep(.el-input-number), .control-stack label > :deep(.el-slider), .control-stack label > small { grid-column: 1 / -1; width: 100%; }
 .control-stack small { color: var(--vdw-ink-3); line-height: 1.5; }
-.advanced-toggle { justify-self: start; }
+.download-split { display: inline-flex; }
+.download-split > :first-child { border-radius: var(--vdw-radius-control) 0 0 var(--vdw-radius-control); }
+.download-split :deep(.el-dropdown .vdw-btn) { width: var(--vdw-control-height); padding: 0; border-left: 0; border-radius: 0 var(--vdw-radius-control) var(--vdw-radius-control) 0; }
 .upload-button { max-width: 100%; overflow: hidden; }
 .result-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .result-summary div { padding: 14px; background: var(--vdw-surface-2); border: 1px solid var(--vdw-line); border-radius: var(--vdw-radius-control); }

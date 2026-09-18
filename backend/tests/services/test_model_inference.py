@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.inference import Detection
+from vision_dataset_workbench.model_inference_task import _draw_video_detection
 from vision_dataset_workbench.models import InferenceModel, ModelProject, Task, User
 from vision_dataset_workbench.services.model_inference import (
     ModelInferenceConflict,
@@ -54,6 +55,13 @@ def test_image_session_is_persistent_replaceable_downloadable_and_saveable(tmp_p
     assert run.status == "succeeded"
     assert json.loads(run.statistics)["detections"] == 1
     assert service.file(owner, run.id, "result")[0].is_file()
+    with Image.open(workspace / run.result_path) as result:
+        label_pixels = [
+            result.getpixel((x, y))
+            for x in range(2, 30)
+            for y in range(0, 16)
+        ]
+    assert sum(red < 100 and green > 100 and blue > 120 for red, green, blue in label_pixels) > 100
     assert service.current(owner, "model-id").id == run.id
     with pytest.raises(ModelInferenceConflict):
         service.create(owner, "model-id", "image", "pt", upload_image(tmp_path, "second.jpg"), "second.jpg", {}, replace=False)
@@ -65,6 +73,34 @@ def test_image_session_is_persistent_replaceable_downloadable_and_saveable(tmp_p
     assert json.loads(replacement.parameters)["image_size"] == 672
     assert (workspace / replacement.result_path).is_file()
     engine.dispose()
+
+
+def test_video_detection_uses_matching_box_and_label_background_colors():
+    class FakeCv2:
+        FONT_HERSHEY_SIMPLEX = 0
+        LINE_AA = 16
+        FILLED = -1
+
+        def __init__(self):
+            self.rectangles = []
+
+        def rectangle(self, *_arguments):
+            self.rectangles.append(_arguments)
+
+        @staticmethod
+        def getTextSize(*_arguments):
+            return (96, 16), 4
+
+        @staticmethod
+        def putText(*_arguments):
+            return None
+
+    cv2 = FakeCv2()
+    _draw_video_detection(cv2, object(), Detection("car", 20, 30, 80, 90, 0.91))
+
+    assert len(cv2.rectangles) == 2
+    assert cv2.rectangles[0][3] == cv2.rectangles[1][3]
+    assert cv2.rectangles[1][4] == cv2.FILLED
 
 
 def test_video_session_creates_worker_task_and_delete_cancels_it(tmp_path):

@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve('src/views/ModelInferenceView.vue'), 'utf8')
+const shellStyles = readFileSync(resolve('src/styles/shell.css'), 'utf8')
 
 describe('ModelInferenceView', () => {
   it('keeps one recoverable session with desktop canvas controls and explicit persistence actions', () => {
@@ -15,7 +16,9 @@ describe('ModelInferenceView', () => {
     expect(source).toContain('20 * 1024 * 1024')
     expect(source).toContain('<template #meta>')
     expect(source).toContain("请先选择图片或视频")
-    expect(source).toContain('aria-controls="inference-advanced-fields"')
-    expect(source).toContain('<VButton class="advanced-toggle" variant="quiet" size="sm"')
+    expect(source).toContain('下载 PyTorch 模型')
+    expect(shellStyles).toContain('scrollbar-gutter: stable')
+    expect(source).not.toContain('inference-advanced-fields')
+    expect(source).not.toContain('advanced-toggle')
   })
 })

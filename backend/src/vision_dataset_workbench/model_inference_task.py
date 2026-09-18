@@ -23,6 +23,35 @@ class ModelInferenceCanceled(RuntimeError):
     pass
 
 
+def _draw_video_detection(cv2, frame, item) -> None:
+    color = (182, 160, 39)
+    p1 = (round(item.x_min), round(item.y_min))
+    p2 = (round(item.x_max), round(item.y_max))
+    label = f"{item.label} {item.confidence or 0:.2f}"
+    (text_width, text_height), baseline = cv2.getTextSize(
+        label, cv2.FONT_HERSHEY_SIMPLEX, 0.65, 2
+    )
+    label_top = max(0, p1[1] - text_height - baseline - 8)
+    cv2.rectangle(frame, p1, p2, color, 2)
+    cv2.rectangle(
+        frame,
+        (p1[0], label_top),
+        (p1[0] + text_width + 8, label_top + text_height + baseline + 6),
+        color,
+        cv2.FILLED,
+    )
+    cv2.putText(
+        frame,
+        label,
+        (p1[0] + 4, label_top + text_height + 2),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+
 def execute_video_inference(
     session_factory: sessionmaker,
     workspace: Path,
@@ -122,10 +151,7 @@ def execute_video_inference(
                 )
                 inference_seconds += time.perf_counter() - started
                 for item in detections:
-                    p1 = (round(item.x_min), round(item.y_min))
-                    p2 = (round(item.x_max), round(item.y_max))
-                    cv2.rectangle(frame, p1, p2, (182, 160, 39), 2)
-                    cv2.putText(frame, f"{item.label} {item.confidence or 0:.2f}", p1, cv2.FONT_HERSHEY_SIMPLEX, 0.55, (182, 160, 39), 2)
+                    _draw_video_detection(cv2, frame, item)
                 writer.write(frame)
                 processed += 1
                 detection_count += len(detections)

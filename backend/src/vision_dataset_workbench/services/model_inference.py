@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
@@ -275,9 +275,29 @@ class ModelInferenceService:
             with Image.open(source) as opened:
                 image = opened.convert("RGB")
             draw = ImageDraw.Draw(image)
+            font = ImageFont.load_default(size=16)
             for item in detections:
-                draw.rectangle((item.x_min, item.y_min, item.x_max, item.y_max), outline="#27a0b6", width=3)
-                draw.text((item.x_min + 3, max(0, item.y_min - 14)), f"{item.label} {item.confidence or 0:.2f}", fill="#101c21", stroke_width=2, stroke_fill="white")
+                color = "#27a0b6"
+                label = f"{item.label} {item.confidence or 0:.2f}"
+                text_box = draw.textbbox((0, 0), label, font=font)
+                text_width = text_box[2] - text_box[0]
+                text_height = text_box[3] - text_box[1]
+                label_top = max(0, round(item.y_min) - text_height - 8)
+                draw.rectangle(
+                    (item.x_min, item.y_min, item.x_max, item.y_max),
+                    outline=color,
+                    width=3,
+                )
+                draw.rectangle(
+                    (item.x_min, label_top, item.x_min + text_width + 8, label_top + text_height + 6),
+                    fill=color,
+                )
+                draw.text(
+                    (item.x_min + 4, label_top + 3),
+                    label,
+                    fill="white",
+                    font=font,
+                )
             result = self._directory_id(model.id, run_id) / "result.jpg"
             image.save(result, quality=92)
             elapsed = max((_now() - started).total_seconds(), 0.0001)
