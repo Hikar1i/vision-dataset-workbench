@@ -22,7 +22,7 @@
 - multi/single 运行模式、注册审批和项目角色权限。
 - 项目标签名称、中文描述、颜色校验、排序、启停、版本冲突和项目内唯一性。
 - GPU 命令、PyTorch CUDA 与 Ultralytics 依赖探测的成功和降级路径。
-- ONNX Runtime CUDA、TensorRT Builder 能力探测和共享 GPU 租约的成功、占用及降级路径。
+- ONNX Runtime CUDA、TensorRT Builder、NVIDIA ModelOpt 依赖探测和共享 GPU 租约的成功、占用及降级路径。
 - X-AnyLabeling Server 地址规范化、模型目录过滤、协议错误、矩形结果校验，以及用户 API 密钥加解密和隔离。
 - 工作区凭据密钥的并发安全生成、权限、显式环境变量优先级和 API Key 脱敏；OpenAI-compatible/Anthropic 图片消息及连接探测协议。
 - 标注草稿历史、矩形边界、视图坐标变换、追加/覆盖合并和冲突判断。
@@ -106,7 +106,7 @@
 - 训练任务编辑器测试分别覆盖草稿保存与启动就绪条件，并验证继承、模型显式配置及混合来源下的数据集、超参模板、BaseModel 解析和就地缺失提示。
 - 真实 GPU 冒烟使用 Ultralytics 8.4.107、YOLO11n、GPU 1 连续训练 2 epoch，验证运行级数据集路径、每 epoch 单次事件、dfl loss、mAP、P-R 多类结构以及 best/last checkpoint；该短时冒烟不替代长时 retry/resume/derive/extend 操作矩阵。
 - `GpuSequenceEditor.spec.ts` 覆盖多 GPU lane 呈现、显存风险信息以及带可访问名称的上下调整按钮；ECharts 页面由类型检查和生产构建覆盖，真实浏览器悬浮/缩放仍需视觉冒烟。
-- 模型能力页面覆盖转换格式能力/状态、推理文件限制与当前会话恢复、保存及删除、评估集导入/哈希重复提示/评估提交，以及训练峰值和最新测试集指标摘要。
+- 模型能力页面覆盖转换格式能力/状态、推理文件限制与当前会话恢复、保存及删除、评估集导入/哈希重复提示/评估提交、列表评估峰值优先规则、正文工具栏、下载分裂按钮和数据集样本分布合并列。
 
 ## 必测工作流
 

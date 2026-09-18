@@ -15,7 +15,7 @@
 - FFmpeg/ffprobe；远程下载功能还需要 yt-dlp 及网络配置。
 - 本地自动标注、训练、ONNX CUDA 推理和 TensorRT 构建还需要 `gpu` extra、NVIDIA 驱动和已入库的 YOLO `.pt` 文件；远程自动标注要求 API 与 Worker 均可访问用户配置的 X-AnyLabeling Server。
 
-`gpu` extra 锁定 ONNX、ONNX Slim、ONNX Runtime GPU 与 TensorRT Python 包。TensorRT wheel 自带的 CUDA 主版本必须与部署主机兼容；安装成功不等于可用，启动能力检查会实际创建 TensorRT Builder。检查失败时 API 正常启动，但 TensorRT 转换和运行保持禁用，不允许 Ultralytics 在业务请求中自动安装依赖。生产部署优先使用与主机驱动、CUDA、TensorRT 明确匹配的 NVIDIA 容器镜像。
+`gpu` extra 锁定 ONNX、ONNX Slim、ONNX Runtime GPU、TensorRT 与 NVIDIA ModelOpt。TensorRT 11 的 FP16 strongly typed 构建会先用 ModelOpt 把混合精度写入 ONNX；缺少 ModelOpt 时即使 Builder 可创建也不能转换。TensorRT wheel 自带的 CUDA 主版本必须与部署主机兼容；安装成功不等于可用，启动能力检查会实际创建 TensorRT Builder 并检查 ModelOpt。检查失败时 API 正常启动，但 TensorRT 转换和运行保持禁用，不允许 Ultralytics 在业务请求中自动安装依赖。生产部署优先使用与主机驱动、CUDA、TensorRT 明确匹配的 NVIDIA 容器镜像。
 
 ONNX 是可下载和可复用的通用转换产物；TensorRT `.engine` 绑定构建时的 GPU、驱动、CUDA、TensorRT 与构建参数，只保证在当前构建主机使用，不作为跨设备交付格式。转换、视频推理、测试集导入和评估由 Worker 执行，API 与 Worker 必须挂载同一工作区；评估 ZIP 上限 1 GB，解压后上限 5 GB，部署时需据此设置反向代理请求体限制和工作区磁盘告警。
 

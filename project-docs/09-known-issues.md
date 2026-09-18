@@ -11,7 +11,7 @@
 - 训练子进程、事件、指标、双 GPU 并行和发布已由确定性假训练集成测试覆盖，并已用真实 YOLO11n 在 GPU 1 完成 2 epoch 冒烟；尚未用长时训练执行 retry/resume/derive/extend 全操作矩阵。模型转换、在线推理和评估页面已在 Chrome 以 1920×1080、2560×1440 完成人工视觉验收，但项目仍未配置自动化像素级视觉回归。
 - Ultralytics 的 AMP 检查会下载与用户 basemodel 无关的辅助权重；当前已把子进程工作目录固定到工作区缓存，避免其落入源码目录。训练回调异常会记录 warning 而不再把已完成训练误判为失败，最终验证阶段的重复 epoch 回调也会被忽略。
 - 模型 `ready` 仅表示受管 `.pt` 副本复制完成，YOLO 权重的运行兼容性到首次推理、转换或评估时才确认。系统支持固化 ONNX 和当前主机专用 TensorRT `.engine`，但不支持本地 GroundingDINO 或 Transformers；X-AnyLabeling Server 内部使用何种模型不影响本系统依赖。
-- TensorRT `.engine` 只保证在构建主机使用，不承诺复制到不同 GPU、驱动、CUDA 或 TensorRT 环境后可运行。真实 GPU 转换、近 1 GB 评估 ZIP 和长视频在线推理仍需部署级容量冒烟。
+- TensorRT `.engine` 只保证在构建主机使用，不承诺复制到不同 GPU、驱动、CUDA 或 TensorRT 环境后可运行。TensorRT 11 FP16 转换依赖 `nvidia-modelopt[onnx]>=0.44`，`gpu` extra 与启动能力检查已包含该要求；真实 GPU 转换、近 1 GB 评估 ZIP 和长视频在线推理仍需部署级容量冒烟。
 - 单张自动标注在 API 同步线程池执行，并按模型加进程内互斥锁；大模型首次加载会让该次请求持续较久。批量自动标注在 Worker 逐帧提交，失败或取消会保留此前成功帧，不做整批回滚。
 - 本地 YOLO 路径已用假推理器覆盖 API 和 Worker 契约，但尚未用用户实际 `.pt` 权重执行端到端 GPU 冒烟；X-AnyLabeling Server 已通过协议单元测试、API/Worker 集成测试和真实服务冒烟。标注工作台尚未完成自动化像素级视觉验收。
 - X-AnyLabeling Server 当前只接受矩形检测结果；点选、关键点、多边形、分割、分类和描述任务会被过滤。远程服务暂时按请求重新读取用户配置，配置变更与同用户正在执行的远程批量任务互斥。
@@ -111,7 +111,7 @@
 - 已实现按用户保存的 X-AnyLabeling Server 配置、可选 API 密钥加密、保存前模型目录校验、矩形任务过滤、单张及批量远程推理；任务记录不保存服务地址、密钥或图片内容。
 - 已实现按用户隔离的 OpenAI-compatible/Anthropic 大模型配置、工作区自动凭据密钥、脱敏回显、真实模型连接探测，以及基于内置提示词的单张/批量在线视觉标注。
 - 已实现批量自动标注的范围选择与覆盖风险解锁；按标注启停只处理有标注视频，安全范围排除已筛帧视频，覆盖筛帧结果由前端 3 秒确认和后端 `confirm_all` 双重守卫。
-- 已移除本地 DINO 与 Transformers；`gpu` extra 包含 PyTorch、torchvision、Ultralytics、ONNX、ONNX Runtime GPU、ONNX Slim 与 TensorRT。RTX A4000、Quadro RTX 4000 和 PyTorch CUDA 12.8 此前已实测通过，ONNX Runtime CUDA 与 TensorRT 以启动时真实能力探测结果为准。
+- 已移除本地 DINO 与 Transformers；`gpu` extra 包含 PyTorch、torchvision、Ultralytics、ONNX、ONNX Runtime GPU、ONNX Slim、TensorRT 与 NVIDIA ModelOpt。RTX A4000、Quadro RTX 4000 和 PyTorch CUDA 12.8 此前已实测通过，ONNX Runtime CUDA 与 TensorRT 以启动时真实能力探测结果为准。
 - 当前 SQLite 运行库不满足安全 WAL 版本条件时自动使用 rollback journal。
 
 后续关闭其他问题时应记录关联变更、验证测试、数据迁移或运维动作，并删除已经不再成立的临时限制。
