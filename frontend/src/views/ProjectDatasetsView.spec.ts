@@ -96,8 +96,9 @@ it('lets a viewer inspect and download without delete controls', async () => {
 
   expect(wrapper.text()).toContain('训练集 v1')
   const distribution = wrapper.get('[data-test="sample-distribution-export-id"]')
-  expect(distribution.text()).toContain('帧总计100训练75验证25')
-  expect(distribution.text()).toContain('视频总计3训练2验证1')
+  expect(distribution.findAll('small').map((cell) => cell.text())).toEqual(['总计', '训练', '验证'])
+  expect(distribution.text()).toContain('帧1007525')
+  expect(distribution.text()).toContain('视频321')
   expect(wrapper.findAll('.el-table__header-wrapper th').map((cell) => cell.text())).toContain('样本分布')
   expect(wrapper.findAll('.el-table__header-wrapper th').map((cell) => cell.text())).not.toContain('样本帧')
   expect(wrapper.findAll('.el-table__header-wrapper th').map((cell) => cell.text())).not.toContain('样本视频')

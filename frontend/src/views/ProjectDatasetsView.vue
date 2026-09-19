@@ -197,24 +197,26 @@ const headerHost = useProjectHeaderHost()
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="样本分布" width="310">
+        <el-table-column label="样本分布" width="270">
           <template #default="{ row }">
             <div class="sample-distribution" :data-test="`sample-distribution-${row.id}`">
+              <div class="sample-distribution__head">
+                <span />
+                <small>总计</small>
+                <small>训练</small>
+                <small>验证</small>
+              </div>
               <div class="sample-distribution__row">
                 <strong>帧</strong>
-                <div class="frame-summary">
-                  <span><small>总计</small><b>{{ row.total_frames }}</b></span>
-                  <span><small>训练</small><b>{{ row.train_frames }}</b></span>
-                  <span><small>验证</small><b>{{ row.val_frames }}</b></span>
-                </div>
+                <b>{{ row.total_frames }}</b>
+                <b>{{ row.train_frames }}</b>
+                <b>{{ row.val_frames }}</b>
               </div>
               <div class="sample-distribution__row">
                 <strong>视频</strong>
-                <div class="frame-summary">
-                  <span><small>总计</small><b>{{ row.total_videos }}</b></span>
-                  <span><small>训练</small><b>{{ row.train_videos }}</b></span>
-                  <span><small>验证</small><b>{{ row.val_videos }}</b></span>
-                </div>
+                <b>{{ row.total_videos }}</b>
+                <b>{{ row.train_videos }}</b>
+                <b>{{ row.val_videos }}</b>
               </div>
             </div>
           </template>
@@ -374,9 +376,12 @@ const headerHost = useProjectHeaderHost()
 .datasets-view :deep(.page-header) { margin: -20px -20px 20px; }
 .datasets-table { min-height: 260px; background: white; border: 1px solid var(--vdw-line); }
 .frame-summary { display: grid; grid-template-columns: repeat(3, minmax(42px, 1fr)); gap: 8px; }
-.sample-distribution { display: grid; gap: 7px; }
-.sample-distribution__row { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 8px; }
+.sample-distribution { display: grid; gap: 4px; }
+.sample-distribution__head,
+.sample-distribution__row { display: grid; grid-template-columns: 42px repeat(3, minmax(42px, 1fr)); align-items: center; column-gap: 6px; }
+.sample-distribution__head small { color: var(--vdw-ink-2); font-size: 13px; font-weight: 500; }
 .sample-distribution__row > strong { color: var(--vdw-ink-2); font-size: 13px; font-weight: 600; }
+.sample-distribution__row > b { color: var(--vdw-ink); font: 600 13px var(--vdw-mono); white-space: nowrap; }
 .frame-summary span { display: grid; gap: 2px; min-width: 0; }
 .frame-summary small,
 .ratio-summary small { color: var(--vdw-ink-2); font-size: 13px; font-weight: 500; }
