@@ -18,6 +18,7 @@ import {
   type ModelInferenceRun,
 } from '../api/modelInference'
 import PageHeader from '../components/PageHeader.vue'
+import { modelCapabilityBackTarget } from '../navigation/modelCapabilitySource'
 import VButton from '../ui/VButton.vue'
 import VPanel from '../ui/VPanel.vue'
 import VTag from '../ui/VTag.vue'
@@ -46,6 +47,12 @@ const formats = computed(() => [
     fixed: item.export_config.dynamic ? null : item.export_config.imgsz,
   })),
 ])
+const backTarget = computed(() => modelCapabilityBackTarget(
+  String(route.params.id),
+  modelId,
+  route.query.source,
+  { to: `/model-projects/${route.params.id}/models/${modelId}`, label: '返回模型详情' },
+))
 const selectedFormat = computed(() => formats.value.find((item) => item.value === format.value))
 const previewUrl = computed(() => current.value ? inferenceFileUrl(current.value.id, view.value === 'source' ? 'preview' : 'result') : '')
 const isWorking = computed(() => ['queued', 'running'].includes(current.value?.status || ''))
@@ -161,7 +168,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="content-page inference-page">
-    <PageHeader :title="model ? `${model.name} · 在线推理` : '在线推理'" kind="model" :code="model?.model_code" :back-to="`/model-projects/${route.params.id}/models/${modelId}`" back-label="返回模型详情">
+    <PageHeader :title="model ? `${model.name} · 在线推理` : '在线推理'" kind="model" :code="model?.model_code" :back-to="backTarget.to" :back-label="backTarget.label">
       <template #meta><span>图片最大 20 MB</span><span>视频最大 500 MB</span><span>会话 24 小时无访问后清理</span></template>
       <template #actions>
         <div v-if="model?.status === 'ready'" class="download-split">

@@ -15,6 +15,8 @@ describe('ModelProjectEvaluationView', () => {
     expect(source).toContain('请先导入并校验测试集')
     expect(source).toContain('评估完成后可查看详情')
     expect(source).toContain('evaluation-toolbar')
+    expect(source).toContain('modelCapabilityBackTarget')
+    expect(source).toContain(':back-to="backTarget.to"')
     expect(source).not.toContain('<template #actions>')
   })
 })

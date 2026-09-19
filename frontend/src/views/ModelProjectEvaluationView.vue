@@ -17,6 +17,7 @@ import {
   type ModelEvaluation,
 } from '../api/modelEvaluations'
 import PageHeader from '../components/PageHeader.vue'
+import { modelCapabilityBackTarget } from '../navigation/modelCapabilitySource'
 import VButton from '../ui/VButton.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VPanel from '../ui/VPanel.vue'
@@ -57,6 +58,16 @@ const formats = computed(() => [
   { value: 'onnx' as const, label: 'ONNX', enabled: artifacts.value.some((item) => item.format === 'onnx' && item.status === 'ready') },
   { value: 'engine' as const, label: 'TensorRT (.engine)', enabled: artifacts.value.some((item) => item.format === 'engine' && item.status === 'ready') },
 ])
+const backTarget = computed(() => modelCapabilityBackTarget(
+  projectId.value,
+  typeof route.query.modelId === 'string' ? route.query.modelId : undefined,
+  route.query.source,
+  { to: '/model-projects', label: '返回模型项目' },
+))
+const evaluationQuery = computed(() => ({
+  ...(typeof route.query.modelId === 'string' ? { modelId: route.query.modelId } : {}),
+  ...(['models', 'detail'].includes(String(route.query.source)) ? { source: String(route.query.source) } : {}),
+}))
 
 const STATUS: Record<string, { label: string; tone: 'ok' | 'warn' | 'danger' | 'idle' }> = {
   queued: { label: '排队中', tone: 'warn' }, validating: { label: '校验中', tone: 'warn' },
@@ -153,15 +164,15 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
       :title="project?.name || '模型评估'"
       kind="model project"
       :code="project ? project.id.slice(0, 6).toUpperCase() : undefined"
-      back-to="/model-projects"
-      back-label="返回模型项目"
+      :back-to="backTarget.to"
+      :back-label="backTarget.label"
     >
       <template #meta>
         <span>{{ evaluations.length }} 条评估</span><span>{{ readyDatasets.length }} 个可用测试集</span>
       </template>
       <template #tabs>
         <RouterLink :to="`/model-projects/${projectId}/models`">模型列表</RouterLink>
-        <RouterLink :to="`/model-projects/${projectId}/evaluations`">模型评估</RouterLink>
+        <RouterLink :to="{ path: `/model-projects/${projectId}/evaluations`, query: evaluationQuery }">模型评估</RouterLink>
       </template>
     </PageHeader>
 

@@ -177,7 +177,10 @@ function handleModelMore(command: string) {
   const selected = models.value.find((item) => item.id === modelId)
   if (!selected) return
   if (action === 'evaluate') {
-    void router.push(`/model-projects/${projectId.value}/evaluations?modelId=${selected.id}`)
+    void router.push({
+      path: `/model-projects/${projectId.value}/evaluations`,
+      query: { modelId: selected.id, source: 'models' },
+    })
     return
   }
   if (action === 'convert') {
@@ -278,7 +281,7 @@ watch(projectId, loadRouteProject, { immediate: true })
             <div class="metric-cell">
               <RouterLink
                 v-if="model.metrics?.evaluation_peak"
-                :to="`/model-projects/${projectId}/evaluations?modelId=${model.id}`"
+                :to="{ path: `/model-projects/${projectId}/evaluations`, query: { modelId: model.id, source: 'models' } }"
                 :title="`${model.metrics.evaluation_peak.dataset_name} · ${model.metrics.evaluation_peak.dataset_hash}`"
               ><strong>评估峰值 {{ (model.metrics.evaluation_peak.map50_95 * 100).toFixed(1) }}%</strong><span>{{ model.metrics.evaluation_peak.dataset_name }} · {{ model.metrics.evaluation_peak.format.toUpperCase() }}</span></RouterLink>
               <RouterLink
@@ -314,7 +317,7 @@ watch(projectId, loadRouteProject, { immediate: true })
                   </template>
                 </el-dropdown>
               </div>
-              <VButton size="sm" :disabled="model.status !== 'ready'" :title="model.status === 'ready' ? '在线推理' : '模型可用后才能推理'" @click="$router.push(`/model-projects/${projectId}/models/${model.id}/inference`)"><template #icon><el-icon><VideoCamera /></el-icon></template>推理</VButton>
+              <VButton size="sm" :disabled="model.status !== 'ready'" :title="model.status === 'ready' ? '在线推理' : '模型可用后才能推理'" @click="$router.push({ path: `/model-projects/${projectId}/models/${model.id}/inference`, query: { source: 'models' } })"><template #icon><el-icon><VideoCamera /></el-icon></template>推理</VButton>
               <el-dropdown trigger="click" @command="handleModelMore">
                 <VButton variant="quiet" size="sm">
                   <template #icon><el-icon><MoreFilled /></el-icon></template>更多

@@ -13,5 +13,6 @@ describe('ModelProjectDetailView', () => {
     expect(source).toContain('在线推理')
     expect(source).toContain('在线评估')
     expect(source).toContain('格式转换')
+    expect(source).toContain("source: 'models'")
   })
 })

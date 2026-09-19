@@ -147,10 +147,10 @@ onMounted(load)
         <VTag :tone="status.tone">{{ status.label }}</VTag>
       </template>
       <template #actions>
-        <VButton v-if="model?.status === 'ready'" :href="`/model-projects/${route.params.id}/models/${modelId}/inference`">
+        <VButton v-if="model?.status === 'ready'" :href="`/model-projects/${route.params.id}/models/${modelId}/inference?source=detail`">
           <template #icon><el-icon><VideoCamera /></el-icon></template>在线推理
         </VButton>
-        <VButton v-if="model?.status === 'ready'" :href="`/model-projects/${route.params.id}/evaluations?modelId=${modelId}`">
+        <VButton v-if="model?.status === 'ready'" :href="`/model-projects/${route.params.id}/evaluations?modelId=${modelId}&source=detail`">
           <template #icon><el-icon><DataAnalysis /></el-icon></template>在线评估
         </VButton>
         <VButton v-if="model?.can_convert" @click="artifactDialogOpen = true">
