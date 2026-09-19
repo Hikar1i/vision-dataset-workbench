@@ -284,7 +284,7 @@ onBeforeUnmount(() => {
 .inference-modes button { height: 32px; padding: 0 14px; border: 0; border-radius: calc(var(--vdw-radius-control) - 2px); color: var(--vdw-ink-2); background: transparent; cursor: pointer; font: 500 14px/1 var(--vdw-sans); }
 .inference-modes button:hover { color: var(--vdw-ink); background: var(--vdw-surface-3); }
 .inference-modes button.active { color: var(--vdw-ink); background: var(--vdw-surface); box-shadow: var(--vdw-shadow-1); }
-.inference-modes button span { margin-left: 5px; color: var(--vdw-ink-3); font: 600 12px var(--vdw-mono); }
+.inference-modes button span { margin-left: 5px; color: var(--vdw-ink-3); font: 600 13px var(--vdw-mono); }
 .inference-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
 .stage-column { display: grid; gap: 18px; min-width: 0; }
 .control-column { position: sticky; top: 16px; }

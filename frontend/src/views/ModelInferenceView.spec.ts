@@ -65,6 +65,7 @@ describe('ModelInferenceView', () => {
     expect(source).toContain("请先选择图片或视频")
     expect(source).toContain('下载 PyTorch 模型')
     expect(shellStyles).toContain('scrollbar-gutter: stable')
+    expect(source).toContain('font: 600 13px var(--vdw-mono)')
     expect(source).not.toContain('inference-advanced-fields')
     expect(source).not.toContain('advanced-toggle')
   })
