@@ -20,6 +20,7 @@ import {
 import PageHeader from '../components/PageHeader.vue'
 import { modelCapabilityBackTarget } from '../navigation/modelCapabilitySource'
 import VButton from '../ui/VButton.vue'
+import VEmpty from '../ui/VEmpty.vue'
 import VPanel from '../ui/VPanel.vue'
 import VTag from '../ui/VTag.vue'
 
@@ -29,6 +30,8 @@ const model = ref<InferenceModel>()
 const artifacts = ref<ModelArtifact[]>([])
 const current = ref<ModelInferenceRun | null>(null)
 const saved = ref<ModelInferenceRun[]>([])
+const mode = ref<'current' | 'saved'>('current')
+const selectedSaved = ref<ModelInferenceRun>()
 const fileInput = ref<HTMLInputElement>()
 const pendingFile = ref<File>()
 const view = ref<'source' | 'result'>('result')
@@ -54,13 +57,15 @@ const backTarget = computed(() => modelCapabilityBackTarget(
   { to: `/model-projects/${route.params.id}/models/${modelId}`, label: '返回模型详情' },
 ))
 const selectedFormat = computed(() => formats.value.find((item) => item.value === format.value))
-const previewUrl = computed(() => current.value ? inferenceFileUrl(current.value.id, view.value === 'source' ? 'preview' : 'result') : '')
+const displayedRun = computed(() => mode.value === 'saved' ? selectedSaved.value : current.value || undefined)
+const previewUrl = computed(() => displayedRun.value ? inferenceFileUrl(displayedRun.value.id, view.value === 'source' ? 'preview' : 'result') : '')
 const isWorking = computed(() => ['queued', 'running'].includes(current.value?.status || ''))
+const displayedWorking = computed(() => ['queued', 'running'].includes(displayedRun.value?.status || ''))
 const statusLabel = computed(() => {
   const labels: Record<string, string> = { queued: '等待 GPU', running: '推理中', succeeded: '已完成', failed: '失败', canceled: '已取消' }
-  return labels[current.value?.status || ''] || '未开始'
+  return labels[displayedRun.value?.status || ''] || '未开始'
 })
-const statusTone = computed<'ok' | 'danger' | 'warn' | 'idle'>(() => current.value?.status === 'succeeded' ? 'ok' : current.value?.status === 'failed' ? 'danger' : isWorking.value ? 'warn' : 'idle')
+const statusTone = computed<'ok' | 'danger' | 'warn' | 'idle'>(() => displayedRun.value?.status === 'succeeded' ? 'ok' : displayedRun.value?.status === 'failed' ? 'danger' : displayedWorking.value ? 'warn' : 'idle')
 
 function downloadArtifact(command: string | number | object) {
   const artifact = artifacts.value.find((item) => item.id === command)
@@ -76,7 +81,21 @@ async function load() {
     getInferenceModel(modelId), listModelArtifacts(modelId), getCurrentInference(modelId), listSavedInference(modelId),
   ])
   if (current.value) parameters.value = { ...current.value.parameters }
+  if (mode.value === 'saved') {
+    selectedSaved.value = saved.value.find((item) => item.id === selectedSaved.value?.id) ?? saved.value[0]
+  }
   startPolling()
+}
+
+function showCurrent() {
+  mode.value = 'current'
+  view.value = current.value?.status === 'succeeded' ? 'result' : 'source'
+}
+
+function openSaved(item?: ModelInferenceRun) {
+  mode.value = 'saved'
+  selectedSaved.value = item ?? saved.value[0]
+  view.value = 'result'
 }
 
 function chooseFile() { fileInput.value?.click() }
@@ -124,10 +143,12 @@ async function clear() {
 
 async function save() {
   if (!current.value) return
-  current.value = await saveInference(current.value.id)
+  const savedRun = await saveInference(current.value.id)
   saved.value = await listSavedInference(modelId)
   current.value = null
-  ElMessage.success('推理结果已保存。')
+  stopPolling()
+  openSaved(saved.value.find((item) => item.id === savedRun.id) ?? savedRun)
+  ElMessage.success('推理结果已保存，可在“已保存结果”中查看。')
 }
 
 async function removeSaved(item: ModelInferenceRun) {
@@ -137,6 +158,7 @@ async function removeSaved(item: ModelInferenceRun) {
   try {
     await deleteInference(item.id)
     saved.value = saved.value.filter((value) => value.id !== item.id)
+    if (selectedSaved.value?.id === item.id) selectedSaved.value = saved.value[0]
     ElMessage.success('已保存推理结果已删除。')
   } catch (reason) { ElMessage.error(reason instanceof Error ? reason.message : '删除失败') }
 }
@@ -178,45 +200,51 @@ onBeforeUnmount(() => {
             <template #dropdown><el-dropdown-menu><el-dropdown-item v-for="artifact in artifacts" :key="artifact.id" :command="artifact.id" :disabled="artifact.status !== 'ready'">下载 {{ artifact.format === 'onnx' ? 'ONNX' : 'TensorRT' }}</el-dropdown-item><el-dropdown-item v-if="!artifacts.length" disabled>暂无转换产物</el-dropdown-item></el-dropdown-menu></template>
           </el-dropdown>
         </div>
-        <VButton v-if="current?.status === 'succeeded' && model?.can_manage" variant="primary" @click="save">保存推理结果</VButton>
-        <VButton v-if="current" variant="danger" @click="clear"><template #icon><el-icon><Delete /></el-icon></template>清理</VButton>
+        <VButton v-if="mode === 'current' && current?.status === 'succeeded' && model?.can_manage" data-test="save-inference" variant="primary" @click="save">保存推理结果</VButton>
+        <VButton v-if="mode === 'current' && current" variant="danger" @click="clear"><template #icon><el-icon><Delete /></el-icon></template>清理</VButton>
       </template>
     </PageHeader>
 
-    <div class="content-body inference-layout">
-      <section class="stage-column">
+    <div class="content-body inference-body">
+      <div class="inference-modes" role="tablist" aria-label="推理结果视图">
+        <button data-test="inference-mode-current" :class="{ active: mode === 'current' }" role="tab" :aria-selected="mode === 'current'" @click="showCurrent">当前推理</button>
+        <button data-test="inference-mode-saved" :class="{ active: mode === 'saved' }" role="tab" :aria-selected="mode === 'saved'" @click="openSaved()">已保存结果 <span>{{ saved.length }}</span></button>
+      </div>
+
+      <div class="inference-layout">
+        <section class="stage-column">
         <VPanel title="检测画布" flush>
           <template #actions>
-            <el-segmented v-if="current?.status === 'succeeded'" v-model="view" :options="[{ label: '原始', value: 'source' }, { label: '检测结果', value: 'result' }]" />
+            <el-segmented v-if="displayedRun?.status === 'succeeded'" v-model="view" :options="[{ label: '原始', value: 'source' }, { label: '检测结果', value: 'result' }]" />
             <VTag :tone="statusTone">{{ statusLabel }}</VTag>
           </template>
           <div class="inference-stage">
-            <template v-if="current">
-              <video v-if="current.input_type === 'video'" :src="previewUrl" controls preload="metadata" />
+            <template v-if="displayedRun">
+              <video v-if="displayedRun.input_type === 'video'" :src="previewUrl" controls preload="metadata" />
               <img v-else :src="previewUrl" alt="在线推理预览" />
-              <div v-if="isWorking" class="stage-overlay"><span class="stage-spinner" /><strong>{{ current.status === 'queued' ? '等待可用 GPU' : '正在生成检测结果' }}</strong><small>关闭页面不会中断任务</small></div>
-              <div v-if="current.status === 'failed'" class="stage-overlay is-error"><strong>推理失败</strong><small>{{ current.error }}</small></div>
+              <div v-if="displayedWorking" class="stage-overlay"><span class="stage-spinner" /><strong>{{ displayedRun.status === 'queued' ? '等待可用 GPU' : '正在生成检测结果' }}</strong><small>关闭页面不会中断任务</small></div>
+              <div v-if="displayedRun.status === 'failed'" class="stage-overlay is-error"><strong>推理失败</strong><small>{{ displayedRun.error }}</small></div>
             </template>
-            <div v-else class="stage-empty"><UploadFilled /><strong>选择图片或视频开始推理</strong><span>上传后会保留当前会话，意外离开页面也可继续查看。</span></div>
+            <div v-else class="stage-empty"><UploadFilled /><strong>{{ mode === 'saved' ? '还没有已保存结果' : '选择图片或视频开始推理' }}</strong><span>{{ mode === 'saved' ? '完成推理并保存后，可在这里再次查看。' : '上传后会保留当前会话，意外离开页面也可继续查看。' }}</span></div>
           </div>
         </VPanel>
 
-        <VPanel v-if="current?.status === 'succeeded'" title="检测结果">
+        <VPanel v-if="displayedRun?.status === 'succeeded'" title="检测结果">
           <div class="result-summary">
-            <div><span>检测目标</span><strong>{{ current.statistics.detections ?? 0 }}</strong></div>
-            <div v-if="current.input_type === 'video'"><span>处理帧数</span><strong>{{ current.statistics.processed_frames ?? '—' }}</strong></div>
-            <div><span>推理耗时</span><strong>{{ Number(current.statistics.inference_seconds || 0).toFixed(2) }} s</strong></div>
-            <div v-if="current.statistics.inference_fps"><span>推理 FPS</span><strong>{{ Number(current.statistics.inference_fps).toFixed(1) }}</strong></div>
+            <div><span>检测目标</span><strong>{{ displayedRun.statistics.detections ?? 0 }}</strong></div>
+            <div v-if="displayedRun.input_type === 'video'"><span>处理帧数</span><strong>{{ displayedRun.statistics.processed_frames ?? '—' }}</strong></div>
+            <div><span>推理耗时</span><strong>{{ Number(displayedRun.statistics.inference_seconds || 0).toFixed(2) }} s</strong></div>
+            <div v-if="displayedRun.statistics.inference_fps"><span>推理 FPS</span><strong>{{ Number(displayedRun.statistics.inference_fps).toFixed(1) }}</strong></div>
           </div>
           <div class="result-actions">
-            <VButton :href="inferenceFileUrl(current.id, 'source')"><template #icon><el-icon><Download /></el-icon></template>下载源文件</VButton>
-            <VButton :href="inferenceFileUrl(current.id, 'result')"><template #icon><el-icon><Download /></el-icon></template>下载检测结果</VButton>
+            <VButton :href="inferenceFileUrl(displayedRun.id, 'source')"><template #icon><el-icon><Download /></el-icon></template>下载源文件</VButton>
+            <VButton :href="inferenceFileUrl(displayedRun.id, 'result')"><template #icon><el-icon><Download /></el-icon></template>下载检测结果</VButton>
           </div>
         </VPanel>
-      </section>
+        </section>
 
-      <aside class="control-column">
-        <VPanel title="推理设置">
+        <aside class="control-column">
+          <VPanel v-if="mode === 'current'" title="推理设置">
           <div class="control-stack">
             <label>模型格式<el-select v-model="format" :disabled="isWorking" :title="isWorking ? '当前推理期间不可切换格式' : undefined"><el-option v-for="item in formats" :key="item.value" :value="item.value" :label="item.label" :disabled="!item.enabled" /></el-select></label>
             <label>置信度 <b>{{ parameters.confidence.toFixed(2) }}</b><el-slider v-model="parameters.confidence" :min="0" :max="1" :step="0.01" /></label>
@@ -226,17 +254,37 @@ onBeforeUnmount(() => {
             <VButton class="upload-button" @click="chooseFile"><template #icon><el-icon><UploadFilled /></el-icon></template>{{ pendingFile?.name || '选择图片或视频' }}</VButton>
             <VButton variant="primary" :disabled="!pendingFile || isWorking" :loading="busy" :title="isWorking ? '当前推理完成后可再次开始' : !pendingFile ? '请先选择图片或视频' : '开始推理'" @click="run">开始推理</VButton>
           </div>
-        </VPanel>
-      </aside>
-
-      <VPanel v-if="saved.length" class="saved-panel" title="已保存结果">
-        <div class="saved-grid"><article v-for="item in saved" :key="item.id"><div><strong>{{ item.input_type === 'image' ? '图片推理' : '视频推理' }}</strong><span>{{ item.saved_at?.slice(0, 16).replace('T', ' ') }}</span></div><VTag tone="ok">{{ item.format.toUpperCase() }}</VTag><div class="saved-actions"><VButton size="sm" :href="inferenceFileUrl(item.id, 'result')">下载结果</VButton><VButton v-if="model?.can_manage" variant="danger" size="sm" @click="removeSaved(item)">删除</VButton></div></article></div>
-      </VPanel>
+          </VPanel>
+          <VPanel v-else title="已保存结果">
+            <div v-if="saved.length" class="saved-list">
+              <article v-for="item in saved" :key="item.id" :class="{ active: selectedSaved?.id === item.id }" :data-test="`saved-inference-run-${item.id}`">
+                <button class="saved-item__select" type="button" @click="openSaved(item)">
+                  <span><strong>{{ item.input_type === 'image' ? '图片推理' : '视频推理' }}</strong><small>{{ item.saved_at?.slice(0, 16).replace('T', ' ') }}</small></span>
+                  <VTag tone="ok">{{ item.format.toUpperCase() }}</VTag>
+                </button>
+                <div class="saved-actions">
+                  <VButton size="sm" :href="inferenceFileUrl(item.id, 'result')"><template #icon><el-icon><Download /></el-icon></template>下载结果</VButton>
+                  <VButton v-if="model?.can_manage" variant="danger" size="sm" @click="removeSaved(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
+                </div>
+              </article>
+            </div>
+            <VEmpty v-else title="还没有已保存结果" note="完成当前推理并保存后，可在这里长期查看。">
+              <VButton @click="showCurrent">返回当前推理</VButton>
+            </VEmpty>
+          </VPanel>
+        </aside>
+      </div>
     </div>
   </main>
 </template>
 
 <style scoped>
+.inference-body { display: grid; gap: 14px; align-content: start; }
+.inference-modes { display: flex; gap: 4px; width: fit-content; padding: 4px; background: var(--vdw-surface-2); border: 1px solid var(--vdw-line); border-radius: var(--vdw-radius-control); }
+.inference-modes button { height: 32px; padding: 0 14px; border: 0; border-radius: calc(var(--vdw-radius-control) - 2px); color: var(--vdw-ink-2); background: transparent; cursor: pointer; font: 500 14px/1 var(--vdw-sans); }
+.inference-modes button:hover { color: var(--vdw-ink); background: var(--vdw-surface-3); }
+.inference-modes button.active { color: var(--vdw-ink); background: var(--vdw-surface); box-shadow: var(--vdw-shadow-1); }
+.inference-modes button span { margin-left: 5px; color: var(--vdw-ink-3); font: 600 12px var(--vdw-mono); }
 .inference-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
 .stage-column { display: grid; gap: 18px; min-width: 0; }
 .control-column { position: sticky; top: 16px; }
@@ -262,11 +310,15 @@ onBeforeUnmount(() => {
 .result-summary span { color: var(--vdw-ink-3); font-size: 13px; }
 .result-summary strong { margin-top: 6px; font: 600 20px/1 var(--vdw-mono); }
 .result-actions { display: flex; gap: 10px; margin-top: 16px; }
-.saved-panel { grid-column: 1 / -1; }
-.saved-grid { display: grid; gap: 8px; }
-.saved-grid article { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--vdw-line); border-radius: var(--vdw-radius-control); }
+.saved-list { display: grid; gap: 8px; max-height: 640px; overflow: auto; }
+.saved-list article { display: grid; gap: 8px; padding: 9px; border: 1px solid var(--vdw-line); border-radius: var(--vdw-radius-control); transition: border-color var(--vdw-motion-fast) var(--vdw-ease), box-shadow var(--vdw-motion-fast) var(--vdw-ease); }
+.saved-list article.active { border-color: var(--vdw-accent); box-shadow: inset 3px 0 var(--vdw-accent); }
+.saved-item__select { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 3px 4px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.saved-item__select:hover strong { color: var(--vdw-accent-ink); }
+.saved-item__select span { min-width: 0; }
+.saved-item__select strong, .saved-item__select small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-item__select small { margin-top: 3px; color: var(--vdw-ink-3); font-size: 13px; }
 .saved-actions { display: flex; gap: 6px; }
-.saved-grid article span { display: block; margin-top: 3px; color: var(--vdw-ink-3); font-size: 13px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .stage-spinner { animation: none; } }
