@@ -344,6 +344,9 @@ describe('AnnotationWorkbenchView', () => {
     expect(
       wrapper.get('[data-test="shortcut-list"]').findAll('dt').map((item) => item.text()),
     ).toEqual(expect.arrayContaining(['S', 'Y', 'L', 'H', 'P']))
+    expect(wrapper.get('[data-test="shortcut-list"]').text()).toContain('拖动四角自由调整标注框宽高')
+    expect(wrapper.get('[data-test="shortcut-list"]').text()).toContain('Shift + 拖动四角等比例缩放标注框')
+    expect(wrapper.get('[data-test="shortcut-list"]').text()).toContain('Alt + 拖动四角以中心为基准向四周缩放')
     await wrapper.get('[data-test="request-category"]').trigger('click')
     expect(wrapper.find('[data-test="category-scrim"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(true)

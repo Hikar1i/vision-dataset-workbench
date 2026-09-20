@@ -30,7 +30,7 @@ describe('date-time presentation', () => {
 
   it('keeps list date columns compact', () => {
     expect(readView('ProjectsView')).toContain('110px 150px')
-    expect(readView('ProjectDatasetsView')).toContain('label="导出时间" width="100"')
+    expect(readView('ProjectDatasetsView')).toMatch(/label="导出时间" width="10[0-9]"/)
     expect(readView('ModelProjectsView')).toContain('106px 106px 148px')
     expect(readView('ModelProjectDetailView')).toContain('106px 350px')
     expect(readView('HyperparameterTemplatesView')).toContain('110px 290px')

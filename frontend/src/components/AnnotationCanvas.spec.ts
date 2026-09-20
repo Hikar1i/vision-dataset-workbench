@@ -137,19 +137,17 @@ describe('AnnotationCanvas', () => {
     expect(labelGroups.map((item) => item.props('config').y)).toEqual([-6, 74])
     expect(boxes.some((item) => item.props('config').dash?.length)).toBe(true)
     expect(wrapper.getComponent(VTransformerStub).props('config')).toMatchObject({
-      keepRatio: true,
+      keepRatio: false,
+      shiftBehavior: 'default',
+      centeredScaling: false,
       borderStroke: '#3bb8d8',
       anchorStroke: '#141f25',
       anchorFill: '#3bb8d8',
       enabledAnchors: [
         'top-left',
-        'top-center',
         'top-right',
-        'middle-right',
         'bottom-right',
-        'bottom-center',
         'bottom-left',
-        'middle-left',
       ],
     })
 

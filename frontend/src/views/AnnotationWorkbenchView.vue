@@ -1123,6 +1123,9 @@ watch(reuseLabel, (reuse) => {
       <dt>Space</dt><dd>按住进入拖拽模式</dd><dt>Ctrl + 滚轮</dt><dd>缩放图像</dd>
       <dt>Ctrl + Z</dt><dd>撤销</dd><dt>Ctrl + Shift + Z</dt><dd>重做</dd>
       <dt>Delete</dt><dd>删除选中标注框</dd>
+      <dt>拖动四角</dt><dd>自由调整标注框宽高</dd>
+      <dt>Shift + 拖动四角</dt><dd>等比例缩放标注框</dd>
+      <dt>Alt + 拖动四角</dt><dd>以中心为基准向四周缩放</dd>
       <dt>S</dt><dd>启用 / 停用当前帧</dd><dt>Y</dt><dd>开启 / 关闭标签沿用</dd>
       <dt>L</dt><dd>开启 / 关闭十字线</dd><dt>H</dt><dd>显示 / 隐藏全部标注框</dd>
       <dt>P</dt><dd>单张运行模型自动标注</dd>
