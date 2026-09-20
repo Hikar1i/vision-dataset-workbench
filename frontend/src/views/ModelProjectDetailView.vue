@@ -25,6 +25,7 @@ import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
 import VChip from '../ui/VChip.vue'
 import VDateTime from '../ui/VDateTime.vue'
+import { formatDateTime } from '../ui/dateTime'
 import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
@@ -74,8 +75,8 @@ const summary = computed(() => {
   return [
     { key: '项目类型', text: value.series_type === 'training' ? '训练' : '归档' },
     { key: '权限', text: value.can_manage ? '可管理' : '只读' },
-    { key: '创建时间', text: value.created_at.slice(0, 16).replace('T', ' ') },
-    { key: '更新时间', text: value.updated_at.slice(0, 16).replace('T', ' ') },
+    { key: '创建时间', text: formatDateTime(value.created_at) },
+    { key: '更新时间', text: formatDateTime(value.updated_at) },
   ]
 })
 

@@ -18,6 +18,8 @@ describe('date-time presentation', () => {
     expect(modelProjects).toContain('<VDateTime :value="project.created_at" />')
     expect(modelProjects).toContain('<VDateTime :value="project.updated_at" />')
     expect(models).toContain('<VDateTime :value="model.updated_at" />')
+    expect(models).toContain("text: formatDateTime(value.created_at)")
+    expect(models).toContain("text: formatDateTime(value.updated_at)")
     expect(templates).toContain('<VDateTime :value="item.updated_at" />')
     expect(tasks).toContain('<VDateTime :value="task.created_at" />')
     expect(tasks).toContain('<VDateTime v-if="task.last_run_at" :value="task.last_run_at" />')
