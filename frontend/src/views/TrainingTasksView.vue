@@ -19,6 +19,7 @@ import VBar from '../ui/VBar.vue'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
 import VChip from '../ui/VChip.vue'
+import VDateTime from '../ui/VDateTime.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VPanel from '../ui/VPanel.vue'
 import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
@@ -37,7 +38,7 @@ const error = ref('')
 const filter = ref<Filter>('all')
 
 const COLUMNS =
-  'minmax(240px, 1.5fr) 75px minmax(150px, 1fr) 135px 135px minmax(390px, 2fr)'
+  'minmax(240px, 1.5fr) 75px minmax(150px, 1fr) 110px 110px minmax(390px, 2fr)'
 const RECENT_SCOPE = 'training-tasks'
 
 const MODE_LABEL: Record<string, string> = {
@@ -75,9 +76,6 @@ function primaryAction(task: TrainingTask): 'start' | 'retry' | 'resume' | null 
   if (task.actions.start?.allowed) return 'start'
   return null
 }
-
-const stamp = (value: string | null | undefined) =>
-  (value ? value.slice(0, 16).replace('T', ' ') : '')
 
 async function load() {
   loading.value = true
@@ -202,10 +200,9 @@ onMounted(load)
               />
             </div>
 
-            <time>{{ stamp(task.created_at) }}</time>
-            <time :class="{ 'is-empty': !task.last_run_at }">
-              {{ task.last_run_at ? stamp(task.last_run_at) : '尚未开始' }}
-            </time>
+            <VDateTime :value="task.created_at" />
+            <VDateTime v-if="task.last_run_at" :value="task.last_run_at" />
+            <span v-else class="is-empty">尚未开始</span>
 
             <div
               class="row-actions"

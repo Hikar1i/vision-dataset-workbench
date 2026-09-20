@@ -10,6 +10,7 @@ import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
 import VChip from '../ui/VChip.vue'
+import VDateTime from '../ui/VDateTime.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
@@ -35,7 +36,7 @@ const valid = computed(() => name.value.trim().length > 0 && name.value.trim().l
 
 const roleLabels = { owner: '所有者', editor: '编辑者', viewer: '只读' } as const
 
-const COLUMNS = 'minmax(240px, 1.5fr) minmax(180px, 1fr) 96px minmax(120px, 0.7fr) 116px 150px'
+const COLUMNS = 'minmax(240px, 1.5fr) minmax(180px, 1fr) 96px minmax(120px, 0.7fr) 110px 150px'
 const RECENT_SCOPE = 'projects'
 
 async function load(nextPage = page.value) {
@@ -185,7 +186,7 @@ onMounted(() => load())
               {{ roleLabels[project.role] }}
             </VTag>
             <span class="cell-muted">{{ project.creator_username }}</span>
-            <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
+            <VDateTime :value="project.updated_at" />
             <div
               class="row-actions"
               @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, project.id)"

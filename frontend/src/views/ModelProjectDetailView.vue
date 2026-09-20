@@ -24,6 +24,7 @@ import { rememberResource } from '../navigation/recentResources'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
 import VChip from '../ui/VChip.vue'
+import VDateTime from '../ui/VDateTime.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
@@ -57,7 +58,7 @@ const conversionOpen = ref(false)
 const readyCount = computed(() => models.value.filter((model) => model.status === 'ready').length)
 let loadVersion = 0
 
-const COLUMNS = 'minmax(230px,1.25fr) 84px 90px minmax(220px,1fr) 112px 350px'
+const COLUMNS = 'minmax(230px,1.25fr) 84px 90px minmax(220px,1fr) 106px 350px'
 
 /** 模型入库状态 → 语气与中文。后端只给英文码。 */
 const MODEL_STATUS: Record<string, { tone: 'ok' | 'warn' | 'danger'; label: string }> = {
@@ -291,7 +292,7 @@ watch(projectId, loadRouteProject, { immediate: true })
               ><strong>训练峰值 {{ (model.metrics.training_peak.map50_95 * 100).toFixed(1) }}%</strong><span>epoch {{ model.metrics.training_peak.epoch }}</span></RouterLink>
               <span v-else>暂无指标</span>
             </div>
-            <time>{{ model.updated_at.slice(0, 10) }}</time>
+            <VDateTime :value="model.updated_at" />
             <div
               class="row-actions"
               @click.capture="markRecentRowFromAction($event, recentModelScope, model.id)"

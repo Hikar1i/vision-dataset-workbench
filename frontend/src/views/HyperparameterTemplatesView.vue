@@ -12,6 +12,7 @@ import {
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
+import VDateTime from '../ui/VDateTime.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VPanel from '../ui/VPanel.vue'
 import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
@@ -25,7 +26,7 @@ const loading = ref(false)
 const deleting = ref('')
 const error = ref('')
 
-const COLUMNS = 'minmax(250px, 1fr) 80px 80px 90px 150px 290px'
+const COLUMNS = 'minmax(250px, 1fr) 80px 80px 90px 110px 290px'
 const RECENT_SCOPE = 'hyperparameter-templates'
 
 async function load() {
@@ -99,7 +100,7 @@ onMounted(load)
               {{ item.batch_mode === 'auto' ? 'auto' : item.batch_value }}
             </span>
             <span class="vdw-num cell-num">{{ item.image_size }}</span>
-            <time :datetime="item.updated_at">{{ item.updated_at.slice(0, 10) }}</time>
+            <VDateTime :value="item.updated_at" />
             <div
               class="row-actions"
               @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, item.id)"

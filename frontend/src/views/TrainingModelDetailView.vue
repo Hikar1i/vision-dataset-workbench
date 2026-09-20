@@ -13,6 +13,7 @@ import VChip from "../ui/VChip.vue";
 import VPanel from "../ui/VPanel.vue";
 import VTag from "../ui/VTag.vue";
 import { copyText } from "../ui/clipboard";
+import { formatDateTime } from "../ui/dateTime";
 import { trainingStatus } from "../ui/status";
 import { formatBaseModel, formatBatchSize } from "../components/trainingResources";
 import {
@@ -60,9 +61,6 @@ const active = computed(
     model.value &&
     ["queued", "running", "canceling"].includes(model.value.status),
 );
-function formatTime(value: string | null | undefined) {
-  return value ? value.slice(0, 19).replace("T", " ") : "—";
-}
 function duration(start: string | null | undefined, end: string | null | undefined) {
   if (!start) return "—";
   const seconds = Math.max(0, Math.floor(((end ? Date.parse(end) : Date.now()) - Date.parse(start)) / 1000));
@@ -184,10 +182,10 @@ const summary = computed(() => {
   const parameters = value.template_snapshot.parameters as Record<string, unknown> | undefined;
   const base = value.base_model_snapshot;
   return [
-    { key: "创建", text: formatTime(value.created_at) },
-    { key: "开始", text: formatTime(value.started_at) },
+    { key: "创建", text: formatDateTime(value.created_at) },
+    { key: "开始", text: formatDateTime(value.started_at) },
     { key: "持续", text: duration(value.started_at, value.finished_at) },
-    { key: "结束", text: formatTime(value.finished_at) },
+    { key: "结束", text: formatDateTime(value.finished_at) },
     { key: "PID", text: String(latest.value?.pid || "—") },
     { key: "GPU / 顺序", text: `GPU ${value.gpu_index} / q${String(value.queue_order).padStart(2, "0")}` },
     { key: "epoch", text: `${latest.value?.current_epoch || 0} / ${latest.value?.target_epochs || "—"}` },

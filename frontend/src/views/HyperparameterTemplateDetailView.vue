@@ -8,6 +8,7 @@ import { getHyperparameterTemplate, type HyperparameterTemplate } from '../api/h
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 import VChip from '../ui/VChip.vue'
+import { formatDateTime } from '../ui/dateTime'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,7 +41,7 @@ onMounted(async () => {
       <template v-if="item" #meta>
         epochs {{ item.epochs }} · image size {{ item.image_size }} · batch
         {{ item.batch_mode === 'auto' ? 'auto' : item.batch_value }} · 编辑于
-        {{ item.updated_at.slice(0, 10) }}
+        {{ formatDateTime(item.updated_at) }}
       </template>
       <template #actions>
         <VButton
@@ -72,8 +73,8 @@ onMounted(async () => {
         <div><span>image size</span><strong>{{ item.image_size }}</strong></div>
         <div><span>版本</span><strong>v{{ item.version }}</strong></div>
         <div><span>目录版本</span><code>{{ item.catalog_version }}</code></div>
-        <div><span>创建时间</span><time>{{ item.created_at.slice(0, 10) }}</time></div>
-        <div><span>编辑时间</span><time>{{ item.updated_at.slice(0, 10) }}</time></div>
+        <div><span>创建时间</span><time>{{ formatDateTime(item.created_at) }}</time></div>
+        <div><span>编辑时间</span><time>{{ formatDateTime(item.updated_at) }}</time></div>
         <article><span>描述</span><p>{{ item.description || '暂无描述' }}</p></article>
         <article><span>RAW 配置</span><pre>{{ raw }}</pre></article>
       </section>

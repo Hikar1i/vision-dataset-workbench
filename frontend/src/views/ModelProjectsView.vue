@@ -16,6 +16,7 @@ import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
 import VChip from '../ui/VChip.vue'
+import VDateTime from '../ui/VDateTime.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
@@ -195,8 +196,8 @@ onMounted(load)
               {{ project.series_type === 'training' ? '训练' : '归档' }}
             </VTag>
             <span class="cell-muted">{{ project.can_manage ? '可管理' : '只读' }}</span>
-            <time :datetime="project.created_at">{{ project.created_at.slice(0, 10) }}</time>
-            <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
+            <VDateTime :value="project.created_at" />
+            <VDateTime :value="project.updated_at" />
             <div
               class="row-actions"
               @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, project.id)"

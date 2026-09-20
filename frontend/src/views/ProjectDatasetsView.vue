@@ -13,11 +13,13 @@ import {
 } from '../api/datasetExports'
 import type { Project } from '../api/projects'
 import { copyText } from '../ui/clipboard'
+import { formatDateTime } from '../ui/dateTime'
 import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import { datasetExportStatus } from '../ui/status'
 import VButton from '../ui/VButton.vue'
 import VChip from '../ui/VChip.vue'
+import VDateTime from '../ui/VDateTime.vue'
 import VPanel from '../ui/VPanel.vue'
 import VTag from '../ui/VTag.vue'
 
@@ -47,10 +49,6 @@ const exclusionLabels: Record<string, string> = {
 
 function datasetRowClassName({ row }: { row: DatasetExport }) {
   return isRecentRow(recentDatasetScope.value, row.id) ? 'vdw-row--recent' : ''
-}
-
-function dateTime(value: string | null) {
-  return value ? new Date(value).toLocaleString() : '—'
 }
 
 function ratio(value: number | null) {
@@ -161,8 +159,10 @@ const headerHost = useProjectHeaderHost()
             </VTag>
           </template>
         </el-table-column>
-        <el-table-column label="导出时间" width="180">
-          <template #default="{ row }">{{ dateTime(row.completed_at || row.created_at) }}</template>
+        <el-table-column label="导出时间" width="100">
+          <template #default="{ row }">
+            <VDateTime :value="row.completed_at || row.created_at" />
+          </template>
         </el-table-column>
         <el-table-column label="类别数量" width="112">
           <template #default="{ row }">
@@ -308,7 +308,7 @@ const headerHost = useProjectHeaderHost()
                   <span><small>验证</small><b>{{ detail.val_videos ?? '—' }}</b></span>
                 </div>
               </el-descriptions-item>
-              <el-descriptions-item label="导出时间">{{ dateTime(detail.completed_at) }}</el-descriptions-item>
+              <el-descriptions-item label="导出时间">{{ formatDateTime(detail.completed_at) }}</el-descriptions-item>
             </el-descriptions>
           </section>
 
