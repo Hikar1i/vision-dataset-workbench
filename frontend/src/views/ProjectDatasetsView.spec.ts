@@ -2,7 +2,17 @@ import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import ElementPlus, { ElMessageBox } from 'element-plus'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { clearRecentRows, isRecentRow } from '../ui/recentRows'
 import ProjectDatasetsView from './ProjectDatasetsView.vue'
+import type { ProjectRole, ResourceAccess } from '../api/access'
+
+const access = (role: ProjectRole): ResourceAccess => ({
+  role,
+  source: role === 'owner' ? 'owner' : 'membership',
+  permissions: role === 'viewer'
+    ? ['project.read', 'artifact.read', 'artifact.download', 'task.read']
+    : ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+})
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -29,6 +39,9 @@ const item = {
   total_frames: 100,
   train_frames: 75,
   val_frames: 25,
+  total_videos: 3,
+  train_videos: 2,
+  val_videos: 1,
   labels: [
     { source_label_id: 'person', name: 'person', mapping: 0, enabled: true },
     { source_label_id: 'car', name: 'car', mapping: 1, enabled: false },
@@ -40,6 +53,7 @@ const item = {
 }
 
 beforeEach(() => {
+  clearRecentRows()
   mocks.list.mockReset()
   mocks.get.mockReset()
   mocks.remove.mockReset()
@@ -63,6 +77,7 @@ beforeEach(() => {
     },
   })
   mocks.remove.mockResolvedValue(undefined)
+  vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
 })
 
 afterEach(() => {
@@ -70,13 +85,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function mountView(role: 'owner' | 'editor' | 'viewer') {
+function mountView(role: ProjectRole) {
   return mount(ProjectDatasetsView, {
     attachTo: document.body,
     props: {
       project: {
         id: 'project-id', name: 'project', description: '', creator_id: 'owner-id',
-        creator_username: 'owner', role, version: 1,
+        creator_username: 'owner', categories: [], access: access(role), version: 1,
         created_at: '2026-07-30T00:00:00Z', updated_at: '2026-07-30T00:00:00Z',
       },
     },
@@ -89,24 +104,68 @@ it('lets a viewer inspect and download without delete controls', async () => {
   await flushPromises()
 
   expect(wrapper.text()).toContain('训练集 v1')
-  expect(wrapper.get('[data-test="frame-summary-export-id"]').text()).toContain('总计100')
-  expect(wrapper.get('[data-test="frame-summary-export-id"]').text()).toContain('训练75')
-  expect(wrapper.get('[data-test="frame-summary-export-id"]').text()).toContain('验证25')
+  const distribution = wrapper.get('[data-test="sample-distribution-export-id"]')
+  expect(distribution.findAll('small').map((cell) => cell.text())).toEqual(['总计', '训练', '验证'])
+  expect(distribution.text()).toContain('帧1007525')
+  expect(distribution.text()).toContain('视频321')
+  expect(wrapper.findAll('.el-table__header-wrapper th').map((cell) => cell.text())).toContain('样本分布')
+  expect(wrapper.findAll('.el-table__header-wrapper th').map((cell) => cell.text())).not.toContain('样本帧')
+  expect(wrapper.findAll('.el-table__header-wrapper th').map((cell) => cell.text())).not.toContain('样本视频')
   expect(wrapper.get('[data-test="ratio-summary-export-id"]').text()).toContain('期望0.80 : 0.20')
   expect(wrapper.get('[data-test="ratio-summary-export-id"]').text()).toContain('实际0.75 : 0.25')
+  expect(wrapper.get('[data-test="category-count-export-id"]').text()).toBe('1 类')
+  expect(wrapper.get('[data-test="categories-export-id"]').text()).toContain('person')
+  expect(wrapper.get('[data-test="categories-export-id"]').text()).not.toContain('car')
+  expect(wrapper.get('[data-test="categories-export-id"]').classes()).toContain('vdw-chip-stack')
+  await wrapper.get('[data-test="category-count-export-id"]').trigger('click')
+  await flushPromises()
+  expect(new DOMWrapper(document.body).text()).toContain('1 · car（停用）')
   expect(wrapper.find('[data-test="delete-export-id"]').exists()).toBe(false)
   expect(wrapper.get('[data-test="download-export-id"]').attributes('href')).toBe(
     '/api/v1/projects/project-id/dataset-exports/export-id/download',
   )
   await wrapper.get('[data-test="detail-export-id"]').trigger('click')
   await flushPromises()
+  expect(isRecentRow('project:project-id:datasets', 'export-id')).toBe(true)
+  const recentRow = wrapper.get('.el-table__body .el-table__row')
+  expect(recentRow.classes()).toContain('vdw-row--recent')
+  expect(recentRow.text()).toContain('最近交互')
+
   const body = new DOMWrapper(document.body)
   expect(body.get('[data-test="dataset-detail-content"]').classes()).toContain(
     'dataset-detail-content',
   )
+  const detailRows = body.findAll('.dataset-detail-content .el-table__row')
+  expect(detailRows.length).toBeGreaterThan(0)
+  expect(detailRows.every((row) => !row.classes().includes('vdw-row--recent'))).toBe(true)
   expect(body.get('[data-test="detail-frame-summary"]').text()).toContain('总计100')
+  expect(body.get('[data-test="detail-video-summary"]').text()).toContain('总计3')
+  expect(body.find('[data-test="manifest-json"]').exists()).toBe(false)
+  await body.get('[data-test="toggle-manifest"]').trigger('click')
+  expect(body.get('[data-test="manifest-json"]').text()).toContain('"train_video_ids"')
+  await body.get('[data-test="copy-manifest"]').trigger('click')
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('"version": 1'))
   expect(body.text()).toContain('TESTV001')
   expect(body.text()).toContain('正样本')
+  wrapper.unmount()
+
+  const remounted = mountView('viewer')
+  await flushPromises()
+  expect(remounted.get('.el-table__body .el-table__row').classes()).toContain('vdw-row--recent')
+  remounted.unmount()
+})
+
+it('marks download interactions but ignores empty action-area clicks', async () => {
+  const wrapper = mountView('viewer')
+  await flushPromises()
+
+  await wrapper.get('.row-actions').trigger('click')
+  expect(isRecentRow('project:project-id:datasets', 'export-id')).toBe(false)
+
+  const download = wrapper.get('[data-test="download-export-id"]')
+  download.element.addEventListener('click', (event) => event.preventDefault())
+  await download.trigger('click')
+  expect(isRecentRow('project:project-id:datasets', 'export-id')).toBe(true)
   wrapper.unmount()
 })
 
@@ -116,6 +175,7 @@ it('lets an editor logically delete a completed export', async () => {
   await flushPromises()
 
   await wrapper.get('[data-test="delete-export-id"]').trigger('click')
+  expect(isRecentRow('project:project-id:datasets', 'export-id')).toBe(true)
   await flushPromises()
   expect(mocks.remove).toHaveBeenCalledWith('project-id', 'export-id')
   expect(mocks.list).toHaveBeenCalledTimes(2)

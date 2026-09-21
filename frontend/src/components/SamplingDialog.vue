@@ -84,6 +84,13 @@ async function submit() {
       output_quality: quality.value,
     }, overwriteLevel.value)
     result.value = batch
+    // 全部被拒时把原因提到弹窗顶部：底部那份 rejected 列表容易被漏看，
+    // 用户只看到弹窗没关、不知道哪里填错了。
+    if (!batch.accepted.length) {
+      error.value = batch.rejected[0]?.reason
+        ? `参数未通过校验：${batch.rejected[0].reason}`
+        : '采样方案未保存，请检查参数取值范围。'
+    }
     emit('submitted', batch)
     if (!batch.rejected.length) emit('update:modelValue', false)
   } catch (reason) {
@@ -152,7 +159,7 @@ async function submit() {
       <li v-for="item in result.rejected" :key="item.input">{{ item.input }}：{{ item.reason }}</li>
     </ul>
     <template #footer>
-      <VButton variant="secondary" @click="emit('update:modelValue', false)">取消</VButton>
+      <VButton variant="default" @click="emit('update:modelValue', false)">取消</VButton>
       <VButton variant="primary" data-test="save-sampling" :loading="submitting" :disabled="!videos.length || locked" @click="submit">
         {{ hasExisting ? '覆盖保存' : '保存方案' }}
       </VButton>

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import ModelProject, Project, TrainingTask, User, Video
+from ..models import User, Video
 from .auth import current_user
 
 router = APIRouter(prefix="/api/v1/overview", tags=["overview"])
@@ -13,22 +13,31 @@ router = APIRouter(prefix="/api/v1/overview", tags=["overview"])
 @router.get("")
 def overview(request: Request, user: Annotated[User, Depends(current_user)]) -> dict[str, object]:
     engine = request.app.state.auth_service.engine
+    project_service = request.app.state.project_service
+    model_service = request.app.state.model_service
+    training_service = request.app.state.training_service
+    projects, project_count = project_service.list_projects(user, page=1, page_size=10_000)
+    model_projects = model_service.list_projects(user)
+    training_tasks = training_service.list_tasks(user)
+    project_ids = [item.project.id for item in projects]
     with Session(engine) as db:
-        own_project_ids = select(Project.id).where(Project.creator_id == user.id)
-        running_own = db.scalar(select(func.count()).select_from(TrainingTask).where(TrainingTask.created_by_id == user.id, TrainingTask.status == "running", TrainingTask.deleted_at.is_(None))) or 0
-        running_global = db.scalar(select(func.count()).select_from(TrainingTask).where(TrainingTask.status == "running", TrainingTask.deleted_at.is_(None))) or 0
+        running = [task for task in training_tasks if task.status == "running"]
         return {
-            "projects": db.scalar(
-                select(func.count())
-                .select_from(Project)
-                .where(Project.creator_id == user.id)
+            "projects": project_count,
+            "videos": db.scalar(
+                select(func.count()).select_from(Video).where(Video.project_id.in_(project_ids))
             ) or 0,
-            "videos": db.scalar(select(func.count()).select_from(Video).where(Video.project_id.in_(own_project_ids))) or 0,
-            "model_projects": db.scalar(select(func.count()).select_from(ModelProject).where(ModelProject.deleted_at.is_(None))) or 0,
-            "training_tasks": db.scalar(select(func.count()).select_from(TrainingTask).where(TrainingTask.created_by_id == user.id, TrainingTask.deleted_at.is_(None))) or 0,
-            "running_tasks": {"own": running_own, "global": running_global},
+            "model_projects": len(model_projects),
+            "training_tasks": len(training_tasks),
+            "running_tasks": {
+                "own": sum(task.created_by_id == user.id for task in running),
+                "global": len(running),
+            },
             "task_status": [
-                {"status": status, "count": db.scalar(select(func.count()).select_from(TrainingTask).where(TrainingTask.status == status, TrainingTask.deleted_at.is_(None))) or 0}
+                {
+                    "status": status,
+                    "count": sum(task.status == status for task in training_tasks),
+                }
                 for status in ("draft", "queued", "running", "failed", "succeeded")
             ],
             "host": {"hostname": request.app.state.settings.home.name, "note": "主机标识已脱敏"},

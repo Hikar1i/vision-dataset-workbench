@@ -10,6 +10,9 @@
 
 <style scoped>
 .focus-layout {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
   height: 100dvh;

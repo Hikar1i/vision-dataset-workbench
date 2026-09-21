@@ -2,7 +2,9 @@ import pytest
 
 from vision_dataset_workbench.training.hyperparameters import (
     HyperparameterValidationError,
+    apply_parameter_overrides,
     catalog_payload,
+    normalize_extra_parameter_override,
     parse_raw,
     validate_values,
 )
@@ -59,3 +61,48 @@ def test_raw_parser_strictly_rejects_invalid_input(raw, code):
     with pytest.raises(HyperparameterValidationError) as caught:
         parse_raw(raw)
     assert any(issue.code == code for issue in caught.value.issues)
+
+
+def test_extra_override_is_normalized_and_applied_after_core_values():
+    override = normalize_extra_parameter_override(
+        {"version": 1, "set": {"lr0": 0.005, "mosaic": 0.8}, "remove": ["patience"]}
+    )
+    assert override == {
+        "version": 1,
+        "set": {"lr0": 0.005, "mosaic": 0.8},
+        "remove": ["patience"],
+    }
+    assert apply_parameter_overrides(
+        {"epochs": 100, "batch": -1, "imgsz": 640, "lr0": 0.01, "patience": 50},
+        epochs=200,
+        batch_mode="fixed",
+        batch_value=16,
+        image_size=960,
+        extra_override=override,
+    ) == {
+        "epochs": 200,
+        "batch": 16,
+        "imgsz": 960,
+        "lr0": 0.005,
+        "mosaic": 0.8,
+    }
+
+
+def test_empty_extra_override_is_normalized_to_none():
+    assert normalize_extra_parameter_override(None) is None
+    assert normalize_extra_parameter_override({"version": 1, "set": {}, "remove": []}) is None
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"version": 2, "set": {}, "remove": []},
+        {"version": 1, "set": {"epochs": 2}, "remove": []},
+        {"version": 1, "set": {"unknown": 2}, "remove": []},
+        {"version": 1, "set": {"lr0": 0.5}, "remove": ["lr0"]},
+        {"version": 1, "set": {}, "remove": ["device"]},
+    ],
+)
+def test_invalid_extra_override_is_rejected(override):
+    with pytest.raises(HyperparameterValidationError):
+        normalize_extra_parameter_override(override)

@@ -5,8 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { logout } from '../api/auth'
 import { getCapabilities } from '../api/capabilities'
-import { rememberResource } from '../navigation/recentResources'
+import { listProjects } from '../api/projects'
+import { listModelProjects } from '../api/models'
+import { listTrainingTasks } from '../api/training'
+import { clearRecentRows, isRecentRow, markRecentRow } from '../ui/recentRows'
 import AppShell from './AppShell.vue'
+import TaskCenterDrawer from '../components/TaskCenterDrawer.vue'
 
 vi.mock('../api/auth', () => ({
   getCurrentUser: vi.fn().mockResolvedValue({
@@ -18,30 +22,16 @@ vi.mock('../api/auth', () => ({
   logout: vi.fn(),
 }))
 vi.mock('../api/projects', () => ({
-  listProjects: vi.fn().mockResolvedValue({
-    items: Array.from({ length: 6 }, (_, index) => ({
-      id: `project-${index}`,
-      name: `Project ${index}`,
-    })),
-    total: 6,
-    page: 1,
-    page_size: 5,
-  }),
+  listProjects: vi.fn(),
 }))
 vi.mock('../api/capabilities', () => ({
   getCapabilities: vi.fn(),
 }))
 vi.mock('../api/models', () => ({
-  listModelProjects: vi.fn().mockResolvedValue([
-    { id: 'model-1', name: 'Model 1' },
-    { id: 'model-2', name: 'Model 2' },
-  ]),
+  listModelProjects: vi.fn(),
 }))
 vi.mock('../api/training', () => ({
-  listTrainingTasks: vi.fn().mockResolvedValue([
-    { id: 'training-1', name: 'Training 1' },
-    { id: 'training-2', name: 'Training 2' },
-  ]),
+  listTrainingTasks: vi.fn(),
 }))
 
 const readyCapabilities = {
@@ -51,6 +41,9 @@ const readyCapabilities = {
     manual_annotation: { available: true, reason: null },
     yolo_auto_annotation: { available: true, reason: null },
     model_training: { available: true, reason: null },
+    onnx_export: { available: true, reason: null },
+    onnx_inference: { available: true, reason: null },
+    tensorrt: { available: true, reason: null },
   },
 }
 
@@ -83,27 +76,11 @@ async function mountShell() {
           },
           {
             path: 'model-projects/:id',
-            component: {
-              mounted() {
-                rememberResource('vdm.recent-model-projects', {
-                  id: String(this.$route.params.id),
-                  name: `Model ${String(this.$route.params.id).split('-')[1]}`,
-                })
-              },
-              template: '<div />',
-            },
+            component: { template: '<div />' },
           },
           {
             path: 'training-tasks/:id',
-            component: {
-              mounted() {
-                rememberResource('vdm.recent-training-tasks', {
-                  id: String(this.$route.params.id),
-                  name: `Training ${String(this.$route.params.id).split('-')[1]}`,
-                })
-              },
-              template: '<div />',
-            },
+            component: { template: '<div />' },
           },
           { path: 'account', component: { template: '<div />' } },
           { path: 'admin/users', component: { template: '<div />' } },
@@ -124,9 +101,37 @@ async function mountShell() {
 describe('AppShell', () => {
   beforeEach(() => {
     vi.mocked(logout).mockClear()
+    clearRecentRows()
     localStorage.clear()
     sessionStorage.clear()
     vi.mocked(getCapabilities).mockResolvedValue(readyCapabilities)
+    vi.mocked(listProjects).mockReset().mockResolvedValue({
+      items: [
+        { id: 'project-0', name: 'Project 0', updated_at: '2026-09-01T00:00:00Z' },
+        { id: 'project-3', name: 'Project 3', updated_at: '2026-09-04T00:00:00Z' },
+        { id: 'project-1', name: 'Project 1', updated_at: '2026-09-06T00:00:00Z' },
+        { id: 'project-5', name: 'Project 5', updated_at: '2026-09-02T00:00:00Z' },
+        { id: 'project-2', name: 'Project 2', updated_at: '2026-09-05T00:00:00Z' },
+        { id: 'project-4', name: 'Project 4', updated_at: '2026-09-03T00:00:00Z' },
+      ],
+      total: 6,
+      page: 1,
+      page_size: 6,
+    } as never)
+    vi.mocked(listModelProjects).mockReset().mockResolvedValue([
+      { id: 'model-1', name: 'Model 1', updated_at: '2026-09-01T00:00:00Z' },
+      { id: 'model-2', name: 'Model 2', updated_at: '2026-09-02T00:00:00Z' },
+    ] as never)
+    vi.mocked(listTrainingTasks).mockReset().mockResolvedValue([
+      {
+        id: 'training-2', name: 'Training 2', last_run_at: null,
+        updated_at: '2026-09-19T00:00:00Z',
+      },
+      {
+        id: 'training-1', name: 'Training 1', last_run_at: '2026-09-20T00:00:00Z',
+        updated_at: '2026-09-21T00:00:00Z',
+      },
+    ] as never)
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
   })
 
@@ -136,11 +141,17 @@ describe('AppShell', () => {
     expect(wrapper.get('[data-test="brand"]').text()).toBe('VDM')
     expect(wrapper.get('[data-test="nav-projects"]').text()).toContain('数据集项目')
     expect(wrapper.findAll('[data-test="recent-project"]')).toHaveLength(5)
+    expect(wrapper.findAll('[data-test="recent-project"]').map((item) => item.text()))
+      .toEqual(['Project 1', 'Project 2', 'Project 3', 'Project 4', 'Project 5'])
     expect(wrapper.get('[data-test="nav-model-projects"]').text()).toContain('模型项目')
     expect(wrapper.get('[data-test="nav-hyperparameter-templates"]').text()).toContain('超参数模板')
     expect(wrapper.get('[data-test="nav-training-tasks"]').text()).toContain('训练任务')
     expect(wrapper.findAll('[data-test="recent-model-project"]')).toHaveLength(2)
     expect(wrapper.findAll('[data-test="recent-training-task"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-test="recent-model-project"]').map((item) => item.text()))
+      .toEqual(['Model 2', 'Model 1'])
+    expect(wrapper.findAll('[data-test="recent-training-task"]').map((item) => item.text()))
+      .toEqual(['Training 1', 'Training 2'])
     for (const selector of [
       '[data-test="nav-projects"]',
       '[data-test="nav-model-projects"]',
@@ -152,61 +163,34 @@ describe('AppShell', () => {
     expect(wrapper.find('[data-test="nav-admin-users"]').exists()).toBe(true)
   })
 
-  it('keeps project order stable until the app shell is mounted again', async () => {
-    localStorage.setItem('vdm.recent-projects', JSON.stringify([
-      { id: 'project-0', name: 'Project 0', visitedAt: 30 },
-      { id: 'project-1', name: 'Project 1', visitedAt: 20 },
-      { id: 'project-2', name: 'Project 2', visitedAt: 10 },
-    ]))
-    const first = await mountShell()
-    expect(first.wrapper.findAll('[data-test="recent-project"]').slice(0, 3).map(
-      (item) => item.text(),
-    )).toEqual(['Project 0', 'Project 1', 'Project 2'])
-
-    await first.router.push('/projects/project-1/videos')
-    await flushPromises()
-
-    expect(first.wrapper.findAll('[data-test="recent-project"]').slice(0, 3).map(
-      (item) => item.text(),
-    )).toEqual(['Project 0', 'Project 1', 'Project 2'])
-    expect(JSON.parse(localStorage.getItem('vdm.recent-projects') ?? '[]')[0].id).toBe(
-      'project-1',
-    )
-    first.wrapper.unmount()
-
-    const second = await mountShell()
-    expect(second.wrapper.findAll('[data-test="recent-project"]').slice(0, 3).map(
-      (item) => item.text(),
-    )).toEqual(['Project 1', 'Project 0', 'Project 2'])
-    second.wrapper.unmount()
-  })
-
-  it('keeps model and training shortcut order stable for the app shell session', async () => {
-    localStorage.setItem('vdm.recent-model-projects', JSON.stringify([
-      { id: 'model-2', name: 'Model 2', visited_at: 20 },
-      { id: 'model-1', name: 'Model 1', visited_at: 10 },
-    ]))
-    localStorage.setItem('vdm.recent-training-tasks', JSON.stringify([
-      { id: 'training-2', name: 'Training 2', visited_at: 20 },
-      { id: 'training-1', name: 'Training 1', visited_at: 10 },
-    ]))
+  it('refreshes server-ranked shortcuts after navigation and task completion', async () => {
     const { router, wrapper } = await mountShell()
+    vi.mocked(listProjects).mockResolvedValue({
+      items: [{ id: 'project-new', name: 'Project new', updated_at: '2026-09-30T00:00:00Z' }],
+      total: 1, page: 1, page_size: 5,
+    } as never)
 
-    await router.push('/model-projects/model-1')
-    await flushPromises()
-    await router.push('/training-tasks/training-1')
-    await flushPromises()
-    await router.push('/projects')
+    await router.push('/account')
     await flushPromises()
 
-    expect(wrapper.findAll('[data-test="recent-model-project"]').map((item) => item.text()))
-      .toEqual(['Model 2', 'Model 1'])
+    expect(wrapper.findAll('[data-test="recent-project"]').map((item) => item.text()))
+      .toEqual(['Project new'])
+
+    vi.mocked(listTrainingTasks).mockResolvedValue([{
+      id: 'training-new', name: 'Training new', last_run_at: '2026-09-30T01:00:00Z',
+      updated_at: '2026-09-30T01:00:00Z',
+    }] as never)
+    wrapper.findComponent(TaskCenterDrawer).vm.$emit('settled', [])
+    await flushPromises()
+
     expect(wrapper.findAll('[data-test="recent-training-task"]').map((item) => item.text()))
-      .toEqual(['Training 2', 'Training 1'])
-    expect(JSON.parse(localStorage.getItem('vdm.recent-model-projects') ?? '[]')[0].id)
-      .toBe('model-1')
-    expect(JSON.parse(localStorage.getItem('vdm.recent-training-tasks') ?? '[]')[0].id)
-      .toBe('training-1')
+      .toEqual(['Training new'])
+
+    vi.mocked(listProjects).mockRejectedValueOnce(new Error('offline'))
+    await router.push('/admin/users')
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="recent-project"]').map((item) => item.text()))
+      .toEqual(['Project new'])
   })
 
   it('persists sidebar and project group preferences', async () => {
@@ -225,19 +209,13 @@ describe('AppShell', () => {
     expect(wrapper.get('[data-test="project-group-toggle"]').attributes('aria-expanded')).toBe('false')
   })
 
-  it('removes a deleted project from the current sidebar and storage', async () => {
-    localStorage.setItem('vdm.recent-projects', JSON.stringify([
-      { id: 'project-1', name: 'Project 1', visitedAt: 20 },
-      { id: 'project-2', name: 'Project 2', visitedAt: 10 },
-    ]))
+  it('removes a deleted project from the current sidebar', async () => {
     const { wrapper } = await mountShell()
 
     await wrapper.get('[data-test="emit-project-deleted"]').trigger('click')
 
     expect(wrapper.findAll('[data-test="recent-project"]').map((item) => item.text()))
       .not.toContain('Project 1')
-    expect(JSON.parse(localStorage.getItem('vdm.recent-projects') ?? '[]'))
-      .toHaveLength(1)
   })
 
   it('uses fixed icon slots while the sidebar changes width', async () => {
@@ -277,9 +255,13 @@ describe('AppShell', () => {
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/account')
 
+    markRecentRow('projects', 'project-1')
+    expect(isRecentRow('projects', 'project-1')).toBe(true)
+
     dropdown.vm.$emit('command', 'logout')
     await flushPromises()
     expect(logout).toHaveBeenCalledOnce()
+    expect(isRecentRow('projects', 'project-1')).toBe(false)
     expect(router.currentRoute.value.path).toBe('/login')
   })
 
@@ -307,5 +289,53 @@ describe('AppShell', () => {
     const second = await mountShell()
     expect(warning).toHaveBeenCalledOnce()
     second.wrapper.unmount()
+  })
+
+  it('groups new terminal task notifications and keeps cancellations quiet', async () => {
+    vi.useFakeTimers()
+    const success = vi.spyOn(ElNotification, 'success')
+    const error = vi.spyOn(ElNotification, 'error')
+    const { wrapper } = await mountShell()
+    const drawer = wrapper.findComponent(TaskCenterDrawer)
+    const base = {
+      project_id: 'project-1',
+      model_project_id: null,
+      video_id: null,
+      type: 'extract_frames' as const,
+      progress: 100,
+      error: null,
+      result: null,
+      cancel_requested: false,
+      attempts: 1,
+      retry_of_id: null,
+      created_at: '2026-07-24T00:00:00Z',
+      started_at: '2026-07-24T00:00:01Z',
+      finished_at: '2026-07-24T00:00:02Z',
+      updated_at: '2026-07-24T00:00:02Z',
+      project_name: 'Project 1',
+      resource_kind: 'project' as const,
+      resource_name: 'Project 1',
+      can_manage: true,
+    }
+    drawer.vm.$emit('settled', [
+      { ...base, id: 'success-1', status: 'succeeded' },
+      { ...base, id: 'success-2', status: 'succeeded' },
+      { ...base, id: 'failed-1', status: 'failed', error: 'failed' },
+      { ...base, id: 'canceled-1', status: 'canceled' },
+    ])
+    await flushPromises()
+
+    expect(success).toHaveBeenCalledWith(expect.objectContaining({
+      title: '2 个后台任务已完成',
+      duration: 4500,
+    }))
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({
+      title: '后台任务执行失败',
+      duration: 8000,
+    }))
+    expect(wrapper.get('[data-test="task-center"]').classes()).toContain('is-pulsing')
+    expect(wrapper.find('[data-test="task-center"] .task-center-bell').exists()).toBe(true)
+    vi.useRealTimers()
+    wrapper.unmount()
   })
 })

@@ -97,15 +97,26 @@ describe('ImportVideosDialog', () => {
         json: async () =>
           body.items
             ? { accepted: [], skipped: [], rejected: [] }
-            : [{
-                title: 'Remote one',
-                url: 'https://example.test/one',
-                duration: 3,
-                extractor: 'youtube',
-                external_id: 'one',
-                playlist: 'List',
-                playlist_index: 1,
-              }],
+            : [
+                {
+                  title: 'Remote one',
+                  url: 'https://example.test/one',
+                  duration: 3,
+                  extractor: 'youtube',
+                  external_id: 'one',
+                  playlist: 'List',
+                  playlist_index: 1,
+                },
+                {
+                  title: '   ',
+                  url: 'https://example.test/two',
+                  duration: 4,
+                  extractor: 'bilibili',
+                  external_id: 'BV1Fallback',
+                  playlist: 'List',
+                  playlist_index: 2,
+                },
+              ],
       })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -117,11 +128,50 @@ describe('ImportVideosDialog', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Remote one')
+    expect(wrapper.text()).toContain('BV1Fallback')
+    expect(wrapper.text()).toContain('2/2')
+    expect(wrapper.get('[data-test="remote-candidate-https://example.test/one"]').classes()).toContain('selected')
+    await wrapper.get('[data-test="toggle-remote-https://example.test/one"]').trigger('click')
+    expect(wrapper.text()).toContain('创建 1 个导入任务')
     await wrapper.get('[data-test="submit-import"]').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenLastCalledWith(
       '/api/v1/projects/project-id/imports/remote',
-      expect.objectContaining({ method: 'POST' }),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          items: [{ title: 'BV1Fallback', url: 'https://example.test/two' }],
+        }),
+      }),
     )
+  })
+
+  it('toggles every parsed remote item from the table header', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [{
+        title: '',
+        url: 'https://example.test/one',
+        duration: 3,
+        extractor: 'generic',
+        external_id: 'video-one',
+        playlist: '',
+        playlist_index: null,
+      }],
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get('#tab-remote').trigger('click')
+    await wrapper.get('[data-test="remote-url"]').setValue('https://example.test/list')
+    await wrapper.get('[data-test="preview-remote"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('video-one')
+    await wrapper.get('[data-test="select-all-remote"]').trigger('click')
+    expect(wrapper.text()).toContain('0/1')
+    await wrapper.get('[data-test="select-all-remote"]').trigger('click')
+    expect(wrapper.text()).toContain('1/1')
   })
 })

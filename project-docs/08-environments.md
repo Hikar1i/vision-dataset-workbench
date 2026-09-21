@@ -1,0 +1,166 @@
+# 环境与启动
+
+状态：后端、前端、首次初始化、认证模式、GPU 能力与实时显存检测，以及视频导入、抽帧、模型入库、自动标注、YOLO Detect 训练、模型转换、在线推理和测试集评估可在开发环境运行；正式部署启动器尚未实现。
+
+## 当前可执行操作
+
+安装与启动后端：
+
+```bash
+cd backend && uv sync --python 3.12 --dev
+cd backend && uv run uvicorn vision_dataset_workbench.main:app --app-dir src --reload --port 38000
+```
+
+GPU 服务器安装可选模型运行依赖：
+
+```bash
+cd backend
+uv sync --python 3.12 --dev --extra gpu
+uv run python -c "from vision_dataset_workbench.capabilities import detect_capabilities; print(detect_capabilities())"
+```
+
+当前锁定组合包含 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8、Ultralytics 8.4.x、ONNX、ONNX Runtime GPU、TensorRT 11 和 NVIDIA ModelOpt 0.44+。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。能力检查以 ONNX Runtime 的 `CUDAExecutionProvider`、实际 TensorRT Builder 初始化结果和 ModelOpt 模块可用性为准，而不是只检查 TensorRT 包是否存在。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)和 [PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)。
+
+本地自动标注、训练、模型转换、在线推理和测试集评估时，API 与 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理、转换、评估并为每个训练模型启动独立 Python/Ultralytics 子进程。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理、转换、评估或训练预检后由运行时确认。系统可从 `.pt` 固化 ONNX 和当前主机专用 TensorRT `.engine` 产物，并用 `.pt`、ONNX 或 `.engine` 执行在线推理；不安装本地 Transformers 或 GroundingDINO。
+
+在线推理每用户、每模型只保留一个未保存会话；图片上限 20 MB、视频上限 500 MB，未保存会话在最后访问 24 小时后清理。测试集只接收最多 1 GB 的 ZIP，解压后最多 5 GB、5000 张图片和 10500 个条目，目录固定为 `classes.txt`、`images/`、`labels/`；负样本需提供同名空标签。重复内容按 SHA-256 拒绝，不维护系统自动版本树。
+
+训练子进程的当前目录固定为 `<workspace>/cache/ultralytics/`。Ultralytics 首次 AMP 检查可能在此下载辅助权重（例如 `yolo26n.pt`）；这是运行缓存，不是用户选择的 basemodel，也不得出现在源码目录。单数据集训练继续生成运行级 `dataset.yaml`；多数据集训练会先由独立、无 GPU 的准备子进程在工作区训练数据缓存中硬链接图片、重写标签并原子发布合并数据集，成功后训练进程直接使用该目录的 `data.yaml`。准备阶段需要与源导出位于支持硬链接的同一文件系统，并预留改写标签和元数据所需空间。
+
+远程自动标注不要求本系统安装模型运行依赖。用户在标注页配置可由 API 和 Worker 访问的 X-AnyLabeling Server 地址及可选 API 密钥；客户端访问本机服务时应填写 `http://127.0.0.1:<port>`，`0.0.0.0` 只用于服务监听。当前只接收矩形结果，服务端点选、关键点、多边形等任务不会出现在可选模型列表中。
+
+在线视觉大模型独立于 X-AnyLabeling 配置，支持 OpenAI-compatible 和 Anthropic API，也允许填写 API/Worker 可访问的本机或局域网 Base URL。当前直接使用 HTTP 协议适配器和内置目标检测提示词，不安装 LangChain、LangGraph 或本地大模型运行框架。
+
+安装与启动前端：
+
+```bash
+cd frontend && npm install
+cd frontend && npm run dev
+```
+
+在独立终端启动任务 Worker：
+
+```bash
+cd backend
+uv run python -m vision_dataset_workbench.worker
+```
+
+默认地址为后端 `http://127.0.0.1:38000`、前端 `http://127.0.0.1:35173`。前端端口被占用时会直接报错，不会静默切换端口。后端未初始化时在终端输出一次性口令；前端向导使用该口令浏览启动用户的 `~`、新建目录、创建工作区和首个管理员。Worker 与 API 必须使用相同的 `HOME`、`VDW_WORKSPACE` 和媒体配置。按 `Ctrl+C` 停止各开发进程。
+
+需要从局域网访问时，可显式使用 `uvicorn ... --host 0.0.0.0 --port 38000`，并让前端或反向代理保持 `/api` 同源。系统不提供 IP 白名单，访问控制依赖用户名、密码和服务端 Session。
+
+验证命令：
+
+```bash
+cd backend && uv run pytest
+cd frontend && npm test
+cd frontend && npm run build
+```
+
+SQLite 版本与日志模式需在实际 API/Worker 使用的 uv 环境中核对：
+
+```bash
+cd backend
+uv run python -c "import sqlite3; print(sqlite3.sqlite_version)"
+uv run python -c "from vision_dataset_workbench.database import sqlite_supports_safe_wal; print(sqlite_supports_safe_wal())"
+```
+
+当前代码仅在 SQLite 3.51.3 及以上，或已确认修复的 3.44.6、3.50.7 上启用 WAL；其他版本自动使用 rollback journal。部署检查返回 `False` 时不得把实际日志模式记录为 WAL，也不应绕过该保护。
+
+遗留项目位于 `.ai-local/references/`，只用于阅读和验证，不是新项目的启动目录。
+
+## 首次初始化与定位
+
+- `VDW_WORKSPACE` 可显式指定已有工作区，优先于平台定位文件。
+- Linux 定位文件默认位于 `$XDG_CONFIG_HOME/vision-dataset-workbench/instance.json`，未设置时使用 `~/.config/vision-dataset-workbench/instance.json`。
+- Windows 定位文件位于 `%APPDATA%/vision-dataset-workbench/instance.json`。
+- 定位目标必须位于启动用户 `~` 内，且包含 `db/workbench.sqlite3`，否则应用保持未初始化状态。
+- 口令只存在于当前 API 进程内；初始化失败可重试，成功后立即失效，重启未初始化实例会生成新口令。
+
+## 计划中的环境
+
+### Local
+
+- Linux 或 Windows 上的前端、FastAPI、Worker 和 SQLite。
+- 默认工作区为用户选择位置下的 `.vision-dataset-workbench`。
+- 支持使用假下载适配器和短测试视频，无需访问真实平台即可开发主流程。
+- 已实现启动时一次性 GPU/运行时探测；未检测到 GPU 时正常启动并禁用需要 GPU 的自动标注、训练、转换、推理和评估能力。
+
+### Test
+
+- 每次运行创建隔离数据库和临时存储根。
+- 默认禁用外部网络，使用受控 FFmpeg fixture。
+- 测试结束只清理本次创建的明确路径。
+
+### Staging
+
+- 与生产使用相同的服务拓扑和迁移方式。
+- 使用独立数据库、存储、密钥和低价值测试数据。
+- 用于迁移演练、长任务恢复和升级/回滚验证。
+
+### Production-like / Production
+
+- 关闭 debug 和热重载。
+- API 与 Worker 使用受监管的进程管理。
+- 配置健康检查、日志、指标、备份和磁盘告警。
+- CORS、文件导入根和代理配置使用明确白名单。
+
+## 运行模式
+
+```text
+APP_MODE=multi|single
+VDW_WORKSPACE=<workspace-path>
+YTDLP_PROXY=<optional-proxy-url>
+YTDLP_COOKIE_FILE=<optional-netscape-cookie-file>
+VDW_CREDENTIAL_ENCRYPTION_KEY=<optional-fernet-key>
+```
+
+- 默认 `multi`。
+- `single` 只允许初始化管理员使用用户名和密码登录。
+- 两种模式共用数据库和项目成员数据。
+- 模式切换后重启生效。
+- `VDW_WORKSPACE` 优先于平台工作区定位文件；当前 API 启动命令没有单独的工作区 CLI 参数。
+- yt-dlp 默认不使用代理或 Cookie；仅在实例确有需要时配置上述两个变量。`YTDLP_COOKIE_FILE` 必须是 yt-dlp 可读取的 Netscape 格式文件，不是 Chrome/Firefox 的 SQLite 配置目录。推荐由运维使用专用浏览器配置登录共享下载账号后导出，API 与 Worker 读取同一份只读文件；本地文件权限使用 `0600`，容器使用 Secret 或只读单文件挂载。Cookie 更新后无需把浏览器本身放入容器。
+- `VDW_CREDENTIAL_ENCRYPTION_KEY` 可显式覆盖用于加密用户远程 API 密钥的 Fernet 密钥。未配置时，初始化后的 API 会自动创建 `<workspace>/config/credential.key`（目录权限 `0700`、文件权限 `0600`），API 与 Worker 从同一工作区读取，因此无需用户手工维护。显式配置时两者仍必须一致。
+
+上述五个变量均已实现。系统不再读取 `REGISTRATION_ENABLED`，也不开放注册。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
+
+管理员忘记密码时，先停止 API，再在终端交互式重置；密码不会出现在命令参数中：
+
+```bash
+cd backend
+uv run python -m vision_dataset_workbench.admin reset-password \
+  --workspace /absolute/path/.vision-dataset-workbench \
+  --username admin
+```
+
+## 配置类别
+
+除已列出的变量外，后续变量名在对应功能实现后确定；目标类别包括：
+
+| 类别 | 内容 |
+| --- | --- |
+| Runtime | 环境名、日志级别、服务版本 |
+| Database | 连接地址、池和迁移检查 |
+| Storage | 工作区、用户 home、临时根、容量阈值 |
+| Tasks | Worker 并发、租约、重试、超时 |
+| Media | FFmpeg/ffprobe/yt-dlp 路径与限制 |
+| Web | 绑定地址、前端来源和 Cookie 安全属性 |
+| Auth | 运行模式、管理员创建账号、首次改密和 Session 生命周期 |
+| GPU | 已实现启动时运行时能力检测、2 秒动态显存遥测、显卡选择、每 GPU 串行训练 lane 和跨 GPU 并行；不支持同卡多模型并行或单模型多 GPU |
+
+本地示例配置只能包含无敏感默认值；真实密钥通过未提交文件或密钥管理服务注入。
+
+## 后续启动与停止要求
+
+后续仍需补充可复制执行的：
+
+- 依赖安装与版本检查。
+- 全栈容器启动。
+- 原生生产进程和 Windows 启动器。
+
+当前健康检查为 `GET /api/v1/health`。数据库由首次初始化创建，已有工作区在应用启动时自动执行 Alembic 升级；带备份和回滚验证的正式发布流程仍待实现。
+
+## 外部工具验证
+
+视频导入和抽帧要求 `ffmpeg`、`ffprobe` 可执行；yt-dlp 是后端锁定的 Python 依赖。当前真实链路已验证三者可完成媒体探测、缩略图、本地物化、HTTP 下载、JPG/PNG 抽帧和重采样替换。本地视频物化依次尝试 reflink、hardlink 和分块 copy，并在任务结果记录实际方式；删除外部源路径不影响已落地文件，但 hardlink 回退仍共享 inode，外部程序原地改写源文件会同时改变工作区副本。需要写隔离时应确保文件系统支持 reflink，或接受 copy 回退。抽帧使用兼容较旧 FFmpeg 的 `-vsync vfr`；启动时的显式能力/版本检查仍待实现。运行时版本必须与容器和 CI 基线一致；不得重现遗留项目中 README、pyproject 和 Docker 分别声明不同 Python 版本的情况。

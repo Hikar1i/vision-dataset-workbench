@@ -8,10 +8,11 @@ from vision_dataset_workbench.models import User
 from vision_dataset_workbench.security.passwords import hash_password
 
 PASSWORD = "correct horse battery staple"
+NEW_PASSWORD = "new correct horse battery"
 ORIGIN = {"Origin": "http://testserver"}
 
 
-def make_app(tmp_path, *, registration_enabled=True, mode="multi"):
+def make_app(tmp_path):
     home = tmp_path / "home"
     workspace = home / ".vision-dataset-workbench"
     database_path = workspace / "db" / "workbench.sqlite3"
@@ -30,114 +31,91 @@ def make_app(tmp_path, *, registration_enabled=True, mode="multi"):
         )
         session.commit()
     engine.dispose()
-    return create_app(
-        RuntimeSettings(
-            home=home,
-            workspace=workspace,
-            app_mode=mode,
-            registration_enabled=registration_enabled,
-        )
-    )
+    return create_app(RuntimeSettings(home=home, workspace=workspace))
 
 
-def login(client, username="admin"):
+def login(client, username="admin", password=PASSWORD):
     return client.post(
         "/api/v1/auth/login",
         headers=ORIGIN,
-        json={"username": username, "password": PASSWORD},
+        json={"username": username, "password": password},
     )
 
 
-def register(client, username="colleague"):
+def create_user(client, username="colleague"):
     return client.post(
-        "/api/v1/registrations",
-        headers=ORIGIN,
-        json={"username": username, "password": PASSWORD},
+        "/api/v1/admin/users", headers=ORIGIN, json={"username": username}
     )
 
 
 def act(client, user_id, action):
-    return client.post(
-        f"/api/v1/admin/users/{user_id}/{action}", headers=ORIGIN
-    )
+    return client.post(f"/api/v1/admin/users/{user_id}/{action}", headers=ORIGIN)
 
 
-def test_registration_requires_enabled_multi_mode(tmp_path):
-    closed = TestClient(make_app(tmp_path / "closed", registration_enabled=False))
-    assert register(closed).status_code == 403
-
-    single = TestClient(
-        make_app(tmp_path / "single", registration_enabled=True, mode="single")
-    )
-    assert register(single).status_code == 403
-
-
-def test_pending_user_can_login_only_after_admin_approval(tmp_path):
+def test_admin_provisions_user_and_initial_password_is_one_time(tmp_path):
     app = make_app(tmp_path)
-    public = TestClient(app)
     admin = TestClient(app)
-    registered = register(public)
-
-    assert registered.status_code == 201
-    assert registered.json()["status"] == "pending"
-    assert login(public, "colleague").status_code == 401
-    assert login(admin).status_code == 200
-    assert act(admin, registered.json()["id"], "approve").status_code == 200
-    assert login(public, "COLLEAGUE").status_code == 200
-
-
-def test_registration_reserves_case_insensitive_username(tmp_path):
-    client = TestClient(make_app(tmp_path))
-
-    assert register(client, "New.User").status_code == 201
-    duplicate = register(client, "new.user")
-
-    assert duplicate.status_code == 409
-    assert duplicate.json() == {"detail": "username already exists"}
-
-
-def test_admin_lists_filters_and_changes_user_status(tmp_path):
-    app = make_app(tmp_path)
-    public = TestClient(app)
-    admin = TestClient(app)
-    first = register(public, "first").json()
-    second = register(public, "second").json()
+    user = TestClient(app)
     assert login(admin).status_code == 200
 
-    listed = admin.get(
-        "/api/v1/admin/users", params={"status": "pending", "page_size": 1}
+    created = create_user(admin)
+
+    assert created.status_code == 201
+    body = created.json()
+    assert body["status"] == "active"
+    assert body["must_change_password"] is True
+    assert len(body["initial_password"]) >= 12
+    listed = admin.get("/api/v1/admin/users").json()["items"]
+    assert all("initial_password" not in item for item in listed)
+
+    assert login(user, "colleague", body["initial_password"]).status_code == 200
+    assert user.get("/api/v1/auth/me").json()["must_change_password"] is True
+    assert user.get("/api/v1/projects").status_code == 403
+    changed = user.put(
+        "/api/v1/auth/password",
+        headers=ORIGIN,
+        json={"current_password": body["initial_password"], "new_password": NEW_PASSWORD},
     )
-    assert listed.status_code == 200
-    assert listed.json()["total"] == 2
-    assert len(listed.json()["items"]) == 1
-    assert admin.get("/api/v1/admin/users", params={"status": ""}).status_code == 200
-    assert act(admin, first["id"], "reject").json()["status"] == "rejected"
-    assert act(admin, first["id"], "enable").json()["status"] == "active"
-    assert act(admin, first["id"], "disable").json()["status"] == "disabled"
-    assert act(admin, first["id"], "enable").json()["status"] == "active"
-    assert act(admin, second["id"], "disable").status_code == 409
+    assert changed.status_code == 200
+    assert changed.json()["must_change_password"] is False
+    assert user.get("/api/v1/projects").status_code == 200
 
 
-def test_non_admin_is_forbidden_and_disable_revokes_session(tmp_path):
+def test_duplicate_disable_enable_and_reset(tmp_path):
     app = make_app(tmp_path)
-    public = TestClient(app)
     admin = TestClient(app)
-    user = register(public).json()
+    user = TestClient(app)
     assert login(admin).status_code == 200
-    assert act(admin, user["id"], "approve").status_code == 200
-    assert login(public, "colleague").status_code == 200
+    first = create_user(admin, "New.User")
+    assert first.status_code == 201
+    assert create_user(admin, "new.user").status_code == 409
+    user_id = first.json()["id"]
+    initial_password = first.json()["initial_password"]
+    assert login(user, "new.user", initial_password).status_code == 200
 
-    assert public.get("/api/v1/admin/users").status_code == 403
-    assert act(admin, user["id"], "disable").status_code == 200
-    assert public.get("/api/v1/auth/me").status_code == 401
+    assert act(admin, user_id, "disable").json()["status"] == "disabled"
+    assert user.get("/api/v1/auth/me").status_code == 401
+    assert act(admin, user_id, "enable").json()["status"] == "active"
+    reset = admin.post(
+        f"/api/v1/admin/users/{user_id}/reset-password", headers=ORIGIN
+    )
+    assert reset.status_code == 200
+    assert reset.json()["initial_password"] != initial_password
+    assert login(user, "new.user", initial_password).status_code == 401
+    assert login(user, "new.user", reset.json()["initial_password"]).status_code == 200
 
 
-def test_last_active_administrator_cannot_be_disabled(tmp_path):
-    client = TestClient(make_app(tmp_path))
-    assert login(client).status_code == 200
-    admin_id = client.get("/api/v1/auth/me").json()["id"]
+def test_non_admin_forbidden_and_admin_account_immutable(tmp_path):
+    app = make_app(tmp_path)
+    admin = TestClient(app)
+    user = TestClient(app)
+    assert login(admin).status_code == 200
+    created = create_user(admin).json()
+    assert login(user, "colleague", created["initial_password"]).status_code == 200
+    assert user.get("/api/v1/admin/users").status_code == 403
 
-    response = act(client, admin_id, "disable")
-
-    assert response.status_code == 409
-    assert response.json() == {"detail": "cannot disable the last active administrator"}
+    admin_id = admin.get("/api/v1/auth/me").json()["id"]
+    assert act(admin, admin_id, "disable").status_code == 409
+    assert admin.post(
+        f"/api/v1/admin/users/{admin_id}/reset-password", headers=ORIGIN
+    ).status_code == 409

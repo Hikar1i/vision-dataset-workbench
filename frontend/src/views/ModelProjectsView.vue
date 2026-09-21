@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus } from '@element-plus/icons-vue'
+import { Box, Delete, Plus, Right } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -11,14 +11,16 @@ import {
   listModelProjectTags,
   type ModelProject,
 } from '../api/models'
-import { forgetResource } from '../navigation/recentResources'
+import { accessLabel, can } from '../api/access'
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
 import VChip from '../ui/VChip.vue'
+import VDateTime from '../ui/VDateTime.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -36,7 +38,8 @@ const availableTags = ref<string[]>([])
 const error = ref('')
 
 const COLUMNS =
-  'minmax(240px, 1.4fr) minmax(130px, 0.7fr) 92px 84px 106px 106px 132px'
+  'minmax(240px, 1.4fr) minmax(130px, 0.7fr) 92px 84px 106px 106px 148px'
+const RECENT_SCOPE = 'model-projects'
 
 const valid = computed(() =>
   name.value.trim().length > 0 && name.value.trim().length <= 128 && tags.value.length > 0,
@@ -83,7 +86,6 @@ async function remove(project: ModelProject) {
   deleting.value = project.id
   try {
     await deleteModelProject(project.id)
-    forgetResource('vdm.recent-model-projects', project.id)
     ElMessage.success('模型项目已逻辑删除。')
     await load()
   } catch (reason) {
@@ -98,11 +100,11 @@ onMounted(load)
 
 <template>
   <main class="content-page">
-    <PageHeader title="模型项目" kind="model projects">
+    <PageHeader title="模型项目" kind="model projects" :icon="Box">
       <template #meta><span data-test="page-stat">{{ projects.length }} 个项目</span></template>
       <template #actions>
         <VButton
-          :variant="showCreate ? 'secondary' : 'primary'"
+          :variant="showCreate ? 'default' : 'primary'"
           @click="showCreate = !showCreate"
         >
           <template v-if="!showCreate" #icon><el-icon><Plus /></el-icon></template>
@@ -175,34 +177,43 @@ onMounted(load)
           :columns="COLUMNS"
           :headers="['项目', '标签', '类型', '权限', '创建时间', '更新时间', '操作']"
         >
-          <VRow v-for="project in projects" :key="project.id" :columns="COLUMNS">
+          <VRow
+            v-for="project in projects"
+            :key="project.id"
+            :columns="COLUMNS"
+            :recent="isRecentRow(RECENT_SCOPE, project.id)"
+          >
             <VCellName :name="project.name" :sub="project.description || '暂无描述'">
               <template #badge>
-                <VChip variant="id">{{ project.id.slice(0, 6).toUpperCase() }}</VChip>
+                <VChip variant="id">{{ project.system_key === 'official_yolo11' ? '000001' : project.id.slice(0, 6).toUpperCase() }}</VChip>
+                <VChip v-if="project.system_key === 'official_yolo11'">内置</VChip>
               </template>
             </VCellName>
-            <div class="project-tags">
+            <div class="vdw-chip-stack" :title="project.tags.join('、')">
               <VChip v-for="tag in project.tags" :key="tag">{{ tag }}</VChip>
             </div>
             <VTag :tone="project.series_type === 'training' ? 'run' : 'idle'">
               {{ project.series_type === 'training' ? '训练' : '归档' }}
             </VTag>
-            <span class="cell-muted">{{ project.can_manage ? '可管理' : '只读' }}</span>
-            <time :datetime="project.created_at">{{ project.created_at.slice(0, 10) }}</time>
-            <time :datetime="project.updated_at">{{ project.updated_at.slice(0, 10) }}</time>
-            <div class="row-actions">
+            <span class="cell-muted">{{ accessLabel(project.access) }}</span>
+            <VDateTime :value="project.created_at" />
+            <VDateTime :value="project.updated_at" />
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, project.id)"
+            >
               <VButton
-                variant="secondary"
+                variant="default"
                 size="sm"
                 @click="router.push(`/model-projects/${project.id}`)"
-              >打开</VButton>
+              ><template #icon><el-icon><Right /></el-icon></template>打开</VButton>
               <VButton
-                v-if="project.can_manage"
-                variant="quiet"
+                v-if="can(project.access, 'project.delete') && !project.system_key"
+                variant="danger"
                 size="sm"
                 :loading="deleting === project.id"
                 @click="remove(project)"
-              >删除</VButton>
+              ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
             </div>
           </VRow>
 
@@ -250,22 +261,16 @@ onMounted(load)
   padding-top: 4px;
 }
 
-.project-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  min-width: 0;
-}
-
 .cell-muted,
 time {
   color: var(--vdw-ink-2);
   font-size: 14px;
 }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 </style>

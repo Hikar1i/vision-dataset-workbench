@@ -15,23 +15,28 @@ const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   unread: [value: boolean]
-  settled: []
+  settled: [tasks: GlobalProjectTask[]]
 }>()
 const tasks = ref<GlobalProjectTask[]>([])
 const loading = ref(false)
 const changing = ref('')
 const loaded = ref(false)
 const latestTerminalAt = ref<string | null>(null)
+const knownTerminalStates = new Set<string>()
 let timer: ReturnType<typeof setInterval> | undefined
 const lastViewedKey = 'vdm.tasks-last-viewed-at'
 
 const typeLabels = {
-  copy_video: '本地复制',
+  copy_video: '视频导入',
   download_video: '远程下载',
   extract_frames: '采样抽帧',
   import_model: '模型入库',
   auto_annotate: '自动标注',
   export_dataset: '数据集导出',
+  convert_model: '模型格式转换',
+  infer_video: '视频在线推理',
+  import_evaluation_dataset: '测试集校验',
+  evaluate_model: '模型在线评估',
 } as const
 const statusLabels = {
   queued: '排队中',
@@ -44,11 +49,20 @@ const statusLabels = {
 async function load() {
   loading.value = props.modelValue && !tasks.value.length
   try {
-    const page = await listGlobalTasks()
-    const previousTerminalAt = latestTerminalAt.value
+    const page = await listGlobalTasks(1, 200)
     tasks.value = page.items
     latestTerminalAt.value = page.latest_terminal_at
-    if (loaded.value && previousTerminalAt !== page.latest_terminal_at) emit('settled')
+    const terminal = page.items.filter((task) =>
+      task.status === 'succeeded' || task.status === 'failed' || task.status === 'canceled')
+    const nextStates = new Set(terminal.map((task) => `${task.id}:${task.status}`))
+    if (loaded.value) {
+      const newlySettled = terminal.filter(
+        (task) => !knownTerminalStates.has(`${task.id}:${task.status}`),
+      )
+      if (newlySettled.length) emit('settled', newlySettled)
+    }
+    knownTerminalStates.clear()
+    nextStates.forEach((state) => knownTerminalStates.add(state))
     loaded.value = true
     if (props.modelValue) {
       localStorage.setItem(lastViewedKey, new Date().toISOString())
@@ -134,7 +148,7 @@ onUnmounted(stopPolling)
             :data-test="`cancel-${task.id}`"
             :loading="changing === task.id"
             @click="cancel(task)">取消</VButton>
-          <VButton variant="primary" v-if="(task.status === 'failed' || task.status === 'canceled') && task.type !== 'import_model' && task.type !== 'auto_annotate' && task.type !== 'export_dataset'"
+          <VButton variant="primary" v-if="(task.status === 'failed' || task.status === 'canceled') && ['copy_video', 'download_video', 'extract_frames'].includes(task.type)"
             :data-test="`retry-${task.id}`"
             :loading="changing === task.id"
             @click="retry(task)">重试</VButton>

@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Bottom, Top } from '@element-plus/icons-vue'
 
 import { ApiError } from '../api/auth'
+import { can } from '../api/access'
 import {
   createLabel,
   deleteLabel,
@@ -32,7 +33,7 @@ const newColor = ref('')
 const loading = ref(false)
 const saving = ref('')
 const error = ref('')
-const canEdit = computed(() => props.project.role !== 'viewer')
+const canEdit = computed(() => can(props.project.access, 'project.update'))
 
 function setLabels(value: ProjectLabel[]) {
   labels.value = value
@@ -226,7 +227,7 @@ const headerHost = useProjectHeaderHost()
               placeholder="可选，例如 安全帽"
             />
           </label>
-          <VButton variant="secondary" data-test="add-label" type="submit"
+          <VButton variant="default" data-test="add-label" type="submit"
             :loading="saving === 'new'"
             :disabled="!newName.trim() || !newColor">添加</VButton>
         </form>
@@ -249,8 +250,6 @@ const headerHost = useProjectHeaderHost()
             :model-value="label.enabled"
             :data-test="`enabled-${label.id}`"
             inline-prompt
-            active-text="启用"
-            inactive-text="停用"
             :disabled="!canEdit || saving === label.id"
             @change="canEdit && change(label, { enabled: Boolean($event) })"
           />
@@ -290,7 +289,7 @@ const headerHost = useProjectHeaderHost()
                 aria-label="下移"
                 :disabled="index === labels.length - 1 || Boolean(saving)"
                 @click="move(index, 1)"><el-icon><Bottom /></el-icon></VButton>
-              <VButton variant="quiet" size="sm" :loading="saving === label.id"
+              <VButton variant="danger" size="sm" :loading="saving === label.id"
                 @click="remove(label)">删除</VButton>
             </template>
           </div>
@@ -388,7 +387,7 @@ const headerHost = useProjectHeaderHost()
 .mapping-order {
   color: var(--vdw-ink-2);
   font: 16px var(--vdw-mono);
-  justify-self: center;
+  justify-self: start;
 }
 
 .label-color {

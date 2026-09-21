@@ -74,7 +74,7 @@ onUnmounted(clearTimer)
       <p v-else>当前目标没有已保存标注或筛帧变更。</p>
     </div>
     <template #footer>
-      <VButton variant="secondary" @click="close">取消</VButton>
+      <VButton variant="default" @click="close">取消</VButton>
       <VButton data-test="confirm-overwrite"
         :variant="destructive ? 'danger' : 'primary'"
         :disabled="countdown> 0"

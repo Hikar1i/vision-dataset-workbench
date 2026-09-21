@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus } from '@element-plus/icons-vue'
+import { Connection, Delete, EditPen, Plus, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 
@@ -14,6 +14,7 @@ import VChip from '../ui/VChip.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -41,7 +42,8 @@ const form = reactive({
   api_key: '', enabled: true, advanced_options: {} as Record<string, unknown>,
 })
 
-const COLUMNS = 'minmax(200px, 1.2fr) 110px minmax(160px, 0.7fr) 168px'
+const COLUMNS = 'minmax(200px, 1.2fr) 110px minmax(160px, 0.7fr) 210px'
+const RECENT_SCOPE = 'llm-configs'
 
 const defaultGroups = computed(() => groupedLLMOptions(Object.keys(defaults)))
 const extraDefaultKeys = computed(() => ungroupedLLMOptions(Object.keys(defaults)))
@@ -168,7 +170,7 @@ onMounted(() => void load())
 
 <template>
   <main class="content-page">
-    <PageHeader title="大模型配置" kind="llm configs">
+    <PageHeader title="大模型配置" kind="llm configs" :icon="Setting">
       <template #meta>
         <span data-test="page-stat">{{ configs.length }} 个配置 · 仅当前用户可见</span>
       </template>
@@ -208,7 +210,12 @@ onMounted(() => void load())
           :columns="COLUMNS"
           :headers="['配置', '状态', '连接', '操作']"
         >
-          <VRow v-for="item in configs" :key="item.id" :columns="COLUMNS">
+          <VRow
+            v-for="item in configs"
+            :key="item.id"
+            :columns="COLUMNS"
+            :recent="isRecentRow(RECENT_SCOPE, item.id)"
+          >
             <VCellName :name="item.name" :sub="`${item.base_url} · ${item.model_name}`">
               <template #after><VChip>{{ item.api_type }}</VChip></template>
             </VCellName>
@@ -218,20 +225,23 @@ onMounted(() => void load())
             <span class="llm-conn" :class="`is-${connection(item).tone}`">
               {{ connection(item).text }}
             </span>
-            <div class="row-actions">
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, item.id)"
+            >
               <VButton
                 variant="quiet"
                 size="sm"
                 :loading="testing[item.id]"
                 @click="test(item)"
-              >测试</VButton>
+              ><template #icon><el-icon><Connection /></el-icon></template>测试</VButton>
               <VButton
                 :data-test="`llm-edit-${item.id}`"
                 variant="quiet"
                 size="sm"
                 @click="openEdit(item)"
-              >编辑</VButton>
-              <VButton variant="quiet" size="sm" @click="remove(item)">删除</VButton>
+              ><template #icon><el-icon><EditPen /></el-icon></template>编辑</VButton>
+              <VButton variant="danger" size="sm" @click="remove(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
             </div>
           </VRow>
           <template #empty>
@@ -445,14 +455,15 @@ onMounted(() => void load())
 .llm-conn.is-danger { color: var(--vdw-danger); }
 .llm-conn.is-idle { color: var(--vdw-ink-3); }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 
 .llm-defaults__lead {
-  max-width: 68ch;
+  max-width: 800px;
   margin: 0 0 4px;
   color: var(--vdw-ink-2);
   font-size: 14px;
@@ -482,7 +493,7 @@ onMounted(() => void load())
 
 .llm-defaults {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 18px;
 }
 

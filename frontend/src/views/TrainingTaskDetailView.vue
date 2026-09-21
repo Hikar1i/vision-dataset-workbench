@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { ArrowDown } from '@element-plus/icons-vue'
+import { ArrowDown, Close, Delete, Plus, RefreshLeft, RefreshRight, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { can } from '../api/access'
+import { accessLabel } from '../api/access'
+import { listHyperparameterTemplates, type HyperparameterTemplate } from '../api/hyperparameters'
+import { getModelProject, listModelProjects, type ModelProject } from '../api/models'
 
 import {
   cancelTrainingModel,
@@ -10,8 +14,10 @@ import {
   deleteTrainingModel,
   deleteTrainingTask,
   deriveTrainingTask,
+  getTrainingPreparationLog,
   getTrainingTask,
   retryFailedTrainingModels,
+  retryTrainingPreparation,
   retryTrainingModel,
   resumeInterruptedTrainingModels,
   resumeTrainingModel,
@@ -20,14 +26,12 @@ import {
   type TrainingTask,
 } from '../api/training'
 import PageHeader from '../components/PageHeader.vue'
-import {
-  forgetResource,
-  rememberResource,
-} from '../navigation/recentResources'
+import ModelProjectMembersPanel from '../components/ModelProjectMembersPanel.vue'
 import VBar from '../ui/VBar.vue'
 import VButton from '../ui/VButton.vue'
 import VChip from '../ui/VChip.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -35,13 +39,21 @@ import { trainingStatus } from '../ui/status'
 
 const route = useRoute()
 const router = useRouter()
+const recentModelScope = computed(
+  () => `training-task:${String(route.params.id)}:models`,
+)
 const task = ref<TrainingTask>()
+const project = ref<ModelProject>()
+const availableProjects = ref<ModelProject[]>([])
+const availableTemplates = ref<HyperparameterTemplate[]>([])
 const error = ref('')
+const preparationLog = ref('')
+const preparationLogOpen = ref(false)
 let timer: number | undefined
 let loadVersion = 0
 
 const COLUMNS =
-  '52px minmax(220px, 1.3fr) 104px minmax(180px, 0.8fr) minmax(190px, 0.7fr) minmax(240px, auto)'
+  '52px minmax(240px, 1.2fr) 104px minmax(180px, 0.9fr) minmax(200px, 0.9fr) minmax(390px, 1.8fr)'
 
 const MODE_LABEL: Record<string, string> = {
   single_model: '单模型',
@@ -50,8 +62,33 @@ const MODE_LABEL: Record<string, string> = {
 }
 
 const active = computed(
-  () => task.value && ['queued', 'running', 'canceling'].includes(task.value.status),
+  () => task.value && ['preparing', 'queued', 'running', 'canceling'].includes(task.value.status),
 )
+const canExecute = computed(() => can(task.value?.access, 'task.execute'))
+
+const templateReferences = computed(() => {
+  if (!task.value) return []
+  const references: Array<{ key: string; usage: string; id: string }> = []
+  if (task.value.default_template_id) {
+    references.push({
+      key: 'default',
+      usage: '任务默认模板',
+      id: task.value.default_template_id,
+    })
+  }
+  for (const model of task.value.models || []) {
+    if (model.template_id) {
+      references.push({ key: model.id, usage: `模型：${model.name}`, id: model.template_id })
+    }
+  }
+  return references.map((reference) => {
+    const template = availableTemplates.value.find((item) => item.id === reference.id)
+    const sourceProject = availableProjects.value.find(
+      (item) => item.id === template?.model_project_id,
+    )
+    return { ...reference, template, sourceProject }
+  })
+})
 
 const groups = computed(() => {
   const map = new Map<number, NonNullable<TrainingTask['models']>>()
@@ -82,9 +119,19 @@ async function load() {
   try {
     const nextTask = await getTrainingTask(id)
     if (version !== loadVersion) return
+    if (project.value?.id !== nextTask.model_project_id) {
+      const [nextProject, nextProjects, nextTemplates] = await Promise.all([
+        getModelProject(nextTask.model_project_id),
+        listModelProjects(),
+        listHyperparameterTemplates(),
+      ])
+      if (version !== loadVersion) return
+      project.value = nextProject
+      availableProjects.value = nextProjects
+      availableTemplates.value = nextTemplates
+    }
     task.value = nextTask
     error.value = ''
-    rememberResource('vdm.recent-training-tasks', nextTask)
   } catch (e) {
     if (version !== loadVersion) return
     error.value = e instanceof Error ? e.message : '训练任务加载失败'
@@ -93,6 +140,9 @@ async function load() {
 
 function loadRouteTask() {
   task.value = undefined
+  project.value = undefined
+  availableProjects.value = []
+  availableTemplates.value = []
   error.value = ''
   void load()
 }
@@ -182,7 +232,6 @@ async function remove() {
       { type: 'warning' },
     )
     await deleteTrainingTask(String(route.params.id))
-    forgetResource('vdm.recent-training-tasks', String(route.params.id))
     await router.push('/training-tasks')
   } catch (e) {
     if (e instanceof Error) ElMessage.error(e.message)
@@ -198,6 +247,27 @@ async function retryFailed() {
     task.value = await retryFailedTrainingModels(String(route.params.id))
   } catch (e) {
     if (e instanceof Error) ElMessage.error(e.message)
+  }
+}
+
+async function retryPreparation() {
+  if (!task.value) return
+  try {
+    task.value = await retryTrainingPreparation(task.value.id)
+    preparationLog.value = ''
+    ElMessage.success('训练数据准备已重新排队')
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '重试准备失败')
+  }
+}
+
+async function togglePreparationLog() {
+  preparationLogOpen.value = !preparationLogOpen.value
+  if (!preparationLogOpen.value || !task.value) return
+  try {
+    preparationLog.value = (await getTrainingPreparationLog(task.value.id)).content
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '准备日志加载失败')
   }
 }
 
@@ -252,15 +322,15 @@ onBeforeUnmount(() => clearInterval(timer))
       <template v-if="task" #meta>
         <span>{{ task.model_count }} 个模型 · {{ MODE_LABEL[task.mode] ?? task.mode }}</span>
       </template>
-      <template v-if="task" #actions>
+      <template v-if="task && canExecute" #actions>
         <VButton
-          :disabled="!task.can_manage || !task.actions.edit?.allowed"
+          :disabled="!task.actions.edit?.allowed"
           :title="task.actions.edit?.message || '编辑训练草稿'"
           @click="router.push(`/training-tasks/${task.id}/edit`)"
         >编辑草稿</VButton>
         <VButton
           variant="primary"
-          :disabled="!task.can_manage || !task.actions.start?.allowed"
+          :disabled="!task.actions.start?.allowed"
           :title="task.actions.start?.message || '开始训练'"
           @click="start"
         >开始训练</VButton>
@@ -274,24 +344,24 @@ onBeforeUnmount(() => clearInterval(timer))
             <el-dropdown-menu>
               <el-dropdown-item
                 command="derive"
-                :disabled="!task.can_manage || !task.actions.derive?.allowed"
+                :disabled="!task.actions.derive?.allowed"
               >派生任务</el-dropdown-item>
               <el-dropdown-item
                 command="retry"
-                :disabled="!task.can_manage || !task.actions.retry?.allowed"
+                :disabled="!task.actions.retry?.allowed"
               >重试未成功模型</el-dropdown-item>
               <el-dropdown-item
                 command="resume"
-                :disabled="!task.can_manage || !task.actions.resume?.allowed"
+                :disabled="!task.actions.resume?.allowed"
               >恢复中断模型</el-dropdown-item>
               <el-dropdown-item
                 command="cancel"
                 divided
-                :disabled="!task.can_manage || !task.actions.cancel?.allowed"
+                :disabled="!task.actions.cancel?.allowed"
               >取消任务</el-dropdown-item>
               <el-dropdown-item
                 command="delete"
-                :disabled="!task.can_manage || !task.actions.delete?.allowed"
+                :disabled="!task.actions.delete?.allowed"
               >删除任务</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -325,6 +395,69 @@ onBeforeUnmount(() => clearInterval(timer))
           </div>
         </VPanel>
 
+        <VPanel v-if="project" title="权限归属">
+          <dl class="permission-summary">
+            <div><dt>绑定模型项目</dt><dd><RouterLink :to="`/model-projects/${project.id}`">{{ project.name }}</RouterLink></dd></div>
+            <div><dt>项目编号</dt><dd><code>{{ project.id.slice(0, 6).toUpperCase() }}</code></dd></div>
+            <div><dt>当前权限</dt><dd>{{ accessLabel(project.access) }}</dd></div>
+          </dl>
+          <p class="permission-note">成员授权覆盖当前训练任务、训练模型、日志和产物。</p>
+        </VPanel>
+
+        <ModelProjectMembersPanel
+          v-if="project"
+          :project="project"
+          scope-description="成员授权作用于绑定的 training 模型项目，并覆盖当前训练任务、训练模型、日志和产物。"
+        />
+
+        <VPanel title="超参数模板引用">
+          <div v-if="templateReferences.length" class="template-references">
+            <article v-for="reference in templateReferences" :key="reference.key">
+              <span>{{ reference.usage }}</span>
+              <strong>{{ reference.template?.name || reference.id }}</strong>
+              <small v-if="reference.sourceProject">
+                来源项目：{{ reference.sourceProject.name }}
+                <template v-if="reference.sourceProject.id !== task.model_project_id">（独立权限范围）</template>
+              </small>
+              <small v-else-if="reference.template?.system_key">系统模板，全员可读</small>
+              <small v-else>模板详情当前不可读取，训练记录仍保留其 ID</small>
+            </article>
+          </div>
+          <p v-else class="cell-muted">当前任务未引用超参数模板。</p>
+        </VPanel>
+
+        <VPanel v-if="task.preparation" title="准备训练数据">
+          <div class="preparation-stage">
+            <div class="preparation-head">
+              <div>
+                <VTag :tone="trainingStatus(task.status).tone">{{ trainingStatus(task.status).label }}</VTag>
+                <b>{{ task.preparation.phase }}</b>
+                <span>独立阶段 · 不占用 GPU</span>
+              </div>
+              <div class="preparation-actions">
+                <VButton variant="quiet" :aria-expanded="preparationLogOpen" aria-controls="preparation-log" @click="togglePreparationLog">{{ preparationLogOpen ? '收起日志' : '查看准备日志' }}</VButton>
+                <VButton v-if="task.status === 'preparation_failed'" variant="default" @click="retryPreparation">重试准备</VButton>
+              </div>
+            </div>
+            <VBar :value="task.preparation.progress" :tone="trainingStatus(task.status).tone" label="训练数据准备进度" />
+            <div class="preparation-meta">
+              <span>{{ task.preparation.processed.toLocaleString() }} / {{ task.preparation.total.toLocaleString() }} 个文件</span>
+              <span>{{ task.preparation.progress.toFixed(1) }}%</span>
+              <span>持续 {{ duration(task.preparation.started_at, task.preparation.finished_at) }}</span>
+            </div>
+            <div v-if="task.preparation.artifacts.length" class="preparation-artifacts">
+              <article v-for="artifact in task.preparation.artifacts" :key="artifact.config_hash">
+                <div><b>{{ artifact.dataset_count }} 个数据集</b><code :title="artifact.config_hash">{{ artifact.config_hash.slice(0, 12) }}</code></div>
+                <span>{{ artifact.images.toLocaleString() }} 张图像 · {{ artifact.annotations.toLocaleString() }} 个标注 · {{ artifact.negative_images.toLocaleString() }} 张负样本 · 忽略 {{ artifact.ignored_annotations.toLocaleString() }} 个标注</span>
+              </article>
+            </div>
+            <el-alert v-if="task.preparation.error" :title="`准备失败：${task.preparation.error}。修复来源数据或存储问题后重试。`" type="error" :closable="false" show-icon />
+            <Transition name="preparation-log">
+              <pre v-show="preparationLogOpen" id="preparation-log" class="preparation-log">{{ preparationLog || '暂无准备日志' }}</pre>
+            </Transition>
+          </div>
+        </VPanel>
+
         <VPanel v-for="[gpu, models] in groups" :key="gpu" flush>
           <template #head>
             <h2>GPU {{ gpu }}</h2>
@@ -334,7 +467,12 @@ onBeforeUnmount(() => clearInterval(timer))
             :columns="COLUMNS"
             :headers="['顺序', '模型', '状态', '进度', '运行信息', '操作']"
           >
-            <VRow v-for="model in models" :key="model.id" :columns="COLUMNS">
+            <VRow
+              v-for="model in models"
+              :key="model.id"
+              :columns="COLUMNS"
+              :recent="isRecentRow(recentModelScope, model.id)"
+            >
               <span class="lane-order">q{{ String(model.queue_order).padStart(2, '0') }}</span>
 
               <div class="model-identity">
@@ -367,34 +505,41 @@ onBeforeUnmount(() => clearInterval(timer))
                 <span>持续 {{ duration(model.started_at, model.finished_at) }}</span>
               </div>
 
-              <div class="row-actions">
+              <div
+                class="row-actions"
+                @click.capture="markRecentRowFromAction($event, recentModelScope, model.id)"
+              >
                 <VButton
-                  variant="secondary"
+                  variant="default"
                   size="sm"
                   @click="router.push(`/training-tasks/${task.id}/models/${model.id}`)"
-                >详情</VButton>
+                ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
                 <VButton
+                  v-if="canExecute"
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.cancel?.allowed"
                   :title="model.actions.cancel?.message || '取消'"
                   @click="modelAction(model, 'cancel')"
-                >取消</VButton>
+                ><template #icon><el-icon><Close /></el-icon></template>取消</VButton>
                 <VButton
+                  v-if="canExecute"
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.retry?.allowed"
                   :title="model.actions.retry?.message || '重试'"
                   @click="modelAction(model, 'retry')"
-                >重试</VButton>
+                ><template #icon><el-icon><RefreshRight /></el-icon></template>重试</VButton>
                 <VButton
+                  v-if="canExecute"
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.resume?.allowed"
                   :title="model.actions.resume?.message || '恢复中断'"
                   @click="modelAction(model, 'resume')"
-                >恢复</VButton>
+                ><template #icon><el-icon><RefreshLeft /></el-icon></template>恢复</VButton>
                 <VButton
+                  v-if="canExecute"
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.extend?.allowed"
@@ -402,14 +547,15 @@ onBeforeUnmount(() => clearInterval(timer))
                   @click="router.push(
                     `/training-tasks/${task.id}/models/${model.id}?action=extend`,
                   )"
-                >追加</VButton>
+                ><template #icon><el-icon><Plus /></el-icon></template>追加</VButton>
                 <VButton
-                  variant="quiet"
+                  v-if="canExecute"
+                  variant="danger"
                   size="sm"
                   :disabled="!model.actions.delete?.allowed"
                   :title="model.actions.delete?.message || '删除'"
                   @click="modelAction(model, 'delete')"
-                >删除</VButton>
+                ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
               </div>
             </VRow>
           </VTable>
@@ -462,6 +608,31 @@ onBeforeUnmount(() => clearInterval(timer))
   font-size: 14px;
 }
 
+.permission-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0; }
+.permission-summary dt { color: var(--vdw-ink-3); font-size: 13px; }
+.permission-summary dd { margin: 5px 0 0; }
+.permission-note { margin: 14px 0 0; color: var(--vdw-ink-2); font-size: 14px; }
+.template-references { display: grid; gap: 8px; }
+.template-references article { display: grid; grid-template-columns: 150px minmax(180px, 1fr) minmax(220px, 1fr); align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--vdw-line); background: var(--vdw-surface-2); }
+.template-references span,
+.template-references small { color: var(--vdw-ink-2); font-size: 13px; }
+
+.preparation-stage { display: grid; gap: 12px; }
+.preparation-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.preparation-head>div:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.preparation-head span { color: var(--vdw-ink-2); font-size: 14px; }
+.preparation-actions { display: flex; gap: 7px; }
+.preparation-meta { display: flex; gap: 18px; color: var(--vdw-ink-2); font-size: 14px; }
+.preparation-artifacts { display: grid; gap: 8px; }
+.preparation-artifacts article { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--vdw-line); background: var(--vdw-surface-2); }
+.preparation-artifacts article>div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.preparation-artifacts code { max-width: 180px; overflow: hidden; color: var(--vdw-accent-ink); font: 14px var(--vdw-mono); text-overflow: ellipsis; white-space: nowrap; }
+.preparation-artifacts span { color: var(--vdw-ink-2); font-size: 14px; }
+.preparation-log { max-height: 340px; margin: 0; padding: 13px 14px; overflow: auto; border-radius: var(--vdw-radius-control); background: var(--vdw-focus-canvas, #0f1d25); color: #d6e4e9; font: 13px/1.65 var(--vdw-mono); white-space: pre-wrap; }
+.preparation-log-enter-active,.preparation-log-leave-active { transition: opacity 220ms var(--vdw-ease), transform 220ms var(--vdw-ease); }
+.preparation-log-enter-from,.preparation-log-leave-to { opacity: 0; transform: translateY(-6px); }
+@media(prefers-reduced-motion:reduce){.preparation-log-enter-active,.preparation-log-leave-active{transition:none}}
+
 .lane-order {
   color: var(--vdw-accent-ink);
   font: 500 13px/1 var(--vdw-mono);
@@ -511,7 +682,6 @@ onBeforeUnmount(() => clearInterval(timer))
 .row-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 2px;
 }
 </style>

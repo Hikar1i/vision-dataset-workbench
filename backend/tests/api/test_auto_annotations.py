@@ -16,6 +16,7 @@ from vision_dataset_workbench.main import create_app
 from vision_dataset_workbench.models import (
     Frame,
     InferenceModel,
+    ModelProject,
     ProjectLabel,
     SamplingPlan,
     Task,
@@ -24,7 +25,7 @@ from vision_dataset_workbench.models import (
     Video,
 )
 from vision_dataset_workbench.security.passwords import hash_password
-from vision_dataset_workbench.xanylabeling import RemoteModelOption
+from vision_dataset_workbench.xanylabeling import RemoteModelOption, XAnyLabelingUnavailable
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct horse battery staple"
@@ -96,9 +97,18 @@ def make_app(tmp_path):
         from vision_dataset_workbench.models import Project, ProjectMembership
         session.add(Project(id="project-id", name="project", creator_id="owner-id"))
         session.add(ProjectMembership(project_id="project-id", user_id="viewer-id", role="viewer"))
+        session.add(
+            ModelProject(
+                id="model-project-id",
+                name="models",
+                name_normalized="models",
+                series_type="archive",
+                created_by_id="owner-id",
+            )
+        )
         session.flush()
         session.add(Video(id="video-id", project_id="project-id", short_code="TESTV001", source_type="local", title="video", status="ready", width=1920, height=1080))
-        session.add(InferenceModel(id="model-id", name="YOLO", kind="yolo", status="ready", storage_path="models/model-id/model.pt", source_name="model.pt", created_by_id="owner-id"))
+        session.add(InferenceModel(id="model-id", model_project_id="model-project-id", name="YOLO", kind="yolo", status="ready", storage_path="models/model-id/model.pt", source_name="model.pt", created_by_id="owner-id"))
         session.flush()
         session.add(SamplingPlan(id="plan-id", video_id="video-id", mode="target_frames", parameters="{}", output_format="jpg", output_quality=2, expected_frames=1, extracted_frames=1, enabled_frames=1))
         session.add(Frame(id="frame-id", video_id="video-id", generation=1, sequence=1, source_frame_index=0, time_offset=0, file_path=frame_path.relative_to(workspace).as_posix()))
@@ -190,10 +200,20 @@ def test_remote_single_and_batch_use_user_setting_and_source_payload(tmp_path):
     assert [item["label_name"] for item in single.json()["items"]] == ["dog"]
     assert batch.status_code == 202
     with Session(app.state.auth_service.engine) as session:
+        assert session.get(UserXAnyLabelingSetting, "owner-id").available is True
         task = session.get(Task, batch.json()["id"])
         task_payload = json.loads(task.payload)
     assert task_payload["source"] == "xanylabeling"
     assert task_payload["remote_task_id"] == "grounding"
+
+    class FailingRemoteClient(FakeRemoteClient):
+        def predict(self, *_args):
+            raise XAnyLabelingUnavailable("server timed out")
+
+    app.state.xanylabeling_settings_service.client_factory = FailingRemoteClient
+    assert owner.post(url(), headers=ORIGIN, json=payload).status_code == 503
+    with Session(app.state.auth_service.engine) as session:
+        assert session.get(UserXAnyLabelingSetting, "owner-id").available is False
 
 
 def test_single_inference_rejects_viewer_and_requires_same_origin(tmp_path):

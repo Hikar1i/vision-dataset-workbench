@@ -5,7 +5,7 @@ from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.main import create_app
 from vision_dataset_workbench.media import RemotePreview
-from vision_dataset_workbench.models import Project, ProjectMembership, User, Video
+from vision_dataset_workbench.models import Project, ProjectMembership, Task, User, Video
 from vision_dataset_workbench.security.passwords import hash_password
 from vision_dataset_workbench.services.media import MediaService
 
@@ -224,6 +224,33 @@ def test_editor_updates_video_enabled_and_viewer_is_read_only(tmp_path):
     assert disabled.json()["enabled"] is False
     assert disabled.json()["version"] == video["version"] + 1
     assert conflict.status_code == 409
+
+
+def test_editor_batch_deletes_only_disabled_videos(tmp_path):
+    app = make_app(tmp_path)
+    editor = client_for(app, "editor")
+    viewer = client_for(app, "viewer")
+    imported = editor.post(
+        "/api/v1/projects/project-id/imports/local",
+        headers=ORIGIN,
+        json={"paths": ["clips/one.mp4"]},
+    ).json()["accepted"][0]
+    video = imported["video"]
+    with Session(app.state.auth_service.engine) as session:
+        record = session.get(Video, video["id"])
+        task = session.get(Task, imported["task"]["id"])
+        assert record is not None and task is not None
+        record.enabled = False
+        task.status = "succeeded"
+        session.commit()
+
+    endpoint = "/api/v1/projects/project-id/videos/delete"
+    forbidden = viewer.post(endpoint, headers=ORIGIN, json={"video_ids": [video["id"]]})
+    deleted = editor.post(endpoint, headers=ORIGIN, json={"video_ids": [video["id"]]})
+
+    assert forbidden.status_code == 403
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": [video["id"]], "skipped": []}
 
 
 def test_remote_preview_cancel_retry_and_same_origin(tmp_path):

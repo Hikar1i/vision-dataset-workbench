@@ -8,7 +8,7 @@ import {
 } from "echarts/components";
 import { init, use, type ECharts } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { PrCurve } from "../api/training";
 use([
   LineChart,
@@ -53,14 +53,22 @@ function render() {
 function resize() {
   chart?.resize();
 }
-onMounted(() => {
-  if (root.value) {
-    chart = init(root.value);
-    render();
-    window.addEventListener("resize", resize);
+async function syncChart() {
+  await nextTick();
+  if (props.curve.kind !== "interactive" || !root.value) {
+    chart?.dispose();
+    chart = undefined;
+    return;
   }
+  chart ??= init(root.value);
+  render();
+  resize();
+}
+onMounted(() => {
+  window.addEventListener("resize", resize);
+  void syncChart();
 });
-watch(() => props.curve, render, { deep: true });
+watch(() => props.curve, () => void syncChart(), { deep: true });
 onBeforeUnmount(() => {
   window.removeEventListener("resize", resize);
   chart?.dispose();

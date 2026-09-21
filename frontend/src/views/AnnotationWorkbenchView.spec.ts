@@ -1,11 +1,13 @@
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AnnotationWorkbenchView from './AnnotationWorkbenchView.vue'
+import AutoAnnotationCategorySelect from '../components/AutoAnnotationCategorySelect.vue'
 
 const mocks = vi.hoisted(() => ({
-  routerPush: vi.fn(),
+  routeLeaveGuard: vi.fn(),
+  routerBack: vi.fn(),
   routerReplace: vi.fn(),
   getProject: vi.fn(),
   listVideos: vi.fn(),
@@ -34,8 +36,9 @@ vi.mock('element-plus', async (importOriginal) => ({
 }))
 
 vi.mock('vue-router', () => ({
+  onBeforeRouteLeave: mocks.routeLeaveGuard,
   useRoute: () => ({ params: { id: 'project-id', videoId: 'video-id' } }),
-  useRouter: () => ({ push: mocks.routerPush, replace: mocks.routerReplace }),
+  useRouter: () => ({ back: mocks.routerBack, replace: mocks.routerReplace }),
 }))
 vi.mock('../api/projects', () => ({ getProject: mocks.getProject }))
 vi.mock('../api/auth', () => ({ getCurrentUser: mocks.getCurrentUser }))
@@ -66,6 +69,10 @@ const CanvasStub = defineComponent({
   emits: ['change', 'request-category', 'view-change'],
   template: '<div><button data-test="canvas-change" @click="$emit(\'change\', [{ id: \'box-id\', label_id: \'label-id\', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: \'manual\', confidence: null }])">change</button><button data-test="request-category" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 50, y: 60 })">draw</button><button data-test="view-change" @click="$emit(\'view-change\', { x_min: 100, y_min: 200, x_max: 900, y_max: 700 })">view</button></div>',
 })
+const SelectStub = defineComponent({
+  props: ['filterMethod'],
+  template: '<div><button data-test="filter-person" @click="filterMethod?.(\'person\')">person</button><slot /></div>',
+})
 
 const project = {
   id: 'project-id',
@@ -73,7 +80,10 @@ const project = {
   description: '',
   creator_id: 'creator-id',
   creator_username: 'creator',
-  role: 'editor',
+  access: {
+    role: 'editor', source: 'membership',
+    permissions: ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+  },
   version: 1,
   created_at: '',
   updated_at: '',
@@ -105,6 +115,24 @@ const video = {
   },
   latest_task: null,
 }
+const modelProject = {
+  id: 'model-project-id',
+  name: '可操作模型项目',
+  description: '',
+  series_type: 'archive' as const,
+  system_key: null,
+  created_by_id: 'editor-id',
+  version: 1,
+  can_manage: true,
+  access: {
+    role: 'owner' as const,
+    source: 'owner' as const,
+    permissions: ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+  },
+  created_at: '',
+  updated_at: '',
+  tags: [],
+}
 const frames = [1, 2].map((sequence) => ({
   id: `frame-${sequence}`,
   sequence,
@@ -117,6 +145,7 @@ const frames = [1, 2].map((sequence) => ({
 
 beforeEach(() => {
   document.body.innerHTML = '<div id="focus-header-tools"></div>'
+  window.history.replaceState({ annotationFromVideoList: true }, '')
   localStorage.clear()
   for (const value of Object.values(mocks)) value.mockReset()
   mocks.confirmBatch.mockResolvedValue('confirm')
@@ -134,19 +163,13 @@ beforeEach(() => {
     },
   })
   mocks.listInferenceModels.mockResolvedValue([])
-  mocks.listModelProjects.mockResolvedValue([{
-    id: 'temporary-model-project',
-    name: '临时模型项目',
-    series_type: 'archive',
-    system_key: 'temporary',
-    created_at: '',
-  }])
+  mocks.listModelProjects.mockResolvedValue([modelProject])
   mocks.listModelProjectModels.mockImplementation(() => mocks.listInferenceModels())
   mocks.getXAnyLabelingSetting.mockResolvedValue({
     configured: false,
     server_url: '',
     has_api_key: false,
-    available: false,
+    available: null,
   })
   mocks.listXAnyLabelingModels.mockResolvedValue([])
   mocks.listVideos.mockResolvedValue({ items: [video], page: 1, page_size: 999, total: 1 })
@@ -173,6 +196,29 @@ beforeEach(() => {
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('AnnotationWorkbenchView', () => {
+  it('does not offer read-only built-in projects as auto-annotation sources', async () => {
+    mocks.listModelProjects.mockResolvedValueOnce([{
+      ...modelProject,
+      id: 'official-project-id',
+      name: 'YOLO11目标检测官方模型',
+      system_key: 'official_yolo11',
+      can_manage: false,
+      access: {
+        role: 'viewer',
+        source: 'system_resource',
+        permissions: ['project.read', 'artifact.read', 'artifact.download', 'task.read'],
+      },
+    }])
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub } },
+    })
+    await flushPromises()
+
+    expect(mocks.listModelProjectModels).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('YOLO11目标检测官方模型')
+    wrapper.unmount()
+  })
+
   it('saves a dirty frame once before switching and before closing', async () => {
     const wrapper = mount(AnnotationWorkbenchView, {
       attachTo: document.body,
@@ -213,12 +259,43 @@ describe('AnnotationWorkbenchView', () => {
     document.querySelector<HTMLElement>('[data-test="close-annotation"]')?.click()
     await flushPromises()
     expect(mocks.replaceFrameAnnotations).toHaveBeenCalledTimes(2)
-    expect(mocks.routerPush).toHaveBeenCalledWith('/projects/project-id/videos')
+    expect(mocks.routerBack).toHaveBeenCalledOnce()
+    expect(mocks.routerReplace).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('falls back to the video list after direct entry and saves before route leave', async () => {
+    window.history.replaceState({}, '')
+    const wrapper = mount(AnnotationWorkbenchView, {
+      attachTo: document.body,
+      global: { stubs: { AnnotationCanvas: CanvasStub } },
+    })
+    await flushPromises()
+
+    document.querySelector<HTMLElement>('[data-test="close-annotation"]')?.click()
+    await flushPromises()
+    expect(mocks.routerBack).not.toHaveBeenCalled()
+    expect(mocks.routerReplace).toHaveBeenCalledWith('/projects/project-id/videos')
+
+    await wrapper.get('[data-test="canvas-change"]').trigger('click')
+    const guard = mocks.routeLeaveGuard.mock.calls[0][0]
+    expect(await guard()).toBe(true)
+    expect(mocks.replaceFrameAnnotations).toHaveBeenCalledOnce()
+
+    await wrapper.get('[data-test="canvas-change"]').trigger('click')
+    mocks.replaceFrameAnnotations.mockRejectedValueOnce(new Error('保存失败'))
+    expect(await guard()).toBe(false)
     wrapper.unmount()
   })
 
   it('redirects viewers instead of opening annotation controls', async () => {
-    mocks.getProject.mockResolvedValueOnce({ ...project, role: 'viewer' })
+    mocks.getProject.mockResolvedValueOnce({
+      ...project,
+      access: {
+        role: 'viewer', source: 'membership',
+        permissions: ['project.read', 'artifact.read', 'artifact.download', 'task.read'],
+      },
+    })
     const wrapper = mount(AnnotationWorkbenchView, { global: { stubs: { AnnotationCanvas: CanvasStub } } })
     await flushPromises()
 
@@ -311,6 +388,9 @@ describe('AnnotationWorkbenchView', () => {
     expect(
       wrapper.get('[data-test="shortcut-list"]').findAll('dt').map((item) => item.text()),
     ).toEqual(expect.arrayContaining(['S', 'Y', 'L', 'H', 'P']))
+    expect(wrapper.get('[data-test="shortcut-list"]').text()).toContain('拖动四角自由调整标注框宽高')
+    expect(wrapper.get('[data-test="shortcut-list"]').text()).toContain('Shift + 拖动四角等比例缩放标注框')
+    expect(wrapper.get('[data-test="shortcut-list"]').text()).toContain('Alt + 拖动四角以中心为基准向四周缩放')
     await wrapper.get('[data-test="request-category"]').trigger('click')
     expect(wrapper.find('[data-test="category-scrim"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(true)
@@ -456,7 +536,7 @@ describe('AnnotationWorkbenchView', () => {
     wrapper.unmount()
   })
 
-  it('uses the configured X-AnyLabeling model as a remote source', async () => {
+  it('submits a typed category with the configured X-AnyLabeling model', async () => {
     mocks.listModelProjects.mockResolvedValueOnce([])
     mocks.getXAnyLabelingSetting.mockResolvedValueOnce({
       configured: true,
@@ -476,7 +556,7 @@ describe('AnnotationWorkbenchView', () => {
       global: {
         stubs: {
           AnnotationCanvas: CanvasStub,
-          ElSelect: true,
+          ElSelect: SelectStub,
           ElOption: true,
           ElInputNumber: true,
           ElSwitch: true,
@@ -486,11 +566,13 @@ describe('AnnotationWorkbenchView', () => {
     })
     await flushPromises()
 
+    await wrapper.get('[data-test="auto-categories"] [data-test="filter-person"]').trigger('click')
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
 
     expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3]).toMatchObject({
       source: 'xanylabeling', model_id: 'remote', remote_task_id: 'grounding',
+      categories: ['person'],
     })
     wrapper.unmount()
   })
@@ -547,16 +629,12 @@ describe('AnnotationWorkbenchView', () => {
     })
     await flushPromises()
 
-    ;(wrapper.getComponent('[data-test="auto-categories"]') as VueWrapper).vm.$emit(
-      'change', ['__all__', 'helmet'],
-    )
+    wrapper.getComponent(AutoAnnotationCategorySelect).vm.$emit('update:modelValue', ['helmet'])
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
     expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3].categories).toEqual(['helmet'])
 
-    ;(wrapper.getComponent('[data-test="auto-categories"]') as VueWrapper).vm.$emit(
-      'change', ['helmet', '__all__'],
-    )
+    wrapper.getComponent(AutoAnnotationCategorySelect).vm.$emit('update:modelValue', ['__all__'])
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
     expect(mocks.runFrameAutoAnnotation.mock.calls[1]?.[3].categories).toEqual([])

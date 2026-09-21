@@ -312,6 +312,40 @@
   background: var(--vdw-surface-3);
 }
 
+.task-center-bell {
+  width: 16px;
+  height: 16px;
+  color: var(--vdw-ink-3);
+  transform-origin: 50% 10%;
+}
+
+.task-center-trigger.is-unread {
+  color: var(--vdw-ink);
+  background: var(--vdw-accent-soft);
+}
+
+.task-center-trigger.is-unread .task-center-bell {
+  color: var(--vdw-accent-strong);
+}
+
+.task-center-trigger.is-pulsing .task-center-bell {
+  animation: task-bell-ring 900ms var(--vdw-ease);
+}
+
+@keyframes task-bell-ring {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(18deg); }
+  40% { transform: rotate(-15deg); }
+  60% { transform: rotate(10deg); }
+  80% { transform: rotate(-6deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-center-trigger.is-pulsing .task-center-bell {
+    animation: none;
+  }
+}
+
 .notification-dot {
   position: absolute;
   top: 4px;
@@ -338,4 +372,5 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
 }

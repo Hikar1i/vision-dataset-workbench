@@ -1,7 +1,11 @@
 import { json } from "./auth";
+import type { ResourceAccess } from "./access";
+import type { BatchMode } from "./hyperparameters";
 
 export type TrainingStatus =
   | "draft"
+  | "preparing"
+  | "preparation_failed"
   | "queued"
   | "running"
   | "canceling"
@@ -13,6 +17,8 @@ export type TrainingStatus =
 export type TrainingMode =
   "single_model" | "single_device_serial" | "custom_sequence";
 export type RunStatus =
+  | "preparing"
+  | "preparation_failed"
   | "queued"
   | "running"
   | "canceling"
@@ -56,6 +62,36 @@ export type ActionAvailability = {
   reason_code: string | null;
   message: string | null;
 };
+export type DatasetMode = "inherit" | "single" | "multi";
+export type MultiDatasetConfig = {
+  version: 1;
+  dataset_export_ids: string[];
+  target_classes: string[];
+};
+export type ExtraParametersOverride = {
+  version: 1;
+  set: Record<string, unknown>;
+  remove: string[];
+};
+export type TrainingPreparation = {
+  id: string;
+  status: "queued" | "running" | "canceling" | "canceled" | "failed" | "succeeded";
+  phase: string;
+  progress: number;
+  processed: number;
+  total: number;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  artifacts: {
+    config_hash: string;
+    dataset_count: number;
+    images: number;
+    annotations: number;
+    ignored_annotations: number;
+    negative_images: number;
+  }[];
+};
 export type TrainingModel = {
   id: string;
   training_task_id: string;
@@ -63,12 +99,15 @@ export type TrainingModel = {
   description: string;
   artifact_code: string | null;
   dataset_export_id: string | null;
+  dataset_mode: DatasetMode;
+  multi_dataset_config: MultiDatasetConfig | null;
   template_id: string | null;
   base_model_id: string | null;
   epochs_override: number | null;
   batch_mode_override: "auto" | "fixed" | "fraction" | null;
   batch_value_override: number | null;
   image_size_override: number | null;
+  extra_parameters_override: ExtraParametersOverride | null;
   gpu_index: number;
   queue_order: number;
   status: RunStatus | "draft";
@@ -88,6 +127,8 @@ export type TrainingModel = {
 };
 export type TrainingTask = {
   id: string;
+  model_project_id: string;
+  access: ResourceAccess;
   code: string;
   name: string;
   description: string;
@@ -96,7 +137,14 @@ export type TrainingTask = {
   progress: number;
   model_count: number;
   default_dataset_export_id: string | null;
+  default_dataset_mode: "single" | "multi";
+  default_multi_dataset_config: MultiDatasetConfig | null;
   default_template_id: string | null;
+  default_epochs_override: number | null;
+  default_batch_mode_override: BatchMode | null;
+  default_batch_value_override: number | null;
+  default_image_size_override: number | null;
+  default_extra_parameters_override: ExtraParametersOverride | null;
   default_base_model_id: string | null;
   created_by_id: string;
   can_manage: boolean;
@@ -108,6 +156,7 @@ export type TrainingTask = {
   created_at: string;
   updated_at: string;
   actions: Record<string, ActionAvailability>;
+  preparation?: TrainingPreparation | null;
   models?: TrainingModel[];
 };
 export type GpuDevice = {
@@ -128,14 +177,30 @@ export type TrainingCapabilities = {
   host: Record<string, unknown>;
 };
 export type TrainingResources = {
-  datasets: { id: string; name: string; project_id: string; project_name: string }[];
-  templates: {
+  datasets: {
     id: string;
     name: string;
+    project_id: string;
+    project_name: string;
+    total_frames: number;
+    train_frames: number;
+    val_frames: number;
+    labels: { index: number; name: string }[];
+  }[];
+  templates: {
+    id: string;
+    model_project_id?: string | null;
+    name: string;
+    description: string;
     epochs: number;
-    batch_mode: string;
+    batch_mode: BatchMode;
     batch_value: number | null;
     image_size: number;
+    extra_parameters: Record<string, unknown>;
+    effective_parameters: Record<string, unknown>;
+    version: number;
+    updated_at: string;
+    can_edit: boolean;
   }[];
   base_models: {
     id: string;
@@ -149,12 +214,15 @@ export type TrainingModelDraft = {
   name: string;
   description: string;
   dataset_export_id: string | null;
+  dataset_mode: DatasetMode;
+  multi_dataset_config: MultiDatasetConfig | null;
   template_id: string | null;
   base_model_id: string | null;
   epochs_override: number | null;
   batch_mode_override: "auto" | "fixed" | "fraction" | null;
   batch_value_override: number | null;
   image_size_override: number | null;
+  extra_parameters_override: ExtraParametersOverride | null;
   gpu_index: number;
   queue_order: number;
 };
@@ -164,7 +232,14 @@ export type TrainingTaskDraft = {
   description: string;
   mode: TrainingMode;
   default_dataset_export_id: string | null;
+  default_dataset_mode: "single" | "multi";
+  default_multi_dataset_config: MultiDatasetConfig | null;
   default_template_id: string | null;
+  default_epochs_override: number | null;
+  default_batch_mode_override: BatchMode | null;
+  default_batch_value_override: number | null;
+  default_image_size_override: number | null;
+  default_extra_parameters_override: ExtraParametersOverride | null;
   default_base_model_id: string | null;
   models: TrainingModelDraft[];
 };
@@ -173,6 +248,10 @@ export const getTrainingCapabilities = () =>
   json<TrainingCapabilities>("/api/v1/training/capabilities");
 export const getTrainingResources = () =>
   json<TrainingResources>("/api/v1/training/resources");
+export const checkTrainingTaskCode = (code: string) =>
+  json<{ code: string; available: boolean; reason: string | null }>(
+    `/api/v1/training-tasks/code-availability?code=${encodeURIComponent(code)}`,
+  );
 export const listTrainingTasks = () =>
   json<TrainingTask[]>("/api/v1/training-tasks");
 export const getTrainingTask = (id: string) =>
@@ -197,6 +276,14 @@ export const startTrainingTask = (id: string) =>
   json<TrainingTask>(`/api/v1/training-tasks/${id}/start`, { method: "POST" });
 export const cancelTrainingTask = (id: string) =>
   json<TrainingTask>(`/api/v1/training-tasks/${id}/cancel`, { method: "POST" });
+export const retryTrainingPreparation = (id: string) =>
+  json<TrainingTask>(`/api/v1/training-tasks/${id}/retry-preparation`, {
+    method: "POST",
+  });
+export const getTrainingPreparationLog = (id: string, cursor = 0) =>
+  json<{ content: string; next_cursor: number }>(
+    `/api/v1/training-tasks/${id}/preparation-log?cursor=${cursor}`,
+  );
 export const retryFailedTrainingModels = (id: string) =>
   json<TrainingTask>(`/api/v1/training-tasks/${id}/retry-failed`, {
     method: "POST",
@@ -258,6 +345,8 @@ export const getTrainingLog = (runId: string, cursor = 0) =>
   json<{ content: string; next_cursor: number }>(
     `/api/v1/training-runs/${runId}/log?cursor=${cursor}`,
   );
+export const trainingLogDownloadUrl = (runId: string) =>
+  `/api/v1/training-runs/${runId}/log/download`;
 export type PrCurve =
   | {
       version: number;

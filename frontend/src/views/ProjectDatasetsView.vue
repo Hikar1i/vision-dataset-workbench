@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArrowDown, ArrowUp, CopyDocument, Delete, Download, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
@@ -10,10 +11,17 @@ import {
   type DatasetExport,
   type DatasetExportDetail,
 } from '../api/datasetExports'
+import { can } from '../api/access'
 import type { Project } from '../api/projects'
+import { copyText } from '../ui/clipboard'
+import { formatDateTime } from '../ui/dateTime'
 import { useProjectHeaderHost } from '../ui/projectHeaderHost'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import { datasetExportStatus } from '../ui/status'
 import VButton from '../ui/VButton.vue'
+import VChip from '../ui/VChip.vue'
+import VDateTime from '../ui/VDateTime.vue'
+import VPanel from '../ui/VPanel.vue'
 import VTag from '../ui/VTag.vue'
 
 const props = defineProps<{ project: Project }>()
@@ -26,7 +34,9 @@ const error = ref('')
 const detail = ref<DatasetExportDetail | null>(null)
 const detailLoading = ref(false)
 const deleting = ref('')
-const canEdit = computed(() => props.project.role !== 'viewer')
+const manifestOpen = ref(false)
+const canEdit = computed(() => can(props.project.access, 'project.update'))
+const recentDatasetScope = computed(() => `project:${props.project.id}:datasets`)
 const manifestText = computed(() => (
   detail.value?.manifest ? JSON.stringify(detail.value.manifest, null, 2) : ''
 ))
@@ -38,13 +48,15 @@ const exclusionLabels: Record<string, string> = {
   created_after_export: '快照后新增',
 }
 
-function dateTime(value: string | null) {
-  return value ? new Date(value).toLocaleString() : '—'
+function datasetRowClassName({ row }: { row: DatasetExport }) {
+  return isRecentRow(recentDatasetScope.value, row.id) ? 'vdw-row--recent' : ''
 }
 
 function ratio(value: number | null) {
   return value === null ? '—' : `${value.toFixed(2)} : ${(1 - value).toFixed(2)}`
 }
+
+const enabledLabels = (item: DatasetExport) => item.labels.filter((label) => label.enabled)
 
 async function load(nextPage = page.value) {
   loading.value = true
@@ -63,6 +75,7 @@ async function load(nextPage = page.value) {
 
 async function showDetail(item: DatasetExport) {
   detailLoading.value = true
+  manifestOpen.value = false
   error.value = ''
   try {
     detail.value = await getDatasetExport(props.project.id, item.id)
@@ -70,6 +83,15 @@ async function showDetail(item: DatasetExport) {
     error.value = reason instanceof Error ? reason.message : '数据集详情加载失败'
   } finally {
     detailLoading.value = false
+  }
+}
+
+async function copyManifest() {
+  try {
+    await copyText(manifestText.value)
+    ElMessage.success('manifest.json 已复制。')
+  } catch {
+    ElMessage.error('复制失败，请检查浏览器剪贴板权限。')
   }
 }
 
@@ -116,8 +138,21 @@ const headerHost = useProjectHeaderHost()
 
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <section v-loading="loading" class="datasets-table">
-      <el-table v-if="items.length" :data="items" row-key="id">
-        <el-table-column prop="name" label="数据集名称" min-width="180" />
+      <el-table
+        v-if="items.length"
+        :data="items"
+        row-key="id"
+        :row-class-name="datasetRowClassName"
+      >
+        <el-table-column prop="name" label="数据集名称" min-width="180">
+          <template #default="{ row }">
+            <span
+              v-if="isRecentRow(recentDatasetScope, row.id)"
+              class="vdw-sr-only"
+            >最近交互</span>
+            {{ row.name }}
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="94">
           <template #default="{ row }">
             <VTag :tone="datasetExportStatus(row.status).tone">
@@ -125,16 +160,23 @@ const headerHost = useProjectHeaderHost()
             </VTag>
           </template>
         </el-table-column>
-        <el-table-column label="导出时间" width="180">
-          <template #default="{ row }">{{ dateTime(row.completed_at || row.created_at) }}</template>
+        <el-table-column label="导出时间" width="105">
+          <template #default="{ row }">
+            <VDateTime :value="row.completed_at || row.created_at" />
+          </template>
         </el-table-column>
-        <el-table-column label="类别" min-width="180">
+        <el-table-column label="类别数量" width="100">
           <template #default="{ row }">
             <el-popover trigger="click" width="280">
               <template #reference>
-                <VButton variant="secondary">{{ row.labels.filter((label: { enabled: boolean }) => label.enabled).slice(0, 3).map((label: { name: string }) => label.name).join(', ') || '无' }}</VButton>
+                <VButton
+                  variant="default"
+                  size="sm"
+                  :data-test="`category-count-${row.id}`"
+                  :title="`查看 ${enabledLabels(row).length} 个启用类别的映射关系`"
+                ><template #icon><el-icon><View /></el-icon></template>{{ enabledLabels(row).length }} 类</VButton>
               </template>
-              <div class="category-popover">
+              <div class="category-popover" :data-test="`category-mapping-${row.id}`">
                 <span v-for="label in row.labels" :key="label.source_label_id" :data-enabled="label.enabled">
                   {{ label.mapping }} · {{ label.name }}{{ label.enabled ? '' : '（停用）' }}
                 </span>
@@ -142,16 +184,45 @@ const headerHost = useProjectHeaderHost()
             </el-popover>
           </template>
         </el-table-column>
-        <el-table-column label="样本帧" width="220">
+        <el-table-column label="类别" min-width="200">
           <template #default="{ row }">
-            <div class="frame-summary" :data-test="`frame-summary-${row.id}`">
-              <span><small>总计</small><b>{{ row.total_frames }}</b></span>
-              <span><small>训练</small><b>{{ row.train_frames }}</b></span>
-              <span><small>验证</small><b>{{ row.val_frames }}</b></span>
+            <div
+              class="vdw-chip-stack"
+              :data-test="`categories-${row.id}`"
+              :title="enabledLabels(row).map((label) => label.name).join('、')"
+            >
+              <VChip v-for="label in enabledLabels(row)" :key="label.source_label_id">
+                {{ label.name }}
+              </VChip>
+              <span v-if="!enabledLabels(row).length" class="cell-muted">—</span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="训练集 : 验证集" width="210">
+        <el-table-column label="样本分布" width="240">
+          <template #default="{ row }">
+            <div class="sample-distribution" :data-test="`sample-distribution-${row.id}`">
+              <div class="sample-distribution__head">
+                <span />
+                <small>总计</small>
+                <small>训练</small>
+                <small>验证</small>
+              </div>
+              <div class="sample-distribution__row">
+                <strong>帧</strong>
+                <b>{{ row.total_frames }}</b>
+                <b>{{ row.train_frames }}</b>
+                <b>{{ row.val_frames }}</b>
+              </div>
+              <div class="sample-distribution__row">
+                <strong>视频</strong>
+                <b>{{ row.total_videos }}</b>
+                <b>{{ row.train_videos }}</b>
+                <b>{{ row.val_videos }}</b>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="训练集 : 验证集" width="180">
           <template #default="{ row }">
             <div class="ratio-summary" :data-test="`ratio-summary-${row.id}`">
               <span><small>期望</small><b>{{ ratio(row.train_ratio) }}</b></span>
@@ -159,20 +230,35 @@ const headerHost = useProjectHeaderHost()
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <div class="row-actions">
-              <VButton variant="quiet" :data-test="`detail-${row.id}`" @click="showDetail(row)">详情</VButton>
-              <a
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, recentDatasetScope, row.id)"
+            >
+              <VButton
+                variant="quiet"
+                size="sm"
+                :data-test="`detail-${row.id}`"
+                @click="showDetail(row)"
+              ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
+              <!-- 下载是真链接（需要 href 才能触发浏览器下载），但视觉与同行按钮一致 -->
+              <VButton
                 v-if="row.status === 'ready'"
+                variant="quiet"
+                size="sm"
                 :data-test="`download-${row.id}`"
                 :href="datasetExportDownloadUrl(project.id, row.id)"
-              >下载</a>
-              <VButton variant="quiet" size="sm" v-if="canEdit"
+              ><template #icon><el-icon><Download /></el-icon></template>下载</VButton>
+              <VButton
+                v-if="canEdit"
+                variant="danger"
+                size="sm"
                 :data-test="`delete-${row.id}`"
                 :loading="deleting === row.id"
                 :disabled="row.status === 'queued' || row.status === 'running'"
-                @click="remove(row)">删除</VButton>
+                @click="remove(row)"
+              ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
             </div>
           </template>
         </el-table-column>
@@ -216,7 +302,14 @@ const headerHost = useProjectHeaderHost()
                   <span><small>验证</small><b>{{ detail.val_frames }}</b></span>
                 </div>
               </el-descriptions-item>
-              <el-descriptions-item label="导出时间">{{ dateTime(detail.completed_at) }}</el-descriptions-item>
+              <el-descriptions-item label="样本视频">
+                <div class="frame-summary" data-test="detail-video-summary">
+                  <span><small>总计</small><b>{{ detail.total_videos ?? '—' }}</b></span>
+                  <span><small>训练</small><b>{{ detail.train_videos ?? '—' }}</b></span>
+                  <span><small>验证</small><b>{{ detail.val_videos ?? '—' }}</b></span>
+                </div>
+              </el-descriptions-item>
+              <el-descriptions-item label="导出时间">{{ formatDateTime(detail.completed_at) }}</el-descriptions-item>
             </el-descriptions>
           </section>
 
@@ -247,11 +340,32 @@ const headerHost = useProjectHeaderHost()
             </el-table>
           </section>
 
-          <el-collapse v-if="manifestText" class="detail-panel manifest-panel">
-            <el-collapse-item title="查看 manifest.json" name="manifest">
-              <pre>{{ manifestText }}</pre>
-            </el-collapse-item>
-          </el-collapse>
+          <VPanel v-if="manifestText" title="manifest.json" :flush="!manifestOpen">
+            <template #actions>
+              <VButton
+                variant="quiet"
+                size="sm"
+                data-test="copy-manifest"
+                title="复制 manifest.json"
+                @click="copyManifest"
+              ><template #icon><el-icon><CopyDocument /></el-icon></template>复制</VButton>
+              <VButton
+                variant="quiet"
+                size="sm"
+                data-test="toggle-manifest"
+                :title="manifestOpen ? '收起 manifest.json' : '展开 manifest.json'"
+                :aria-expanded="manifestOpen"
+                aria-controls="manifest-json-panel"
+                @click="manifestOpen = !manifestOpen"
+              >
+                <template #icon><component :is="manifestOpen ? ArrowUp : ArrowDown" /></template>
+                {{ manifestOpen ? '收起' : '展开' }}
+              </VButton>
+            </template>
+            <Transition name="section-reveal">
+              <pre v-if="manifestOpen" id="manifest-json-panel" data-test="manifest-json">{{ manifestText }}</pre>
+            </Transition>
+          </VPanel>
         </div>
       </div>
     </el-dialog>
@@ -259,10 +373,16 @@ const headerHost = useProjectHeaderHost()
 </template>
 
 <style scoped>
-.datasets-view { min-height: 100%; padding: 18px; background: var(--vdw-app); }
+.datasets-view { min-height: 100%; padding: 14px; background: var(--vdw-app); }
 .datasets-view :deep(.page-header) { margin: -20px -20px 20px; }
 .datasets-table { min-height: 260px; background: white; border: 1px solid var(--vdw-line); }
 .frame-summary { display: grid; grid-template-columns: repeat(3, minmax(42px, 1fr)); gap: 8px; }
+.sample-distribution { display: grid; gap: 4px; }
+.sample-distribution__head,
+.sample-distribution__row { display: grid; grid-template-columns: 42px repeat(3, minmax(42px, 1fr)); align-items: center; column-gap: 6px; }
+.sample-distribution__head small { color: var(--vdw-ink-2); font-size: 13px; font-weight: 500; }
+.sample-distribution__row > strong { color: var(--vdw-ink-2); font-size: 13px; font-weight: 600; }
+.sample-distribution__row > b { color: var(--vdw-ink); font: 600 13px var(--vdw-mono); white-space: nowrap; }
 .frame-summary span { display: grid; gap: 2px; min-width: 0; }
 .frame-summary small,
 .ratio-summary small { color: var(--vdw-ink-2); font-size: 13px; font-weight: 500; }
@@ -270,9 +390,9 @@ const headerHost = useProjectHeaderHost()
 .ratio-summary b { color: var(--vdw-ink); font: 600 13px var(--vdw-mono); white-space: nowrap; }
 .ratio-summary { display: grid; gap: 4px; }
 .ratio-summary span { display: grid; grid-template-columns: 34px auto; align-items: baseline; gap: 7px; }
-.row-actions { display: inline-flex; align-items: stretch; overflow: hidden; background: white; border: 1px solid var(--vdw-line); border-radius: 2px; }
-.row-actions > * + * { border-left: 1px solid var(--vdw-line) !important; }
-.row-actions a { color: var(--vdw-accent); text-decoration: none; }
+/* 与模型项目、训练任务、视频列表同一套行操作：无外框、无分隔线。
+   这里原是带边框和分隔线的分段按钮组，是"同一系统两种按钮"的最后一处。 */
+.row-actions { display: flex; gap: 2px; }
 .category-popover { display: grid; gap: 7px; }
 .category-popover span[data-enabled='false'] { color: var(--vdw-ink-2); }
 .dataset-detail-scroll { height: calc(100dvh - 57px); padding: 20px; overflow: auto; background: var(--vdw-app); }
@@ -280,7 +400,6 @@ const headerHost = useProjectHeaderHost()
 .detail-panel { overflow: hidden; background: white; border: 1px solid var(--vdw-line); }
 .detail-panel h2 { margin: 0; padding: 13px 16px; font: 700 17px var(--vdw-sans); border-bottom: 1px solid var(--vdw-line); }
 .detail-overview { padding: 0; }
-.manifest-panel { padding: 0 16px; }
 .dataset-detail-content pre { max-height: 420px; margin: 0; padding: 14px; overflow: auto; color: #d7e3ec; background: var(--vdw-ink); font: 13px/1.6 var(--vdw-mono); }
 .empty-state { padding: 72px 20px; text-align: center; }
 .empty-state h2 { margin: 0 0 8px; font-size: 18px; }

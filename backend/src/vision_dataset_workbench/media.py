@@ -88,8 +88,9 @@ def _preview_item(
     extractor = str(info.get("extractor_key") or info.get("extractor") or "generic").strip()
     if not external_id:
         raise MediaToolError("yt-dlp returned an item without an id")
+    title = str(info.get("title") or "").strip() or external_id
     return RemotePreview(
-        title=str(info.get("title") or external_id),
+        title=title,
         url=url,
         duration=_number(info.get("duration")),
         extractor=extractor,

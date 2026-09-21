@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { CircleCheck, CircleClose, CopyDocument, Plus, RefreshRight, User } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 
 import {
+  createUser,
   listUsers,
+  resetUserPassword,
   setUserStatus,
   type ManagedUser,
   type UserAction,
@@ -15,6 +19,7 @@ import VPanel from '../ui/VPanel.vue'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
+import { copyText } from '../ui/clipboard'
 import { userStatus } from '../ui/status'
 
 const users = ref<ManagedUser[]>([])
@@ -25,22 +30,20 @@ const total = ref(0)
 const loading = ref(false)
 const changingId = ref('')
 const error = ref('')
+const createOpen = ref(false)
+const username = ref('')
+const revealedPassword = ref('')
+const revealedUsername = ref('')
+const copied = ref(false)
+let copyResetTimer: number | undefined
 
-const COLUMNS = 'minmax(220px, 1fr) 120px minmax(180px, 0.6fr) 180px'
-
+const COLUMNS = 'minmax(220px, 1fr) 120px minmax(180px, 0.6fr) 240px'
 const FILTERS = [
   { key: '', label: '全部' },
-  { key: 'pending', label: '待审批' },
   { key: 'active', label: '正常' },
   { key: 'disabled', label: '已禁用' },
-  { key: 'rejected', label: '已拒绝' },
 ]
-
 const stamp = (value: string) => value.slice(0, 16).replace('T', ' ')
-
-const pendingCount = computed(
-  () => users.value.filter((user) => user.status === 'pending').length,
-)
 
 async function load(nextPage = page.value) {
   loading.value = true
@@ -77,16 +80,78 @@ async function change(user: ManagedUser, action: UserAction) {
   }
 }
 
+async function createAccount() {
+  if (!username.value.trim()) return
+  loading.value = true
+  error.value = ''
+  try {
+    const created = await createUser(username.value.trim())
+    revealedUsername.value = created.username
+    revealedPassword.value = created.initial_password
+    resetCopiedState()
+    createOpen.value = false
+    username.value = ''
+    await load(1)
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '账号创建失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function resetPassword(user: ManagedUser) {
+  changingId.value = user.id
+  error.value = ''
+  try {
+    const reset = await resetUserPassword(user.id)
+    revealedUsername.value = reset.username
+    revealedPassword.value = reset.initial_password
+    resetCopiedState()
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '密码重置失败'
+  } finally {
+    changingId.value = ''
+  }
+}
+
+async function copyPassword() {
+  try {
+    await copyText(revealedPassword.value)
+    copied.value = true
+    ElMessage.success('初始密码已复制。')
+    if (copyResetTimer !== undefined) window.clearTimeout(copyResetTimer)
+    copyResetTimer = window.setTimeout(resetCopiedState, 1500)
+  } catch {
+    resetCopiedState()
+    ElMessage.error('复制失败，请手动选择密码复制。')
+  }
+}
+
+function resetCopiedState() {
+  copied.value = false
+  if (copyResetTimer !== undefined) {
+    window.clearTimeout(copyResetTimer)
+    copyResetTimer = undefined
+  }
+}
+
+function closePasswordDialog() {
+  revealedPassword.value = ''
+  resetCopiedState()
+}
+
 onMounted(() => load())
+onBeforeUnmount(resetCopiedState)
 </script>
 
 <template>
   <main class="content-page">
-    <PageHeader title="用户与注册审批" kind="users">
-      <template #meta>
-        <span data-test="page-stat">
-          {{ total }} 位用户<template v-if="pendingCount"> · {{ pendingCount }} 个待审批</template>
-        </span>
+    <PageHeader title="用户管理" kind="users" :icon="User">
+      <template #meta><span data-test="page-stat">{{ total }} 位用户</span></template>
+      <template #actions>
+        <VButton variant="primary" data-test="create-user" @click="createOpen = true">
+          <template #icon><el-icon><Plus /></el-icon></template>创建账号
+        </VButton>
       </template>
       <template #tabs>
         <button
@@ -102,64 +167,46 @@ onMounted(() => load())
 
     <div class="content-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-
       <VPanel v-loading="loading" flush>
         <VTable :columns="COLUMNS" :headers="['用户名', '状态', '创建时间', '操作']">
           <VRow v-for="user in users" :key="user.id" :columns="COLUMNS">
             <VCellName
               :name="user.username"
-              :sub="user.is_system_admin ? '系统管理员' : ''"
+              :sub="user.is_system_admin ? '系统管理员' : user.must_change_password ? '等待首次改密' : ''"
             />
             <VTag :tone="userStatus(user.status).tone">{{ userStatus(user.status).label }}</VTag>
             <time :datetime="user.created_at">{{ stamp(user.created_at) }}</time>
-            <div class="row-actions">
-              <template v-if="user.status === 'pending'">
-                <VButton
-                  :data-test="`approve-${user.id}`"
-                  variant="secondary"
-                  size="sm"
-                  :loading="changingId === user.id"
-                  @click="change(user, 'approve')"
-                >批准</VButton>
-                <VButton
-                  variant="quiet"
-                  size="sm"
-                  :disabled="changingId === user.id"
-                  @click="change(user, 'reject')"
-                >拒绝</VButton>
-              </template>
+            <div v-if="!user.is_system_admin" class="row-actions">
               <VButton
-                v-else-if="user.status === 'active'"
+                v-if="user.status === 'active'"
                 :data-test="`disable-${user.id}`"
                 variant="quiet"
                 size="sm"
                 :loading="changingId === user.id"
                 @click="change(user, 'disable')"
-              >禁用</VButton>
+              ><template #icon><el-icon><CircleClose /></el-icon></template>禁用</VButton>
               <VButton
                 v-else
-                variant="secondary"
+                :data-test="`enable-${user.id}`"
+                variant="default"
                 size="sm"
                 :loading="changingId === user.id"
                 @click="change(user, 'enable')"
-              >启用</VButton>
+              ><template #icon><el-icon><CircleCheck /></el-icon></template>启用</VButton>
+              <VButton
+                :data-test="`reset-${user.id}`"
+                variant="quiet"
+                size="sm"
+                :loading="changingId === user.id"
+                @click="resetPassword(user)"
+              ><template #icon><el-icon><RefreshRight /></el-icon></template>重新生成密码</VButton>
             </div>
           </VRow>
-
           <template #empty>
-            <VEmpty
-              v-if="!loading && !users.length"
-              :title="statusFilter ? '这个状态下没有账号' : '还没有其他账号'"
-              note="新用户提交注册申请后会出现在待审批列表。"
-            >
-              <VButton v-if="statusFilter" variant="secondary" @click="selectFilter('')">
-                查看全部账号
-              </VButton>
-            </VEmpty>
+            <VEmpty v-if="!loading && !users.length" title="暂无账号" note="由系统管理员创建普通账号。" />
           </template>
         </VTable>
       </VPanel>
-
       <el-pagination
         v-if="total > pageSize"
         layout="prev, pager, next"
@@ -169,23 +216,49 @@ onMounted(() => load())
         @current-change="load"
       />
     </div>
+
+    <el-dialog v-model="createOpen" title="创建普通账号" width="460px">
+      <el-form label-position="top" @submit.prevent="createAccount">
+        <el-form-item label="用户名">
+          <el-input v-model="username" data-test="new-username" autocomplete="off" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <VButton variant="quiet" @click="createOpen = false">取消</VButton>
+        <VButton data-test="submit-user" variant="primary" :disabled="!username.trim()" @click="createAccount">创建</VButton>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      :model-value="Boolean(revealedPassword)"
+      title="一次性初始密码"
+      width="520px"
+      @close="closePasswordDialog"
+    >
+      <el-alert title="关闭后系统不会再显示此密码；遗失时请重新生成。" type="warning" :closable="false" />
+      <p>{{ revealedUsername }}</p>
+      <el-input data-test="initial-password" :model-value="revealedPassword" readonly>
+        <template #append>
+          <el-button
+            class="copy-password-button"
+            data-test="copy-initial-password"
+            :title="copied ? '已复制' : '复制初始密码'"
+            :aria-label="copied ? '已复制' : '复制初始密码'"
+            @click="copyPassword"
+          >
+            <el-icon><CircleCheck v-if="copied" /><CopyDocument v-else /></el-icon>
+          </el-button>
+        </template>
+      </el-input>
+    </el-dialog>
   </main>
 </template>
 
 <style scoped>
-time {
-  color: var(--vdw-ink-2);
-  font-size: 14px;
-}
-
-.row-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 2px;
-}
-
-.el-pagination {
-  justify-content: flex-end;
-  margin-top: 14px;
-}
+time { color: var(--vdw-ink-2); font-size: 14px; }
+.row-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.el-pagination { justify-content: flex-end; margin-top: 14px; }
+.copy-password-button { transition: color 150ms ease, background-color 150ms ease; }
+.copy-password-button:hover,
+.copy-password-button:focus-visible { color: var(--vdw-accent-ink); background: var(--vdw-accent-soft); }
 </style>

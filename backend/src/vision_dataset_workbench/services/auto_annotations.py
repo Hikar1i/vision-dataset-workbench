@@ -21,12 +21,13 @@ from .labels import (
     normalize_label_name,
 )
 from .models import ModelService
-from .projects import ProjectForbidden, ProjectService
+from .projects import ProjectForbidden, ProjectService, touch_project
 from .sampling import SamplingService
 from .xanylabeling_settings import XAnyLabelingSettingsService
 from .llm_configs import LLMConfigService
 from .llm_annotation import LLMAnnotationError, predict as predict_llm
 from .dataset_exports import video_has_active_export
+from .gpu_leases import GpuLeaseService
 from ..xanylabeling import XAnyLabelingUnavailable
 
 
@@ -85,7 +86,9 @@ class AutoAnnotationService:
         self.capabilities = capabilities
         self.remote_settings = remote_settings
         self.llm_configs = llm_configs
-        self.runner = runner or InferenceRunner()
+        self.runner = runner or InferenceRunner(
+            GpuLeaseService(engine, devices=capabilities.gpu.devices)
+        )
         self.sampling = SamplingService(engine, settings, workspace)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
@@ -102,7 +105,7 @@ class AutoAnnotationService:
         source: str = "local",
         remote_task_id: str | None = None,
     ) -> AutoAnnotationResult:
-        if self.projects.get_project(actor, project_id).role == "viewer":
+        if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         frame, image_path = self.sampling.ready_frame_file(
             actor, project_id, video_id, frame_id
@@ -164,7 +167,7 @@ class AutoAnnotationService:
         source: str = "local",
         remote_task_id: str | None = None,
     ) -> Task:
-        if self.projects.get_project(actor, project_id).role == "viewer":
+        if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         selection = AutoAnnotationModel(source, model_id, remote_task_id)
         self._validate_model(actor, selection)
@@ -218,6 +221,7 @@ class AutoAnnotationService:
             )
             try:
                 database.add(task)
+                touch_project(database, project_id, at=now)
                 database.commit()
             except IntegrityError as exc:
                 database.rollback()
@@ -239,7 +243,7 @@ class AutoAnnotationService:
         source: str = "local",
         remote_task_id: str | None = None,
     ) -> AutoAnnotationBatchResult:
-        if self.projects.get_project(actor, project_id).role == "viewer":
+        if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         if scope not in {"unannotated", "all"}:
             raise AutoAnnotationConflict("invalid batch annotation scope")
@@ -323,6 +327,7 @@ class AutoAnnotationService:
                 updated_at=now,
             )
             database.add(task)
+            touch_project(database, project_id, at=now)
             database.commit()
             database.expunge(task)
             return AutoAnnotationBatchResult(task, accepted, rejected)
@@ -347,14 +352,19 @@ class AutoAnnotationService:
                 client, option = resolved
                 return client.predict(option, image_path, categories, confidence, iou)
             return predict_llm(resolved, image_path, categories, confidence)
-        except (InferenceUnavailable, XAnyLabelingUnavailable, LLMAnnotationError) as exc:
+        except XAnyLabelingUnavailable as exc:
+            self.remote_settings.mark_availability(actor.id, False)
+            raise AutoAnnotationUnavailable(str(exc)) from exc
+        except (InferenceUnavailable, LLMAnnotationError) as exc:
             raise AutoAnnotationUnavailable(str(exc)) from exc
 
     def _validate_model(
         self, actor: User, selection: AutoAnnotationModel
     ) -> tuple[object, object]:
         if selection.source == "local":
-            model, model_path = self.models.ready_model(selection.model_id)
+            model, model_path = self.models.ready_model(
+                actor, selection.model_id, "artifact.consume"
+            )
             capability = self.capabilities.features.yolo_auto_annotation
             if not capability.available:
                 raise AutoAnnotationUnavailable(
@@ -380,7 +390,9 @@ class AutoAnnotationService:
                 None,
             )
         except ValueError as exc:
+            self.remote_settings.mark_availability(actor.id, False)
             raise AutoAnnotationUnavailable(str(exc)) from exc
+        self.remote_settings.mark_availability(actor.id, True)
         if option is None:
             raise AutoAnnotationUnavailable("remote model is no longer available")
         return client, option

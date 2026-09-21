@@ -14,7 +14,6 @@ import ProjectSettingsView from "./views/ProjectSettingsView.vue";
 import ProjectLabelsView from "./views/ProjectLabelsView.vue";
 import ProjectDatasetsView from "./views/ProjectDatasetsView.vue";
 import ProjectVideosView from "./views/ProjectVideosView.vue";
-import RegisterView from "./views/RegisterView.vue";
 import SetupView from "./views/SetupView.vue";
 
 export function createAppRouter() {
@@ -24,7 +23,11 @@ export function createAppRouter() {
       { path: "/", redirect: "/overview" },
       { path: "/setup", component: SetupView },
       { path: "/login", component: LoginView },
-      { path: "/register", component: RegisterView },
+      {
+        path: "/password/change-required",
+        component: AccountView,
+        props: { required: true },
+      },
       { path: "/ready", redirect: "/overview" },
       {
         path: "/",
@@ -50,15 +53,31 @@ export function createAppRouter() {
           },
           {
             path: "model-projects/:id",
-            name: "model-project-detail",
+            redirect: { name: "model-project-models" },
+          },
+          {
+            path: "model-projects/:id/models",
+            name: "model-project-models",
             component: () => import("./views/ModelProjectDetailView.vue"),
             meta: { section: "模型项目", page: "模型列表" },
+          },
+          {
+            path: "model-projects/:id/evaluations",
+            name: "model-project-evaluations",
+            component: () => import("./views/ModelProjectEvaluationView.vue"),
+            meta: { section: "模型项目", page: "模型评估" },
           },
           {
             path: "model-projects/:id/models/:modelId",
             name: "model-detail",
             component: () => import("./views/ModelDetailView.vue"),
             meta: { section: "模型项目", page: "模型详情" },
+          },
+          {
+            path: "model-projects/:id/models/:modelId/inference",
+            name: "model-inference",
+            component: () => import("./views/ModelInferenceView.vue"),
+            meta: { section: "模型项目", page: "在线推理" },
           },
           {
             path: "hyperparameter-templates",
@@ -72,6 +91,13 @@ export function createAppRouter() {
             component: () =>
               import("./views/HyperparameterTemplateEditorView.vue"),
             meta: { section: "超参数模板", page: "新建模板" },
+          },
+          {
+            path: "hyperparameter-templates/:id/edit",
+            name: "hyperparameter-template-edit",
+            component: () =>
+              import("./views/HyperparameterTemplateEditorView.vue"),
+            meta: { section: "超参数模板", page: "编辑模板" },
           },
           {
             path: "hyperparameter-templates/:id",
@@ -120,6 +146,20 @@ export function createAppRouter() {
                 name: "project-videos",
                 component: ProjectVideosView,
                 meta: { section: "数据集项目", page: "原始数据" },
+                children: [
+                  {
+                    path: ":videoId/annotation",
+                    component: FocusLayout,
+                    children: [
+                      {
+                        path: "",
+                        name: "video-annotation",
+                        component: AnnotationWorkbenchView,
+                        meta: { section: "数据集项目", page: "在线标注" },
+                      },
+                    ],
+                  },
+                ],
               },
               {
                 path: "labels",
@@ -159,18 +199,6 @@ export function createAppRouter() {
           },
         ],
       },
-      {
-        path: "/projects/:id/videos/:videoId/annotation",
-        component: FocusLayout,
-        children: [
-          {
-            path: "",
-            name: "video-annotation",
-            component: AnnotationWorkbenchView,
-            meta: { section: "数据集项目", page: "在线标注" },
-          },
-        ],
-      },
     ],
   });
   router.beforeEach(async (to) => {
@@ -178,7 +206,7 @@ export function createAppRouter() {
     if (!initialized && to.path !== "/setup") return "/setup";
     if (!initialized) return;
 
-    const authStatus = await getAuthStatus();
+    await getAuthStatus();
     let user = null;
     try {
       user = await getCurrentUser();
@@ -188,11 +216,13 @@ export function createAppRouter() {
 
     if (!user) {
       if (to.path === "/login") return;
-      if (to.path === "/register" && authStatus.registration_enabled) return;
       return "/login";
     }
-    if (to.path === "/setup" || to.path === "/login" || to.path === "/register")
-      return "/projects";
+    if (user.must_change_password && to.path !== "/password/change-required")
+      return "/password/change-required";
+    if (!user.must_change_password && to.path === "/password/change-required")
+      return "/overview";
+    if (to.path === "/setup" || to.path === "/login") return "/overview";
     if (to.path.startsWith("/admin/") && !user.is_system_admin)
       return "/projects";
   });

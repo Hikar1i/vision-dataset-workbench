@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search } from "@element-plus/icons-vue";
+import { Refresh, Search, Top } from "@element-plus/icons-vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import {
@@ -181,13 +181,19 @@ onBeforeUnmount(() => {
           aria-label="搜索当前目录"
           placeholder="搜索当前目录"
         />
-        <VButton variant="secondary" :disabled="parent === null"
+        <VButton
+          icon-only
+          label="返回上一级"
           title="返回上一级"
-          aria-label="返回上一级"
-          @click="parent !== null && load(parent, 1)"/>
-        <VButton variant="secondary" title="刷新当前目录"
-          aria-label="刷新当前目录"
-          @click="load(current, page)"/>
+          :disabled="parent === null"
+          @click="parent !== null && load(parent, 1)"
+        ><template #icon><el-icon><Top /></el-icon></template></VButton>
+        <VButton
+          icon-only
+          label="刷新当前目录"
+          title="刷新当前目录"
+          @click="load(current, page)"
+        ><template #icon><el-icon><Refresh /></el-icon></template></VButton>
       </div>
     </header>
 
@@ -279,12 +285,12 @@ onBeforeUnmount(() => {
     <footer class="picker-footer">
       <span>当前位置：{{ displayPath }}</span>
       <div class="footer-actions">
-        <VButton variant="secondary" v-if="multiple"
+        <VButton variant="default" v-if="multiple"
           data-test="select-current-directory"
           @click="selectDirectory(current)">
           选择当前目录
         </VButton>
-        <VButton variant="secondary" v-if="allowCreateDirectory"
+        <VButton variant="default" v-if="allowCreateDirectory"
           data-test="new-directory"
           @click="creating = true; createError = ''">
           新建目录
@@ -302,7 +308,7 @@ onBeforeUnmount(() => {
       />
       <p v-if="createError" class="create-error">{{ createError }}</p>
       <template #footer>
-        <VButton variant="secondary" @click="creating = false">取消</VButton>
+        <VButton variant="default" @click="creating = false">取消</VButton>
         <VButton variant="primary" data-test="create-directory"
           :disabled="!directoryName.trim()"
           @click="createDirectoryEntry">

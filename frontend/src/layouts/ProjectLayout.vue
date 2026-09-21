@@ -13,6 +13,7 @@ import { ref, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 
 import { getProject, type Project } from '../api/projects'
+import { accessLabel } from '../api/access'
 import PageHeader from '../components/PageHeader.vue'
 import { provideProjectHeaderHost } from '../ui/projectHeaderHost'
 
@@ -23,7 +24,6 @@ const emit = defineEmits<{ 'project-loaded': [project: Project] }>()
 const project = ref<Project>()
 const loading = ref(false)
 const error = ref('')
-const roleLabels = { owner: '所有者', editor: '编辑者', viewer: '只读' } as const
 
 function setProject(value: Project) {
   project.value = value
@@ -57,7 +57,7 @@ watch(() => route.params.id, load, { immediate: true })
       back-label="返回数据集项目"
     >
       <template #eyebrow>
-        <span class="project-role">{{ roleLabels[project.role] }}</span>
+        <span class="project-role">{{ accessLabel(project.access) }}</span>
       </template>
       <template #meta>
         <!-- 子页把当前页的统计送到这里 -->
@@ -89,7 +89,6 @@ watch(() => route.params.id, load, { immediate: true })
       <Transition name="page-fade" mode="out-in">
         <component
           :is="Component"
-          :key="String(route.name)"
           :project="project"
           @project-updated="setProject"
         />
@@ -103,8 +102,13 @@ watch(() => route.params.id, load, { immediate: true })
   min-height: 100%;
 }
 
+/* 高度必须小于 eyebrow 的 22px 定高，否则会把该行撑开，
+   数据集项目的 header 就会比其它页面高——这正是要消除的问题。 */
 .project-role {
-  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
   color: var(--vdw-ink-2);
   font-size: 13px;
   letter-spacing: 0.06em;

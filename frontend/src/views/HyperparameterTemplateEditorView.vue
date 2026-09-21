@@ -1,27 +1,244 @@
 <script setup lang="ts">
-import { Close } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import { stringify } from 'yaml'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { createHyperparameterTemplate, getHyperparameterCatalog, getHyperparameterTemplate, validateHyperparameterRaw, type BatchMode, type ParameterDefinition, type ValidationIssue } from '../api/hyperparameters'
+import {
+  createHyperparameterTemplate,
+  getHyperparameterCatalog,
+  getHyperparameterTemplate,
+  updateHyperparameterTemplate,
+  type HyperparameterConfig,
+  type HyperparameterTemplate,
+  type ParameterDefinition,
+} from '../api/hyperparameters'
+import { can } from '../api/access'
+import { listModelProjects, type ModelProject } from '../api/models'
+import HyperparameterConfigEditor from '../components/HyperparameterConfigEditor.vue'
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 
-const route=useRoute();const router=useRouter();const catalog=ref<ParameterDefinition[]>([]);const name=ref('');const description=ref('');const epochs=ref(100);const batchMode=ref<BatchMode>('auto');const batchValue=ref<number|null>(null);const imageSize=ref(640);const extra=reactive<Record<string,unknown>>({});const selectedKey=ref('');const raw=ref('');const rawDirty=ref(false);const issues=ref<ValidationIssue[]>([]);const parsing=ref(false);const saving=ref(false);const derivedFromId=ref<string|null>(null);const applying=ref(false)
-const available=computed(()=>catalog.value.filter(item=>!(item.key in extra)));const definitions=computed(()=>Object.fromEntries(catalog.value.map(item=>[item.key,item])))
-function batch(){return batchMode.value==='auto'?-1:batchValue.value}
-function values(){return{epochs:epochs.value,batch:batch(),imgsz:imageSize.value,...extra}}
-function syncRaw(){if(rawDirty.value||applying.value)return;raw.value=stringify(values(),{lineWidth:0})}
-function addParameter(){if(!selectedKey.value)return;const definition=definitions.value[selectedKey.value];extra[selectedKey.value]=definition.default;selectedKey.value='';syncRaw()}
-function removeParameter(key:string){delete extra[key];syncRaw()}
-watch(batchMode,(mode)=>{if(applying.value)return;batchValue.value=mode==='auto'?null:mode==='fixed'?10:0.8})
-function rawInput(){rawDirty.value=true;issues.value=[]}
-async function parse(){parsing.value=true;try{const result=await validateHyperparameterRaw(raw.value);issues.value=result.issues;if(!result.valid||!result.normalized)return;applying.value=true;const normalized=result.normalized;epochs.value=normalized.epochs;batchMode.value=normalized.batch_mode;batchValue.value=normalized.batch_value;imageSize.value=normalized.image_size;for(const key of Object.keys(extra))delete extra[key];Object.assign(extra,normalized.extra_parameters);raw.value=result.normalized_raw??raw.value;rawDirty.value=false;ElMessage.success('RAW 已通过校验并解析到表单。')}catch(reason){ElMessage.error(reason instanceof Error?reason.message:'RAW 校验失败')}finally{applying.value=false;parsing.value=false}}
-async function save(){if(!name.value.trim())return;saving.value=true;try{const created=await createHyperparameterTemplate({name:name.value,description:description.value,epochs:epochs.value,batch_mode:batchMode.value,batch_value:batchMode.value==='auto'?null:batchValue.value,image_size:imageSize.value,extra_parameters:{...extra},derived_from_id:derivedFromId.value});await router.push(`/hyperparameter-templates/${created.id}`)}catch(reason){ElMessage.error(reason instanceof Error?reason.message:'模板创建失败')}finally{saving.value=false}}
-watch([epochs,batchMode,batchValue,imageSize,()=>JSON.stringify(extra)],syncRaw,{immediate:true})
-onMounted(async()=>{const [nextCatalog,source]=await Promise.all([getHyperparameterCatalog(),typeof route.query.from==='string'?getHyperparameterTemplate(route.query.from):Promise.resolve(null)]);catalog.value=nextCatalog.items;if(source){applying.value=true;derivedFromId.value=source.id;name.value=`${source.name} - 派生`;description.value=source.description;epochs.value=source.epochs;batchMode.value=source.batch_mode;batchValue.value=source.batch_value;imageSize.value=source.image_size;Object.assign(extra,source.extra_parameters);applying.value=false}rawDirty.value=false;syncRaw()})
+const route = useRoute()
+const router = useRouter()
+const catalog = ref<ParameterDefinition[]>([])
+const source = ref<HyperparameterTemplate | null>(null)
+const projects = ref<ModelProject[]>([])
+const modelProjectId = ref('')
+const name = ref('')
+const description = ref('')
+const config = ref<HyperparameterConfig>({
+  epochs: 100,
+  batch_mode: 'auto',
+  batch_value: null,
+  image_size: 640,
+  extra_parameters: {},
+})
+const rawDirty = ref(false)
+const saving = ref(false)
+const derivedFromId = ref<string | null>(null)
+const editorKey = ref(0)
+const editing = computed(() => route.name === 'hyperparameter-template-edit')
+const title = computed(() => editing.value ? '编辑超参数模板' : derivedFromId.value ? '派生超参数模板' : '新建超参数模板')
+
+function defaultConfig(): HyperparameterConfig {
+  return { epochs: 100, batch_mode: 'auto', batch_value: null, image_size: 640, extra_parameters: {} }
+}
+
+function clear() {
+  name.value = ''
+  description.value = ''
+  config.value = defaultConfig()
+  rawDirty.value = false
+  editorKey.value += 1
+  ElMessage.success('已清空，核心参数已恢复默认值。')
+}
+
+async function save() {
+  if (!name.value.trim()) return
+  saving.value = true
+  try {
+    const created = await createHyperparameterTemplate({
+      model_project_id: modelProjectId.value,
+      name: name.value,
+      description: description.value,
+      ...config.value,
+      derived_from_id: derivedFromId.value,
+    })
+    await router.push(`/hyperparameter-templates/${created.id}`)
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '模板创建失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function saveCurrent() {
+  if (!source.value || !name.value.trim()) return
+  saving.value = true
+  try {
+    source.value = await updateHyperparameterTemplate(source.value.id, {
+      version: source.value.version,
+      name: name.value,
+      description: description.value,
+      ...config.value,
+    })
+    ElMessage.success(`已保存到当前模板 v${source.value.version}。`)
+    await router.push(`/hyperparameter-templates/${source.value.id}`)
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '模板保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function derive() {
+  if (!source.value) return
+  let nextName: string
+  try {
+    const result = await ElMessageBox.prompt('请输入派生模板名称', '派生模板', {
+      inputValue: `${source.value.name} - 派生`,
+      inputValidator: (value) => Boolean(value.trim()) || '请输入模板名称',
+      confirmButtonText: '创建派生模板',
+      cancelButtonText: '取消',
+    })
+    nextName = result.value.trim()
+  } catch {
+    return
+  }
+  saving.value = true
+  try {
+    const created = await createHyperparameterTemplate({
+      model_project_id: modelProjectId.value,
+      name: nextName,
+      description: description.value,
+      ...config.value,
+      derived_from_id: source.value.id,
+    })
+    ElMessage.success('已创建派生模板。')
+    await router.push(`/hyperparameter-templates/${created.id}`)
+  } catch (reason) {
+    ElMessage.error(reason instanceof Error ? reason.message : '派生模板创建失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+onMounted(async () => {
+  const sourceId = editing.value
+    ? String(route.params.id)
+    : typeof route.query.from === 'string'
+      ? route.query.from
+      : null
+  const [nextCatalog, loadedSource, modelProjects] = await Promise.all([
+    getHyperparameterCatalog(),
+    sourceId
+      ? getHyperparameterTemplate(sourceId)
+      : Promise.resolve(null),
+    listModelProjects(),
+  ])
+  catalog.value = nextCatalog.items
+  projects.value = modelProjects.filter((project) => (
+    !project.system_key && can(project.access, 'project.update')
+  ))
+  modelProjectId.value = loadedSource?.model_project_id
+    && projects.value.some((project) => project.id === loadedSource.model_project_id)
+    ? loadedSource.model_project_id
+    : projects.value[0]?.id || ''
+  if (!loadedSource) return
+  source.value = loadedSource
+  derivedFromId.value = editing.value ? null : loadedSource.id
+  name.value = editing.value ? loadedSource.name : `${loadedSource.name} - 派生`
+  description.value = loadedSource.description
+  config.value = {
+    epochs: loadedSource.epochs,
+    batch_mode: loadedSource.batch_mode,
+    batch_value: loadedSource.batch_value,
+    image_size: loadedSource.image_size,
+    extra_parameters: { ...loadedSource.extra_parameters },
+  }
+})
 </script>
-<template><main class="content-page editor-page"><PageHeader :title="derivedFromId?'派生超参数模板':'新建超参数模板'" back-to="/hyperparameter-templates"><template #meta>YOLO Detect / {{ catalog.length }} 个可选参数</template><template #actions><VButton variant="primary" :loading="saving" :disabled="!name.trim()||rawDirty" @click="save">创建模板</VButton></template></PageHeader><div class="editor-layout"><section class="form-pane"><el-form label-position="top"><el-form-item label="模板名称"><el-input v-model="name" maxlength="128" show-word-limit /></el-form-item><el-form-item label="描述"><el-input v-model="description" type="textarea" :rows="2" maxlength="2000" /></el-form-item><div class="core-grid"><el-form-item label="epochs"><el-input-number v-model="epochs" :min="1" :max="100000" :controls="false" /></el-form-item><el-form-item :label="`image size · ${imageSize}`"><el-slider v-model="imageSize" :min="32" :max="1280" :step="32" show-stops /></el-form-item><el-form-item label="batch size"><div class="batch-controls"><el-select v-model="batchMode"><el-option label="自动" value="auto"/><el-option label="固定数量" value="fixed"/><el-option label="显存比例" value="fraction"/></el-select><el-input-number v-model="batchValue" :class="{invisible:batchMode==='auto'}" :disabled="batchMode==='auto'" :min="batchMode==='fixed'?1:0.01" :max="batchMode==='fixed'?4096:1" :step="batchMode==='fixed'?1:0.05" :precision="batchMode==='fraction'?2:0" /></div></el-form-item></div></el-form><div class="extra-heading"><div><strong>附加超参数</strong><p>从 Detect 参数目录中按需添加。</p></div></div><div class="parameter-list"><div v-for="key in Object.keys(extra)" :key="key" class="parameter-row"><label><strong>{{ definitions[key]?.label }}</strong><code>{{ key }}</code><small v-if="definitions[key]?.minimum!=null">{{ definitions[key]?.minimum }} – {{ definitions[key]?.maximum }}</small></label><el-switch v-if="definitions[key]?.value_type==='boolean'" v-model="extra[key]"/><el-select v-else-if="key==='cache'" v-model="extra[key]"><el-option label="关闭" :value="false"/><el-option label="内存 / ram" value="ram"/><el-option label="磁盘 / disk" value="disk"/></el-select><el-select v-else-if="definitions[key]?.choices.length" v-model="extra[key]"><el-option v-for="choice in definitions[key].choices" :key="choice" :label="choice" :value="choice"/></el-select><el-input-number v-else v-model="extra[key] as number" :min="definitions[key]?.minimum??undefined" :max="definitions[key]?.maximum??undefined" :step="definitions[key]?.step" :precision="definitions[key]?.precision" :controls="definitions[key]?.controls"/><VButton variant="quiet" size="sm" icon-only :label="`移除 ${key}`" @click="removeParameter(String(key))"><template #icon><el-icon><Close /></el-icon></template></VButton></div><el-empty v-if="!Object.keys(extra).length" :image-size="72" description="尚未添加附加参数"/><div v-if="available.length" class="parameter-add"><el-select v-model="selectedKey" filterable placeholder="选择要添加的参数"><el-option v-for="item in available" :key="item.key" :label="`${item.label} / ${item.key}`" :value="item.key" /></el-select><VButton variant="secondary" :disabled="!selectedKey" @click="addParameter">添加参数</VButton></div></div></section><aside class="raw-pane"><header><div><span>RAW / YAML</span><strong>{{ rawDirty?'有未解析更改':'已与表单同步' }}</strong></div><VButton variant="secondary" :loading="parsing" @click="parse">校验并解析</VButton></header><textarea v-model="raw" spellcheck="false" aria-label="RAW 超参数 YAML" @input="rawInput"/><el-alert v-if="rawDirty" title="RAW 更改尚未应用。只有全部校验通过后，左侧表单才会更新。" type="warning" :closable="false"/><ul v-if="issues.length" class="issues"><li v-for="(issue,index) in issues" :key="index"><code v-if="issue.line">L{{ issue.line }}{{ issue.key?` · ${issue.key}`:'' }}</code>{{ issue.message }}</li></ul></aside></div></main></template>
-<style scoped>.editor-page{background:var(--vdw-app);color:var(--vdw-ink)}.editor-layout{display:grid;grid-template-columns:minmax(560px,1.2fr) minmax(380px,.8fr);gap:18px;padding:24px}.form-pane,.raw-pane{background:var(--vdw-surface);border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-card);box-shadow:var(--vdw-shadow);padding:24px}.core-grid{display:grid;grid-template-columns:1fr 1.6fr;gap:4px 22px}.core-grid> :last-child{grid-column:1/-1}.batch-controls{display:grid;grid-template-columns:minmax(180px,1fr) minmax(180px,1fr);gap:14px}.invisible{visibility:hidden;pointer-events:none}.extra-heading,.extra-heading>div,.raw-pane>header,.raw-pane header>div{display:flex;align-items:center;justify-content:space-between;gap:10px}.extra-heading p{margin:4px 0;color:var(--vdw-ink-2)}.parameter-list{margin-top:14px;border-top:1px solid var(--vdw-line)}.parameter-row{display:grid;grid-template-columns:minmax(180px,1fr) 220px 36px;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--vdw-line)}.parameter-row label{display:flex;flex-direction:column}.parameter-row small{margin-top:3px;color:var(--vdw-ink-3)}.parameter-row code,.raw-pane header span{color:var(--vdw-accent);font:13px var(--vdw-mono)}.parameter-add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding-top:16px}.raw-pane{display:flex;flex-direction:column;gap:14px;position:sticky;top:16px;height:calc(100vh - 130px)}.raw-pane header>div{align-items:flex-start;flex-direction:column}.raw-pane textarea{flex:1;min-height:420px;resize:none;padding:18px;border:1px solid var(--vdw-focus-line);border-radius:var(--vdw-radius-control);background:var(--vdw-focus-canvas);color:var(--vdw-focus-ink);font:14px/1.7 var(--vdw-mono);outline:none}.raw-pane textarea:focus{box-shadow:var(--vdw-ring)}.issues{margin:0;padding:12px 16px 12px 32px;background:var(--el-color-danger-light-9);color:var(--el-color-danger)}.issues code{margin-right:8px}</style>
+
+<template>
+  <main class="content-page editor-page">
+    <PageHeader
+      :title="title"
+      back-to="/hyperparameter-templates"
+    >
+      <template #meta>
+        YOLO Detect / {{ catalog.length }} 个可选参数<span v-if="source"> · v{{ source.version }}</span>
+      </template>
+      <template #actions>
+        <VButton v-if="!editing" variant="quiet" @click="clear">清空</VButton>
+        <VButton v-if="editing" variant="default" :disabled="rawDirty" @click="derive">
+          派生模板
+        </VButton>
+        <VButton
+          variant="primary"
+          :loading="saving"
+          :disabled="!name.trim() || rawDirty || (!editing && !modelProjectId)"
+          @click="editing ? saveCurrent() : save()"
+        >
+          {{ editing ? '保存当前模板' : '创建模板' }}
+        </VButton>
+      </template>
+    </PageHeader>
+
+    <div class="editor-body">
+      <section class="identity-pane">
+        <el-form label-position="top">
+          <el-form-item v-if="!editing" label="所属模型项目">
+            <el-select v-model="modelProjectId" placeholder="选择可编辑的模型项目">
+              <el-option
+                v-for="project in projects"
+                :key="project.id"
+                :label="project.name"
+                :value="project.id"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="模板名称">
+            <el-input v-model="name" maxlength="128" show-word-limit />
+          </el-form-item>
+          <el-form-item label="描述">
+            <el-input v-model="description" type="textarea" :rows="2" maxlength="2000" />
+          </el-form-item>
+        </el-form>
+      </section>
+      <HyperparameterConfigEditor
+        :key="editorKey"
+        v-model="config"
+        :catalog="catalog"
+        @dirty-change="rawDirty = $event"
+      />
+    </div>
+  </main>
+</template>
+
+<style scoped>
+.editor-page {
+  background: var(--vdw-app);
+  color: var(--vdw-ink);
+}
+
+.editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+}
+
+.identity-pane {
+  padding: 20px 24px 4px;
+  border: 1px solid var(--vdw-line);
+  border-radius: var(--vdw-radius-card);
+  background: var(--vdw-surface);
+  box-shadow: var(--vdw-shadow);
+}
+
+.identity-pane :deep(.el-form) {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.8fr) minmax(480px, 1.2fr);
+  gap: 20px;
+}
+</style>

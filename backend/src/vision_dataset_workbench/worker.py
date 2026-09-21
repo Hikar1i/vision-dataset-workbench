@@ -26,11 +26,31 @@ from .database import make_engine
 from .dataset_export_task import DatasetExportTaskCanceled, execute_dataset_export
 from .media import MediaMetadata, MediaToolError, normalize_remote_url, probe_video, ytdlp_base_args
 from .inference import InferenceRunner, InferenceUnavailable
+from .model_artifact_task import (
+    ModelConversionCanceled,
+    ModelConversionDeferred,
+    execute_model_conversion,
+)
+from .model_inference_task import (
+    ModelInferenceCanceled,
+    ModelInferenceDeferred,
+    execute_video_inference,
+)
+from .evaluation_dataset_task import EvaluationDatasetCanceled, execute_evaluation_dataset_import
+from .model_evaluation_task import (
+    ModelEvaluationCanceled,
+    ModelEvaluationDeferred,
+    execute_model_evaluation,
+)
 from .models import (
     DatasetExport,
+    EvaluationDataset,
     Frame,
     FrameAnnotation,
     InferenceModel,
+    ModelArtifact,
+    ModelInferenceRun,
+    ModelEvaluation,
     ProjectLabel,
     SamplingPlan,
     Task,
@@ -38,12 +58,16 @@ from .models import (
 )
 from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
 from .services.labels import automatic_label_color, normalize_label_name
+from .services.gpu_leases import GpuLeaseService
+from .services.models import touch_model_project
+from .services.projects import touch_project
 from .services.xanylabeling_settings import XAnyLabelingSettingsService
 from .security.credentials import resolve_credential_key
 from .services.llm_configs import LLMConfigService
 from .services.llm_annotation import LLMAnnotationError, predict as predict_llm
 from .storage.browser import VIDEO_EXTENSIONS
 from .storage.locator import WorkspaceLocator, default_locator_path
+from .storage.materialize import materialize_immutable_file
 from .storage.paths import HomePathResolver, UnsafePathError
 from .training.scheduler import TrainingScheduler
 from .xanylabeling import XAnyLabelingUnavailable
@@ -55,6 +79,10 @@ LIMITS = {
     "import_model": 1,
     "auto_annotate": 2,
     "export_dataset": 1,
+    "convert_model": 2,
+    "infer_video": 2,
+    "import_evaluation_dataset": 1,
+    "evaluate_model": 2,
 }
 LEASE_SECONDS = 30
 COPY_CHUNK_SIZE = 1024 * 1024
@@ -122,15 +150,21 @@ class TaskWorker:
         self._run = run
         self._now = now
         self.worker_id = worker_id or str(uuid4())
-        self._inference_runner = inference_runner or InferenceRunner()
+        self._gpu_leases = GpuLeaseService(engine)
+        self._inference_runner = inference_runner or InferenceRunner(self._gpu_leases)
         self._remote_settings = remote_settings or XAnyLabelingSettingsService(engine, settings)
         self._llm_configs = LLMConfigService(engine, settings)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="vdw-task")
         self._futures: dict[str, Future[None]] = {}
         self._stop = threading.Event()
+        self._last_inference_sweep = 0.0
         self._training_scheduler = TrainingScheduler(
-            engine, self.workspace, worker_id=self.worker_id, popen=popen
+            engine,
+            self.workspace,
+            worker_id=self.worker_id,
+            popen=popen,
+            gpu_leases=self._gpu_leases,
         )
 
     def claim_available(self) -> list[Task]:
@@ -209,13 +243,67 @@ class TaskWorker:
                     self._heartbeat,
                     self._cancel_requested,
                 )
+            elif task_type == "convert_model":
+                execute_model_conversion(
+                    self._session_factory,
+                    self.workspace,
+                    task_id,
+                    task_temp,
+                    self._now,
+                    self._heartbeat,
+                    self._gpu_leases,
+                    self._cancel_requested,
+                )
+            elif task_type == "infer_video":
+                execute_video_inference(
+                    self._session_factory,
+                    self.workspace,
+                    task_id,
+                    task_temp,
+                    self._now,
+                    self._heartbeat,
+                    self._cancel_requested,
+                    self._gpu_leases,
+                    self._inference_runner,
+                )
+            elif task_type == "import_evaluation_dataset":
+                execute_evaluation_dataset_import(
+                    self._session_factory,
+                    self.workspace,
+                    task_id,
+                    task_temp,
+                    self._now,
+                    self._heartbeat,
+                    self._cancel_requested,
+                )
+            elif task_type == "evaluate_model":
+                execute_model_evaluation(
+                    self._session_factory,
+                    self.workspace,
+                    task_id,
+                    task_temp,
+                    self._now,
+                    self._heartbeat,
+                    self._cancel_requested,
+                    self._gpu_leases,
+                )
             else:
                 raise RuntimeError("unsupported task type")
-        except (TaskCanceled, DatasetExportTaskCanceled):
+        except (ModelConversionDeferred, ModelInferenceDeferred, ModelEvaluationDeferred):
+            self._requeue(task_id)
+        except (
+            TaskCanceled,
+            DatasetExportTaskCanceled,
+            ModelInferenceCanceled,
+            EvaluationDatasetCanceled,
+            ModelEvaluationCanceled,
+            ModelConversionCanceled,
+        ):
             self._finish_canceled(task_id)
         except Exception as exc:
             self._finish_failed(task_id, exc)
         finally:
+            self._cleanup_deleted_inference(task_id)
             self._remove_task_temp(task_temp)
 
     def _execute_copy(self, task_id: str, task_temp: Path) -> None:
@@ -228,19 +316,17 @@ class TaskWorker:
         if not source.is_file() or source.suffix.lower() not in VIDEO_EXTENSIONS:
             raise MediaToolError("source is not a supported video file")
 
-        copied = task_temp / source.name
         total = source.stat().st_size
-        written = 0
         digest = hashlib.sha256()
+        read = 0
         last_update = 0.0
-        with source.open("rb") as reader, copied.open("xb") as writer:
+        with source.open("rb") as reader:
             while chunk := reader.read(COPY_CHUNK_SIZE):
-                writer.write(chunk)
                 digest.update(chunk)
-                written += len(chunk)
+                read += len(chunk)
                 current = time.monotonic()
-                if current - last_update >= 1 or written == total:
-                    self._heartbeat(task_id, round(written * 100 / total) if total else 100)
+                if current - last_update >= 1 or read == total:
+                    self._heartbeat(task_id, round(read * 50 / total) if total else 50)
                     last_update = current
                 if self._cancel_requested(task_id):
                     raise TaskCanceled("task canceled")
@@ -249,6 +335,20 @@ class TaskWorker:
         if self._local_duplicate(video, content_hash):
             self._finish_duplicate(task_id, "same video content already exists")
             return
+        copied = task_temp / source.name
+        materialization = materialize_immutable_file(
+            source,
+            copied,
+            copy_file=lambda source, target: self._copy_file_with_progress(
+                task_id,
+                source,
+                target,
+                total,
+                0,
+                progress_start=50,
+                progress_end=95,
+            ),
+        )
         metadata = self._probe(copied)
         thumbnail = self._make_thumbnail(copied, task_temp / f"{video.id}.jpg")
         self._publish(
@@ -258,6 +358,7 @@ class TaskWorker:
             metadata,
             thumbnail=thumbnail,
             content_sha256=content_hash,
+            materialization=materialization,
         )
 
     def _execute_import_model(self, task_id: str, task_temp: Path) -> None:
@@ -322,6 +423,8 @@ class TaskWorker:
             task.updated_at = now
             task.lease_owner = None
             task.lease_expires_at = None
+            if task.model_project_id is not None:
+                touch_model_project(database, task.model_project_id, at=now)
             database.commit()
 
     def _copy_file_with_progress(
@@ -331,12 +434,20 @@ class TaskWorker:
         destination: Path,
         total: int,
         copied: int,
+        *,
+        progress_start: int = 0,
+        progress_end: int = 99,
     ) -> int:
         with source.open("rb") as reader, destination.open("xb") as writer:
             while chunk := reader.read(COPY_CHUNK_SIZE):
                 writer.write(chunk)
                 copied += len(chunk)
-                self._heartbeat(task_id, min(99, round(copied * 100 / total)) if total else 99)
+                progress = (
+                    progress_start + round(copied * (progress_end - progress_start) / total)
+                    if total
+                    else progress_end
+                )
+                self._heartbeat(task_id, min(progress_end, progress))
                 if self._cancel_requested(task_id):
                     raise TaskCanceled("task canceled")
         return copied
@@ -398,7 +509,9 @@ class TaskWorker:
                     ),
                     None,
                 )
+                self._remote_settings.mark_availability(submitted_by_id, True)
             except ValueError as exc:
+                self._remote_settings.mark_availability(submitted_by_id, False)
                 raise MediaToolError(str(exc)) from exc
             if remote_option is None:
                 raise MediaToolError("remote model is no longer available")
@@ -462,6 +575,8 @@ class TaskWorker:
             except TaskCanceled:
                 raise
             except (InferenceUnavailable, XAnyLabelingUnavailable, LLMAnnotationError, MediaToolError) as exc:
+                if source == "xanylabeling" and isinstance(exc, XAnyLabelingUnavailable):
+                    self._remote_settings.mark_availability(submitted_by_id, False)
                 video_results.append(
                     {
                         "video_id": video.id,
@@ -506,6 +621,8 @@ class TaskWorker:
             task.updated_at = now
             task.lease_owner = None
             task.lease_expires_at = None
+            if task.project_id is not None:
+                touch_project(database, task.project_id, at=now)
             database.commit()
 
     def _managed_model_path(self, model: InferenceModel) -> Path:
@@ -881,6 +998,7 @@ class TaskWorker:
                 stored_task.updated_at = now
                 stored_task.lease_owner = None
                 stored_task.lease_expires_at = None
+                touch_project(database, video.project_id, at=now)
                 database.commit()
         except Exception:
             if target.exists():
@@ -965,6 +1083,7 @@ class TaskWorker:
         *,
         thumbnail: Path | None,
         content_sha256: str | None = None,
+        materialization: str | None = None,
     ) -> None:
         videos_dir = self.workspace / "projects" / video.project_id / "videos"
         thumbnails_dir = self.workspace / "projects" / video.project_id / "thumbnails"
@@ -1006,12 +1125,18 @@ class TaskWorker:
                 stored_video.updated_at = now
                 stored_task.status = "succeeded"
                 stored_task.progress = 100
-                stored_task.result = json.dumps({"outcome": "imported"})
+                stored_task.result = json.dumps(
+                    {
+                        "outcome": "imported",
+                        **({"materialization": materialization} if materialization else {}),
+                    }
+                )
                 stored_task.error = None
                 stored_task.finished_at = now
                 stored_task.updated_at = now
                 stored_task.lease_owner = None
                 stored_task.lease_expires_at = None
+                touch_project(database, stored_video.project_id, at=now)
                 database.commit()
         except Exception:
             destination.unlink(missing_ok=True)
@@ -1053,6 +1178,8 @@ class TaskWorker:
             task.lease_expires_at = None
             if video is not None:
                 database.delete(video)
+            if task.project_id is not None:
+                touch_project(database, task.project_id, at=now)
             database.commit()
 
     def _finish_canceled(self, task_id: str) -> None:
@@ -1068,6 +1195,10 @@ class TaskWorker:
             task.lease_expires_at = None
             self._fail_imported_model(database, task, "model import canceled")
             self._finish_dataset_export(database, task, "canceled", "dataset export canceled")
+            self._finish_model_artifact(database, task, "failed", "model conversion canceled")
+            self._finish_model_inference(database, task, "canceled", "inference canceled")
+            self._finish_evaluation_resource(database, task, "canceled", "evaluation canceled")
+            self._touch_terminal_parent(database, task, now)
             database.commit()
 
     def _safe_error(self, exc: Exception) -> str:
@@ -1089,6 +1220,41 @@ class TaskWorker:
             task.lease_expires_at = None
             self._fail_imported_model(database, task, task.error)
             self._finish_dataset_export(database, task, "failed", task.error)
+            self._finish_model_artifact(database, task, "failed", task.error)
+            self._finish_model_inference(database, task, "failed", task.error)
+            self._finish_evaluation_resource(database, task, "failed", task.error)
+            self._touch_terminal_parent(database, task, now)
+            database.commit()
+
+    def _requeue(self, task_id: str) -> None:
+        now = self._now()
+        with self._session_factory() as database:
+            task = database.get(Task, task_id)
+            if task is None:
+                return
+            task.status = "queued"
+            task.started_at = None
+            task.updated_at = now
+            task.lease_owner = None
+            task.lease_expires_at = None
+            if task.type == "convert_model":
+                artifact_id = str(json.loads(task.payload).get("artifact_id") or "")
+                artifact = database.get(ModelArtifact, artifact_id)
+                if artifact is not None:
+                    artifact.status = "queued"
+                    artifact.updated_at = now
+            elif task.type == "infer_video":
+                run_id = str(json.loads(task.payload).get("run_id") or "")
+                run = database.get(ModelInferenceRun, run_id)
+                if run is not None:
+                    run.status = "queued"
+                    run.started_at = None
+            elif task.type == "evaluate_model":
+                evaluation_id = str(json.loads(task.payload).get("evaluation_id") or "")
+                evaluation = database.get(ModelEvaluation, evaluation_id)
+                if evaluation is not None:
+                    evaluation.status = "queued"
+                    evaluation.started_at = None
             database.commit()
 
     @staticmethod
@@ -1113,6 +1279,51 @@ class TaskWorker:
             record.error = error
             record.completed_at = task.updated_at
 
+    @staticmethod
+    def _finish_model_artifact(database, task: Task, status: str, error: str) -> None:
+        if task.type != "convert_model":
+            return
+        artifact_id = str(json.loads(task.payload).get("artifact_id") or "")
+        artifact = database.get(ModelArtifact, artifact_id)
+        if artifact is not None:
+            artifact.status = status
+            artifact.error = error
+            artifact.updated_at = task.updated_at
+
+    @staticmethod
+    def _finish_model_inference(database, task: Task, status: str, error: str) -> None:
+        if task.type != "infer_video":
+            return
+        run_id = str(json.loads(task.payload).get("run_id") or "")
+        run = database.get(ModelInferenceRun, run_id)
+        if run is not None:
+            run.status = status
+            run.error = error
+            run.finished_at = task.updated_at
+
+    @staticmethod
+    def _finish_evaluation_resource(database, task: Task, status: str, error: str) -> None:
+        payload = json.loads(task.payload)
+        if task.type == "import_evaluation_dataset":
+            dataset = database.get(EvaluationDataset, str(payload.get("dataset_id") or ""))
+            if dataset is not None:
+                dataset.status = "failed"
+                dataset.error = error
+                dataset.completed_at = task.updated_at
+        elif task.type == "evaluate_model":
+            evaluation = database.get(ModelEvaluation, str(payload.get("evaluation_id") or ""))
+            if evaluation is not None:
+                evaluation.status = status
+                evaluation.error = error
+                evaluation.finished_at = task.updated_at
+
+    @staticmethod
+    def _touch_terminal_parent(database, task: Task, now: datetime) -> None:
+        if task.project_id is not None:
+            touch_project(database, task.project_id, at=now)
+        elif task.model_project_id is not None and task.type != "infer_video":
+            touch_model_project(database, task.model_project_id, at=now)
+
     def _remove_task_temp(self, path: Path) -> None:
         expected_parent = (self.workspace / "tmp").resolve()
         if path.parent.resolve() != expected_parent:
@@ -1120,8 +1331,46 @@ class TaskWorker:
         if path.exists():
             shutil.rmtree(path)
 
+    def _cleanup_deleted_inference(self, task_id: str) -> None:
+        with self._session_factory() as database:
+            task = database.get(Task, task_id)
+            if task is None or task.type != "infer_video":
+                return
+            run = database.get(
+                ModelInferenceRun, str(json.loads(task.payload).get("run_id") or "")
+            )
+            if run is not None and run.deleted_at is not None:
+                shutil.rmtree(
+                    self.workspace / "models" / run.model_id / "inference" / run.id,
+                    ignore_errors=True,
+                )
+
+    def _sweep_inference_runs(self) -> None:
+        current = time.monotonic()
+        if current - self._last_inference_sweep < 60:
+            return
+        self._last_inference_sweep = current
+        now = self._now()
+        paths = []
+        with self._session_factory() as database:
+            rows = database.scalars(
+                select(ModelInferenceRun).where(
+                    ModelInferenceRun.saved_at.is_(None),
+                    ModelInferenceRun.deleted_at.is_(None),
+                    ModelInferenceRun.expires_at < now,
+                    ModelInferenceRun.status.in_(("succeeded", "failed", "canceled")),
+                )
+            ).all()
+            for run in rows:
+                run.deleted_at = now
+                paths.append(self.workspace / "models" / run.model_id / "inference" / run.id)
+            database.commit()
+        for path in paths:
+            shutil.rmtree(path, ignore_errors=True)
+
     def run_once(self) -> None:
         self._training_scheduler.tick()
+        self._sweep_inference_runs()
         for task_id, future in list(self._futures.items()):
             if future.done():
                 future.result()

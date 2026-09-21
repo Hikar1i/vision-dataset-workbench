@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import {
+  Cpu, Delete, EditPen, Plus, Refresh, RefreshLeft, RefreshRight, VideoPlay, View,
+} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { can } from '../api/access'
 
 import {
   deleteTrainingTask,
@@ -17,8 +20,10 @@ import VBar from '../ui/VBar.vue'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
 import VChip from '../ui/VChip.vue'
+import VDateTime from '../ui/VDateTime.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -34,7 +39,8 @@ const error = ref('')
 const filter = ref<Filter>('all')
 
 const COLUMNS =
-  'minmax(240px, 1.3fr) 106px minmax(180px, 0.9fr) 128px 128px minmax(232px, auto)'
+  'minmax(240px, 1.5fr) 75px minmax(150px, 1fr) 110px 110px minmax(390px, 2fr)'
+const RECENT_SCOPE = 'training-tasks'
 
 const MODE_LABEL: Record<string, string> = {
   single_model: '单模型',
@@ -60,20 +66,17 @@ const visible = computed(() => {
 })
 
 /**
- * 每行只提升一个操作为 secondary——该行当前最合理的下一步。
+ * 每行只提升一个操作为 default——该行当前最合理的下一步。
  * 其余保持 quiet，禁用项不画底色。重构前 6 个操作等重并列，
  * 且禁用项比可用项更显眼。
  */
 function primaryAction(task: TrainingTask): 'start' | 'retry' | 'resume' | null {
-  if (!task.can_manage) return null
+  if (!can(task.access, 'task.execute')) return null
   if (task.actions.resume?.allowed) return 'resume'
   if (task.actions.retry?.allowed) return 'retry'
   if (task.actions.start?.allowed) return 'start'
   return null
 }
-
-const stamp = (value: string | null | undefined) =>
-  (value ? value.slice(0, 16).replace('T', ' ') : '')
 
 async function load() {
   loading.value = true
@@ -125,7 +128,7 @@ onMounted(load)
 
 <template>
   <main class="content-page">
-    <PageHeader title="训练任务" kind="training tasks">
+    <PageHeader title="训练任务" kind="training tasks" :icon="Cpu">
       <template #meta>
         <span data-test="page-stat">{{ tasks.length }} 个任务 · 最近训练优先</span>
       </template>
@@ -166,7 +169,12 @@ onMounted(load)
           :columns="COLUMNS"
           :headers="['训练任务', '模式', '状态 / 进度', '创建时间', '最近训练', '操作']"
         >
-          <VRow v-for="task in visible" :key="task.id" :columns="COLUMNS">
+          <VRow
+            v-for="task in visible"
+            :key="task.id"
+            :columns="COLUMNS"
+            :recent="isRecentRow(RECENT_SCOPE, task.id)"
+          >
             <VCellName
               :name="task.name"
               :sub="task.description || `${task.model_count} 个模型`"
@@ -193,45 +201,50 @@ onMounted(load)
               />
             </div>
 
-            <time>{{ stamp(task.created_at) }}</time>
-            <time :class="{ 'is-empty': !task.last_run_at }">
-              {{ task.last_run_at ? stamp(task.last_run_at) : '尚未开始' }}
-            </time>
+            <VDateTime :value="task.created_at" />
+            <VDateTime v-if="task.last_run_at" :value="task.last_run_at" />
+            <span v-else class="is-empty">尚未开始</span>
 
-            <div class="row-actions">
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, task.id)"
+            >
               <VButton
                 variant="quiet"
                 size="sm"
                 @click="router.push(`/training-tasks/${task.id}`)"
-              >详情</VButton>
+              ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
               <VButton
                 variant="quiet"
                 size="sm"
-                :disabled="!task.actions.edit?.allowed || !task.can_manage"
+                v-if="can(task.access, 'task.execute')"
+                :disabled="!task.actions.edit?.allowed"
                 :title="task.actions.edit?.message || '编辑训练草稿'"
                 @click="router.push(`/training-tasks/${task.id}/edit`)"
-              >编辑</VButton>
+              ><template #icon><el-icon><EditPen /></el-icon></template>编辑</VButton>
               <VButton
                 v-for="action in ([
-                  { key: 'start', label: '开始', fallback: '开始训练' },
-                  { key: 'retry', label: '重试', fallback: '重试失败' },
-                  { key: 'resume', label: '恢复', fallback: '恢复中断' },
+                  { key: 'start', label: '开始', fallback: '开始训练', icon: VideoPlay },
+                  { key: 'retry', label: '重试', fallback: '重试失败', icon: RefreshRight },
+                  { key: 'resume', label: '恢复', fallback: '恢复中断', icon: RefreshLeft },
                 ] as const)"
                 :key="action.key"
-                :variant="primaryAction(task) === action.key ? 'secondary' : 'quiet'"
+                v-if="can(task.access, 'task.execute')"
+                :variant="primaryAction(task) === action.key ? 'default' : 'quiet'"
                 size="sm"
                 :loading="busy[task.id] && primaryAction(task) === action.key"
-                :disabled="!task.can_manage || !task.actions[action.key]?.allowed"
+                :disabled="!task.actions[action.key]?.allowed"
                 :title="task.actions[action.key]?.message || action.fallback"
                 @click="runAction(task, action.key)"
-              >{{ action.label }}</VButton>
+              ><template #icon><el-icon><component :is="action.icon" /></el-icon></template>{{ action.label }}</VButton>
               <VButton
-                variant="quiet"
+                v-if="can(task.access, 'task.execute')"
+                variant="danger"
                 size="sm"
-                :disabled="!task.can_manage || !task.actions.delete?.allowed"
+                :disabled="!task.actions.delete?.allowed"
                 :title="task.actions.delete?.message || '删除任务'"
                 @click="remove(task)"
-              >删除</VButton>
+              ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
             </div>
           </VRow>
 
@@ -248,7 +261,7 @@ onMounted(load)
                 variant="primary"
                 @click="router.push('/training-tasks/new')"
               >新建训练任务</VButton>
-              <VButton v-else variant="secondary" @click="filter = 'all'">查看全部任务</VButton>
+              <VButton v-else variant="default" @click="filter = 'all'">查看全部任务</VButton>
             </VEmpty>
           </template>
         </VTable>
@@ -270,9 +283,10 @@ onMounted(load)
   color: var(--vdw-ink-2);
 }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 

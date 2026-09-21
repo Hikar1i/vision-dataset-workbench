@@ -1,6 +1,7 @@
 import { json } from './auth'
+import type { ProjectRole, ResourceAccess } from './access'
 
-export type ProjectRole = 'owner' | 'editor' | 'viewer'
+export type { ProjectRole } from './access'
 
 export type Project = {
   id: string
@@ -8,7 +9,8 @@ export type Project = {
   description: string
   creator_id: string
   creator_username: string
-  role: ProjectRole
+  categories: string[]
+  access: ResourceAccess
   version: number
   created_at: string
   updated_at: string

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Refresh } from '@element-plus/icons-vue'
+import { DataAnalysis, Refresh } from '@element-plus/icons-vue'
 
 import { getOverview, type Overview } from '../api/overview'
 import PageHeader from '../components/PageHeader.vue'
@@ -61,7 +61,7 @@ onMounted(load)
 
 <template>
   <main class="content-page">
-    <PageHeader title="系统总览" kind="overview">
+    <PageHeader title="系统总览" kind="overview" :icon="DataAnalysis">
       <template #meta>
         <span data-test="page-stat">{{ runningNote || '系统运行总览' }}</span>
       </template>

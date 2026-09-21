@@ -67,4 +67,30 @@ describe('SamplingDialog', () => {
     expect(body.parameters).toEqual({ interval: 12 })
     expect(body.overwrite_level).toBe('sampled')
   })
+
+  it('surfaces the rejection reason instead of silently keeping the dialog open', async () => {
+    // 后端把非法参数放进 rejected 而不是抛错。弹窗若只是不关闭，用户看不出
+    // 哪里填错了，还会以为已经保存。
+    const batch = {
+      accepted: [],
+      rejected: [{ input: 'video-id', reason: '目标帧数范围不合法', code: 'invalid_sampling' }],
+    }
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => batch })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(SamplingDialog, {
+      props: { modelValue: true, projectId: 'project-id', videos: [video] },
+      global: {
+        plugins: [ElementPlus],
+        stubs: { ElDialog: { props: ['modelValue'], template: '<section><slot/><slot name="footer"/></section>' } },
+      },
+    })
+
+    await wrapper.get('[data-test="save-sampling"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('目标帧数范围不合法')
+    // 没有一个视频保存成功时不得关闭弹窗，否则改动凭空消失
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.emitted('submitted')?.[0]).toEqual([batch])
+  })
 })

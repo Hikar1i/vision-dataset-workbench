@@ -50,6 +50,9 @@ const hoveredId = ref<string | null>(null)
 const drawStart = ref<Point | null>(null)
 const drawCurrent = ref<Point | null>(null)
 const panStart = ref<{ pointer: Point; pan: Point } | null>(null)
+const focusAccent = ref('#3bb8d8')
+const focusPanel = ref('#141f25')
+const focusCanvas = ref('#0b1216')
 let observer: ResizeObserver | null = null
 
 const fit = computed(() =>
@@ -102,10 +105,10 @@ function colorWithAlpha(color: string, alpha: number) {
 
 function contrastText(color: string) {
   const value = color.match(/^#([0-9a-f]{6})$/i)?.[1]
-  if (!value) return 'var(--vdw-focus-canvas)'
+  if (!value) return focusCanvas.value
   const [red, green, blue] = [0, 2, 4]
     .map((offset) => Number.parseInt(value.slice(offset, offset + 2), 16))
-  return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? 'var(--vdw-focus-canvas)' : '#ffffff'
+  return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? focusCanvas.value : '#ffffff'
 }
 
 function annotationTitle(item: FrameAnnotation) {
@@ -222,6 +225,7 @@ function handleDragEnd(event: Konva.KonvaEventObject<DragEvent>, item: FrameAnno
 }
 
 function handleTransformEnd(event: Konva.KonvaEventObject<Event>, item: FrameAnnotation) {
+  if (props.readonly) return
   const node = event.target
   const width = Math.max(2, node.width() * node.scaleX())
   const height = Math.max(2, node.height() * node.scaleY())
@@ -239,7 +243,7 @@ function syncTransformer() {
   void nextTick(() => {
     const transformer = transformerRef.value?.getNode()
     const stage = stageRef.value?.getNode()
-    const selected = props.selectedId
+    const selected = !props.readonly && props.selectedId
       ? stage?.findOne(`.annotation-${props.selectedId}`)
       : null
     transformer?.nodes(selected ? [selected] : [])
@@ -281,6 +285,7 @@ watch(() => [
   props.annotations,
   props.hiddenLabelIds,
   props.hiddenAnnotationIds,
+  props.readonly,
 ], syncTransformer, {
   deep: true,
 })
@@ -288,6 +293,10 @@ watch(() => [props.imageWidth, props.imageHeight], resetView)
 watch([fit, zoom, pan, stageSize], emitViewport, { deep: true, immediate: true })
 
 onMounted(() => {
+  const styles = getComputedStyle(document.documentElement)
+  focusAccent.value = styles.getPropertyValue('--vdw-focus-accent').trim() || focusAccent.value
+  focusPanel.value = styles.getPropertyValue('--vdw-focus-panel').trim() || focusPanel.value
+  focusCanvas.value = styles.getPropertyValue('--vdw-focus-canvas').trim() || focusCanvas.value
   updateStageSize()
   observer = new ResizeObserver(updateStageSize)
   if (container.value) observer.observe(container.value)
@@ -370,7 +379,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
             v-if="preview"
             :config="{
               ...preview,
-              stroke: 'var(--vdw-focus-accent)',
+              stroke: focusAccent,
               strokeWidth: 2,
               dash: [8, 5],
               strokeScaleEnabled: false,
@@ -384,7 +393,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
               y: pendingBounds.y_min,
               width: pendingBounds.x_max - pendingBounds.x_min,
               height: pendingBounds.y_max - pendingBounds.y_min,
-              stroke: 'var(--vdw-focus-accent)',
+              stroke: focusAccent,
               fill: 'rgb(120 210 184 / 12%)',
               strokeWidth: 2,
               dash: [8, 5],
@@ -393,15 +402,24 @@ defineExpose({ zoomBy, resetView, zoomPercent })
             }"
           />
           <v-transformer
+            v-if="!readonly"
             ref="transformerRef"
             :config="{
               rotateEnabled: false,
               flipEnabled: false,
-              enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
+              keepRatio: false,
+              shiftBehavior: 'default',
+              centeredScaling: false,
+              enabledAnchors: [
+                'top-left',
+                'top-right',
+                'bottom-right',
+                'bottom-left',
+              ],
               anchorSize: 8,
-              borderStroke: 'var(--vdw-focus-accent)',
-              anchorStroke: 'var(--vdw-focus-panel)',
-              anchorFill: 'var(--vdw-focus-accent)',
+              borderStroke: focusAccent,
+              anchorStroke: focusPanel,
+              anchorFill: focusAccent,
               boundBoxFunc: (oldBox: unknown, newBox: { width: number; height: number }) =>
                 Math.abs(newBox.width) < 2 || Math.abs(newBox.height) < 2 ? oldBox : newBox,
             }"
@@ -412,7 +430,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
         <v-line
           :config="{
             points: [0, pointer.y, stageSize.width, pointer.y],
-            stroke: 'var(--vdw-focus-accent)',
+            stroke: focusAccent,
             strokeWidth: 1,
             dash: [5, 5],
             opacity: 0.75,
@@ -421,7 +439,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
         <v-line
           :config="{
             points: [pointer.x, 0, pointer.x, stageSize.height],
-            stroke: 'var(--vdw-focus-accent)',
+            stroke: focusAccent,
             strokeWidth: 1,
             dash: [5, 5],
             opacity: 0.75,

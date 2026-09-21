@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CopyDocument, Delete, Plus } from '@element-plus/icons-vue'
+import { CopyDocument, Delete, Edit, Operation, Plus, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -12,8 +12,10 @@ import {
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
+import VDateTime from '../ui/VDateTime.vue'
 import VEmpty from '../ui/VEmpty.vue'
 import VPanel from '../ui/VPanel.vue'
+import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -24,7 +26,8 @@ const loading = ref(false)
 const deleting = ref('')
 const error = ref('')
 
-const COLUMNS = 'minmax(250px, 1fr) 88px 88px 104px 112px 180px'
+const COLUMNS = 'minmax(250px, 1fr) 80px 80px 90px 110px 290px'
+const RECENT_SCOPE = 'hyperparameter-templates'
 
 async function load() {
   loading.value = true
@@ -63,7 +66,7 @@ onMounted(load)
 
 <template>
   <main class="content-page">
-    <PageHeader title="超参数模板" kind="hyperparameters">
+    <PageHeader title="超参数模板" kind="hyperparameters" :icon="Operation">
       <template #meta><span data-test="page-stat">{{ templates.length }} 个模板</span></template>
       <template #actions>
         <VButton variant="primary" @click="router.push('/hyperparameter-templates/new')">
@@ -78,12 +81,18 @@ onMounted(load)
       <VPanel v-loading="loading" flush>
         <VTable
           :columns="COLUMNS"
-          :headers="['模板', 'epochs', 'batch', 'image size', '创建时间', '操作']"
+          :headers="['模板', 'epochs', 'batch', 'image size', '编辑时间', '操作']"
         >
-          <VRow v-for="item in templates" :key="item.id" :columns="COLUMNS">
+          <VRow
+            v-for="item in templates"
+            :key="item.id"
+            :columns="COLUMNS"
+            :recent="isRecentRow(RECENT_SCOPE, item.id)"
+          >
             <VCellName :name="item.name" :sub="item.description || '暂无描述'">
               <template #after>
                 <VTag v-if="item.system_key" tone="idle">系统</VTag>
+                <VTag tone="idle">v{{ item.version }}</VTag>
               </template>
             </VCellName>
             <span class="vdw-num cell-num">{{ item.epochs }}</span>
@@ -91,13 +100,22 @@ onMounted(load)
               {{ item.batch_mode === 'auto' ? 'auto' : item.batch_value }}
             </span>
             <span class="vdw-num cell-num">{{ item.image_size }}</span>
-            <time :datetime="item.created_at">{{ item.created_at.slice(0, 10) }}</time>
-            <div class="row-actions">
+            <VDateTime :value="item.updated_at" />
+            <div
+              class="row-actions"
+              @click.capture="markRecentRowFromAction($event, RECENT_SCOPE, item.id)"
+            >
               <VButton
-                variant="secondary"
+                variant="default"
                 size="sm"
                 @click="router.push(`/hyperparameter-templates/${item.id}`)"
-              >详情</VButton>
+              ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
+              <VButton
+                v-if="item.can_edit"
+                variant="default"
+                size="sm"
+                @click="router.push(`/hyperparameter-templates/${item.id}/edit`)"
+              ><template #icon><el-icon><Edit /></el-icon></template>编辑</VButton>
               <VButton
                 variant="quiet"
                 size="sm"
@@ -148,9 +166,10 @@ time {
   font-size: 14px;
 }
 
+/* 行操作左对齐，与其它列同一起点（4.1）。原为 flex-end，操作列孤零零贴右边，
+   与左对齐的表头对不上。 */
 .row-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 2px;
 }
 </style>

@@ -93,7 +93,7 @@ def test_settings_are_verified_encrypted_and_isolated_per_user(tmp_path):
         "configured": False,
         "server_url": "",
         "has_api_key": False,
-        "available": False,
+        "available": None,
     }
     assert user_a.put(
         url,
@@ -122,10 +122,18 @@ def test_settings_are_verified_encrypted_and_isolated_per_user(tmp_path):
     with Session(app.state.auth_service.engine) as session:
         record = session.get(UserXAnyLabelingSetting, "user-a")
         assert record.api_key_ciphertext != "secret-token"
+        assert record.available is True
 
     refreshed = user_a.get(f"{url}/models")
     assert refreshed.status_code == 200
     assert FakeClient.calls[-1] == ("http://server.test", "secret-token")
+
+    with Session(app.state.auth_service.engine) as session:
+        record = session.get(UserXAnyLabelingSetting, "user-a")
+        record.server_url = "http://unavailable.test"
+        session.commit()
+    assert user_a.get(f"{url}/models").status_code == 503
+    assert user_a.get(url).json()["available"] is False
 
 
 def test_failed_validation_keeps_previous_setting(tmp_path):

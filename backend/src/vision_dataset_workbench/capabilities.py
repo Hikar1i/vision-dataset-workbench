@@ -19,6 +19,8 @@ class GpuDevice:
     index: int
     name: str
     memory_total_mb: int
+    uuid: str = ""
+    compute_capability: str = ""
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,9 @@ class FeatureCapabilities:
     manual_annotation: CapabilityStatus
     yolo_auto_annotation: CapabilityStatus
     model_training: CapabilityStatus
+    onnx_export: CapabilityStatus = CapabilityStatus(False, "ONNX 导出能力未检测")
+    onnx_inference: CapabilityStatus = CapabilityStatus(False, "ONNX 推理能力未检测")
+    tensorrt: CapabilityStatus = CapabilityStatus(False, "TensorRT 能力未检测")
 
 
 @dataclass(frozen=True)
@@ -58,18 +63,20 @@ def _detect_gpu(run_command: Callable[[list[str]], str]) -> GpuStatus:
         output = run_command(
             [
                 "nvidia-smi",
-                "--query-gpu=index,name,memory.total",
+                "--query-gpu=index,uuid,name,compute_cap,memory.total",
                 "--format=csv,noheader,nounits",
             ]
         )
         devices = tuple(
             GpuDevice(
                 index=int(row[0].strip()),
-                name=row[1].strip(),
-                memory_total_mb=int(float(row[2].strip())),
+                uuid=row[1].strip(),
+                name=row[2].strip(),
+                compute_capability=row[3].strip(),
+                memory_total_mb=int(float(row[4].strip())),
             )
             for row in csv.reader(StringIO(output))
-            if len(row) == 3
+            if len(row) == 5
         )
     except FileNotFoundError:
         return GpuStatus(False, "未检测到 nvidia-smi，GPU 功能未启用", ())
@@ -103,6 +110,55 @@ def _detect_ultralytics(find_module: Callable[[str], object | None]) -> Capabili
     return CapabilityStatus(False, "未安装 Ultralytics 运行依赖")
 
 
+def _detect_onnx_export(
+    find_module: Callable[[str], object | None],
+) -> CapabilityStatus:
+    try:
+        missing = [name for name in ("ultralytics", "onnx", "onnxslim") if find_module(name) is None]
+    except Exception:
+        return CapabilityStatus(False, "ONNX 导出依赖检测失败")
+    if missing:
+        return CapabilityStatus(False, f"未安装 ONNX 导出依赖：{', '.join(missing)}")
+    return CapabilityStatus(True)
+
+
+def _detect_onnx_inference(
+    load_module: Callable[[str], ModuleType],
+) -> CapabilityStatus:
+    try:
+        runtime = load_module("onnxruntime")
+        if "CUDAExecutionProvider" not in runtime.get_available_providers():
+            return CapabilityStatus(False, "ONNX Runtime CUDA Provider 不可用")
+    except ModuleNotFoundError:
+        return CapabilityStatus(False, "未安装 ONNX Runtime GPU 运行依赖")
+    except Exception:
+        return CapabilityStatus(False, "ONNX Runtime CUDA 初始化失败")
+    return CapabilityStatus(True)
+
+
+def _detect_tensorrt(
+    gpu: GpuStatus,
+    load_module: Callable[[str], ModuleType],
+    find_module: Callable[[str], object | None],
+) -> CapabilityStatus:
+    if not gpu.available:
+        return CapabilityStatus(False, gpu.reason or "NVIDIA GPU 不可用")
+    try:
+        tensorrt = load_module("tensorrt")
+        logger = tensorrt.Logger(tensorrt.Logger.ERROR)
+        tensorrt.Builder(logger)
+    except ModuleNotFoundError:
+        return CapabilityStatus(False, "未安装 TensorRT 运行依赖")
+    except Exception:
+        return CapabilityStatus(False, "TensorRT Builder 初始化失败")
+    try:
+        if find_module("modelopt") is None:
+            return CapabilityStatus(False, "未安装 TensorRT FP16 转换依赖：NVIDIA ModelOpt")
+    except Exception:
+        return CapabilityStatus(False, "NVIDIA ModelOpt 依赖检测失败")
+    return CapabilityStatus(True)
+
+
 def detect_capabilities(
     *,
     run_command: Callable[[list[str]], str] = _run_nvidia_smi,
@@ -113,6 +169,10 @@ def detect_capabilities(
     pytorch_cuda = _detect_pytorch(load_module)
     ultralytics = _detect_ultralytics(find_module)
     yolo = pytorch_cuda if not pytorch_cuda.available else ultralytics
+    onnx_export = _detect_onnx_export(find_module)
+    onnx_inference = _detect_onnx_inference(load_module)
+    if not gpu.available and onnx_inference.available:
+        onnx_inference = CapabilityStatus(False, gpu.reason)
     return SystemCapabilities(
         gpu=gpu,
         pytorch_cuda=pytorch_cuda,
@@ -120,5 +180,8 @@ def detect_capabilities(
             manual_annotation=CapabilityStatus(True),
             yolo_auto_annotation=yolo,
             model_training=pytorch_cuda,
+            onnx_export=onnx_export,
+            onnx_inference=onnx_inference,
+            tensorrt=_detect_tensorrt(gpu, load_module, find_module),
         ),
     )

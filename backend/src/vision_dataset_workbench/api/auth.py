@@ -9,6 +9,7 @@ from ..services.auth import (
     COOKIE_NAME,
     AuthenticationFailed,
     AuthService,
+    CurrentPasswordRequired,
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -20,7 +21,7 @@ class LoginRequest(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
+    current_password: str | None = None
     new_password: str = Field(min_length=12, max_length=256)
 
 
@@ -29,6 +30,7 @@ class UserResponse(BaseModel):
     username: str
     status: str
     is_system_admin: bool
+    must_change_password: bool
 
 
 def auth_service(request: Request) -> AuthService:
@@ -45,12 +47,18 @@ def require_same_origin(request: Request) -> None:
         raise HTTPException(status_code=403, detail="cross-origin request rejected")
 
 
-def current_user(request: Request) -> User:
+def authenticated_user(request: Request) -> User:
     token = request.cookies.get(COOKIE_NAME, "")
     try:
         return auth_service(request).authenticate(token)
     except AuthenticationFailed as exc:
         raise HTTPException(status_code=401, detail="authentication required") from exc
+
+
+def current_user(user: Annotated[User, Depends(authenticated_user)]) -> User:
+    if user.must_change_password:
+        raise HTTPException(status_code=403, detail="password_change_required")
+    return user
 
 
 def user_response(user: User) -> UserResponse:
@@ -59,6 +67,7 @@ def user_response(user: User) -> UserResponse:
         username=user.username,
         status=user.status,
         is_system_admin=user.is_system_admin,
+        must_change_password=user.must_change_password,
     )
 
 
@@ -77,10 +86,7 @@ def set_session_cookie(response: Response, request: Request, token: str) -> None
 @router.get("/status")
 def status(request: Request) -> dict[str, object]:
     settings = request.app.state.settings
-    return {
-        "mode": settings.app_mode,
-        "registration_enabled": settings.registration_enabled,
-    }
+    return {"mode": settings.app_mode}
 
 
 @router.post("/login", response_model=UserResponse)
@@ -95,7 +101,7 @@ def login(payload: LoginRequest, request: Request, response: Response) -> UserRe
 
 
 @router.get("/me", response_model=UserResponse)
-def me(user: Annotated[User, Depends(current_user)]) -> UserResponse:
+def me(user: Annotated[User, Depends(authenticated_user)]) -> UserResponse:
     return user_response(user)
 
 
@@ -119,5 +125,7 @@ def change_password(
         )
     except AuthenticationFailed as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except CurrentPasswordRequired as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     set_session_cookie(response, request, created.token)
     return user_response(created.user)

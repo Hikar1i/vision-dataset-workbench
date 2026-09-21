@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.main import create_app
-from vision_dataset_workbench.models import Task, User
+from vision_dataset_workbench.models import ProjectLabel, Task, User
 from vision_dataset_workbench.security.passwords import hash_password
 
 PASSWORD = "correct horse battery staple"
@@ -83,11 +83,63 @@ def test_project_creation_and_private_lists(tmp_path):
 
     assert created.status_code == duplicate_name.status_code == 201
     assert created.json()["name"] == "Same name"
-    assert created.json()["role"] == "owner"
+    assert created.json()["access"]["role"] == "owner"
     assert creator.get("/api/v1/projects").json()["total"] == 2
     assert outsider.get("/api/v1/projects").json()["total"] == 0
-    assert admin.get("/api/v1/projects").json()["total"] == 0
+    assert admin.get("/api/v1/projects").json()["total"] == 2
+    admin_access = admin.get(f"/api/v1/projects/{project_id}").json()["access"]
+    assert admin_access["role"] is None
+    assert admin_access["source"] == "system_admin"
+    assert "project.delete" in admin_access["permissions"]
     assert outsider.get(f"/api/v1/projects/{project_id}").status_code == 404
+
+
+def test_project_responses_include_enabled_categories_in_sort_order(tmp_path):
+    app, _ = make_app(tmp_path)
+    creator = client_for(app, "creator")
+    project_id = create_project(creator).json()["id"]
+    with Session(app.state.auth_service.engine) as session:
+        session.add_all(
+            [
+                ProjectLabel(
+                    id="second",
+                    project_id=project_id,
+                    name="person",
+                    name_normalized="person",
+                    color="#16866f",
+                    sort_order=2,
+                    enabled=True,
+                ),
+                ProjectLabel(
+                    id="first",
+                    project_id=project_id,
+                    name="helmet",
+                    name_normalized="helmet",
+                    color="#e85d4a",
+                    sort_order=1,
+                    enabled=True,
+                ),
+                ProjectLabel(
+                    id="disabled",
+                    project_id=project_id,
+                    name="car",
+                    name_normalized="car",
+                    color="#376e9a",
+                    sort_order=0,
+                    enabled=False,
+                ),
+            ]
+        )
+        session.commit()
+
+    assert creator.get("/api/v1/projects").json()["items"][0]["categories"] == [
+        "helmet",
+        "person",
+    ]
+    assert creator.get(f"/api/v1/projects/{project_id}").json()["categories"] == [
+        "helmet",
+        "person",
+    ]
 
 
 def test_editor_updates_viewer_reads_and_version_conflicts(tmp_path):
@@ -118,7 +170,7 @@ def test_editor_updates_viewer_reads_and_version_conflicts(tmp_path):
 
     assert updated.status_code == 200
     assert updated.json()["version"] == 2
-    assert viewer.get(f"/api/v1/projects/{project_id}").json()["role"] == "viewer"
+    assert viewer.get(f"/api/v1/projects/{project_id}").json()["access"]["role"] == "viewer"
     assert denied.status_code == 403
     assert stale.status_code == 409
 
@@ -214,5 +266,7 @@ def test_single_mode_admin_has_owner_equivalent_access(tmp_path):
     )
     admin = client_for(single_app, "admin")
 
-    assert admin.get(f"/api/v1/projects/{project_id}").json()["role"] == "owner"
+    access = admin.get(f"/api/v1/projects/{project_id}").json()["access"]
+    assert access["role"] is None
+    assert access["source"] == "system_admin"
     assert add_member(admin, project_id, "viewer", "viewer").status_code == 201

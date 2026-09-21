@@ -18,6 +18,10 @@ const VGroupStub = defineComponent({
   props: ['config'],
   template: '<div class="group-stub"><slot /></div>',
 })
+const VTransformerStub = defineComponent({
+  props: ['config'],
+  template: '<div class="transformer-stub" />',
+})
 const stubs = {
   'v-stage': SlotStub,
   'v-layer': SlotStub,
@@ -25,7 +29,7 @@ const stubs = {
   'v-image': true,
   'v-rect': VRectStub,
   'v-text': VTextStub,
-  'v-transformer': true,
+  'v-transformer': VTransformerStub,
   'v-line': true,
 }
 const annotations: FrameAnnotation[] = [
@@ -62,7 +66,7 @@ beforeAll(() => {
 })
 
 describe('AnnotationCanvas', () => {
-  it('omits hidden categories and disables dragging when read only', () => {
+  it('omits hidden categories and disables box editing when read only', async () => {
     const wrapper = mount(AnnotationCanvas, {
       props: {
         imageUrl: '/frame.jpg',
@@ -73,7 +77,7 @@ describe('AnnotationCanvas', () => {
           { id: 'helmet', name: 'helmet', color: '#16866f' },
           { id: 'person', name: 'person', color: '#e85d4a' },
         ],
-        selectedId: null,
+        selectedId: 'helmet-box',
         mode: 'select',
         readonly: true,
         hiddenLabelIds: ['person'],
@@ -90,6 +94,11 @@ describe('AnnotationCanvas', () => {
       draggable: false,
       stroke: '#16866f',
     })
+    expect(wrapper.findComponent(VTransformerStub).exists()).toBe(false)
+
+    boxes[0]!.vm.$emit('transformend', { target: {} })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('change')).toBeUndefined()
   })
 
   it('renders global labels, selected fill, pending bounds and blocks context menus', async () => {
@@ -127,6 +136,20 @@ describe('AnnotationCanvas', () => {
     )
     expect(labelGroups.map((item) => item.props('config').y)).toEqual([-6, 74])
     expect(boxes.some((item) => item.props('config').dash?.length)).toBe(true)
+    expect(wrapper.getComponent(VTransformerStub).props('config')).toMatchObject({
+      keepRatio: false,
+      shiftBehavior: 'default',
+      centeredScaling: false,
+      borderStroke: '#3bb8d8',
+      anchorStroke: '#141f25',
+      anchorFill: '#3bb8d8',
+      enabledAnchors: [
+        'top-left',
+        'top-right',
+        'bottom-right',
+        'bottom-left',
+      ],
+    })
 
     const event = new Event('contextmenu', { cancelable: true })
     wrapper.get('[data-test="annotation-canvas"]').element.dispatchEvent(event)

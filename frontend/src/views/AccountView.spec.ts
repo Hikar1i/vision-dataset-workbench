@@ -21,6 +21,7 @@ describe('AccountView', () => {
         username: 'admin',
         status: 'active',
         is_system_admin: true,
+        must_change_password: false,
       }),
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -38,7 +39,7 @@ describe('AccountView', () => {
       '/api/v1/auth/password',
       expect.objectContaining({ method: 'PUT', credentials: 'same-origin' }),
     )
-    expect(replace).toHaveBeenCalledWith('/projects')
+    expect(replace).toHaveBeenCalledWith('/overview')
   })
 
   it('keeps submission disabled while new passwords differ', async () => {
@@ -47,5 +48,33 @@ describe('AccountView', () => {
     await wrapper.get('[data-test="new-password"]').setValue('new correct horse battery')
     await wrapper.get('[data-test="password-confirmation"]').setValue('different password')
     expect(wrapper.get('[data-test="save-password"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('does not ask for the initial password during required password change', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'worker-id', username: 'worker', status: 'active',
+        is_system_admin: false, must_change_password: false,
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(AccountView, {
+      props: { required: true },
+      global: { plugins: [ElementPlus] },
+    })
+
+    expect(wrapper.find('[data-test="current-password"]').exists()).toBe(false)
+    await wrapper.get('[data-test="new-password"]').setValue('new correct horse battery')
+    await wrapper.get('[data-test="password-confirmation"]').setValue('new correct horse battery')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    const request = fetchMock.mock.calls[0][1]
+    expect(JSON.parse(String(request.body))).toEqual({
+      current_password: null,
+      new_password: 'new correct horse battery',
+    })
+    expect(replace).toHaveBeenCalledWith('/overview')
   })
 })

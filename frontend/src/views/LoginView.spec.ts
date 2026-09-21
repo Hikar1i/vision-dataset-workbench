@@ -19,7 +19,7 @@ describe('LoginView', () => {
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ mode: 'multi', registration_enabled: true }),
+        json: async () => ({ mode: 'multi' }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -28,6 +28,7 @@ describe('LoginView', () => {
           username: 'admin',
           status: 'active',
           is_system_admin: true,
+          must_change_password: false,
         }),
       })
     vi.stubGlobal('fetch', fetchMock)
@@ -48,8 +49,8 @@ describe('LoginView', () => {
       '/api/v1/auth/login',
       expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
     )
-    expect(wrapper.get('[data-test="register-link"]').attributes('href')).toBe('/register')
-    expect(replace).toHaveBeenCalledWith('/projects')
+    expect(wrapper.find('[data-test="register-link"]').exists()).toBe(false)
+    expect(replace).toHaveBeenCalledWith('/overview')
   })
 
   it('shows the server login error', async () => {
@@ -59,7 +60,7 @@ describe('LoginView', () => {
         .fn()
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({ mode: 'single', registration_enabled: false }),
+          json: async () => ({ mode: 'single' }),
         })
         .mockResolvedValueOnce({
           ok: false,

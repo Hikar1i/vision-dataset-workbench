@@ -10,6 +10,15 @@ import {
   updateLabel,
 } from '../api/labels'
 import ProjectLabelsView from './ProjectLabelsView.vue'
+import type { ProjectRole, ResourceAccess } from '../api/access'
+
+const access = (role: ProjectRole): ResourceAccess => ({
+  role,
+  source: role === 'owner' ? 'owner' : 'membership',
+  permissions: role === 'viewer'
+    ? ['project.read', 'artifact.read', 'artifact.download', 'task.read']
+    : ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+})
 
 vi.mock('../api/labels', () => ({
   createLabel: vi.fn(),
@@ -25,7 +34,8 @@ const project = {
   description: '',
   creator_id: 'creator-id',
   creator_username: 'creator',
-  role: 'owner' as const,
+  categories: [],
+  access: access('owner'),
   version: 1,
   created_at: '2026-07-27T00:00:00Z',
   updated_at: '2026-07-27T00:00:00Z',
@@ -56,9 +66,9 @@ const labels = [
   },
 ]
 
-function mountView(role: 'owner' | 'editor' | 'viewer' = 'owner') {
+function mountView(role: ProjectRole = 'owner') {
   return mount(ProjectLabelsView, {
-    props: { project: { ...project, role } },
+    props: { project: { ...project, access: access(role) } },
     global: { plugins: [ElementPlus] },
   })
 }

@@ -1,11 +1,24 @@
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElMessageBox } from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { clearRecentRows, isRecentRow } from '../ui/recentRows'
 import ProjectVideosView from './ProjectVideosView.vue'
+import type { ProjectRole, ResourceAccess } from '../api/access'
+
+const access = (role: ProjectRole): ResourceAccess => ({
+  role,
+  source: role === 'owner' ? 'owner' : 'membership',
+  permissions: role === 'viewer'
+    ? ['project.read', 'artifact.read', 'artifact.download', 'task.read']
+    : ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+})
 
 const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }))
-vi.mock('vue-router', () => ({ useRouter: () => ({ push: routerPush }) }))
+vi.mock('vue-router', () => ({
+  RouterView: { name: 'RouterView', template: '<div />' },
+  useRouter: () => ({ push: routerPush }),
+}))
 
 const project = {
   id: 'project-id',
@@ -13,7 +26,8 @@ const project = {
   description: '产线 A',
   creator_id: 'creator-id',
   creator_username: 'creator',
-  role: 'viewer',
+  categories: [],
+  access: access('viewer'),
   version: 1,
   created_at: '2026-07-23T00:00:00Z',
   updated_at: '2026-07-23T00:00:00Z',
@@ -50,15 +64,20 @@ const video = {
 beforeEach(() => {
   vi.restoreAllMocks()
   routerPush.mockReset()
+  clearRecentRows()
 })
 afterEach(() => {
   vi.useRealTimers()
   document.body.innerHTML = ''
 })
 
-function mountView(role: 'owner' | 'editor' | 'viewer' = 'viewer') {
+function projectFor(role: ProjectRole) {
+  return { ...project, access: access(role) }
+}
+
+function mountView(role: ProjectRole = 'viewer') {
   return mount(ProjectVideosView, {
-    props: { project: { ...project, role } },
+    props: { project: projectFor(role) },
     global: {
       plugins: [ElementPlus],
       stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } },
@@ -91,6 +110,9 @@ describe('ProjectVideosView', () => {
     expect(wrapper.text()).toContain('已采样')
     expect(wrapper.text()).toContain('已筛帧')
     expect(wrapper.text()).toContain('48/50 帧启用')
+    expect(wrapper.get('.ledger-head').text()).toContain('来源 / 状态')
+    expect(wrapper.get('[data-test="source-status-video-id"]').text()).toContain('LOCAL')
+    expect(wrapper.get('[data-test="source-status-video-id"]').text()).toContain('可用')
     expect(wrapper.find('[data-test="import-videos"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="export-dataset"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="enabled-video-id"]').exists()).toBe(false)
@@ -100,11 +122,37 @@ describe('ProjectVideosView', () => {
     expect(wrapper.get('[data-test="annotate-video-id"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-test="download-video-id"]').exists()).toBe(false)
 
+    await wrapper.get('.row-actions').trigger('click')
+    await wrapper.get('[data-test="annotate-video-id"]').trigger('click')
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(false)
+
+    const framesButton = wrapper.get('[data-test="frames-video-id"]')
+    framesButton.element.addEventListener('click', (event) => event.stopImmediatePropagation(), {
+      capture: true,
+    })
+    await framesButton.trigger('click')
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(true)
+
+    clearRecentRows()
+    await flushPromises()
     await wrapper.get('[data-test="play-video-id"]').trigger('click')
     await flushPromises()
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(true)
+    expect(wrapper.get('[data-test="video-row-video-id"]').classes()).toContain('vdw-row--recent')
+    expect(wrapper.get('[data-test="video-row-video-id"]').attributes('aria-current')).toBe('true')
     expect(new DOMWrapper(document.body).get('video').attributes('src')).toBe(
       '/api/v1/projects/project-id/videos/video-id/content',
     )
+
+    window.dispatchEvent(new Event('vdm:tasks-settled'))
+    await flushPromises()
+    expect(wrapper.get('[data-test="video-row-video-id"]').classes()).toContain('vdw-row--recent')
+
+    wrapper.unmount()
+    const remounted = mountView()
+    await flushPromises()
+    expect(remounted.get('[data-test="video-row-video-id"]').classes()).toContain('vdw-row--recent')
+    expect(remounted.get('[data-test="video-row-video-id"]').attributes('aria-current')).toBe('true')
   })
 
   it('shows the import entry to owners and editors', async () => {
@@ -116,7 +164,7 @@ describe('ProjectVideosView', () => {
           json: async () =>
             path.includes('/videos?')
               ? { items: [video], page: 1, page_size: 50, total: 1 }
-              : { ...project, role: 'editor' },
+              : projectFor('editor'),
         }),
       ),
     )
@@ -133,11 +181,19 @@ describe('ProjectVideosView', () => {
     expect(wrapper.find('[data-test="extract-video-id"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="annotate-video-id"]').attributes('disabled')).toBeUndefined()
 
+    await toolbarActions.get('[data-test="export-dataset"]').trigger('click')
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(false)
+
     await wrapper.get('[data-test="annotate-video-id"]').trigger('click')
-    expect(routerPush).toHaveBeenCalledWith('/projects/project-id/videos/video-id/annotation')
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(true)
+    expect(routerPush).toHaveBeenCalledWith({
+      name: 'video-annotation',
+      params: { id: 'project-id', videoId: 'video-id' },
+      state: { annotationFromVideoList: true },
+    })
   })
 
-  it('selects the current page and requests the explicit all page size', async () => {
+  it('loads the bounded project ledger once and paginates it locally', async () => {
     const second = { ...video, id: 'video-two', title: 'camera-02' }
     const fetchMock = vi.fn().mockImplementation((path: string) => {
       const pageSize = path.includes('/videos?')
@@ -148,7 +204,7 @@ describe('ProjectVideosView', () => {
         json: async () =>
           path.includes('/videos?')
             ? { items: [video, second], page: 1, page_size: pageSize, total: 2 }
-            : { ...project, role: 'editor' },
+            : projectFor('editor'),
       })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -157,11 +213,15 @@ describe('ProjectVideosView', () => {
 
     const actionLane = wrapper.get('[data-test="video-action-lane"]').element
     await wrapper.get('[data-test="select-video-id"] input').setValue(true)
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(false)
     expect(wrapper.get('[data-test="video-action-lane"]').element).toBe(actionLane)
     expect(
       wrapper.get('[data-test="select-all"] .el-checkbox__input').classes(),
     ).toContain('is-indeterminate')
     expect(wrapper.text()).toContain('已选择 1 个视频')
+
+    await wrapper.get('[data-test="batch-configure"]').trigger('click')
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(false)
 
     await wrapper.get('[data-test="select-all"] input').setValue(true)
     expect(wrapper.text()).toContain('已选择 2 个视频')
@@ -174,7 +234,158 @@ describe('ProjectVideosView', () => {
       ),
     ).toBe(true)
     expect(wrapper.find('option[value="999"]').text()).toBe('全部')
-    expect(wrapper.get('[data-test="video-action-lane"]').text()).toContain('共 2 个视频')
+    await wrapper.get('[data-test="select-all"] input').setValue(false)
+    // 视频总数只在 header 副信息里出现一次；页内工具行放本页动作，不再重复统计
+    expect(wrapper.get('[data-test="page-stat"]').text()).toContain('2 个视频')
+    expect(wrapper.get('[data-test="video-action-lane"]').text()).not.toContain('2 个视频')
+    expect(wrapper.get('[data-test="video-toolbar-actions"]').text()).toContain('导入视频')
+  })
+
+  it('searches locally and clears selection when criteria change', async () => {
+    const second = {
+      ...video,
+      id: 'video-two',
+      short_code: '8M4N0R3Y',
+      title: 'camera-02',
+      source_name: 'line-b.mp4',
+      enabled: false,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [video, second], page: 1, page_size: 999, total: 2 }
+          : projectFor('editor'),
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="select-video-id"] input').setValue(true)
+    await wrapper.get('[data-test="video-search"]').setValue('line-b.mp4')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="filter-summary"]').text()).toBe('匹配 1 / 总计 2')
+    expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="video-row-video-two"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('已选择 1 个视频')
+  })
+
+  it('filters by the business statuses present in the project', async () => {
+    const stopped = { ...video, id: 'video-stopped', enabled: false }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [video, stopped], page: 1, page_size: 999, total: 2 }
+          : projectFor('editor'),
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="status-filter-trigger"]').trigger('click')
+    await flushPromises()
+    const body = new DOMWrapper(document.body)
+    const stoppedOption = body.findAll('.el-checkbox').find((item) => item.text().includes('视频停用'))
+    expect(stoppedOption?.text()).toContain('1')
+    await stoppedOption!.get('input').setValue(true)
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="video-row-video-stopped"]').exists()).toBe(true)
+  })
+
+  it('cycles the enabled filter through enabled, disabled, and all', async () => {
+    const stopped = { ...video, id: 'video-stopped', enabled: false }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [video, stopped], page: 1, page_size: 999, total: 2 }
+          : projectFor('editor'),
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    await wrapper.get('[data-test="select-video-id"] input').setValue(true)
+    const trigger = wrapper.get('[data-test="enabled-filter-trigger"]')
+
+    await trigger.trigger('click')
+    expect(trigger.text()).toContain('仅启')
+    expect(wrapper.get('[data-test="filter-summary"]').text()).toBe('匹配 1 / 总计 2')
+    expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="video-row-video-stopped"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('已选择 1 个视频')
+
+    await trigger.trigger('click')
+    expect(trigger.text()).toContain('仅停')
+    expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="video-row-video-stopped"]').exists()).toBe(true)
+
+    await trigger.trigger('click')
+    expect(trigger.text()).toContain('启用')
+    expect(wrapper.get('[data-test="filter-summary"]').text()).toBe('匹配 2 / 总计 2')
+  })
+
+  it('keeps the enabled filter available when no videos match', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [video], page: 1, page_size: 999, total: 1 }
+          : projectFor('editor'),
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+    const trigger = wrapper.get('[data-test="enabled-filter-trigger"]')
+
+    await trigger.trigger('click')
+    await trigger.trigger('click')
+    expect(trigger.text()).toContain('仅停')
+    expect(wrapper.text()).toContain('没有匹配的视频')
+    expect(wrapper.get('[data-test="filter-summary"]').text()).toBe('匹配 0 / 总计 1')
+
+    await trigger.trigger('click')
+    expect(trigger.text()).toContain('启用')
+    expect(wrapper.find('[data-test="video-row-video-id"]').exists()).toBe(true)
+  })
+
+  it('deletes only stopped videos and keeps enabled delete controls disabled', async () => {
+    const stopped = { ...video, id: 'video-stopped', title: 'stopped', enabled: false }
+    const fetchMock = vi.fn().mockImplementation((path: string, init?: RequestInit) => Promise.resolve({
+      ok: true,
+      json: async () => path.endsWith('/videos/delete')
+        ? { deleted: ['video-stopped'], skipped: [] }
+        : path.includes('/videos?')
+          ? { items: [video, stopped], page: 1, page_size: 999, total: 2 }
+          : projectFor('editor'),
+      init,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="delete-video-id"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="delete-video-stopped"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-test="select-video-stopped"] input').setValue(true)
+    expect(wrapper.get('[data-test="batch-delete"]').text()).toContain('删除 1 个停用视频')
+    await wrapper.get('[data-test="batch-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm.mock.calls[0]?.[2]).toMatchObject({
+      confirmButtonText: '删除1个停用状态的视频',
+      cancelButtonText: '取消',
+    })
+    const request = fetchMock.mock.calls.find(([path]) => String(path).endsWith('/videos/delete'))
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({ video_ids: ['video-stopped'] })
   })
 
   it('disables importing at 999 videos', async () => {
@@ -186,7 +397,7 @@ describe('ProjectVideosView', () => {
           json: async () =>
             path.includes('/videos?')
               ? { items: [video], page: 1, page_size: 50, total: 999 }
-              : { ...project, role: 'owner' },
+              : projectFor('owner'),
         }),
       ),
     )
@@ -207,7 +418,7 @@ describe('ProjectVideosView', () => {
           json: async () =>
             path.includes('/videos?')
               ? { items: [{ ...video, enabled: false }], page: 1, page_size: 50, total: 1 }
-              : { ...project, role: 'editor' },
+              : projectFor('editor'),
         }),
       ),
     )
@@ -228,7 +439,7 @@ describe('ProjectVideosView', () => {
           if (path.endsWith('/enabled')) return { ...video, enabled: false, version: 3 }
           return path.includes('/videos?')
             ? { items: [video], page: 1, page_size: 50, total: 1 }
-            : { ...project, role: 'editor' }
+            : projectFor('editor')
         },
         init,
       }),
@@ -243,6 +454,7 @@ describe('ProjectVideosView', () => {
     const call = fetchMock.mock.calls.find(([path]) => String(path).endsWith('/enabled'))
     expect(call?.[1]?.method).toBe('PUT')
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ enabled: false, version: 2 })
+    expect(isRecentRow('project:project-id:videos', 'video-id')).toBe(false)
   })
 
   it('summarizes selected risk and splits configured videos from safe batch configuration', async () => {
@@ -254,7 +466,7 @@ describe('ProjectVideosView', () => {
         ok: true,
         json: async () => path.includes('/videos?')
           ? { items: [unconfigured, protectedVideo], page: 1, page_size: 50, total: 2 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       })),
     )
     const wrapper = mountView('editor')
@@ -291,7 +503,7 @@ describe('ProjectVideosView', () => {
         ok: true,
         json: async () => path.includes('/videos?')
           ? { items: [configured, protectedVideo], page: 1, page_size: 50, total: 2 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       })),
     )
     const wrapper = mountView('editor')
@@ -314,7 +526,7 @@ describe('ProjectVideosView', () => {
         ok: true,
         json: async () => path.includes('/videos?')
           ? { items: [unannotated, annotated], page: 1, page_size: 50, total: 2 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       })),
     )
     const wrapper = mountView('editor')
@@ -356,7 +568,7 @@ describe('ProjectVideosView', () => {
           }
         : path.includes('/videos?')
           ? { items: [annotatedUnscreened, annotatedScreened, emptyUnscreened, emptyScreened], page: 1, page_size: 50, total: 4 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       init,
     }))
     vi.stubGlobal('fetch', fetchMock)
@@ -386,6 +598,15 @@ describe('ProjectVideosView', () => {
     await confirm.trigger('click')
     await flushPromises()
     const request = fetchMock.mock.calls.find(([path]) => String(path).includes('/batch-enabled-by-annotation'))
-    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ scope: 'all', confirm_all: true })
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({
+      scope: 'all',
+      confirm_all: true,
+      revisions: {
+        'annotated-new': 1,
+        'annotated-old': 2,
+        'empty-new': 1,
+        'empty-old': 2,
+      },
+    })
   })
 })

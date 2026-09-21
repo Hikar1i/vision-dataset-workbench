@@ -44,6 +44,7 @@ defineProps<{
   display: grid;
   gap: 16px;
   align-items: center;
+  min-width: 0;
   min-height: var(--vdw-row-height);
   /* 行内上下内边距：信息密度高的台账需要呼吸空间，否则用户扫读时难以分辨行边界 */
   padding: 12px 16px;
@@ -58,6 +59,18 @@ defineProps<{
   font: 500 14px/1 var(--vdw-sans);
   background: var(--vdw-surface-2);
   border-radius: var(--vdw-radius-card) var(--vdw-radius-card) 0 0;
+}
+
+/* 表头一律不折行：折行的表头会把行高撑高一倍，并让相邻列的基线错开。
+   列不够宽时应该改表头文案或加宽该列，而不是让它换行。 */
+.vdw-table__head > span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  justify-self: stretch;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* 最后一行不画分隔线，避免和面板边框叠成双线 */

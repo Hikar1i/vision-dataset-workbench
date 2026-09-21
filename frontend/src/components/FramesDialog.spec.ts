@@ -111,6 +111,13 @@ describe('FramesDialog', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.get('[data-test="grid-scale-value"]').text()).toBe('1.50×')
     expect(wrapper.get('[data-test="frames-grid"]').attributes('style')).toContain('--frame-card-width: 270px')
+
+    await wrapper.setProps({ modelValue: false })
+    await wrapper.setProps({ modelValue: true })
+    await flushPromises()
+    expect(wrapper.get('[data-test="grid-scale-value"]').text()).toBe('1.50×')
+    expect(wrapper.get('[data-test="frames-grid"]').attributes('style'))
+      .toContain('--frame-card-width: 270px')
   })
 
   it('exposes the active range-selection state', async () => {
@@ -131,6 +138,8 @@ describe('FramesDialog', () => {
     expect(wrapper.find('[data-test="frame-preview"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="frame-preview"]').text())
       .toContain('G989C14B_frame_000001.jpg')
+    expect(wrapper.get('[data-test="frame-preview"] .preview-info strong').text())
+      .toContain('#1 / 205')
     expect(wrapper.find('[data-test="preview-toggle-enabled"]').exists()).toBe(false)
   })
 

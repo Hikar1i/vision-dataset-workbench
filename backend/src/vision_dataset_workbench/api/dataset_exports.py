@@ -57,6 +57,9 @@ class DatasetExportResponse(BaseModel):
     total_frames: int
     train_frames: int
     val_frames: int
+    total_videos: int | None
+    train_videos: int | None
+    val_videos: int | None
     labels: list[ExportLabelResponse]
     error: str | None
     created_at: str
@@ -94,6 +97,9 @@ def _raise_http_error(exc: ValueError) -> NoReturn:
 
 
 def _response(record: DatasetExport) -> DatasetExportResponse:
+    manifest = json.loads(record.manifest) if record.manifest else None
+    train_videos = len(manifest.get("train_video_ids", [])) if manifest else None
+    val_videos = len(manifest.get("val_video_ids", [])) if manifest else None
     return DatasetExportResponse(
         id=record.id,
         project_id=record.project_id,
@@ -105,6 +111,9 @@ def _response(record: DatasetExport) -> DatasetExportResponse:
         total_frames=record.total_frames,
         train_frames=record.train_frames,
         val_frames=record.val_frames,
+        total_videos=(train_videos + val_videos) if manifest else None,
+        train_videos=train_videos,
+        val_videos=val_videos,
         labels=[ExportLabelResponse(**item) for item in json.loads(record.label_snapshot)],
         error=record.error,
         created_at=_utc_text(record.created_at),

@@ -8,7 +8,6 @@ import VButton from '../ui/VButton.vue'
 const router = useRouter()
 const username = ref('')
 const password = ref('')
-const registrationEnabled = ref(false)
 const mode = ref<'multi' | 'single'>('multi')
 const submitting = ref(false)
 const error = ref('')
@@ -16,7 +15,6 @@ const error = ref('')
 onMounted(async () => {
   try {
     const status = await getAuthStatus()
-    registrationEnabled.value = status.registration_enabled
     mode.value = status.mode
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '无法读取实例状态'
@@ -27,8 +25,8 @@ async function submit() {
   submitting.value = true
   error.value = ''
   try {
-    await login(username.value, password.value)
-    await router.replace('/projects')
+    const user = await login(username.value, password.value)
+    await router.replace(user.must_change_password ? '/password/change-required' : '/overview')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '登录失败'
   } finally {
@@ -94,7 +92,7 @@ async function submit() {
             </el-form-item>
           </el-form>
 
-          <VButton variant="secondary" type="submit"
+          <VButton variant="default" type="submit"
             :loading="submitting"
             :disabled="!username || !password">
             登录工作台
@@ -102,11 +100,7 @@ async function submit() {
         </form>
 
         <footer>
-          <template v-if="registrationEnabled">
-            <span>还没有账号？</span>
-            <router-link data-test="register-link" to="/register">提交注册申请</router-link>
-          </template>
-          <span v-else>账号由系统管理员管理</span>
+          <span>账号由系统管理员创建和管理</span>
         </footer>
       </div>
     </section>

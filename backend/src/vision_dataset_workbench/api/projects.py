@@ -43,7 +43,8 @@ class ProjectResponse(BaseModel):
     description: str
     creator_id: str
     creator_username: str
-    role: Literal["owner", "editor", "viewer"]
+    categories: list[str]
+    access: "AccessResponse"
     version: int
     created_at: str
     updated_at: str
@@ -62,6 +63,12 @@ class MemberResponse(BaseModel):
     status: str
     role: Literal["owner", "editor", "viewer"]
     created_at: str
+
+
+class AccessResponse(BaseModel):
+    role: Literal["owner", "editor", "viewer"] | None
+    source: Literal["system_admin", "owner", "membership", "system_resource"]
+    permissions: list[str]
 
 
 def project_service(request: Request) -> ProjectService:
@@ -85,7 +92,12 @@ def _project_response(view: ProjectView) -> ProjectResponse:
         description=project.description,
         creator_id=project.creator_id,
         creator_username=view.creator_username,
-        role=view.role,
+        categories=list(view.categories),
+        access=AccessResponse(
+            role=view.access.role,
+            source=view.access.source,
+            permissions=sorted(view.access.permissions),
+        ),
         version=project.version,
         created_at=_utc_text(project.created_at),
         updated_at=_utc_text(project.updated_at),

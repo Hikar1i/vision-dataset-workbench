@@ -1,11 +1,13 @@
 import json
+import os
+import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased, sessionmaker
@@ -14,7 +16,12 @@ from ..config import RuntimeSettings
 from ..media import RemotePreview, normalize_remote_url, preview_remote
 from ..models import (
     DatasetExport,
+    EvaluationDataset,
+    ModelArtifact,
+    ModelEvaluation,
+    ModelInferenceRun,
     ModelProject,
+    ModelProjectMembership,
     Project,
     ProjectMembership,
     Task,
@@ -25,7 +32,8 @@ from ..models import (
 from ..storage.browser import VIDEO_EXTENSIONS
 from ..storage.paths import HomePathResolver, UnsafePathError
 from .dataset_exports import video_has_active_export
-from .projects import ProjectForbidden, ProjectService
+from .projects import ProjectForbidden, ProjectService, touch_project
+from .models import ModelNotFound, ModelService, touch_model_project
 
 
 class MediaNotFound(ValueError):
@@ -73,6 +81,18 @@ class ImportBatch:
 
 
 @dataclass(frozen=True)
+class DeleteNotice:
+    video_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class DeleteBatch:
+    deleted: list[str]
+    skipped: list[DeleteNotice]
+
+
+@dataclass(frozen=True)
 class VisibleTask:
     task: Task
     resource_kind: str
@@ -104,13 +124,14 @@ class MediaService:
         self._previewer = previewer
         self._short_code_factory = short_code_factory
         self._projects = ProjectService(engine, settings, workspace)
+        self._models = ModelService(engine, settings, workspace, self._projects)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
-    def _project_role(self, actor: User, project_id: str) -> str:
-        return self._projects.get_project(actor, project_id).role
+    def _project_access(self, actor: User, project_id: str):
+        return self._projects.get_project(actor, project_id).access
 
     def _require_editor(self, actor: User, project_id: str) -> None:
-        if self._project_role(actor, project_id) == "viewer":
+        if not self._project_access(actor, project_id).allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
 
     def _source_path(self, relative: str) -> Path:
@@ -260,6 +281,7 @@ class MediaService:
                     database.add(video)
                     database.flush()
                     database.add(task)
+                    touch_project(database, project_id, at=now)
                     database.commit()
             except IntegrityError as exc:
                 message = str(exc.orig)
@@ -274,7 +296,7 @@ class MediaService:
     def list_videos(
         self, actor: User, project_id: str, *, page: int, page_size: int
     ) -> tuple[list[Video], int]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         with self._session_factory() as database:
             where = Video.project_id == project_id
             total = database.scalar(select(func.count()).select_from(Video).where(where)) or 0
@@ -307,14 +329,131 @@ class MediaService:
                 raise MediaConflict("video version conflict")
             video.enabled = enabled
             video.version += 1
-            video.updated_at = _utc_now()
+            now = _utc_now()
+            video.updated_at = now
+            touch_project(database, project_id, at=now)
             database.commit()
             return video
+
+    def delete_videos(
+        self, actor: User, project_id: str, video_ids: Sequence[str]
+    ) -> DeleteBatch:
+        self._require_editor(actor, project_id)
+        deleted: list[str] = []
+        skipped: list[DeleteNotice] = []
+        for video_id in dict.fromkeys(video_ids):
+            reason = self._delete_video(project_id, video_id)
+            if reason is None:
+                deleted.append(video_id)
+            else:
+                skipped.append(DeleteNotice(video_id, reason))
+        return DeleteBatch(deleted, skipped)
+
+    def _delete_video(self, project_id: str, video_id: str) -> str | None:
+        archive = self.workspace / ".deleted" / "projects" / project_id / "videos" / video_id
+        moved: list[tuple[Path, Path]] = []
+        with self._session_factory() as database:
+            database.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            video = database.get(Video, video_id)
+            if video is None or video.project_id != project_id:
+                return "video not found"
+            if video.enabled:
+                return "enabled video cannot be deleted"
+            if self._has_active_video_task(database, project_id, video_id):
+                return "video has an active task"
+            if video_has_active_export(database, project_id, video_id):
+                return "video is frozen by an active dataset export"
+            if archive.exists():
+                return "video archive already exists"
+
+            project_root = (self.workspace / "projects" / project_id).resolve()
+            paths = [video.file_path, video.thumbnail_path]
+            sources: list[Path] = []
+            missing: list[str] = []
+            try:
+                for relative in paths:
+                    if not relative:
+                        continue
+                    source = (self.workspace / relative).resolve(strict=False)
+                    if not source.is_relative_to(project_root):
+                        raise MediaConflict("managed video path escapes project")
+                    (sources if source.exists() else missing).append(
+                        source if source.exists() else Path(relative)
+                    )
+                frames = project_root / "frames" / video.short_code
+                (sources if frames.exists() else missing).append(
+                    frames if frames.exists() else frames.relative_to(self.workspace)
+                )
+
+                archive.mkdir(parents=True)
+                for source in sources:
+                    target = archive / source.relative_to(project_root)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(source, target)
+                    moved.append((source, target))
+                metadata = {
+                    "deleted_at": _utc_now().isoformat(timespec="seconds") + "Z",
+                    "video": {
+                        column.name: getattr(video, column.name)
+                        for column in Video.__table__.columns
+                        if column.name not in {"created_at", "updated_at"}
+                    },
+                    "created_at": video.created_at.isoformat(),
+                    "updated_at": video.updated_at.isoformat(),
+                    "moved": [
+                        target.relative_to(archive).as_posix() for _, target in moved
+                    ],
+                    "missing": [str(path) for path in missing],
+                }
+                (archive / "metadata.json").write_text(
+                    json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                now = _utc_now()
+                database.delete(video)
+                touch_project(database, project_id, at=now)
+                database.commit()
+                return None
+            except Exception as exc:
+                database.rollback()
+                rollback_error = None
+                for source, target in reversed(moved):
+                    if not target.exists():
+                        continue
+                    try:
+                        source.parent.mkdir(parents=True, exist_ok=True)
+                        os.replace(target, source)
+                    except OSError as error:
+                        rollback_error = error
+                if rollback_error is None:
+                    shutil.rmtree(archive, ignore_errors=True)
+                    return str(exc)
+                return f"video archive rollback failed: {rollback_error}"
+
+    @staticmethod
+    def _has_active_video_task(database, project_id: str, video_id: str) -> bool:
+        if database.scalar(
+            select(Task.id).where(
+                Task.video_id == video_id,
+                Task.status.in_(("queued", "running")),
+            )
+        ):
+            return True
+        for task in database.scalars(
+            select(Task).where(
+                Task.project_id == project_id,
+                Task.type == "auto_annotate",
+                Task.video_id.is_(None),
+                Task.status.in_(("queued", "running")),
+            )
+        ):
+            if video_id in json.loads(task.payload).get("video_ids", []):
+                return True
+        return False
 
     def latest_tasks(
         self, actor: User, project_id: str, video_ids: Sequence[str]
     ) -> dict[str, Task]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         if not video_ids:
             return {}
         ranked = (
@@ -339,7 +478,7 @@ class MediaService:
     def list_tasks(
         self, actor: User, project_id: str, *, page: int, page_size: int
     ) -> tuple[list[Task], int]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         with self._session_factory() as database:
             where = Task.project_id == project_id
             total = database.scalar(select(func.count()).select_from(Task).where(where)) or 0
@@ -356,6 +495,7 @@ class MediaService:
         self, actor: User, *, page: int, page_size: int
     ) -> tuple[list[VisibleTask], int, datetime | None]:
         membership = aliased(ProjectMembership)
+        model_membership = aliased(ModelProjectMembership)
         membership_ids = select(ProjectMembership.project_id).where(
             ProjectMembership.user_id == actor.id
         )
@@ -363,7 +503,19 @@ class MediaService:
             Project.creator_id == actor.id,
             Project.id.in_(membership_ids),
         )
-        unrestricted = self.settings.app_mode == "single" and actor.is_system_admin
+        model_membership_ids = select(ModelProjectMembership.model_project_id).where(
+            ModelProjectMembership.user_id == actor.id
+        )
+        visible_model_project = or_(
+            ModelProject.created_by_id == actor.id,
+            ModelProject.id.in_(model_membership_ids),
+            ModelProject.system_key.is_not(None),
+        )
+        saved_inference_tasks = select(ModelInferenceRun.task_id).where(
+            ModelInferenceRun.saved_at.is_not(None),
+            ModelInferenceRun.deleted_at.is_(None),
+        )
+        unrestricted = actor.is_system_admin
         with self._session_factory() as database:
             items_query = (
                 select(
@@ -374,6 +526,7 @@ class MediaService:
                     ModelProject.name,
                     ModelProject.created_by_id,
                     ModelProject.system_key,
+                    model_membership.role,
                 )
                 .outerjoin(Project, Project.id == Task.project_id)
                 .outerjoin(ModelProject, ModelProject.id == Task.model_project_id)
@@ -381,20 +534,41 @@ class MediaService:
                     membership,
                     (membership.project_id == Project.id) & (membership.user_id == actor.id),
                 )
+                .outerjoin(
+                    model_membership,
+                    (model_membership.model_project_id == ModelProject.id)
+                    & (model_membership.user_id == actor.id),
+                )
             )
             total_query = (
                 select(func.count())
                 .select_from(Task)
                 .outerjoin(Project, Project.id == Task.project_id)
+                .outerjoin(ModelProject, ModelProject.id == Task.model_project_id)
             )
             terminal_query = (
                 select(func.max(Task.updated_at))
                 .select_from(Task)
                 .outerjoin(Project, Project.id == Task.project_id)
+                .outerjoin(ModelProject, ModelProject.id == Task.model_project_id)
                 .where(Task.status.in_(("succeeded", "failed", "canceled")))
             )
             if not unrestricted:
-                visible = or_(Task.model_project_id.is_not(None), visible_project)
+                model_visible = or_(
+                    and_(
+                        Task.model_project_id.is_not(None),
+                        visible_model_project,
+                        or_(
+                            Task.type != "infer_video",
+                            Task.id.in_(saved_inference_tasks),
+                        ),
+                    ),
+                    and_(
+                        Task.type == "infer_video",
+                        Task.submitted_by_id == actor.id,
+                    ),
+                )
+                visible = or_(model_visible, visible_project)
                 items_query = items_query.where(visible)
                 total_query = total_query.where(visible)
                 terminal_query = terminal_query.where(visible)
@@ -410,7 +584,11 @@ class MediaService:
                         resource_kind="model_project" if row[0].model_project_id else "project",
                         resource_name=row[4] if row[0].model_project_id else row[1],
                         can_manage=(
-                            (actor.is_system_admin or row[5] == actor.id)
+                            (
+                                actor.is_system_admin
+                                or row[5] == actor.id
+                                or row[7] == "editor"
+                            )
                             if row[0].model_project_id
                             else (unrestricted or row[2] == actor.id or row[3] == "editor")
                         ),
@@ -428,16 +606,49 @@ class MediaService:
             if task is None or task.model_project_id is None:
                 raise MediaNotFound("task not found")
             project = database.get(ModelProject, task.model_project_id)
-            if project is None or not (actor.is_system_admin or project.created_by_id == actor.id):
+            if project is None:
+                raise MediaNotFound("task not found")
+            try:
+                access = self._models.project_access(actor, project.id)
+            except ModelNotFound as exc:
+                raise MediaNotFound("task not found") from exc
+            if not access.allows("task.execute"):
                 raise ProjectForbidden("model project write permission required")
             if task.status == "queued":
                 task.status = "canceled"
                 task.finished_at = now
+                payload = json.loads(task.payload)
+                if task.type == "convert_model":
+                    resource = database.get(ModelArtifact, payload.get("artifact_id"))
+                    if resource:
+                        resource.status = "failed"
+                        resource.error = "model conversion canceled"
+                        resource.completed_at = now
+                elif task.type == "infer_video":
+                    resource = database.get(ModelInferenceRun, payload.get("run_id"))
+                    if resource:
+                        resource.status = "canceled"
+                        resource.error = "inference canceled"
+                        resource.finished_at = now
+                elif task.type == "import_evaluation_dataset":
+                    resource = database.get(EvaluationDataset, payload.get("dataset_id"))
+                    if resource:
+                        resource.status = "failed"
+                        resource.error = "evaluation dataset import canceled"
+                        resource.completed_at = now
+                elif task.type == "evaluate_model":
+                    resource = database.get(ModelEvaluation, payload.get("evaluation_id"))
+                    if resource:
+                        resource.status = "canceled"
+                        resource.error = "evaluation canceled"
+                        resource.finished_at = now
             elif task.status == "running":
                 task.cancel_requested = True
             else:
                 raise MediaConflict("task cannot be canceled")
             task.updated_at = now
+            if task.type != "infer_video":
+                touch_model_project(database, task.model_project_id, at=now)
             database.commit()
             return task
 
@@ -449,7 +660,7 @@ class MediaService:
         *,
         thumbnail: bool = False,
     ) -> tuple[Video, Path]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         with self._session_factory() as database:
             video = database.get(Video, video_id)
             if video is None or video.project_id != project_id:
@@ -492,6 +703,7 @@ class MediaService:
             else:
                 raise MediaConflict("task cannot be canceled")
             task.updated_at = now
+            touch_project(database, project_id, at=now)
             database.commit()
             return task
 
@@ -525,5 +737,6 @@ class MediaService:
                 updated_at=now,
             )
             database.add(task)
+            touch_project(database, project_id, at=now)
             database.commit()
             return task

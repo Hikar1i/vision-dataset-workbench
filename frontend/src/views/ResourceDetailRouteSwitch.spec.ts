@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   getModelProject: vi.fn(),
   listModelProjectModels: vi.fn().mockResolvedValue([]),
   listModelProjectTags: vi.fn().mockResolvedValue([]),
+  listModelProjectMembers: vi.fn().mockResolvedValue([]),
+  listModelProjects: vi.fn().mockResolvedValue([]),
+  listHyperparameterTemplates: vi.fn().mockResolvedValue([]),
   getTrainingTask: vi.fn(),
 }))
 
@@ -18,9 +21,18 @@ vi.mock('../api/models', () => ({
   getModelProject: mocks.getModelProject,
   listModelProjectModels: mocks.listModelProjectModels,
   listModelProjectTags: mocks.listModelProjectTags,
+  listModelProjectMembers: mocks.listModelProjectMembers,
+  listModelProjects: mocks.listModelProjects,
+  addModelProjectMember: vi.fn(),
+  changeModelProjectMemberRole: vi.fn(),
+  removeModelProjectMember: vi.fn(),
   modelDownloadUrl: (id: string) => `/api/v1/models/${id}/download`,
   registerInferenceModel: vi.fn(),
   updateModelProject: vi.fn(),
+}))
+
+vi.mock('../api/hyperparameters', () => ({
+  listHyperparameterTemplates: mocks.listHyperparameterTemplates,
 }))
 
 vi.mock('../api/training', () => ({
@@ -47,6 +59,10 @@ function modelProject(id: string) {
     created_by_id: 'user-1',
     version: 1,
     can_manage: true,
+    access: {
+      role: 'owner', source: 'owner',
+      permissions: ['project.read', 'project.update', 'project.members.manage', 'project.delete', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+    },
     created_at: '2026-08-05T00:00:00Z',
     updated_at: '2026-08-05T00:00:00Z',
     tags: ['测试'],
@@ -68,6 +84,11 @@ function trainingTask(id: string) {
     default_base_model_id: null,
     created_by_id: 'user-1',
     can_manage: true,
+    model_project_id: `model-project-${id}`,
+    access: {
+      role: 'owner', source: 'owner',
+      permissions: ['project.read', 'project.update', 'project.members.manage', 'project.delete', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+    },
     version: 1,
     submitted_at: null,
     last_run_at: null,
@@ -148,6 +169,35 @@ describe('resource detail route switching', () => {
 
     expect(mocks.getTrainingTask).toHaveBeenLastCalledWith('B')
     expect(wrapper.get('h1').text()).toBe('训练任务 B')
+    wrapper.unmount()
+  })
+
+  it('separates training project authorization from template references', async () => {
+    mocks.getTrainingTask.mockResolvedValue({
+      ...trainingTask('A'),
+      default_template_id: 'template-default',
+      models: [{
+        id: 'model-a', name: '模型 A', template_id: 'template-model',
+        gpu_index: 0, queue_order: 1, status: 'draft', progress: 0, runs: [], actions: {},
+      }],
+    })
+    mocks.listHyperparameterTemplates.mockResolvedValue([
+      { id: 'template-default', name: '默认模板', model_project_id: 'source-project', system_key: null },
+      { id: 'template-model', name: '模型模板', model_project_id: 'source-project', system_key: null },
+    ])
+    mocks.listModelProjects.mockResolvedValue([modelProject('source-project')])
+
+    const { wrapper } = await mountDetail(
+      TrainingTaskDetailView,
+      '/training-tasks/:id',
+      '/training-tasks/A',
+    )
+
+    expect(wrapper.text()).toContain('成员授权覆盖当前训练任务、训练模型、日志和产物')
+    expect(wrapper.text()).toContain('默认模板')
+    expect(wrapper.text()).toContain('模型模板')
+    expect(wrapper.text()).toContain('来源项目：模型项目 source-project')
+    expect(wrapper.text()).toContain('独立权限范围')
     wrapper.unmount()
   })
 })

@@ -10,6 +10,8 @@ export type Tone = 'ok' | 'run' | 'warn' | 'danger' | 'idle'
 /** 训练任务与训练运行状态（后端 TrainingStatus / RunStatus） */
 const TRAINING: Record<string, { tone: Tone; label: string }> = {
   draft: { tone: 'idle', label: '草稿' },
+  preparing: { tone: 'run', label: '准备训练数据' },
+  preparation_failed: { tone: 'danger', label: '数据准备失败' },
   queued: { tone: 'idle', label: '排队中' },
   running: { tone: 'run', label: '进行中' },
   canceling: { tone: 'warn', label: '取消中' },
@@ -22,9 +24,7 @@ const TRAINING: Record<string, { tone: Tone; label: string }> = {
 
 /** 账号状态（后端 ManagedUser.status） */
 const USER: Record<string, { tone: Tone; label: string }> = {
-  pending: { tone: 'warn', label: '待审批' },
   active: { tone: 'ok', label: '正常' },
-  rejected: { tone: 'danger', label: '已拒绝' },
   disabled: { tone: 'idle', label: '已禁用' },
 }
 
@@ -35,6 +35,21 @@ const DATASET_EXPORT: Record<string, { tone: Tone; label: string }> = {
   ready: { tone: 'ok', label: '可用' },
   failed: { tone: 'danger', label: '失败' },
   canceled: { tone: 'idle', label: '已取消' },
+}
+
+/** 原始视频媒体文件状态（后端 Video.status） */
+const MEDIA: Record<string, { tone: Tone; label: string }> = {
+  pending: { tone: 'idle', label: '导入中' },
+  ready: { tone: 'ok', label: '可用' },
+  unavailable: { tone: 'danger', label: '不可用' },
+}
+
+const MODEL_ARTIFACT: Record<string, { tone: Tone; label: string }> = {
+  queued: { tone: 'idle', label: '排队中' },
+  converting: { tone: 'run', label: '转换中' },
+  ready: { tone: 'ok', label: '可下载' },
+  failed: { tone: 'danger', label: '转换失败' },
+  stale: { tone: 'warn', label: '已失效' },
 }
 
 /** 视频工作流状态码（views/videoStatus.ts 产出的 code 前缀） */
@@ -62,6 +77,14 @@ export function datasetExportStatus(status: string) {
 
 export function userStatus(status: string) {
   return USER[status] ?? { tone: 'idle' as Tone, label: status }
+}
+
+export function mediaStatus(status: string) {
+  return MEDIA[status] ?? { tone: 'idle' as Tone, label: status }
+}
+
+export function modelArtifactStatus(status: string) {
+  return MODEL_ARTIFACT[status] ?? { tone: 'idle' as Tone, label: status }
 }
 
 export function videoTone(code: string): Tone {

@@ -31,6 +31,10 @@ class AuthenticationFailed(ValueError):
     pass
 
 
+class CurrentPasswordRequired(ValueError):
+    pass
+
+
 class AuthConflict(ValueError):
     pass
 
@@ -43,6 +47,12 @@ class UserNotFound(ValueError):
 class CreatedSession:
     token: str
     user: User
+
+
+@dataclass(frozen=True)
+class ProvisionedUser:
+    user: User
+    initial_password: str
 
 
 def normalize_username(username: str) -> str:
@@ -154,7 +164,7 @@ class AuthService:
             database.commit()
 
     def change_password(
-        self, token: str, current_password: str, new_password: str
+        self, token: str, current_password: str | None, new_password: str
     ) -> CreatedSession:
         authenticated_user = self.authenticate(token)
         validate_password(new_password)
@@ -162,10 +172,18 @@ class AuthService:
 
         with self._session_factory() as database:
             user = database.get(User, authenticated_user.id)
-            if user is None or not verify_password(user.password_hash, current_password):
+            if user is None:
+                raise AuthenticationFailed("authentication required")
+            if not user.must_change_password and current_password is None:
+                raise CurrentPasswordRequired("current password is required")
+            if (
+                not user.must_change_password
+                and not verify_password(user.password_hash, current_password or "")
+            ):
                 raise AuthenticationFailed("current password is incorrect")
 
             user.password_hash = hash_password(new_password)
+            user.must_change_password = False
             user.updated_at = now
             database.execute(
                 delete(AuthSession).where(AuthSession.user_id == user.id)
@@ -191,18 +209,17 @@ class AuthService:
             )
             database.commit()
 
-    def register(self, username: str, password: str) -> User:
-        if self.settings.app_mode != "multi" or not self.settings.registration_enabled:
-            raise AuthenticationFailed("registration is disabled")
+    def create_user(self, username: str) -> ProvisionedUser:
         normalized = normalize_username(username)
-        validate_password(password)
+        initial_password = secrets.token_urlsafe(18)
         now = self._now()
         user = User(
             username=username.strip(),
             username_normalized=normalized,
-            password_hash=hash_password(password),
-            status="pending",
+            password_hash=hash_password(initial_password),
+            status="active",
             is_system_admin=False,
+            must_change_password=True,
             created_at=now,
             updated_at=now,
         )
@@ -213,7 +230,7 @@ class AuthService:
             except IntegrityError as exc:
                 database.rollback()
                 raise AuthConflict("username already exists") from exc
-        return user
+        return ProvisionedUser(user=user, initial_password=initial_password)
 
     def list_users(
         self, *, status: str | None, page: int, page_size: int
@@ -236,12 +253,10 @@ class AuthService:
             )
             return users, total
 
-    def set_user_status(self, user_id: str, action: str, reviewer_id: str) -> User:
+    def set_user_status(self, user_id: str, action: str) -> User:
         transitions = {
-            "approve": ({"pending"}, "active"),
-            "reject": ({"pending"}, "rejected"),
             "disable": ({"active"}, "disabled"),
-            "enable": ({"disabled", "rejected"}, "active"),
+            "enable": ({"disabled"}, "active"),
         }
         accepted_statuses, next_status = transitions[action]
         now = self._now()
@@ -249,20 +264,12 @@ class AuthService:
             user = database.get(User, user_id)
             if user is None:
                 raise UserNotFound("user not found")
+            if user.is_system_admin:
+                raise AuthConflict("administrator account cannot be managed")
             if user.status not in accepted_statuses:
                 raise AuthConflict("user status does not allow this action")
-            if action == "disable" and user.is_system_admin:
-                active_admins = database.scalar(
-                    select(func.count())
-                    .select_from(User)
-                    .where(User.is_system_admin.is_(True), User.status == "active")
-                )
-                if active_admins is None or active_admins <= 1:
-                    raise AuthConflict("cannot disable the last active administrator")
 
             user.status = next_status
-            user.reviewed_by_id = reviewer_id
-            user.reviewed_at = now
             user.updated_at = now
             if next_status != "active":
                 database.execute(
@@ -270,6 +277,22 @@ class AuthService:
                 )
             database.commit()
             return user
+
+    def reset_user_password(self, user_id: str) -> ProvisionedUser:
+        initial_password = secrets.token_urlsafe(18)
+        now = self._now()
+        with self._session_factory() as database:
+            user = database.get(User, user_id)
+            if user is None:
+                raise UserNotFound("user not found")
+            if user.is_system_admin:
+                raise AuthConflict("administrator password must be reset from the terminal")
+            user.password_hash = hash_password(initial_password)
+            user.must_change_password = True
+            user.updated_at = now
+            database.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+            database.commit()
+            return ProvisionedUser(user=user, initial_password=initial_password)
 
     def reset_admin_password(self, username: str, new_password: str) -> User:
         try:
@@ -286,6 +309,7 @@ class AuthService:
             if user is None or not user.is_system_admin:
                 raise UserNotFound("administrator not found")
             user.password_hash = replacement_hash
+            user.must_change_password = False
             user.updated_at = now
             database.execute(
                 delete(AuthSession).where(AuthSession.user_id == user.id)

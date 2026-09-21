@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from ..config import RuntimeSettings
 from ..models import Frame, FrameAnnotation, SamplingPlan, Task, User, Video
 from ..sampling import SamplingInput, calculate_sampling
-from .projects import ProjectForbidden, ProjectService
+from .projects import ProjectForbidden, ProjectService, touch_project
 from .dataset_exports import video_has_active_export
 
 
@@ -130,11 +130,11 @@ class SamplingService:
         self._projects = ProjectService(engine, settings, workspace)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
-    def _project_role(self, actor: User, project_id: str) -> str:
-        return self._projects.get_project(actor, project_id).role
+    def _project_access(self, actor: User, project_id: str):
+        return self._projects.get_project(actor, project_id).access
 
     def _require_editor(self, actor: User, project_id: str) -> None:
-        if self._project_role(actor, project_id) == "viewer":
+        if not self._project_access(actor, project_id).allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
 
     @staticmethod
@@ -275,6 +275,7 @@ class SamplingService:
                         plan.expected_frames = estimate.expected_frames
                         plan.version += 1
                         plan.updated_at = now
+                    touch_project(database, project_id, at=now)
                     database.commit()
                     database.expunge(plan)
                     accepted.append(AcceptedPlan(video_id, plan))
@@ -354,6 +355,7 @@ class SamplingService:
                         updated_at=now,
                     )
                     database.add(task)
+                    touch_project(database, project_id, at=now)
                     database.commit()
                     database.expunge(task)
                     accepted.append(AcceptedExtraction(video_id, task))
@@ -377,7 +379,7 @@ class SamplingService:
     def videos_with_annotations(
         self, actor: User, project_id: str, video_ids: list[str]
     ) -> set[str]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         if not video_ids:
             return set()
         with self._session_factory() as database:
@@ -397,7 +399,7 @@ class SamplingService:
     def get_plan(
         self, actor: User, project_id: str, video_id: str
     ) -> SamplingPlan | None:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         with self._session_factory() as database:
             self._video(database, project_id, video_id)
             plan = database.scalar(
@@ -410,7 +412,7 @@ class SamplingService:
     def summaries(
         self, actor: User, project_id: str, video_ids: list[str]
     ) -> dict[str, SamplingSummary]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         if not video_ids:
             return {}
         with self._session_factory() as database:
@@ -429,7 +431,7 @@ class SamplingService:
         page_size: int,
         enabled: bool | None,
     ) -> tuple[list[Frame], int, SamplingPlan]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         with self._session_factory() as database:
             self._video(database, project_id, video_id)
             plan = database.scalar(
@@ -462,7 +464,7 @@ class SamplingService:
         video_id: str,
         frame_id: str,
     ) -> tuple[Frame, Path]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         with self._session_factory() as database:
             video = self._video(database, project_id, video_id)
             frame = database.get(Frame, frame_id)
@@ -491,7 +493,7 @@ class SamplingService:
         video_id: str,
         frame_ids: list[str],
     ) -> dict[str, list[FrameAnnotation]]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         if not frame_ids:
             return {}
         with self._session_factory() as database:
@@ -521,7 +523,7 @@ class SamplingService:
         project_id: str,
         video_id: str,
     ) -> list[str]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         with self._session_factory() as database:
             self._video(database, project_id, video_id)
             return list(
@@ -592,7 +594,9 @@ class SamplingService:
                 .where(Frame.video_id == video_id, Frame.enabled.is_(True))
             ) or 0
             plan.frame_revision += 1
-            plan.updated_at = _utc_now()
+            now = _utc_now()
+            plan.updated_at = now
+            touch_project(database, project_id, at=now)
             database.commit()
             database.expunge(plan)
             return plan
@@ -696,7 +700,9 @@ class SamplingService:
                         .where(Frame.video_id == video_id, Frame.enabled.is_(True))
                     ) or 0
                     plan.frame_revision += 1
-                    plan.updated_at = _utc_now()
+                    now = _utc_now()
+                    plan.updated_at = now
+                    touch_project(database, project_id, at=now)
                     database.commit()
                     database.expunge(plan)
                     accepted.append(AcceptedAnnotationEnable(video_id, plan))

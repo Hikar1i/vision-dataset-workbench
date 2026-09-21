@@ -15,6 +15,7 @@ from vision_dataset_workbench.models import (
     Frame,
     FrameAnnotation,
     InferenceModel,
+    ModelProject,
     Project,
     ProjectLabel,
     SamplingPlan,
@@ -48,6 +49,15 @@ def make_worker(
             )
         session.flush()
         session.add(Project(id="project-id", name="project", creator_id="one-id"))
+        session.add(
+            ModelProject(
+                id="model-project-id",
+                name="models",
+                name_normalized="models",
+                series_type="archive",
+                created_by_id="one-id",
+            )
+        )
         session.commit()
     settings = RuntimeSettings(home=home, workspace=workspace)
     worker = TaskWorker(
@@ -128,6 +138,31 @@ def test_claim_respects_type_and_user_limits_and_recovers_expired_lease(tmp_path
     engine.dispose()
 
 
+def test_task_heartbeat_does_not_touch_parent_but_terminal_failure_does(tmp_path):
+    worker, engine, _home, _workspace = make_worker(tmp_path)
+    add_task(engine, task_id="activity-task", user_id="one-id")
+    old = datetime(2025, 1, 1)
+    with Session(engine) as session:
+        project = session.get(Project, "project-id")
+        task = session.get(Task, "activity-task")
+        project.updated_at = old
+        version = project.version
+        task.status = "running"
+        session.commit()
+
+    worker._heartbeat("activity-task", 50)
+    with Session(engine) as session:
+        project = session.get(Project, "project-id")
+        assert project.updated_at == old
+
+    worker._finish_failed("activity-task", RuntimeError("boom"))
+    with Session(engine) as session:
+        project = session.get(Project, "project-id")
+        assert project.updated_at > old
+        assert project.version == version
+    engine.dispose()
+
+
 def test_copy_task_publishes_metadata_and_hash(tmp_path):
     worker, engine, home, workspace = make_worker(tmp_path)
     source = home / "clips" / "one.MKV"
@@ -153,6 +188,11 @@ def test_copy_task_publishes_metadata_and_hash(tmp_path):
         assert video.file_path == "projects/project-id/videos/TESTV001.mkv"
         assert (workspace / video.file_path).read_bytes() == b"video bytes"
         assert video.width == 320
+        assert json.loads(task.result or "{}")["materialization"] in {
+            "reflink",
+            "hardlink",
+            "copy",
+        }
     engine.dispose()
 
 
@@ -165,6 +205,7 @@ def test_import_model_task_copies_into_managed_storage(tmp_path):
         session.add(
             InferenceModel(
                 id="model-id",
+                model_project_id="model-project-id",
                 name="detector",
                 kind="yolo",
                 status="copying",
@@ -176,7 +217,7 @@ def test_import_model_task_copies_into_managed_storage(tmp_path):
             Task(
                 id="import-model",
                 project_id=None,
-                model_project_id="00000000-0000-0000-0000-000000000001",
+                model_project_id="model-project-id",
                 submitted_by_id="one-id",
                 type="import_model",
                 payload=json.dumps({"model_id": "model-id", "source_path": "models/detector.pt"}),
@@ -229,6 +270,7 @@ def test_auto_annotation_task_processes_only_starting_enabled_frames(tmp_path):
         session.add(
             InferenceModel(
                 id="model-id",
+                model_project_id="model-project-id",
                 name="detector",
                 kind="yolo",
                 status="ready",
@@ -372,10 +414,14 @@ def test_remote_auto_annotation_uses_submitting_users_connection(tmp_path):
 
     class RemoteSettings:
         user_ids = []
+        availability = []
 
         def client_for(self, user_id):
             self.user_ids.append(user_id)
             return RemoteClient()
+
+        def mark_availability(self, user_id, available):
+            self.availability.append((user_id, available))
 
     remote_settings = RemoteSettings()
     worker, engine, _home, workspace = make_worker(
@@ -441,6 +487,7 @@ def test_remote_auto_annotation_uses_submitting_users_connection(tmp_path):
         assert task is not None and task.status == "succeeded", task.error if task else None
         assert [item.source for item in boxes] == ["model"]
     assert remote_settings.user_ids == ["one-id"]
+    assert remote_settings.availability == [("one-id", True)]
     engine.dispose()
 
 
@@ -459,6 +506,7 @@ def test_project_auto_annotation_task_processes_multiple_videos(tmp_path):
         session.add(
             InferenceModel(
                 id="model-id",
+                model_project_id="model-project-id",
                 name="detector",
                 kind="yolo",
                 status="ready",
@@ -734,6 +782,11 @@ def test_dataset_export_task_hardlinks_images_and_writes_sparse_labels(tmp_path)
     assert (target / "classes.txt").read_text() == "person\ncar\n"
     assert "nc: 2" in (target / "dataset.yaml").read_text()
     assert manifest["train_video_ids"] == ["export-video"]
+    assert (manifest["total_videos"], manifest["train_videos"], manifest["val_videos"]) == (
+        1,
+        1,
+        0,
+    )
     assert manifest["video_stats"][0]["positive_frames"] == 1
     assert manifest["video_stats"][0]["negative_frames"] == 1
     engine.dispose()

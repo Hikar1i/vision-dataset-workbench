@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ProjectTask, SamplingSummary, Video } from '../api/media'
-import { videoStatusInfo, videoWorkflowStatus } from './videoStatus'
+import { videoStatusInfo, videoWorkflowLabels, videoWorkflowStatus } from './videoStatus'
 
 const sampling: SamplingSummary = {
   id: 'plan-id',
@@ -105,12 +105,23 @@ describe('videoStatusInfo', () => {
         latest_task: { ...task, type: 'auto_annotate', status: 'queued' },
       }),
     ).toBe('等待自动标注')
-    expect(
-      videoStatusInfo({
-        ...video,
-        latest_task: { ...task, type: 'auto_annotate', status: 'succeeded' },
-      }),
-    ).toBe('自动标注完成')
+  })
+
+  it.each([
+    ['单视频全手动标注', null],
+    ['单视频手动加部分自动标注', null],
+    ['单视频全自动标注', { ...task, type: 'auto_annotate' as const, status: 'succeeded' as const }],
+    ['多视频批量自动标注', null],
+  ])('%s 完成后统一展示当前数据状态', (_scenario, latestTask) => {
+    const status = videoWorkflowStatus({
+      ...video,
+      sampling,
+      has_annotations: true,
+      latest_task: latestTask,
+    })
+
+    expect(status.primary).toBe('已采样')
+    expect(status.flags).toContain('有标注')
   })
 
   it('ignores stale failed tasks and reports resource state', () => {
@@ -171,8 +182,9 @@ describe('videoStatusInfo', () => {
     }
 
     expect(videoStatusInfo(changed)).toBe(
-      '待重新抽帧 · 当前 50 帧，新方案预计 80 帧',
+      '待重抽帧 · 当前 50 帧，新方案预计 80 帧',
     )
     expect(videoWorkflowStatus(changed).flags).toEqual(['已筛帧', '有标注', '视频停用'])
+    expect(videoWorkflowLabels(changed)).toEqual(['待重抽帧', '已筛帧', '有标注', '视频停用'])
   })
 })

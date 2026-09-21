@@ -84,6 +84,13 @@ def test_remote_preview_parses_single_and_playlist(tmp_path):
                             "url": "https://example.test/one",
                             "duration": 3,
                             "playlist_index": 7,
+                        },
+                        {
+                            "id": "BV1Fallback",
+                            "extractor": "bilibili",
+                            "title": "   ",
+                            "url": "https://example.test/two",
+                            "duration": 4,
                         }
                     ],
                 }
@@ -94,7 +101,8 @@ def test_remote_preview_parses_single_and_playlist(tmp_path):
         "https://example.test/list", settings(tmp_path), run=playlist_run
     )
     assert [(item.title, item.playlist, item.playlist_index) for item in playlist] == [
-        ("One", "Playlist", 7)
+        ("One", "Playlist", 7),
+        ("BV1Fallback", "Playlist", 2),
     ]
 
 
