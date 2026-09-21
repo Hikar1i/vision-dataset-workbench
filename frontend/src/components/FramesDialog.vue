@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import {
   ArrowLeftBold,
   ArrowRightBold,
@@ -311,7 +312,7 @@ function togglePattern(index: number) {
 
 function applyPattern() {
   if (rangeMode.value && !selected.value.size) {
-    ElMessage.warning('请先选择采样帧。')
+    notify.warning('请先选择采样帧。')
     return
   }
   draft.value = applyEnabledPattern(
@@ -321,7 +322,7 @@ function applyPattern() {
     rangeMode.value ? selected.value : undefined,
   )
   patternOpen.value = false
-  ElMessage.success('启停模板已应用到前端草稿。')
+  notify.success('启停模板已应用到前端草稿。')
 }
 
 async function enableByAnnotation() {
@@ -362,7 +363,7 @@ async function saveChanges() {
     baseline.value = { ...draft.value }
     frames.value = frames.value.map((frame) => ({ ...frame, enabled: draft.value[frame.id] }))
     emit('updated')
-    ElMessage.success('采样帧启停状态已保存。')
+    notify.success('采样帧启停状态已保存。')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '采样帧启停状态保存失败'
   } finally {

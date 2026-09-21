@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CircleCheck, CircleClose, CopyDocument, Plus, RefreshRight, User } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { notify } from '../ui/notify'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
 import {
@@ -118,12 +118,12 @@ async function copyPassword() {
   try {
     await copyText(revealedPassword.value)
     copied.value = true
-    ElMessage.success('初始密码已复制。')
+    notify.success('初始密码已复制。')
     if (copyResetTimer !== undefined) window.clearTimeout(copyResetTimer)
     copyResetTimer = window.setTimeout(resetCopiedState, 1500)
   } catch {
     resetCopiedState()
-    ElMessage.error('复制失败，请手动选择密码复制。')
+    notify.error('复制失败，请手动选择密码复制。')
   }
 }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { ArrowDown, Delete, Download, UploadFilled } from '@element-plus/icons-vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -108,7 +109,7 @@ function selected(event: Event) {
   const inputType = file.type.startsWith('video/') ? 'video' : 'image'
   const limit = inputType === 'video' ? 500 * 1024 * 1024 : 20 * 1024 * 1024
   if (file.size > limit) {
-    ElMessage.error(`${inputType === 'video' ? '视频' : '图片'}不能超过 ${limit / 1024 / 1024} MB。`)
+    notify.error(`${inputType === 'video' ? '视频' : '图片'}不能超过 ${limit / 1024 / 1024} MB。`)
     ;(event.target as HTMLInputElement).value = ''
     return
   }
@@ -128,10 +129,10 @@ async function run() {
     current.value = await createInference(modelId, pendingFile.value, inputType, format.value, parameters.value, replace)
     view.value = current.value.status === 'succeeded' ? 'result' : 'source'
     pendingFile.value = undefined
-    ElMessage.success(inputType === 'video' ? '视频已上传，后台推理已开始。' : '图片推理已完成。')
+    notify.success(inputType === 'video' ? '视频已上传，后台推理已开始。' : '图片推理已完成。')
     startPolling()
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '推理失败')
+    notify.error(reason instanceof Error ? reason.message : '推理失败')
   } finally { busy.value = false }
 }
 
@@ -141,7 +142,7 @@ async function clear() {
   await deleteInference(current.value.id)
   current.value = null
   stopPolling()
-  ElMessage.success('当前推理会话已清理。')
+  notify.success('当前推理会话已清理。')
 }
 
 async function save() {
@@ -151,7 +152,7 @@ async function save() {
   current.value = null
   stopPolling()
   openSaved(saved.value.find((item) => item.id === savedRun.id) ?? savedRun)
-  ElMessage.success('推理结果已保存，可在“已保存结果”中查看。')
+  notify.success('推理结果已保存，可在“已保存结果”中查看。')
 }
 
 async function removeSaved(item: ModelInferenceRun) {
@@ -162,8 +163,8 @@ async function removeSaved(item: ModelInferenceRun) {
     await deleteInference(item.id)
     saved.value = saved.value.filter((value) => value.id !== item.id)
     if (selectedSaved.value?.id === item.id) selectedSaved.value = saved.value[0]
-    ElMessage.success('已保存推理结果已删除。')
-  } catch (reason) { ElMessage.error(reason instanceof Error ? reason.message : '删除失败') }
+    notify.success('已保存推理结果已删除。')
+  } catch (reason) { notify.error(reason instanceof Error ? reason.message : '删除失败') }
 }
 
 function startPolling() {

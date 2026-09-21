@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessageBox } from "element-plus";
+import { notify } from '../ui/notify';
 import { ArrowDown, ArrowUp, CopyDocument, Download } from "@element-plus/icons-vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -92,7 +93,7 @@ async function cancel() {
     await cancelTrainingModel(String(route.params.modelId));
     await load();
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message);
+    if (e instanceof Error) notify.error(e.message);
   }
 }
 async function retry() {
@@ -110,7 +111,7 @@ async function retry() {
     await retryTrainingModel(model.value.id, confirm);
     await load();
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message);
+    if (e instanceof Error) notify.error(e.message);
   }
 }
 async function remove() {
@@ -127,7 +128,7 @@ async function remove() {
     await deleteTrainingModel(model.value.id, published);
     await router.push(`/training-tasks/${task.value?.id}`);
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message);
+    if (e instanceof Error) notify.error(e.message);
   }
 }
 async function resume() {
@@ -139,7 +140,7 @@ async function resume() {
     await resumeTrainingModel(String(route.params.modelId));
     await load();
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message);
+    if (e instanceof Error) notify.error(e.message);
   }
 }
 function open(kind: "derive" | "extend") {
@@ -173,7 +174,7 @@ async function submitAction() {
     dialog.value = null;
     await router.push(`/training-tasks/${created.id}/edit`);
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : "操作失败");
+    notify.error(e instanceof Error ? e.message : "操作失败");
   }
 }
 const summary = computed(() => {
@@ -208,16 +209,16 @@ const rawParameters = computed(() => JSON.stringify(
 async function copyRawParameters() {
   try {
     await copyText(rawParameters.value);
-    ElMessage.success("完整超参数已复制。");
+    notify.success("完整超参数已复制。");
   } catch {
-    ElMessage.error("复制失败，请检查浏览器剪贴板权限。");
+    notify.error("复制失败，请检查浏览器剪贴板权限。");
   }
 }
 onMounted(async () => {
   try {
     await load();
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : "训练详情加载失败");
+    notify.error(e instanceof Error ? e.message : "训练详情加载失败");
   }
   timer = window.setInterval(() => {
     if (active.value) void load();

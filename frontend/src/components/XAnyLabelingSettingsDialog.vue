@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { notify } from '../ui/notify'
 import { ref, watch } from 'vue'
 
 import {
@@ -46,9 +46,9 @@ async function save() {
     )
     emit('saved', result.setting, result.models)
     emit('update:modelValue', false)
-    ElMessage.success('X-anylabeling-server 设置已保存。')
+    notify.success('X-anylabeling-server 设置已保存。')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '远程服务器设置保存失败')
+    notify.error(reason instanceof Error ? reason.message : '远程服务器设置保存失败')
   } finally {
     saving.value = false
   }

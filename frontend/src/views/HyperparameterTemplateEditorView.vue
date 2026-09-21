@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -50,7 +51,7 @@ function clear() {
   config.value = defaultConfig()
   rawDirty.value = false
   editorKey.value += 1
-  ElMessage.success('已清空，核心参数已恢复默认值。')
+  notify.success('已清空，核心参数已恢复默认值。')
 }
 
 async function save() {
@@ -66,7 +67,7 @@ async function save() {
     })
     await router.push(`/hyperparameter-templates/${created.id}`)
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '模板创建失败')
+    notify.error(reason instanceof Error ? reason.message : '模板创建失败')
   } finally {
     saving.value = false
   }
@@ -82,10 +83,10 @@ async function saveCurrent() {
       description: description.value,
       ...config.value,
     })
-    ElMessage.success(`已保存到当前模板 v${source.value.version}。`)
+    notify.success(`已保存到当前模板 v${source.value.version}。`)
     await router.push(`/hyperparameter-templates/${source.value.id}`)
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '模板保存失败')
+    notify.error(reason instanceof Error ? reason.message : '模板保存失败')
   } finally {
     saving.value = false
   }
@@ -114,10 +115,10 @@ async function derive() {
       ...config.value,
       derived_from_id: source.value.id,
     })
-    ElMessage.success('已创建派生模板。')
+    notify.success('已创建派生模板。')
     await router.push(`/hyperparameter-templates/${created.id}`)
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '派生模板创建失败')
+    notify.error(reason instanceof Error ? reason.message : '派生模板创建失败')
   } finally {
     saving.value = false
   }

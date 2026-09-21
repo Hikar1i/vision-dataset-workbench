@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { Bottom, Top } from '@element-plus/icons-vue'
 
 import { ApiError } from '../api/auth'
@@ -100,7 +101,7 @@ async function add() {
     newName.value = ''
     newDescription.value = ''
     nextColor()
-    ElMessage.success('标签已添加')
+    notify.success('标签已添加')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '标签添加失败'
   } finally {
@@ -174,7 +175,7 @@ async function remove(label: ProjectLabel) {
   try {
     await deleteLabel(props.project.id, label.id)
     await load()
-    ElMessage.success('标签已删除')
+    notify.success('标签已删除')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '标签删除失败'
   } finally {

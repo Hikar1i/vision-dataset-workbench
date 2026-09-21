@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Delete, Plus, Refresh, UploadFilled, View } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { can } from '../api/access'
@@ -98,15 +99,15 @@ async function load(silent = false) {
     if (active.value && !poll) poll = window.setInterval(() => load(true), 2000)
     if (!active.value && poll) { window.clearInterval(poll); poll = undefined }
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '评估页面加载失败')
+    notify.error(reason instanceof Error ? reason.message : '评估页面加载失败')
   } finally { loading.value = false }
 }
 
 function pickDataset(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0]
   if (!file) return
-  if (!file.name.toLowerCase().endsWith('.zip')) return void ElMessage.error('只支持 ZIP 文件。')
-  if (file.size > 1024 * 1024 * 1024) return void ElMessage.error('ZIP 不能超过 1 GB。')
+  if (!file.name.toLowerCase().endsWith('.zip')) return void notify.error('只支持 ZIP 文件。')
+  if (file.size > 1024 * 1024 * 1024) return void notify.error('ZIP 不能超过 1 GB。')
   datasetFile.value = file
   if (!datasetName.value) datasetName.value = file.name.replace(/\.zip$/i, '')
 }
@@ -120,10 +121,10 @@ async function importDataset() {
     importOpen.value = false
     datasetFile.value = undefined
     datasetName.value = ''
-    ElMessage.success('测试集已上传，正在后台校验。')
+    notify.success('测试集已上传，正在后台校验。')
     void load(true)
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '测试集上传失败')
+    notify.error(reason instanceof Error ? reason.message : '测试集上传失败')
   } finally { submitting.value = false }
 }
 
@@ -139,10 +140,10 @@ async function createEvaluation() {
     const created = await createModelEvaluation(projectId.value, modelId.value, datasetId.value, format.value)
     evaluations.value.unshift(created.evaluation)
     evaluationOpen.value = false
-    ElMessage.success('评估任务已创建。')
+    notify.success('评估任务已创建。')
     void load(true)
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '评估任务创建失败')
+    notify.error(reason instanceof Error ? reason.message : '评估任务创建失败')
   } finally { submitting.value = false }
 }
 
@@ -153,8 +154,8 @@ async function removeDataset(item: EvaluationDataset) {
   try {
     await deleteEvaluationDataset(item.id)
     datasets.value = datasets.value.filter((value) => value.id !== item.id)
-    ElMessage.success('测试集已删除。')
-  } catch (reason) { ElMessage.error(reason instanceof Error ? reason.message : '测试集删除失败') }
+    notify.success('测试集已删除。')
+  } catch (reason) { notify.error(reason instanceof Error ? reason.message : '测试集删除失败') }
 }
 
 watch(projectId, () => load(), { immediate: true })

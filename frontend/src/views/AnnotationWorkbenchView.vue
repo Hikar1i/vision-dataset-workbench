@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import {
+  Aim,
   ArrowDownBold,
   ArrowUpBold,
   Back,
@@ -8,6 +10,8 @@ import {
   DeleteFilled,
   FullScreen,
   Hide,
+  Mouse,
+  PriceTag,
   QuestionFilled,
   Rank,
   Refresh,
@@ -61,7 +65,7 @@ import AutoAnnotationCategorySelect from '../components/AutoAnnotationCategorySe
 import FrameAnnotationThumbnail from '../components/FrameAnnotationThumbnail.vue'
 import XAnyLabelingSettingsDialog from '../components/XAnyLabelingSettingsDialog.vue'
 import { formatFrameFileName } from '../components/framePresentation'
-import { type BoxBounds } from './annotationGeometry'
+import { type BoxBounds, type Point } from './annotationGeometry'
 import { createAnnotationHistory } from './annotationHistory'
 import { createAnnotationId } from './annotationId'
 import {
@@ -81,6 +85,7 @@ const videoId = String(route.params.videoId)
 const openedFromVideoList = window.history.state?.annotationFromVideoList === true
 const storedPreference = loadAnnotationPreference(projectId)
 const canvasRef = ref<CanvasApi | null>(null)
+const canvasPanelRef = ref<HTMLElement | null>(null)
 const workbenchRoot = ref<HTMLElement | null>(null)
 const video = ref<Video | null>(null)
 const frames = ref<Frame[]>([])
@@ -109,6 +114,7 @@ const hiddenLabelIds = ref<string[]>([])
 const hiddenAnnotationIds = ref<string[]>([])
 const expandedLabelIds = ref<string[]>([])
 const crosshair = ref(true)
+const dragToDraw = ref(false)
 const overwrite = ref(false)
 const gridOpen = ref(false)
 const filmstripVisible = ref(true)
@@ -121,6 +127,7 @@ const xanylabelingSettingsOpen = ref(false)
 const inferenceRunning = ref(false)
 const activeAutoTask = ref<ProjectTask | null>(null)
 const pendingBounds = ref<BoxBounds | null>(null)
+const categoryAnchor = ref<Point | null>(null)
 const lastLabelId = ref(storedPreference.labelId)
 const lastUsedLabelId = ref(storedPreference.labelId)
 const reuseLabel = ref(storedPreference.reuse)
@@ -216,6 +223,17 @@ const allBoxesHidden = computed(() =>
 )
 const enabledFrameCount = computed(() => frames.value.filter((frame) => frame.enabled).length)
 const boxCount = computed(() => annotations.value.length)
+const categoryPickerStyle = computed(() => {
+  if (!categoryAnchor.value) return undefined
+  return {
+    left: `${Math.min(Math.max(categoryAnchor.value.x, 12), window.innerWidth - 12)}px`,
+    top: `${Math.min(Math.max(categoryAnchor.value.y, 12), window.innerHeight - 12)}px`,
+  }
+})
+const categoryPickerClass = computed(() => ({
+  'opens-left': (categoryAnchor.value?.x ?? 0) > window.innerWidth / 2,
+  'opens-up': (categoryAnchor.value?.y ?? 0) > window.innerHeight / 2,
+}))
 const allAnnotationStats = computed(() => {
   const counts = new Map<string, number>()
   let total = 0
@@ -289,11 +307,16 @@ function clearAll() {
   selectedId.value = null
 }
 
-function requestCategory(bounds: BoxBounds) {
+function requestCategory(bounds: BoxBounds, anchor: Point) {
   const reusable = enabledLabels.value.some((label) => label.id === lastUsedLabelId.value)
   if (reuseLabel.value && reusable) {
     addManualBox(bounds, lastUsedLabelId.value)
     return
+  }
+  const panel = canvasPanelRef.value?.getBoundingClientRect()
+  categoryAnchor.value = {
+    x: (panel?.left ?? 0) + anchor.x,
+    y: (panel?.top ?? 0) + anchor.y,
   }
   pendingBounds.value = bounds
   if (!lastLabelId.value) lastLabelId.value = enabledLabels.value[0]?.id ?? ''
@@ -313,6 +336,7 @@ function addManualBox(bounds: BoxBounds, labelId: string) {
   lastUsedLabelId.value = labelId
   saveAnnotationPreference(projectId, { reuse: reuseLabel.value, labelId })
   pendingBounds.value = null
+  categoryAnchor.value = null
   mode.value = 'select'
 }
 
@@ -323,6 +347,7 @@ function confirmCategory() {
 
 function cancelCategory() {
   pendingBounds.value = null
+  categoryAnchor.value = null
   mode.value = 'select'
 }
 
@@ -347,7 +372,7 @@ async function saveCurrent(context?: SaveContext) {
     return true
   } catch (reason) {
     saveText.value = '保存失败'
-    ElMessage.error(reason instanceof Error ? reason.message : '标注保存失败')
+    notify.error(reason instanceof Error ? reason.message : '标注保存失败')
     return false
   } finally {
     saving.value = false
@@ -409,7 +434,7 @@ async function refreshSelectedModels() {
       inferenceModels.value = []
     }
     autoModel.value = ''
-    ElMessage.error(reason instanceof Error ? reason.message : '模型列表刷新失败')
+    notify.error(reason instanceof Error ? reason.message : '模型列表刷新失败')
   } finally {
     modelListLoading.value = false
   }
@@ -429,7 +454,7 @@ function autoConfig(): AutoAnnotationConfig | null {
   const local = selectedLocalModel.value
   const remote = selectedRemoteModel.value
   if (selectedSource.value === 'xanylabeling' ? !remote : selectedSource.value === 'online' ? !selectedOnlineModel.value : !local) {
-    ElMessage.warning('请先选择可用模型。')
+    notify.warning('请先选择可用模型。')
     return null
   }
   const pendingCategory = categoryQuery.value.trim().toLowerCase()
@@ -443,8 +468,12 @@ function autoConfig(): AutoAnnotationConfig | null {
     source: selectedSource.value === 'xanylabeling'
       ? 'xanylabeling'
       : selectedSource.value === 'online' ? 'online' : 'local',
-    model_id: remote?.model_id ?? local?.id ?? '',
-    remote_task_id: remote?.task_id ?? null,
+    model_id: selectedSource.value === 'xanylabeling'
+      ? remote?.model_id ?? ''
+      : selectedSource.value === 'online'
+        ? selectedOnlineModel.value?.id ?? ''
+        : local?.id ?? '',
+    remote_task_id: selectedSource.value === 'xanylabeling' ? remote?.task_id ?? null : null,
     categories,
     confidence: confidence.value,
     iou: iou.value,
@@ -466,12 +495,12 @@ async function runSingleAutoAnnotation() {
     }
     const inferred = result.items.map(({ label_name: _labelName, ...item }) => item)
     pushDraft(overwrite.value ? inferred : [...annotations.value, ...inferred])
-    ElMessage.success(`单张自动标注完成，识别 ${inferred.length} 个对象。`)
+    notify.success(`单张自动标注完成，识别 ${inferred.length} 个对象。`)
   } catch (reason) {
     if (selectedSource.value === 'xanylabeling' && xanylabelingSetting.value) {
       xanylabelingSetting.value = { ...xanylabelingSetting.value, available: false }
     }
-    ElMessage.error(reason instanceof Error ? reason.message : '单张自动标注失败')
+    notify.error(reason instanceof Error ? reason.message : '单张自动标注失败')
   } finally {
     inferenceRunning.value = false
   }
@@ -480,7 +509,7 @@ async function runSingleAutoAnnotation() {
 async function runBatchAutoAnnotation() {
   const config = autoConfig()
   if (video.value && !video.value.enabled) {
-    ElMessage.warning('该视频已停用，请先在视频资料库启用后再运行批量自动标注。')
+    notify.warning('该视频已停用，请先在视频资料库启用后再运行批量自动标注。')
     return
   }
   if (!config || batchActive.value) return
@@ -506,9 +535,9 @@ async function runBatchAutoAnnotation() {
     activeAutoTask.value = await createBatchAutoAnnotation(
       projectId, videoId, config, overwrite.value,
     )
-    ElMessage.success('批量自动标注任务已创建。')
+    notify.success('批量自动标注任务已创建。')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '批量自动标注任务创建失败')
+    notify.error(reason instanceof Error ? reason.message : '批量自动标注任务创建失败')
   } finally {
     inferenceRunning.value = false
   }
@@ -559,6 +588,7 @@ async function loadFrame(index: number) {
     hiddenLabelIds.value = []
     hiddenAnnotationIds.value = []
     pendingBounds.value = null
+    categoryAnchor.value = null
     history = createAnnotationHistory(value.items)
     dirty.value = false
     saveText.value = '已同步'
@@ -572,7 +602,7 @@ async function loadFrame(index: number) {
       if (neighbor) new Image().src = frameImageUrl(projectId, videoId, neighbor.id)
     }
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '采样帧标注加载失败')
+    notify.error(reason instanceof Error ? reason.message : '采样帧标注加载失败')
   } finally {
     loadingFrame.value = false
   }
@@ -604,7 +634,7 @@ async function toggleFrameEnabled(value: boolean | string | number) {
     )
     frame.enabled = Boolean(value)
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '采样帧状态保存失败')
+    notify.error(reason instanceof Error ? reason.message : '采样帧状态保存失败')
   }
 }
 
@@ -720,7 +750,7 @@ async function load() {
       getCurrentUser(),
     ])
     if (!can(project.access, 'task.execute')) {
-      ElMessage.warning('只读成员不能进入在线标注。')
+      notify.warning('只读成员不能进入在线标注。')
       await router.replace(`/projects/${projectId}/videos`)
       return
     }
@@ -884,8 +914,6 @@ watch(reuseLabel, (reuse) => {
       </div>
       <div class="frame-controls">
         <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" data-test="frame-enabled-switch" :disabled="!currentFrame || batchActive" @change="toggleFrameEnabled" /></label>
-        <label>标签沿用 <el-switch v-model="reuseLabel" data-test="reuse-label-switch" :disabled="batchActive" /></label>
-        <label>十字线 <el-switch v-model="crosshair" data-test="crosshair-switch" :disabled="batchActive" /></label>
       </div>
     </section>
 
@@ -925,12 +953,21 @@ watch(reuseLabel, (reuse) => {
       <button type="button" title="放大" @click="canvasRef?.zoomBy(1.1)">
         <el-icon><ZoomIn /></el-icon>
       </button>
+      <button data-test="drag-to-draw-toggle" class="tool-toggle-start" :class="{ active: dragToDraw }" type="button" title="拖拽模式：按住左键拖动并在松开时完成拉框" aria-label="拖拽模式" :aria-pressed="dragToDraw" :disabled="batchActive" @click="dragToDraw = !dragToDraw">
+        <el-icon><Mouse /></el-icon>
+      </button>
+      <button data-test="reuse-label-toggle" :class="{ active: reuseLabel }" type="button" title="标签沿用：新标注框沿用上次选择的类别" aria-label="标签沿用" :aria-pressed="reuseLabel" :disabled="batchActive" @click="reuseLabel = !reuseLabel">
+        <el-icon><PriceTag /></el-icon>
+      </button>
+      <button data-test="crosshair-toggle" :class="{ active: crosshair }" type="button" title="十字线：显示鼠标位置的横纵参考线" aria-label="十字线" :aria-pressed="crosshair" :disabled="batchActive" @click="crosshair = !crosshair">
+        <el-icon><Aim /></el-icon>
+      </button>
       <button type="button" title="快捷键指南" @click="shortcutsOpen = true">
         <el-icon><QuestionFilled /></el-icon>
       </button>
     </aside>
 
-    <section class="canvas-panel">
+    <section ref="canvasPanelRef" class="canvas-panel">
       <AnnotationCanvas
         v-if="video && currentFrame"
         ref="canvasRef"
@@ -942,6 +979,7 @@ watch(reuseLabel, (reuse) => {
         :selected-id="selectedId"
         :mode="mode"
         :crosshair="crosshair"
+        :drag-to-draw="dragToDraw"
         :hidden-label-ids="hiddenLabelIds"
         :hidden-annotation-ids="hiddenAnnotationIds"
         :pending-bounds="pendingBounds"
@@ -1107,7 +1145,7 @@ watch(reuseLabel, (reuse) => {
       <strong>{{ saveContext === 'close' ? '正在保存并关闭…' : saveContext === 'batch' ? '正在保存后启动任务…' : '正在保存并切换采样帧…' }}</strong>
     </div>
     <div v-if="pendingBounds" class="category-scrim" data-test="category-scrim" />
-    <div v-if="pendingBounds" class="category-picker" data-test="category-picker">
+    <div v-if="pendingBounds" class="category-picker" :class="categoryPickerClass" :style="categoryPickerStyle" data-test="category-picker">
       <label>选择类别
         <select v-model="lastLabelId" autofocus>
           <option v-if="!enabledLabels.length" value="">暂无启用类别</option>
@@ -1220,10 +1258,13 @@ watch(reuseLabel, (reuse) => {
 .tool-rail button:disabled { color: #52616c; cursor: not-allowed; }
 .tool-rail output { width: 48px; color: var(--vdw-focus-ink-2); font: 13px var(--vdw-mono); text-align: center; }
 .tool-separator { flex: 0 0 1px; width: 34px; margin: 2px 0; background: #34424d; }
+.tool-rail button.tool-toggle-start { margin-top: auto; }
 
 .canvas-panel { position: relative; grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
 .category-scrim { position: fixed; inset: 0; z-index: 3000; background: rgb(4 8 11 / 52%); }
-.category-picker { position: fixed; z-index: 3001; top: 50%; left: 50%; display: grid; grid-template-columns: minmax(170px, 1fr) auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: var(--vdw-focus-ink); border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(-50%, -50%); }
+.category-picker { --picker-x: 8px; --picker-y: 8px; position: fixed; z-index: 3001; display: grid; grid-template-columns: minmax(170px, 1fr) auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: var(--vdw-focus-ink); border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(var(--picker-x), var(--picker-y)); }
+.category-picker.opens-left { --picker-x: calc(-100% - 8px); }
+.category-picker.opens-up { --picker-y: calc(-100% - 8px); }
 .category-picker label { display: grid; gap: 3px; color: #51606b; font-size: 14px; }
 .category-picker select { min-width: 140px; height: 29px; }
 .category-picker button { align-self: end; height: 29px; }

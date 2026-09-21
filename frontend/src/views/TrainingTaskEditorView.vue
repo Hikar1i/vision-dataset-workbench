@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessageBox } from "element-plus";
+import { notify } from '../ui/notify';
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -198,7 +199,7 @@ async function load() {
         || task.default_image_size_override != null;
     } else form.models.push(row(1));
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : "训练表单加载失败");
+    notify.error(e instanceof Error ? e.message : "训练表单加载失败");
   } finally {
     loading.value = false;
   }
@@ -476,7 +477,7 @@ async function saveHyperparameters(value: HyperparameterConfig) {
     setHyperMessage(`已应用修改并保存到模板 v${updated.version}。`);
     hyperOpen.value = false;
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : "模板保存失败");
+    notify.error(reason instanceof Error ? reason.message : "模板保存失败");
   }
 }
 
@@ -498,7 +499,7 @@ async function deriveHyperparameters(value: HyperparameterConfig) {
   try {
     const targetProjectId = taskModelProjectId.value || template.model_project_id;
     if (!targetProjectId) {
-      ElMessage.error("请先保存训练任务，或选择归属于模型项目的模板。");
+      notify.error("请先保存训练任务，或选择归属于模型项目的模板。");
       return;
     }
     const created = await createHyperparameterTemplate({
@@ -520,7 +521,7 @@ async function deriveHyperparameters(value: HyperparameterConfig) {
     setHyperMessage(`已应用修改并派生为“${created.name}” v1。`);
     hyperOpen.value = false;
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : "派生模板失败");
+    notify.error(reason instanceof Error ? reason.message : "派生模板失败");
   }
 }
 
@@ -546,7 +547,7 @@ async function refreshResources() {
     }
     modelHyperMessages.value = messages;
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : "超参模板刷新失败");
+    notify.error(reason instanceof Error ? reason.message : "超参模板刷新失败");
   }
 }
 async function checkCode() {
@@ -601,14 +602,14 @@ async function save(start: boolean) {
         throw new Error(capabilityReason.value || "当前主机训练能力不可用");
       task = await startTrainingTask(task.id);
     }
-    ElMessage.success(start ? "训练任务已提交" : "草稿已保存");
+    notify.success(start ? "训练任务已提交" : "草稿已保存");
     await router.push(`/training-tasks/${task.id}`);
   } catch (e) {
     if (e instanceof ApiError && e.status === 409)
-      ElMessage.error("草稿已被其他操作更新，请刷新页面后再保存。");
+      notify.error("草稿已被其他操作更新，请刷新页面后再保存。");
     else if (saved && start)
-      ElMessage.error(`草稿已保存，但启动失败：${e instanceof Error ? e.message : "未知错误"}`);
-    else ElMessage.error(e instanceof Error ? e.message : "保存失败");
+      notify.error(`草稿已保存，但启动失败：${e instanceof Error ? e.message : "未知错误"}`);
+    else notify.error(e instanceof Error ? e.message : "保存失败");
   } finally {
     saving.value = false;
   }

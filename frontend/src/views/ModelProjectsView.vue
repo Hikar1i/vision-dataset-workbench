@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Box, Delete, Plus, Right } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -86,10 +87,10 @@ async function remove(project: ModelProject) {
   deleting.value = project.id
   try {
     await deleteModelProject(project.id)
-    ElMessage.success('模型项目已逻辑删除。')
+    notify.success('模型项目已逻辑删除。')
     await load()
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '模型项目删除失败')
+    notify.error(reason instanceof Error ? reason.message : '模型项目删除失败')
   } finally {
     deleting.value = ''
   }

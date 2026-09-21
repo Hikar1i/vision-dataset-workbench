@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElNotification } from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { clearRecentRows, isRecentRow } from '../ui/recentRows'
@@ -33,6 +33,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.list.mockReset().mockResolvedValue([])
   mocks.defaults.mockReset().mockResolvedValue(defaults)
+  mocks.test.mockReset()
+  mocks.saveDefaults.mockReset().mockResolvedValue(defaults)
 })
 
 afterEach(() => { document.body.innerHTML = '' })
@@ -71,5 +73,36 @@ describe('LLMConfigsView', () => {
     expect(
       wrapper.get('[data-test="llm-edit-config-id"]').element.closest('[role="row"]')?.classList,
     ).toContain('vdw-row--recent')
+  })
+
+  it('uses right-top notifications for connection failures and saved defaults', async () => {
+    mocks.list.mockResolvedValue([config])
+    mocks.test.mockResolvedValue({
+      status: 'failed', available: false, latency_ms: 15,
+      detail: '在线模型请求失败: proxy unavailable',
+    })
+    const error = vi.spyOn(ElNotification, 'error').mockReturnValue({ close: vi.fn() } as never)
+    const success = vi.spyOn(ElNotification, 'success').mockReturnValue({ close: vi.fn() } as never)
+    const wrapper = mount(LLMConfigsView, { global: { plugins: [ElementPlus] } })
+    await flushPromises()
+
+    const testButton = wrapper.findAll('button').find((item) => item.text() === '测试')
+    expect(testButton).toBeDefined()
+    await testButton!.trigger('click')
+    await flushPromises()
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({
+      message: '在线模型请求失败: proxy unavailable',
+      position: 'top-right',
+    }))
+
+    await wrapper.get('[data-test="llm-tab-defaults"]').trigger('click')
+    const saveButton = wrapper.findAll('button').find((item) => item.text() === '保存默认设置')
+    expect(saveButton).toBeDefined()
+    await saveButton!.trigger('click')
+    await flushPromises()
+    expect(success).toHaveBeenCalledWith(expect.objectContaining({
+      message: '默认设置已保存',
+      position: 'top-right',
+    }))
   })
 })

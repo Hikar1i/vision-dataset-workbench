@@ -35,11 +35,31 @@ export class ApiError extends Error {
   }
 }
 
+function errorText(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (Array.isArray(value)) {
+    return value.map(errorText).filter(Boolean).join('；')
+  }
+  if (!value || typeof value !== 'object') return ''
+
+  const record = value as Record<string, unknown>
+  for (const key of ['message', 'msg', 'detail', 'reason']) {
+    const nested = errorText(record[key])
+    if (nested) return nested
+  }
+  const serialized = JSON.stringify(value)
+  return serialized === '{}' ? '' : serialized
+}
+
+export function apiErrorMessage(detail: unknown): string {
+  return errorText(detail) || '请求失败'
+}
+
 export async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { credentials: 'same-origin', ...init })
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
-    throw new ApiError(body.detail || '请求失败', response.status)
+    throw new ApiError(apiErrorMessage(body.detail ?? body), response.status)
   }
   if (response.status === 204) return undefined as T
   return response.json()

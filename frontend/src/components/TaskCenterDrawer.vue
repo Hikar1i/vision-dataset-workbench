@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { notify } from '../ui/notify'
 import { onUnmounted, ref, watch } from 'vue'
 
 import {
@@ -75,7 +75,7 @@ async function load() {
       )
     }
   } catch (reason) {
-    if (props.modelValue) ElMessage.error(reason instanceof Error ? reason.message : '任务读取失败')
+    if (props.modelValue) notify.error(reason instanceof Error ? reason.message : '任务读取失败')
   } finally {
     loading.value = false
   }
@@ -88,7 +88,7 @@ async function cancel(task: GlobalProjectTask) {
     else if (task.project_id) await cancelTask(task.project_id, task.id)
     await load()
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '任务取消失败')
+    notify.error(reason instanceof Error ? reason.message : '任务取消失败')
   } finally {
     changing.value = ''
   }
@@ -101,7 +101,7 @@ async function retry(task: GlobalProjectTask) {
     await retryTask(task.project_id, task.id)
     await load()
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '任务重试失败')
+    notify.error(reason instanceof Error ? reason.message : '任务重试失败')
   } finally {
     changing.value = ''
   }

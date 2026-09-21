@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { Aim, Mouse, PriceTag } from '@element-plus/icons-vue'
 import { defineComponent } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   getXAnyLabelingSetting: vi.fn(),
   listXAnyLabelingModels: vi.fn(),
   saveXAnyLabelingSetting: vi.fn(),
+  listLLMConfigs: vi.fn(),
   runFrameAutoAnnotation: vi.fn(),
   createBatchAutoAnnotation: vi.fn(),
   registerInferenceModel: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock('../api/annotations', () => ({
   getFrameAnnotations: mocks.getFrameAnnotations,
   replaceFrameAnnotations: mocks.replaceFrameAnnotations,
 }))
+vi.mock('../api/llm', () => ({ listLLMConfigs: mocks.listLLMConfigs }))
 vi.mock('../api/models', () => ({
   listModelProjects: mocks.listModelProjects,
   listModelProjectModels: mocks.listModelProjectModels,
@@ -66,12 +69,23 @@ vi.mock('../api/models', () => ({
 }))
 
 const CanvasStub = defineComponent({
+  props: ['dragToDraw'],
   emits: ['change', 'request-category', 'view-change'],
-  template: '<div><button data-test="canvas-change" @click="$emit(\'change\', [{ id: \'box-id\', label_id: \'label-id\', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: \'manual\', confidence: null }])">change</button><button data-test="request-category" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 50, y: 60 })">draw</button><button data-test="view-change" @click="$emit(\'view-change\', { x_min: 100, y_min: 200, x_max: 900, y_max: 700 })">view</button></div>',
+  template: '<div data-test="canvas-stub" :data-drag-to-draw="String(dragToDraw)"><button data-test="canvas-change" @click="$emit(\'change\', [{ id: \'box-id\', label_id: \'label-id\', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: \'manual\', confidence: null }])">change</button><button data-test="request-category" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 50, y: 60 })">draw</button><button data-test="request-category-lower-right" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 1200, y: 900 })">draw lower right</button><button data-test="view-change" @click="$emit(\'view-change\', { x_min: 100, y_min: 200, x_max: 900, y_max: 700 })">view</button></div>',
 })
 const SelectStub = defineComponent({
   props: ['filterMethod'],
   template: '<div><button data-test="filter-person" @click="filterMethod?.(\'person\')">person</button><slot /></div>',
+})
+const NativeSelectStub = defineComponent({
+  inheritAttrs: false,
+  props: ['modelValue'],
+  emits: ['update:modelValue', 'change'],
+  template: `<select v-bind="$attrs" :value="modelValue" @change="$emit('update:modelValue', $event.target.value); $emit('change', $event.target.value)"><slot /></select>`,
+})
+const NativeOptionStub = defineComponent({
+  props: ['value', 'label'],
+  template: '<option :value="value">{{ label }}</option>',
 })
 
 const project = {
@@ -172,6 +186,7 @@ beforeEach(() => {
     available: null,
   })
   mocks.listXAnyLabelingModels.mockResolvedValue([])
+  mocks.listLLMConfigs.mockResolvedValue([])
   mocks.listVideos.mockResolvedValue({ items: [video], page: 1, page_size: 999, total: 1 })
   mocks.listLabels.mockResolvedValue([
     { id: 'label-id', name: 'helmet', description_zh: '安全帽', color: '#16866f', sort_order: 0, enabled: true, version: 1, created_at: '', updated_at: '' },
@@ -196,6 +211,34 @@ beforeEach(() => {
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('AnnotationWorkbenchView', () => {
+  it('keeps only frame enablement at the top and uses icon toggles in the tool rail', async () => {
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSwitch: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.frame-controls').find('[data-test="frame-enabled-switch"]').exists()).toBe(true)
+    expect(wrapper.find('.tool-switches').exists()).toBe(false)
+    expect(wrapper.get('[data-test="drag-to-draw-toggle"]').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('[data-test="reuse-label-toggle"]').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('[data-test="crosshair-toggle"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findComponent(Mouse).exists()).toBe(true)
+    expect(wrapper.findComponent(PriceTag).exists()).toBe(true)
+    expect(wrapper.findComponent(Aim).exists()).toBe(true)
+    expect(wrapper.get('[data-test="canvas-stub"]').attributes('data-drag-to-draw')).toBe('false')
+
+    await wrapper.get('[data-test="drag-to-draw-toggle"]').trigger('click')
+
+    expect(wrapper.get('[data-test="drag-to-draw-toggle"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-test="canvas-stub"]').attributes('data-drag-to-draw')).toBe('true')
+    wrapper.unmount()
+  })
+
   it('does not offer read-only built-in projects as auto-annotation sources', async () => {
     mocks.listModelProjects.mockResolvedValueOnce([{
       ...modelProject,
@@ -236,7 +279,7 @@ describe('AnnotationWorkbenchView', () => {
     await flushPromises()
 
     expect(document.querySelector('[data-test="frame-counter"]')?.textContent).toContain('1 / 2')
-    expect(wrapper.get('[data-test="crosshair-switch"]').attributes('modelvalue')).toBe('true')
+    expect(wrapper.get('[data-test="crosshair-toggle"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.find('.image-info dl').exists()).toBe(true)
     expect(wrapper.get('.image-info dl dd').text()).toBe('TESTV001_frame_000001.jpg')
     expect(wrapper.get('.minimap-svg').attributes('viewBox')).toBe('0 0 1920 1080')
@@ -378,6 +421,10 @@ describe('AnnotationWorkbenchView', () => {
       global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
     })
     await flushPromises()
+    vi.spyOn(wrapper.get('.canvas-panel').element, 'getBoundingClientRect').mockReturnValue({
+      left: 100,
+      top: 200,
+    } as DOMRect)
 
     expect(wrapper.findAll('[data-test="stats-row"]').map((row) => row.text())).toEqual([
       '采样帧2',
@@ -393,10 +440,20 @@ describe('AnnotationWorkbenchView', () => {
     expect(wrapper.get('[data-test="shortcut-list"]').text()).toContain('Alt + 拖动四角以中心为基准向四周缩放')
     await wrapper.get('[data-test="request-category"]').trigger('click')
     expect(wrapper.find('[data-test="category-scrim"]').exists()).toBe(true)
-    expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="category-picker"]').attributes('style')).toContain('left: 150px')
+    expect(wrapper.get('[data-test="category-picker"]').attributes('style')).toContain('top: 260px')
+    expect(wrapper.get('[data-test="category-picker"]').classes()).not.toContain('opens-left')
+    expect(wrapper.get('[data-test="category-picker"]').classes()).not.toContain('opens-up')
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(false)
+
+    await wrapper.get('[data-test="request-category-lower-right"]').trigger('click')
+    expect(wrapper.get('[data-test="category-picker"]').attributes('style')).toContain(`left: ${window.innerWidth - 12}px`)
+    expect(wrapper.get('[data-test="category-picker"]').attributes('style')).toContain(`top: ${window.innerHeight - 12}px`)
+    expect(wrapper.get('[data-test="category-picker"]').classes()).toContain('opens-left')
+    expect(wrapper.get('[data-test="category-picker"]').classes()).toContain('opens-up')
+    await wrapper.get('[data-test="cancel-category"]').trigger('click')
 
     await wrapper.get('[data-test="request-category"]').trigger('click')
     await wrapper.get('[data-test="confirm-category"]').trigger('click')
@@ -455,8 +512,8 @@ describe('AnnotationWorkbenchView', () => {
     expect(mocks.setFramesEnabled).toHaveBeenCalledWith(
       'project-id', 'video-id', [{ frame_id: 'frame-1', enabled: false }], 1,
     )
-    expect(wrapper.get('[data-test="reuse-label-switch"]').attributes('modelvalue')).toBe('true')
-    expect(wrapper.get('[data-test="crosshair-switch"]').attributes('modelvalue')).toBe('false')
+    expect(wrapper.get('[data-test="reuse-label-toggle"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-test="crosshair-toggle"]').attributes('aria-pressed')).toBe('false')
     expect(wrapper.get('[data-test="toggle-all-boxes"]').attributes('title')).toBe('显示全部标注框')
     expect(mocks.runFrameAutoAnnotation).toHaveBeenCalledTimes(1)
     wrapper.unmount()
@@ -574,6 +631,44 @@ describe('AnnotationWorkbenchView', () => {
       source: 'xanylabeling', model_id: 'remote', remote_task_id: 'grounding',
       categories: ['person'],
     })
+    wrapper.unmount()
+  })
+
+  it('submits the selected online configuration id for a single run', async () => {
+    mocks.listLLMConfigs.mockResolvedValueOnce([{
+      id: 'llm-id', name: 'Online Vision', description: '',
+      base_url: 'https://model.test/v1', api_type: 'openai', model_name: 'vision-model',
+      has_api_key: true, masked_api_key: '********', enabled: true, available: true,
+      last_test_status: 'success', last_test_latency_ms: 20, advanced_options: {}, version: 1,
+      created_at: '', updated_at: '',
+    }])
+    mocks.runFrameAutoAnnotation.mockResolvedValue({ items: [], created_labels: [] })
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSelect: NativeSelectStub,
+          ElOption: NativeOptionStub,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="model-project-select"]').setValue('online')
+    await flushPromises()
+    expect(wrapper.get('[data-test="inference-model-select"]').element).toHaveProperty('value', 'llm-id')
+    await wrapper.get('[data-test="run-single-auto"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.runFrameAutoAnnotation).toHaveBeenCalledWith(
+      'project-id',
+      'video-id',
+      'frame-1',
+      expect.objectContaining({ source: 'online', model_id: 'llm-id', remote_task_id: null }),
+    )
     wrapper.unmount()
   })
 

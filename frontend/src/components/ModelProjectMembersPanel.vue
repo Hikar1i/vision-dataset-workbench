@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, ref, watch } from 'vue'
 
 import { can } from '../api/access'
@@ -42,7 +42,7 @@ async function loadMembers() {
     if (version === loadVersion) members.value = next
   } catch (reason) {
     if (version === loadVersion) {
-      ElMessage.error(reason instanceof Error ? reason.message : '项目成员加载失败')
+      notify.error(reason instanceof Error ? reason.message : '项目成员加载失败')
     }
   }
 }
@@ -58,7 +58,7 @@ async function addMember() {
     ))
     memberUsername.value = ''
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '成员添加失败')
+    notify.error(reason instanceof Error ? reason.message : '成员添加失败')
   } finally {
     changingMember.value = ''
   }
@@ -75,7 +75,7 @@ async function toggleRole(member: ModelProjectMember) {
     const index = members.value.findIndex((item) => item.id === member.id)
     if (index !== -1) members.value[index] = changed
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '成员角色修改失败')
+    notify.error(reason instanceof Error ? reason.message : '成员角色修改失败')
   } finally {
     changingMember.value = ''
   }
@@ -87,7 +87,7 @@ async function removeMember(member: ModelProjectMember) {
     await removeModelProjectMember(props.project.id, member.id)
     members.value = members.value.filter((item) => item.id !== member.id)
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '成员移除失败')
+    notify.error(reason instanceof Error ? reason.message : '成员移除失败')
   } finally {
     changingMember.value = ''
   }

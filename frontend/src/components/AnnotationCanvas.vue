@@ -26,6 +26,7 @@ const props = defineProps<{
   mode: CanvasMode
   readonly?: boolean
   crosshair?: boolean
+  dragToDraw?: boolean
   hiddenLabelIds?: string[]
   hiddenAnnotationIds?: string[]
   pendingBounds?: BoxBounds | null
@@ -143,7 +144,29 @@ function imagePoint(event: Konva.KonvaEventObject<Event>) {
   return stageToImage(point, fit.value, zoom.value, pan.value)
 }
 
+function resetDrawing() {
+  drawStart.value = null
+  drawCurrent.value = null
+}
+
+function finishDrawing(anchor?: Point | null) {
+  if (!drawStart.value || !drawCurrent.value) return
+  const bounds = clampBox(
+    {
+      x_min: Math.min(drawStart.value.x, drawCurrent.value.x),
+      y_min: Math.min(drawStart.value.y, drawCurrent.value.y),
+      x_max: Math.max(drawStart.value.x, drawCurrent.value.x),
+      y_max: Math.max(drawStart.value.y, drawCurrent.value.y),
+    },
+    props.imageWidth,
+    props.imageHeight,
+  )
+  resetDrawing()
+  if (bounds) emit('request-category', bounds, anchor ?? pointer.value ?? { x: 24, y: 24 })
+}
+
 function handlePointerDown(event: Konva.KonvaEventObject<MouseEvent>) {
+  if (event.evt.button !== 0) return
   const point = stagePoint(event)
   if (!point) return
   if (props.mode === 'pan') {
@@ -152,7 +175,13 @@ function handlePointerDown(event: Konva.KonvaEventObject<MouseEvent>) {
   }
   if (props.mode === 'draw' && !props.readonly) {
     const start = imagePoint(event)
-    if (start) drawStart.value = drawCurrent.value = start
+    if (!start) return
+    if (props.dragToDraw || !drawStart.value) {
+      drawStart.value = drawCurrent.value = start
+    } else {
+      drawCurrent.value = start
+      finishDrawing(point)
+    }
     return
   }
   if (event.target === event.target.getStage()) emit('select', null)
@@ -172,21 +201,9 @@ function handlePointerMove(event: Konva.KonvaEventObject<MouseEvent>) {
   }
 }
 
-function handlePointerUp() {
+function handlePointerUp(event: Konva.KonvaEventObject<MouseEvent>) {
   panStart.value = null
-  if (!drawStart.value || !drawCurrent.value) return
-  const bounds = clampBox(
-    {
-      x_min: Math.min(drawStart.value.x, drawCurrent.value.x),
-      y_min: Math.min(drawStart.value.y, drawCurrent.value.y),
-      x_max: Math.max(drawStart.value.x, drawCurrent.value.x),
-      y_max: Math.max(drawStart.value.y, drawCurrent.value.y),
-    },
-    props.imageWidth,
-    props.imageHeight,
-  )
-  drawStart.value = drawCurrent.value = null
-  if (bounds) emit('request-category', bounds, pointer.value ?? { x: 24, y: 24 })
+  if (props.dragToDraw) finishDrawing(stagePoint(event))
 }
 
 function handleWheel(event: Konva.KonvaEventObject<WheelEvent>) {
@@ -243,7 +260,7 @@ function syncTransformer() {
   void nextTick(() => {
     const transformer = transformerRef.value?.getNode()
     const stage = stageRef.value?.getNode()
-    const selected = !props.readonly && props.selectedId
+    const selected = !props.readonly && props.mode === 'select' && props.selectedId
       ? stage?.findOne(`.annotation-${props.selectedId}`)
       : null
     transformer?.nodes(selected ? [selected] : [])
@@ -280,8 +297,10 @@ function emitViewport() {
 }
 
 watch(() => props.imageUrl, loadImage, { immediate: true })
+watch(() => [props.mode, props.imageUrl, props.dragToDraw], resetDrawing)
 watch(() => [
   props.selectedId,
+  props.mode,
   props.annotations,
   props.hiddenLabelIds,
   props.hiddenAnnotationIds,
@@ -345,6 +364,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
                 ),
                 strokeWidth: item.id === selectedId ? 3 : 2,
                 strokeScaleEnabled: false,
+                listening: mode !== 'draw',
                 draggable: mode === 'select' && !readonly,
               }"
               @mousedown="selectAnnotation($event, item.id)"
@@ -402,7 +422,7 @@ defineExpose({ zoomBy, resetView, zoomPercent })
             }"
           />
           <v-transformer
-            v-if="!readonly"
+            v-if="!readonly && mode === 'select'"
             ref="transformerRef"
             :config="{
               rotateEnabled: false,

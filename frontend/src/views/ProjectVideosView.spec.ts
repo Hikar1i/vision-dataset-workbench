@@ -86,6 +86,39 @@ function mountView(role: ProjectRole = 'viewer') {
 }
 
 describe('ProjectVideosView', () => {
+  it('renders workflow tags above a fixed detail row', async () => {
+    const sampled = { ...video, has_annotations: true }
+    const ready = {
+      ...video,
+      id: 'video-ready',
+      short_code: 'READY001',
+      title: 'camera-ready',
+      sampling: null,
+      has_annotations: false,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((path: string) => Promise.resolve({
+        ok: true,
+        json: async () => path.includes('/videos?')
+          ? { items: [sampled, ready], page: 1, page_size: 999, total: 2 }
+          : projectFor('editor'),
+      })),
+    )
+    const wrapper = mountView('editor')
+    await flushPromises()
+
+    const sampledStatus = wrapper.get('[data-test="video-row-video-id"] .status-info')
+    expect(sampledStatus.get('.status-tags').text()).toContain('已采样')
+    expect(sampledStatus.get('.status-tags').text()).toContain('已筛帧')
+    expect(sampledStatus.get('.status-tags').text()).toContain('有标注')
+    expect(sampledStatus.get('.status-detail').text()).toBe('48/50 帧启用')
+
+    const readyStatus = wrapper.get('[data-test="video-row-video-ready"] .status-info')
+    expect(readyStatus.get('.status-tags').text()).toBe('可配置采样')
+    expect(readyStatus.get('.status-detail').text()).toBe('')
+  })
+
   it('lets a viewer inspect and play ready videos without write controls', async () => {
     vi.stubGlobal(
       'fetch',

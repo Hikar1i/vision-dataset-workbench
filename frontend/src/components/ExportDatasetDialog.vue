@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Bottom, Top } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, ref, watch } from 'vue'
 
 import {
@@ -92,7 +92,7 @@ async function submit() {
       train_ratio: trainRatio.value,
       labels: labels.value.map((label, mapping) => ({ ...label, mapping })),
     })
-    ElMessage.success('数据集导出任务已创建。')
+    notify.success('数据集导出任务已创建。')
     emit('submitted', created)
     emit('update:modelValue', false)
   } catch (reason) {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, ref, watch } from 'vue'
 
 import {
@@ -188,8 +188,8 @@ async function submit() {
       props.scope,
       props.scope === 'all' ? overwrite.value : false,
     )
-    if (result.rejected.length) ElMessage.warning(`已创建任务，拒绝 ${result.rejected.length} 个视频。`)
-    else ElMessage.success(`已创建 ${result.accepted_video_ids.length} 个视频的自动标注任务。`)
+    if (result.rejected.length) notify.warning(`已创建任务，拒绝 ${result.rejected.length} 个视频。`)
+    else notify.success(`已创建 ${result.accepted_video_ids.length} 个视频的自动标注任务。`)
     emit('submitted', result.accepted_video_ids)
     emit('update:modelValue', false)
   } catch (reason) {

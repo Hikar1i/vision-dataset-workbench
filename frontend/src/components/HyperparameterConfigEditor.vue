@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Close } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { notify } from '../ui/notify'
 import { stringify } from 'yaml'
 import { computed, reactive, ref, watch } from 'vue'
 
@@ -92,9 +92,9 @@ async function parse() {
     replace(result.normalized)
     raw.value = result.normalized_raw ?? raw.value
     setRawDirty(false)
-    ElMessage.success('RAW 已通过校验并解析到表单。')
+    notify.success('RAW 已通过校验并解析到表单。')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : 'RAW 校验失败')
+    notify.error(reason instanceof Error ? reason.message : 'RAW 校验失败')
   } finally {
     parsing.value = false
   }

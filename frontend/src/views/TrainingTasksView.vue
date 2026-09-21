@@ -2,7 +2,8 @@
 import {
   Cpu, Delete, EditPen, Plus, Refresh, RefreshLeft, RefreshRight, VideoPlay, View,
 } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { can } from '../api/access'
@@ -102,10 +103,10 @@ async function remove(task: TrainingTask) {
   }
   try {
     await deleteTrainingTask(task.id)
-    ElMessage.success('训练任务已逻辑删除')
+    notify.success('训练任务已逻辑删除')
     await load()
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '删除失败')
+    notify.error(reason instanceof Error ? reason.message : '删除失败')
   }
 }
 
@@ -117,7 +118,7 @@ async function runAction(task: TrainingTask, action: 'start' | 'retry' | 'resume
     else await resumeInterruptedTrainingModels(task.id)
     await load()
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '操作失败')
+    notify.error(reason instanceof Error ? reason.message : '操作失败')
   } finally {
     busy.value = { ...busy.value, [task.id]: false }
   }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CopyDocument, Delete, Edit, Operation, Plus, View } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -53,9 +54,9 @@ async function remove(item: HyperparameterTemplate) {
   try {
     await deleteHyperparameterTemplate(item.id)
     templates.value = templates.value.filter((value) => value.id !== item.id)
-    ElMessage.success('模板已删除。')
+    notify.success('模板已删除。')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '模板删除失败')
+    notify.error(reason instanceof Error ? reason.message : '模板删除失败')
   } finally {
     deleting.value = ''
   }

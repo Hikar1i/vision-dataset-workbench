@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Delete, Download, RefreshRight } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, ref, watch } from 'vue'
 
 import { getCapabilities, type SystemCapabilities } from '../api/capabilities'
@@ -47,7 +48,7 @@ async function load() {
       getCapabilities(),
     ])
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '转换产物加载失败')
+    notify.error(reason instanceof Error ? reason.message : '转换产物加载失败')
   } finally {
     loading.value = false
   }
@@ -64,9 +65,9 @@ async function create(format: 'onnx' | 'engine') {
     })
     artifacts.value = [...artifacts.value.filter((item) => item.format !== format), result.artifact]
     emit('changed')
-    ElMessage.success(`${format === 'onnx' ? 'ONNX' : 'TensorRT'} 转换任务已创建。`)
+    notify.success(`${format === 'onnx' ? 'ONNX' : 'TensorRT'} 转换任务已创建。`)
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '转换任务创建失败')
+    notify.error(reason instanceof Error ? reason.message : '转换任务创建失败')
   } finally {
     submitting.value = ''
   }
@@ -84,9 +85,9 @@ async function remove(artifact: ModelArtifact) {
     await deleteModelArtifact(artifact.id)
     artifacts.value = artifacts.value.filter((item) => item.id !== artifact.id)
     emit('changed')
-    ElMessage.success('转换产物已删除。')
+    notify.success('转换产物已删除。')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '转换产物删除失败')
+    notify.error(reason instanceof Error ? reason.message : '转换产物删除失败')
   }
 }
 

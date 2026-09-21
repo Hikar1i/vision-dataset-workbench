@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Connection, Delete, EditPen, Plus, Setting } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import {
@@ -15,6 +15,7 @@ import VEmpty from '../ui/VEmpty.vue'
 import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
 import { isRecentRow, markRecentRowFromAction } from '../ui/recentRows'
+import { notify } from '../ui/notify'
 import VRow from '../ui/VRow.vue'
 import VTable from '../ui/VTable.vue'
 import VTag from '../ui/VTag.vue'
@@ -117,9 +118,9 @@ async function save() {
     if (index >= 0) configs.value[index] = result
     else configs.value.unshift(result)
     dialog.value = false
-    ElMessage.success('大模型配置已保存')
+    notify.success('大模型配置已保存')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '保存失败')
+    notify.error(reason instanceof Error ? reason.message : '保存失败')
   } finally {
     saving.value = false
   }
@@ -132,11 +133,10 @@ async function test(item: LLMConfig) {
     item.available = result.available
     item.last_test_status = result.status as LLMConfig['last_test_status']
     item.last_test_latency_ms = result.latency_ms
-    ElMessage[result.available ? 'success' : 'error'](
-      result.available ? `连接成功，${result.latency_ms} ms` : '连接失败',
-    )
+    if (result.available) notify.success(`连接成功，${result.latency_ms} ms`)
+    else notify.error(result.detail || '连接失败')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '测试失败')
+    notify.error(reason instanceof Error ? reason.message : '测试失败')
   } finally {
     testing.value = { ...testing.value, [item.id]: false }
   }
@@ -150,16 +150,16 @@ async function remove(item: LLMConfig) {
   }
   await deleteLLMConfig(item.id)
   configs.value = configs.value.filter((value) => value.id !== item.id)
-  ElMessage.success('配置已删除')
+  notify.success('配置已删除')
 }
 
 async function saveDefaultOptions() {
   saving.value = true
   try {
     Object.assign(defaults, await saveLLMDefaults(defaults))
-    ElMessage.success('默认设置已保存')
+    notify.success('默认设置已保存')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '保存失败')
+    notify.error(reason instanceof Error ? reason.message : '保存失败')
   } finally {
     saving.value = false
   }

@@ -2,7 +2,8 @@
 import {
   Aim, Delete, Download, Filter, Scissor, Search, Setting, Upload, VideoPlay,
 } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 
@@ -184,7 +185,7 @@ function changePageSize(event: Event) {
 function clearSelectionForCriteria() {
   if (!selected.value.length) return
   selected.value = []
-  ElMessage.info('筛选条件已变化，已清除已选视频。')
+  notify.info('筛选条件已变化，已清除已选视频。')
 }
 
 function changeSearch(value: string) {
@@ -231,10 +232,10 @@ async function changeVideoEnabled(video: Video, enabled: boolean) {
   error.value = ''
   try {
     await setVideoEnabled(projectId, video.id, enabled, video.version)
-    ElMessage.success(enabled ? '视频已启用。' : '视频已停用；仍可播放和管理采样。')
+    notify.success(enabled ? '视频已启用。' : '视频已停用；仍可播放和管理采样。')
     await load()
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '视频启停状态修改失败')
+    notify.error(reason instanceof Error ? reason.message : '视频启停状态修改失败')
     if (reason instanceof ApiError && reason.status === 409) await load()
   } finally {
     changingEnabled.value = ''
@@ -260,18 +261,18 @@ async function confirmDelete(targetVideos: Video[], batch = false) {
     )
     const result = await deleteVideos(projectId, stopped.map((video) => video.id))
     selected.value = []
-    if (result.deleted.length) ElMessage.success(`已删除 ${result.deleted.length} 个停用视频。`)
-    if (result.skipped.length) ElMessage.warning(`${result.skipped.length} 个视频状态已变化，未删除。`)
+    if (result.deleted.length) notify.success(`已删除 ${result.deleted.length} 个停用视频。`)
+    if (result.skipped.length) notify.warning(`${result.skipped.length} 个视频状态已变化，未删除。`)
     await load(1)
   } catch (reason) {
     if (reason !== 'cancel' && reason !== 'close') {
-      ElMessage.error(reason instanceof Error ? reason.message : '视频删除失败')
+      notify.error(reason instanceof Error ? reason.message : '视频删除失败')
     }
   }
 }
 
 function imported(batch: ImportBatch) {
-  ElMessage.success(`已创建 ${batch.accepted.length} 个任务，跳过 ${batch.skipped.length} 项，拒绝 ${batch.rejected.length} 项。`)
+  notify.success(`已创建 ${batch.accepted.length} 个任务，跳过 ${batch.skipped.length} 项，拒绝 ${batch.rejected.length} 项。`)
   void load(1)
 }
 
@@ -340,7 +341,7 @@ function annotationSubmitted(accepted: string[]) {
 function openEnabledByAnnotation() {
   const targetVideos = selectedVideos.value
   if (!targetVideos.some((video) => video.has_annotations)) {
-    ElMessage.warning('所选视频均无标注，按标注启停不会产生有效结果。')
+    notify.warning('所选视频均无标注，按标注启停不会产生有效结果。')
     return
   }
   enabledByAnnotationTargets.value = targetVideos
@@ -396,7 +397,7 @@ async function submitEnabledByAnnotation(targetVideos: Video[], scope: 'unscreen
       ])),
     )
     const ignored = result.rejected.filter((item) => item.code === 'no_annotations').length
-    ElMessage.success(
+    notify.success(
       ignored
         ? `已更新 ${result.accepted.length} 个视频，忽略 ${ignored} 个无标注视频。`
         : `已更新 ${result.accepted.length} 个视频的启停状态。`,
@@ -406,7 +407,7 @@ async function submitEnabledByAnnotation(targetVideos: Video[], scope: 'unscreen
     selected.value = selected.value.filter((id) => !result.accepted.some((item) => item.video_id === id))
     await load(page.value, pageSize.value, true)
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '按标注启停失败')
+    notify.error(reason instanceof Error ? reason.message : '按标注启停失败')
   }
 }
 
@@ -417,15 +418,15 @@ async function submitEnabledByAnnotation(targetVideos: Video[], scope: 'unscreen
  */
 async function samplingSubmitted(batch: PlanBatch) {
   if (!batch.accepted.length) {
-    ElMessage.error(batch.rejected[0]?.reason
+    notify.error(batch.rejected[0]?.reason
       ? `采样方案未保存：${batch.rejected[0].reason}`
       : '采样方案未保存。')
   } else if (batch.rejected.length) {
-    ElMessage.warning(
+    notify.warning(
       `已保存 ${batch.accepted.length} 个视频的采样方案，${batch.rejected.length} 个未通过校验。`,
     )
   } else {
-    ElMessage.success('采样方案已保存。')
+    notify.success('采样方案已保存。')
   }
   const accepted = new Set(batch.accepted.map((item) => item.video_id))
   selected.value = selected.value.filter((id) => !accepted.has(id))
@@ -480,19 +481,19 @@ async function submitExtraction(
         item.code === 'light_overwrite_required'
         || item.code === 'destructive_overwrite_required',
       )
-      ElMessage.warning(
+      notify.warning(
         riskChanged
           ? `已创建 ${batch.accepted.length} 个任务；部分视频风险状态已变化，请按最新状态重新确认。`
           : `已创建 ${batch.accepted.length} 个任务，拒绝 ${batch.rejected.length} 项。`,
       )
     } else {
-      ElMessage.success(`已创建 ${batch.accepted.length} 个抽帧任务。`)
+      notify.success(`已创建 ${batch.accepted.length} 个抽帧任务。`)
     }
     const accepted = new Set(batch.accepted.map((item) => item.video_id))
     selected.value = selected.value.filter((id) => !accepted.has(id))
     await load(page.value, pageSize.value, true)
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '抽帧任务创建失败')
+    notify.error(reason instanceof Error ? reason.message : '抽帧任务创建失败')
   }
 }
 
@@ -710,17 +711,17 @@ const headerHost = useProjectHeaderHost()
                 {{ video.sampling ? `${video.sampling.enabled_frames}/${video.sampling.extracted_frames || video.sampling.expected_frames}` : '—' }}
               </span>
               <div class="status-info" :title="videoWorkflowStatus(video).detail">
-                <VTag :tone="videoTone(videoWorkflowStatus(video).code)">
-                  {{ videoWorkflowStatus(video).primary }}
-                </VTag>
-                <VTag
-                  v-for="flag in videoWorkflowStatus(video).flags"
-                  :key="flag"
-                  :tone="flag === '视频停用' ? 'danger' : 'idle'"
-                >{{ flag }}</VTag>
-                <small v-if="videoWorkflowStatus(video).detail" class="status-detail">
-                  {{ videoWorkflowStatus(video).detail }}
-                </small>
+                <div class="status-tags">
+                  <VTag :tone="videoTone(videoWorkflowStatus(video).code)">
+                    {{ videoWorkflowStatus(video).primary }}
+                  </VTag>
+                  <VTag
+                    v-for="flag in videoWorkflowStatus(video).flags"
+                    :key="flag"
+                    :tone="flag === '视频停用' ? 'danger' : 'idle'"
+                  >{{ flag }}</VTag>
+                </div>
+                <small class="status-detail">{{ videoWorkflowStatus(video).detail }}</small>
               </div>
               <div
                 class="row-actions"
@@ -1350,13 +1351,21 @@ const headerHost = useProjectHeaderHost()
 }
 
 .status-info {
-  display: flex;
-  align-items: center;
+  display: grid;
+  align-content: center;
+  gap: 2px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
+}
+
+.status-tags {
+  display: flex;
+  align-items: center;
   gap: 4px;
+  min-width: 0;
+  overflow: hidden;
   white-space: nowrap;
 }
 
@@ -1366,9 +1375,12 @@ const headerHost = useProjectHeaderHost()
 
 .status-detail {
   display: block;
-  flex: 1 1 0;
+  min-height: 18px;
   min-width: 0;
   overflow: hidden;
+  color: var(--vdw-ink-2);
+  font-size: 12px;
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

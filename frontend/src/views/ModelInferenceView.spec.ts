@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { flushPromises, mount } from '@vue/test-utils'
-import ElementPlus, { ElMessage } from 'element-plus'
+import ElementPlus, { ElNotification } from 'element-plus'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -82,7 +82,7 @@ describe('ModelInferenceView', () => {
     mocks.getCurrent.mockResolvedValue(currentRun)
     mocks.listSaved.mockResolvedValueOnce([]).mockResolvedValue([savedRun])
     mocks.save.mockResolvedValue(savedRun)
-    const success = vi.spyOn(ElMessage, 'success')
+    const success = vi.spyOn(ElNotification, 'success').mockReturnValue({ close: vi.fn() } as never)
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -103,7 +103,10 @@ describe('ModelInferenceView', () => {
     expect(wrapper.get('.inference-stage img').attributes('src')).toContain('/saved-1/files/result')
     expect(wrapper.text()).toContain('下载源文件')
     expect(wrapper.text()).toContain('下载检测结果')
-    expect(success).toHaveBeenCalledWith('推理结果已保存，可在“已保存结果”中查看。')
+    expect(success).toHaveBeenCalledWith(expect.objectContaining({
+      message: '推理结果已保存，可在“已保存结果”中查看。',
+      position: 'top-right',
+    }))
     wrapper.unmount()
   })
 })

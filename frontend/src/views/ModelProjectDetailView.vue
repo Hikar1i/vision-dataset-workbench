@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowDown, DataAnalysis, Delete, Download, Edit, MoreFilled, Operation, Plus, Refresh, VideoCamera, View } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -131,9 +132,9 @@ async function saveProject() {
       projectId.value, name.value, description.value, project.value.version, tags.value,
     )
     editOpen.value = false
-    ElMessage.success('模型项目信息已更新。')
+    notify.success('模型项目信息已更新。')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '模型项目更新失败')
+    notify.error(reason instanceof Error ? reason.message : '模型项目更新失败')
   } finally {
     saving.value = false
   }
@@ -149,9 +150,9 @@ async function importModel() {
     sourcePath.value = ''
     importName.value = ''
     importDescription.value = ''
-    ElMessage.success('模型导入任务已创建，可在任务中心查看进度。')
+    notify.success('模型导入任务已创建，可在任务中心查看进度。')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '模型导入失败')
+    notify.error(reason instanceof Error ? reason.message : '模型导入失败')
   } finally {
     importing.value = false
   }
@@ -164,9 +165,9 @@ async function removeModel(model: InferenceModel) {
   try {
     await deleteInferenceModel(model.id)
     models.value = models.value.filter((item) => item.id !== model.id)
-    ElMessage.success('模型已逻辑删除。')
+    notify.success('模型已逻辑删除。')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '模型删除失败')
+    notify.error(reason instanceof Error ? reason.message : '模型删除失败')
   }
 }
 

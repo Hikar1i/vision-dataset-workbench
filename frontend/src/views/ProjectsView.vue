@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Delete, Files, Right } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { useRouter } from 'vue-router'
 
 import { ApiError } from '../api/auth'
@@ -86,10 +87,10 @@ async function remove(project: Project) {
   try {
     await deleteProject(project.id)
     emit('project-deleted', project.id)
-    ElMessage.success('项目已归档至逻辑删除目录。')
+    notify.success('项目已归档至逻辑删除目录。')
     await load(page.value > 1 && projects.value.length === 1 ? page.value - 1 : page.value)
   } catch (reason) {
-    ElMessage.error(
+    notify.error(
       reason instanceof ApiError && reason.status === 409
         ? '项目仍有排队中或运行中任务，请先处理任务。'
         : reason instanceof Error ? reason.message : '项目删除失败',

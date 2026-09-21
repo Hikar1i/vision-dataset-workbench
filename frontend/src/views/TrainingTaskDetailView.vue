@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowDown, Close, Delete, Plus, RefreshLeft, RefreshRight, View } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { can } from '../api/access'
@@ -156,7 +157,7 @@ async function cancel() {
     )
     task.value = await cancelTrainingTask(String(route.params.id))
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message)
+    if (e instanceof Error) notify.error(e.message)
   }
 }
 
@@ -165,7 +166,7 @@ async function start() {
   try {
     task.value = await startTrainingTask(task.value.id)
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '启动失败')
+    notify.error(e instanceof Error ? e.message : '启动失败')
   }
 }
 
@@ -175,7 +176,7 @@ async function resumeInterrupted() {
     await ElMessageBox.confirm('仅恢复具有有效 last.pt 的中断模型。', '恢复中断模型')
     task.value = await resumeInterruptedTrainingModels(task.value.id)
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message)
+    if (e instanceof Error) notify.error(e.message)
   }
 }
 
@@ -207,7 +208,7 @@ async function modelAction(
     }
     await load()
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message)
+    if (e instanceof Error) notify.error(e.message)
   }
 }
 
@@ -234,7 +235,7 @@ async function remove() {
     await deleteTrainingTask(String(route.params.id))
     await router.push('/training-tasks')
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message)
+    if (e instanceof Error) notify.error(e.message)
   }
 }
 
@@ -246,7 +247,7 @@ async function retryFailed() {
     )
     task.value = await retryFailedTrainingModels(String(route.params.id))
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message)
+    if (e instanceof Error) notify.error(e.message)
   }
 }
 
@@ -255,9 +256,9 @@ async function retryPreparation() {
   try {
     task.value = await retryTrainingPreparation(task.value.id)
     preparationLog.value = ''
-    ElMessage.success('训练数据准备已重新排队')
+    notify.success('训练数据准备已重新排队')
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '重试准备失败')
+    notify.error(e instanceof Error ? e.message : '重试准备失败')
   }
 }
 
@@ -267,7 +268,7 @@ async function togglePreparationLog() {
   try {
     preparationLog.value = (await getTrainingPreparationLog(task.value.id)).content
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '准备日志加载失败')
+    notify.error(e instanceof Error ? e.message : '准备日志加载失败')
   }
 }
 
@@ -289,7 +290,7 @@ async function derive() {
     })
     await router.push(`/training-tasks/${created.id}/edit`)
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message)
+    if (e instanceof Error) notify.error(e.message)
   }
 }
 

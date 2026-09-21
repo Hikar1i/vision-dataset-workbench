@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowUp, CopyDocument, Delete, Download, View } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { notify } from '../ui/notify'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import {
@@ -89,9 +90,9 @@ async function showDetail(item: DatasetExport) {
 async function copyManifest() {
   try {
     await copyText(manifestText.value)
-    ElMessage.success('manifest.json 已复制。')
+    notify.success('manifest.json 已复制。')
   } catch {
-    ElMessage.error('复制失败，请检查浏览器剪贴板权限。')
+    notify.error('复制失败，请检查浏览器剪贴板权限。')
   }
 }
 
@@ -108,10 +109,10 @@ async function remove(item: DatasetExport) {
   deleting.value = item.id
   try {
     await deleteDatasetExport(props.project.id, item.id)
-    ElMessage.success('数据集已移至逻辑删除目录。')
+    notify.success('数据集已移至逻辑删除目录。')
     await load()
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '数据集删除失败')
+    notify.error(reason instanceof Error ? reason.message : '数据集删除失败')
   } finally {
     deleting.value = ''
   }

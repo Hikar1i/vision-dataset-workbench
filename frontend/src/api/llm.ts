@@ -31,4 +31,4 @@ export const updateLLMConfig = (id: string, payload: Record<string, unknown>) =>
   method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
 })
 export const deleteLLMConfig = (id: string) => json<void>('/api/v1/me/llm-configs/' + id, { method: 'DELETE' })
-export const testLLMConfig = (id: string) => json<{ status: string; available: boolean; latency_ms: number; detail: unknown }>('/api/v1/me/llm-configs/' + id + '/test', { method: 'POST' })
+export const testLLMConfig = (id: string) => json<{ status: string; available: boolean; latency_ms: number; detail: string }>('/api/v1/me/llm-configs/' + id + '/test', { method: 'POST' })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { notify } from '../ui/notify'
 import { ArrowDown, CopyDocument, DataAnalysis, Download, Operation, VideoCamera } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
@@ -117,9 +117,9 @@ async function save() {
       modelId, name.value, description.value, model.value.version, targetProjectId.value,
     )
     editing.value = false
-    ElMessage.success('模型信息已更新。')
+    notify.success('模型信息已更新。')
   } catch (reason) {
-    ElMessage.error(reason instanceof Error ? reason.message : '模型更新失败')
+    notify.error(reason instanceof Error ? reason.message : '模型更新失败')
   } finally {
     saving.value = false
   }
@@ -128,9 +128,9 @@ async function save() {
 async function copyParameters() {
   try {
     await copyText(parameterText.value)
-    ElMessage.success('参数信息已复制。')
+    notify.success('参数信息已复制。')
   } catch {
-    ElMessage.error('复制失败，请检查浏览器剪贴板权限。')
+    notify.error('复制失败，请检查浏览器剪贴板权限。')
   }
 }
 
