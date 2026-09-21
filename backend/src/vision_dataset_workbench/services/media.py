@@ -21,6 +21,7 @@ from ..models import (
     ModelEvaluation,
     ModelInferenceRun,
     ModelProject,
+    ModelProjectMembership,
     Project,
     ProjectMembership,
     Task,
@@ -31,7 +32,8 @@ from ..models import (
 from ..storage.browser import VIDEO_EXTENSIONS
 from ..storage.paths import HomePathResolver, UnsafePathError
 from .dataset_exports import video_has_active_export
-from .projects import ProjectForbidden, ProjectService
+from .projects import ProjectForbidden, ProjectService, touch_project
+from .models import ModelNotFound, ModelService, touch_model_project
 
 
 class MediaNotFound(ValueError):
@@ -122,13 +124,14 @@ class MediaService:
         self._previewer = previewer
         self._short_code_factory = short_code_factory
         self._projects = ProjectService(engine, settings, workspace)
+        self._models = ModelService(engine, settings, workspace, self._projects)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
-    def _project_role(self, actor: User, project_id: str) -> str:
-        return self._projects.get_project(actor, project_id).role
+    def _project_access(self, actor: User, project_id: str):
+        return self._projects.get_project(actor, project_id).access
 
     def _require_editor(self, actor: User, project_id: str) -> None:
-        if self._project_role(actor, project_id) == "viewer":
+        if not self._project_access(actor, project_id).allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
 
     def _source_path(self, relative: str) -> Path:
@@ -278,6 +281,7 @@ class MediaService:
                     database.add(video)
                     database.flush()
                     database.add(task)
+                    touch_project(database, project_id, at=now)
                     database.commit()
             except IntegrityError as exc:
                 message = str(exc.orig)
@@ -292,7 +296,7 @@ class MediaService:
     def list_videos(
         self, actor: User, project_id: str, *, page: int, page_size: int
     ) -> tuple[list[Video], int]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         with self._session_factory() as database:
             where = Video.project_id == project_id
             total = database.scalar(select(func.count()).select_from(Video).where(where)) or 0
@@ -325,7 +329,9 @@ class MediaService:
                 raise MediaConflict("video version conflict")
             video.enabled = enabled
             video.version += 1
-            video.updated_at = _utc_now()
+            now = _utc_now()
+            video.updated_at = now
+            touch_project(database, project_id, at=now)
             database.commit()
             return video
 
@@ -402,7 +408,9 @@ class MediaService:
                 (archive / "metadata.json").write_text(
                     json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
+                now = _utc_now()
                 database.delete(video)
+                touch_project(database, project_id, at=now)
                 database.commit()
                 return None
             except Exception as exc:
@@ -445,7 +453,7 @@ class MediaService:
     def latest_tasks(
         self, actor: User, project_id: str, video_ids: Sequence[str]
     ) -> dict[str, Task]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         if not video_ids:
             return {}
         ranked = (
@@ -470,7 +478,7 @@ class MediaService:
     def list_tasks(
         self, actor: User, project_id: str, *, page: int, page_size: int
     ) -> tuple[list[Task], int]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         with self._session_factory() as database:
             where = Task.project_id == project_id
             total = database.scalar(select(func.count()).select_from(Task).where(where)) or 0
@@ -487,6 +495,7 @@ class MediaService:
         self, actor: User, *, page: int, page_size: int
     ) -> tuple[list[VisibleTask], int, datetime | None]:
         membership = aliased(ProjectMembership)
+        model_membership = aliased(ModelProjectMembership)
         membership_ids = select(ProjectMembership.project_id).where(
             ProjectMembership.user_id == actor.id
         )
@@ -494,7 +503,19 @@ class MediaService:
             Project.creator_id == actor.id,
             Project.id.in_(membership_ids),
         )
-        unrestricted = self.settings.app_mode == "single" and actor.is_system_admin
+        model_membership_ids = select(ModelProjectMembership.model_project_id).where(
+            ModelProjectMembership.user_id == actor.id
+        )
+        visible_model_project = or_(
+            ModelProject.created_by_id == actor.id,
+            ModelProject.id.in_(model_membership_ids),
+            ModelProject.system_key.is_not(None),
+        )
+        saved_inference_tasks = select(ModelInferenceRun.task_id).where(
+            ModelInferenceRun.saved_at.is_not(None),
+            ModelInferenceRun.deleted_at.is_(None),
+        )
+        unrestricted = actor.is_system_admin
         with self._session_factory() as database:
             items_query = (
                 select(
@@ -505,12 +526,18 @@ class MediaService:
                     ModelProject.name,
                     ModelProject.created_by_id,
                     ModelProject.system_key,
+                    model_membership.role,
                 )
                 .outerjoin(Project, Project.id == Task.project_id)
                 .outerjoin(ModelProject, ModelProject.id == Task.model_project_id)
                 .outerjoin(
                     membership,
                     (membership.project_id == Project.id) & (membership.user_id == actor.id),
+                )
+                .outerjoin(
+                    model_membership,
+                    (model_membership.model_project_id == ModelProject.id)
+                    & (model_membership.user_id == actor.id),
                 )
             )
             total_query = (
@@ -527,21 +554,18 @@ class MediaService:
                 .where(Task.status.in_(("succeeded", "failed", "canceled")))
             )
             if not unrestricted:
-                model_manager = (
-                    Task.model_project_id.is_not(None)
-                    if actor.is_system_admin
-                    else ModelProject.created_by_id == actor.id
-                )
-                model_visible = and_(
-                    Task.model_project_id.is_not(None),
-                    or_(
-                        Task.type.not_in(("infer_video", "evaluate_model")),
-                        Task.submitted_by_id == actor.id,
-                        model_manager,
-                        and_(
-                            Task.type == "evaluate_model",
-                            Task.status.in_(("succeeded", "failed", "canceled")),
+                model_visible = or_(
+                    and_(
+                        Task.model_project_id.is_not(None),
+                        visible_model_project,
+                        or_(
+                            Task.type != "infer_video",
+                            Task.id.in_(saved_inference_tasks),
                         ),
+                    ),
+                    and_(
+                        Task.type == "infer_video",
+                        Task.submitted_by_id == actor.id,
                     ),
                 )
                 visible = or_(model_visible, visible_project)
@@ -560,7 +584,11 @@ class MediaService:
                         resource_kind="model_project" if row[0].model_project_id else "project",
                         resource_name=row[4] if row[0].model_project_id else row[1],
                         can_manage=(
-                            (actor.is_system_admin or row[5] == actor.id)
+                            (
+                                actor.is_system_admin
+                                or row[5] == actor.id
+                                or row[7] == "editor"
+                            )
                             if row[0].model_project_id
                             else (unrestricted or row[2] == actor.id or row[3] == "editor")
                         ),
@@ -578,7 +606,13 @@ class MediaService:
             if task is None or task.model_project_id is None:
                 raise MediaNotFound("task not found")
             project = database.get(ModelProject, task.model_project_id)
-            if project is None or not (actor.is_system_admin or project.created_by_id == actor.id):
+            if project is None:
+                raise MediaNotFound("task not found")
+            try:
+                access = self._models.project_access(actor, project.id)
+            except ModelNotFound as exc:
+                raise MediaNotFound("task not found") from exc
+            if not access.allows("task.execute"):
                 raise ProjectForbidden("model project write permission required")
             if task.status == "queued":
                 task.status = "canceled"
@@ -613,6 +647,8 @@ class MediaService:
             else:
                 raise MediaConflict("task cannot be canceled")
             task.updated_at = now
+            if task.type != "infer_video":
+                touch_model_project(database, task.model_project_id, at=now)
             database.commit()
             return task
 
@@ -624,7 +660,7 @@ class MediaService:
         *,
         thumbnail: bool = False,
     ) -> tuple[Video, Path]:
-        self._project_role(actor, project_id)
+        self._project_access(actor, project_id)
         with self._session_factory() as database:
             video = database.get(Video, video_id)
             if video is None or video.project_id != project_id:
@@ -667,6 +703,7 @@ class MediaService:
             else:
                 raise MediaConflict("task cannot be canceled")
             task.updated_at = now
+            touch_project(database, project_id, at=now)
             database.commit()
             return task
 
@@ -700,5 +737,6 @@ class MediaService:
                 updated_at=now,
             )
             database.add(task)
+            touch_project(database, project_id, at=now)
             database.commit()
             return task

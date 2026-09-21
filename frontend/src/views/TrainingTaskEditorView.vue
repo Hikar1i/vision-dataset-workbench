@@ -47,6 +47,7 @@ const route = useRoute();
 const router = useRouter();
 const editing = computed(() => Boolean(route.params.id));
 const taskVersion = ref(1);
+const taskModelProjectId = ref<string | null>(null);
 const loading = ref(true);
 const saving = ref(false);
 const mappingOpen = ref(false);
@@ -158,6 +159,7 @@ async function load() {
     catalog.value = hyperparameterCatalog.items;
     if (editing.value) {
       const task = await getTrainingTask(String(route.params.id));
+      taskModelProjectId.value = task.model_project_id;
       Object.assign(form, {
         code: task.code,
         name: task.name,
@@ -439,6 +441,7 @@ function applyHyperparameters(value: HyperparameterConfig) {
 function resourceTemplate(item: HyperparameterTemplate): TrainingResources["templates"][number] {
   return {
     id: item.id,
+    model_project_id: item.model_project_id,
     name: item.name,
     description: item.description,
     epochs: item.epochs,
@@ -493,7 +496,13 @@ async function deriveHyperparameters(value: HyperparameterConfig) {
     return;
   }
   try {
+    const targetProjectId = taskModelProjectId.value || template.model_project_id;
+    if (!targetProjectId) {
+      ElMessage.error("请先保存训练任务，或选择归属于模型项目的模板。");
+      return;
+    }
     const created = await createHyperparameterTemplate({
+      model_project_id: targetProjectId,
       name,
       description: template.description,
       ...value,

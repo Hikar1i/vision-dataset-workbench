@@ -7,6 +7,7 @@ import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 
 const router = useRouter()
+const props = withDefaults(defineProps<{ required?: boolean }>(), { required: false })
 const currentPassword = ref('')
 const newPassword = ref('')
 const passwordConfirmation = ref('')
@@ -14,7 +15,7 @@ const submitting = ref(false)
 const error = ref('')
 const valid = computed(
   () =>
-    currentPassword.value.length > 0 &&
+    (props.required || currentPassword.value.length > 0) &&
     newPassword.value.length >= 12 &&
     newPassword.value === passwordConfirmation.value,
 )
@@ -24,8 +25,8 @@ async function submit() {
   submitting.value = true
   error.value = ''
   try {
-    await changePassword(currentPassword.value, newPassword.value)
-    await router.replace('/projects')
+    await changePassword(props.required ? null : currentPassword.value, newPassword.value)
+    await router.replace('/overview')
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '密码修改失败'
   } finally {
@@ -36,14 +37,14 @@ async function submit() {
 
 <template>
   <main class="content-page">
-    <PageHeader title="账号设置">
-      <template #meta><span data-test="page-stat">修改登录密码</span></template>
+    <PageHeader :title="props.required ? '首次登录修改密码' : '账号设置'">
+      <template #meta><span data-test="page-stat">{{ props.required ? '完成后方可进入工作台' : '修改登录密码' }}</span></template>
     </PageHeader>
     <div class="content-body">
     <section class="utility-card account-card">
       <header class="utility-heading">
         <span class="utility-code">ACCOUNT / PASSWORD</span>
-        <h2>修改登录密码</h2>
+        <h2>{{ props.required ? '请设置新密码' : '修改登录密码' }}</h2>
         <p>保存后，当前账号在其他浏览器中的会话会立即失效。</p>
       </header>
 
@@ -51,7 +52,7 @@ async function submit() {
 
       <form @submit.prevent="submit">
         <el-form label-position="top">
-          <el-form-item label="当前密码">
+          <el-form-item v-if="!props.required" label="当前密码">
             <el-input
               v-model="currentPassword"
               data-test="current-password"

@@ -16,7 +16,7 @@ from .api.model_inference import router as model_inference_router
 from .api.model_evaluations import router as model_evaluations_router
 from .api.hyperparameters import router as hyperparameters_router
 from .api.projects import router as projects_router
-from .api.registrations import router as registrations_router
+from .api.users import router as users_router
 from .api.sampling import router as sampling_router
 from .api.setup import router as setup_router
 from .api.training import router as training_router
@@ -110,15 +110,20 @@ def create_app(
         else None
     )
     app.state.hyperparameter_template_service = (
-        HyperparameterTemplateService(auth_service.engine) if auth_service is not None else None
+        HyperparameterTemplateService(auth_service.engine, app.state.model_service)
+        if auth_service is not None and app.state.model_service is not None
+        else None
     )
     app.state.model_artifact_service = (
         ModelArtifactService(
             auth_service.engine,
             workspace,
             app.state.capabilities,
+            app.state.model_service,
         )
-        if auth_service is not None and workspace is not None
+        if auth_service is not None
+        and workspace is not None
+        and app.state.model_service is not None
         else None
     )
     app.state.model_inference_service = (
@@ -126,18 +131,30 @@ def create_app(
             auth_service.engine,
             workspace,
             InferenceRunner(GpuLeaseService(auth_service.engine)),
+            app.state.model_service,
         )
-        if auth_service is not None and workspace is not None
+        if auth_service is not None
+        and workspace is not None
+        and app.state.model_service is not None
         else None
     )
     app.state.model_evaluation_service = (
-        ModelEvaluationService(auth_service.engine, workspace, app.state.model_artifact_service)
-        if auth_service is not None and workspace is not None
+        ModelEvaluationService(
+            auth_service.engine,
+            workspace,
+            app.state.model_artifact_service,
+            app.state.model_service,
+        )
+        if auth_service is not None
+        and workspace is not None
+        and app.state.model_service is not None
         else None
     )
     app.state.training_service = (
-        TrainingService(auth_service.engine, workspace)
-        if auth_service is not None and workspace is not None
+        TrainingService(auth_service.engine, workspace, app.state.model_service)
+        if auth_service is not None
+        and workspace is not None
+        and app.state.model_service is not None
         else None
     )
     app.state.xanylabeling_settings_service = (
@@ -197,7 +214,7 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(capabilities_router)
     app.include_router(filesystem_router)
-    app.include_router(registrations_router)
+    app.include_router(users_router)
     app.include_router(projects_router)
     app.include_router(labels_router)
     app.include_router(annotations_router)

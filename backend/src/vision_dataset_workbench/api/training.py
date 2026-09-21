@@ -231,6 +231,8 @@ def task_response(
     svc: TrainingService, actor: User, task: TrainingTask, details: bool = False
 ) -> dict[str, object]:
     models = svc.task_models(task.id)
+    model_project_id = svc.model_project_id(task.id)
+    access = svc.task_access(actor, task)
     value = {
         "id": task.id,
         "code": task.code,
@@ -259,6 +261,12 @@ def task_response(
         ),
         "default_base_model_id": task.default_base_model_id,
         "created_by_id": task.created_by_id,
+        "model_project_id": model_project_id,
+        "access": {
+            "role": access.role,
+            "source": access.source,
+            "permissions": sorted(access.permissions),
+        },
         "can_manage": svc.can_manage(actor, task),
         "version": task.version,
         "submitted_at": _time(task.submitted_at),
@@ -353,6 +361,28 @@ def training_resources(
             )
             .order_by(InferenceModel.created_at.desc())
         ).all()
+        datasets = [
+            row
+            for row in datasets
+            if _can_consume_dataset(svc, user, row[1])
+        ]
+        template_service = request.app.state.hyperparameter_template_service
+        templates = [
+            item
+            for item in templates
+            if item.system_key is not None
+            or (
+                item.model_project_id is None
+                and (user.is_system_admin or item.created_by_id == user.id)
+            )
+            or (
+                item.model_project_id is not None
+                and _can_consume_model_project(svc, user, item.model_project_id)
+            )
+        ]
+        models = [
+            row for row in models if _can_consume_model_project(svc, user, row[1])
+        ]
         return {
             "datasets": [
                 {
@@ -372,6 +402,7 @@ def training_resources(
             "templates": [
                 {
                     "id": item.id,
+                    "model_project_id": item.model_project_id,
                     "name": item.name,
                     "description": item.description,
                     "epochs": item.epochs,
@@ -388,8 +419,7 @@ def training_resources(
                     ),
                     "version": item.version,
                     "updated_at": _time(item.updated_at),
-                    "can_edit": item.system_key is None
-                    and (user.is_system_admin or item.created_by_id == user.id),
+                    "can_edit": template_service.can_manage(user, item),
                 }
                 for item in templates
             ],
@@ -404,6 +434,24 @@ def training_resources(
                 for item, project_id, project_name in models
             ],
         }
+
+
+def _can_consume_dataset(svc: TrainingService, user: User, project_id: str) -> bool:
+    try:
+        return svc.models.projects.get_project(user, project_id).access.allows(
+            "artifact.consume"
+        )
+    except ValueError:
+        return False
+
+
+def _can_consume_model_project(
+    svc: TrainingService, user: User, project_id: str
+) -> bool:
+    try:
+        return svc.models.project_access(user, project_id).allows("artifact.consume")
+    except ValueError:
+        return False
 
 
 def _resource_labels(item: DatasetExport) -> list[tuple[int, str]]:
@@ -455,7 +503,7 @@ def create_task(
             **payload.model_dump(exclude_none=False, exclude={"models"}),
             models=[row.model_dump() for row in payload.models],
         )
-    except (InvalidTraining, TrainingConflict) as exc:
+    except (InvalidTraining, TrainingConflict, TrainingForbidden, TrainingNotFound) as exc:
         _raise(exc)
     return task_response(svc, user, item, True)
 

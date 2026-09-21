@@ -5,20 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from ..models import User
-from ..services.auth import (
-    AuthConflict,
-    AuthenticationFailed,
-    AuthService,
-    UserNotFound,
-)
+from ..services.auth import AuthConflict, UserNotFound
 from .auth import auth_service, current_user, require_same_origin
 
-router = APIRouter(tags=["users"])
+router = APIRouter(prefix="/api/v1/admin/users", tags=["users"])
 
 
-class RegistrationRequest(BaseModel):
+class CreateUserRequest(BaseModel):
     username: str = Field(pattern=r"^[A-Za-z0-9_.-]{3,64}$")
-    password: str = Field(min_length=12, max_length=256)
 
 
 class ManagedUserResponse(BaseModel):
@@ -26,8 +20,12 @@ class ManagedUserResponse(BaseModel):
     username: str
     status: str
     is_system_admin: bool
+    must_change_password: bool
     created_at: str
-    reviewed_at: str | None
+
+
+class ProvisionedUserResponse(ManagedUserResponse):
+    initial_password: str
 
 
 class UserPageResponse(BaseModel):
@@ -37,9 +35,7 @@ class UserPageResponse(BaseModel):
     total: int
 
 
-def _utc_text(value: datetime | None) -> str | None:
-    if value is None:
-        return None
+def _utc_text(value: datetime) -> str:
     if value.tzinfo is not None:
         value = value.astimezone(timezone.utc).replace(tzinfo=None)
     return f"{value.isoformat(timespec='seconds')}Z"
@@ -51,8 +47,8 @@ def managed_user_response(user: User) -> ManagedUserResponse:
         username=user.username,
         status=user.status,
         is_system_admin=user.is_system_admin,
-        created_at=_utc_text(user.created_at) or "",
-        reviewed_at=_utc_text(user.reviewed_at),
+        must_change_password=user.must_change_password,
+        created_at=_utc_text(user.created_at),
     )
 
 
@@ -62,29 +58,29 @@ def system_admin(user: Annotated[User, Depends(current_user)]) -> User:
     return user
 
 
-@router.post(
-    "/api/v1/registrations",
-    response_model=ManagedUserResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-def register(payload: RegistrationRequest, request: Request) -> ManagedUserResponse:
+@router.post("", response_model=ProvisionedUserResponse, status_code=status.HTTP_201_CREATED)
+def create_user(
+    payload: CreateUserRequest,
+    request: Request,
+    _administrator: Annotated[User, Depends(system_admin)],
+) -> ProvisionedUserResponse:
     require_same_origin(request)
     try:
-        user = auth_service(request).register(payload.username, payload.password)
-    except AuthenticationFailed as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except AuthConflict as exc:
+        created = auth_service(request).create_user(payload.username)
+    except (ValueError, AuthConflict) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return managed_user_response(user)
+    return ProvisionedUserResponse(
+        **managed_user_response(created.user).model_dump(),
+        initial_password=created.initial_password,
+    )
 
 
-@router.get("/api/v1/admin/users", response_model=UserPageResponse)
+@router.get("", response_model=UserPageResponse)
 def list_users(
     request: Request,
     _administrator: Annotated[User, Depends(system_admin)],
     status_filter: Annotated[
-        Literal["", "pending", "active", "rejected", "disabled"] | None,
-        Query(alias="status"),
+        Literal["", "active", "disabled"] | None, Query(alias="status")
     ] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -100,19 +96,35 @@ def list_users(
     )
 
 
-@router.post(
-    "/api/v1/admin/users/{user_id}/{action}", response_model=ManagedUserResponse
-)
+@router.post("/{user_id}/reset-password", response_model=ProvisionedUserResponse)
+def reset_password(
+    user_id: str,
+    request: Request,
+    _administrator: Annotated[User, Depends(system_admin)],
+) -> ProvisionedUserResponse:
+    require_same_origin(request)
+    try:
+        created = auth_service(request).reset_user_password(user_id)
+    except UserNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AuthConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ProvisionedUserResponse(
+        **managed_user_response(created.user).model_dump(),
+        initial_password=created.initial_password,
+    )
+
+
+@router.post("/{user_id}/{action}", response_model=ManagedUserResponse)
 def set_user_status(
     user_id: str,
-    action: Literal["approve", "reject", "disable", "enable"],
+    action: Literal["disable", "enable"],
     request: Request,
-    administrator: Annotated[User, Depends(system_admin)],
+    _administrator: Annotated[User, Depends(system_admin)],
 ) -> ManagedUserResponse:
     require_same_origin(request)
-    service: AuthService = auth_service(request)
     try:
-        user = service.set_user_status(user_id, action, administrator.id)
+        user = auth_service(request).set_user_status(user_id, action)
     except UserNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except AuthConflict as exc:

@@ -10,7 +10,7 @@ from ..services.auto_annotations import (
     AutoAnnotationUnavailable,
 )
 from ..services.labels import InvalidLabel
-from ..services.models import InvalidModel, ModelNotFound
+from ..services.models import InvalidModel, ModelForbidden, ModelNotFound
 from ..services.projects import ProjectForbidden, ProjectNotFound
 from ..services.sampling import SamplingNotFound
 from .annotations import AnnotationResponse
@@ -69,7 +69,7 @@ def auto_annotation_service(request: Request) -> AutoAnnotationService:
 def _raise_auto_error(exc: ValueError) -> NoReturn:
     if isinstance(exc, (ProjectNotFound, ModelNotFound, SamplingNotFound)):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if isinstance(exc, ProjectForbidden):
+    if isinstance(exc, (ProjectForbidden, ModelForbidden)):
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     if isinstance(exc, AutoAnnotationUnavailable):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -107,6 +107,7 @@ def run_frame_auto_annotation(
     except (
         ProjectNotFound,
         ProjectForbidden,
+        ModelForbidden,
         ModelNotFound,
         InvalidModel,
         SamplingNotFound,
@@ -155,6 +156,7 @@ def create_batch_auto_annotation(
     except (
         ProjectNotFound,
         ProjectForbidden,
+        ModelForbidden,
         ModelNotFound,
         InvalidModel,
         InvalidLabel,
@@ -194,6 +196,7 @@ def create_project_batch_auto_annotation(
     except (
         ProjectNotFound,
         ProjectForbidden,
+        ModelForbidden,
         ModelNotFound,
         InvalidModel,
         InvalidLabel,

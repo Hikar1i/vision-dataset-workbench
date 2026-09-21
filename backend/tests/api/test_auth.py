@@ -12,7 +12,7 @@ NEW_PASSWORD = "new correct horse battery"
 ORIGIN = {"Origin": "http://testserver"}
 
 
-def make_client(tmp_path, *, mode="multi", registration_enabled=False):
+def make_client(tmp_path, *, mode="multi", must_change_password=False):
     home = tmp_path / "home"
     workspace = home / ".vision-dataset-workbench"
     database_path = workspace / "db" / "workbench.sqlite3"
@@ -27,6 +27,7 @@ def make_client(tmp_path, *, mode="multi", registration_enabled=False):
                 password_hash=hash_password(PASSWORD),
                 status="active",
                 is_system_admin=True,
+                must_change_password=must_change_password,
             )
         )
         session.commit()
@@ -36,7 +37,6 @@ def make_client(tmp_path, *, mode="multi", registration_enabled=False):
             home=home,
             workspace=workspace,
             app_mode=mode,
-            registration_enabled=registration_enabled,
         )
     )
     return TestClient(app)
@@ -51,12 +51,9 @@ def login(client, password=PASSWORD, headers=ORIGIN):
 
 
 def test_status_login_cookie_and_current_user(tmp_path):
-    client = make_client(tmp_path, registration_enabled=True)
+    client = make_client(tmp_path)
 
-    assert client.get("/api/v1/auth/status").json() == {
-        "mode": "multi",
-        "registration_enabled": True,
-    }
+    assert client.get("/api/v1/auth/status").json() == {"mode": "multi"}
     response = login(client)
 
     assert response.status_code == 200
@@ -65,6 +62,7 @@ def test_status_login_cookie_and_current_user(tmp_path):
         "username": "admin",
         "status": "active",
         "is_system_admin": True,
+        "must_change_password": False,
     }
     cookie = response.headers["set-cookie"]
     assert "HttpOnly" in cookie
@@ -90,6 +88,35 @@ def test_logout_and_password_change_replace_sessions(tmp_path):
     assert client.get("/api/v1/auth/me").status_code == 401
     assert login(client).status_code == 401
     assert login(client, NEW_PASSWORD).status_code == 200
+
+
+def test_required_password_change_accepts_only_new_password(tmp_path):
+    client = make_client(tmp_path, must_change_password=True)
+    assert login(client).status_code == 200
+
+    changed = client.put(
+        "/api/v1/auth/password",
+        headers=ORIGIN,
+        json={"new_password": NEW_PASSWORD},
+    )
+
+    assert changed.status_code == 200
+    assert changed.json()["must_change_password"] is False
+    assert login(client, NEW_PASSWORD).status_code == 200
+
+
+def test_ordinary_password_change_without_current_password_is_unprocessable(tmp_path):
+    client = make_client(tmp_path)
+    assert login(client).status_code == 200
+
+    changed = client.put(
+        "/api/v1/auth/password",
+        headers=ORIGIN,
+        json={"new_password": NEW_PASSWORD},
+    )
+
+    assert changed.status_code == 422
+    assert changed.json() == {"detail": "current password is required"}
 
 
 def test_browser_writes_require_exact_same_origin(tmp_path):

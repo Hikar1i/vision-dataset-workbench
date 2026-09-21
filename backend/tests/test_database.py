@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -20,11 +21,16 @@ from vision_dataset_workbench.models import (
     FrameAnnotation,
     InferenceModel,
     ModelProject,
+    ModelProjectMembership,
+    OFFICIAL_YOLO11_MODEL_PROJECT_ID,
+    OFFICIAL_YOLO11_MODEL_PROJECT_NAME,
+    OFFICIAL_YOLO11_SYSTEM_KEY,
     Project,
     ProjectLabel,
     ProjectMembership,
     SamplingPlan,
     Task,
+    TrainingTask,
     User,
     UserXAnyLabelingSetting,
     Video,
@@ -43,6 +49,7 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         "projects",
         "labels",
         "project_memberships",
+        "model_project_memberships",
         "videos",
         "tasks",
         "sampling_plans",
@@ -83,7 +90,18 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
     assert {"dataset_mode", "multi_dataset_config"} <= {
         column["name"] for column in inspect(engine).get_columns("training_models")
     }
+    user_columns = {
+        column["name"] for column in inspect(engine).get_columns("users")
+    }
+    assert "must_change_password" in user_columns
+    assert {"reviewed_at", "reviewed_by_id"}.isdisjoint(user_columns)
     assert AuthSession.__tablename__ == "sessions"
+    with Session(engine) as session:
+        official = session.get(ModelProject, OFFICIAL_YOLO11_MODEL_PROJECT_ID)
+        assert official is not None
+        assert official.name == OFFICIAL_YOLO11_MODEL_PROJECT_NAME
+        assert official.system_key == OFFICIAL_YOLO11_SYSTEM_KEY
+        assert official.created_by_id is None
     video_columns = {
         column["name"]: column for column in inspect(engine).get_columns("videos")
     }
@@ -111,7 +129,6 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
     assert user is not None
     assert user.username == "Admin"
     assert verify_password(user.password_hash, "correct horse battery staple")
-
     with Session(engine) as session:
         session.add(
             User(
@@ -123,6 +140,161 @@ def test_migration_creates_users_and_password_hash_round_trips(tmp_path):
         )
         with pytest.raises(IntegrityError):
             session.commit()
+    engine.dispose()
+
+
+def test_resource_activity_migration_advances_stale_parent_timestamps(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "db" / "workbench.sqlite3"
+    database_path.parent.mkdir(parents=True)
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    monkeypatch.setenv(
+        "VDW_DATABASE_URL", database_url(database_path).render_as_string(hide_password=False)
+    )
+    command.upgrade(config, "0027_official_model_project")
+    engine = make_engine(database_path)
+    old = datetime(2026, 1, 1)
+    dataset_activity = datetime(2026, 2, 1)
+    model_activity = datetime(2026, 3, 1)
+    with Session(engine) as session:
+        session.add(
+            User(
+                id="activity-owner",
+                username="activity-owner",
+                username_normalized="activity-owner",
+                password_hash="hash",
+                created_at=old,
+                updated_at=old,
+            )
+        )
+        session.flush()
+        session.add(
+            Project(
+                id="activity-project",
+                name="activity-project",
+                creator_id="activity-owner",
+                created_at=old,
+                updated_at=old,
+            )
+        )
+        session.add(
+            ModelProject(
+                id="activity-model-project",
+                name="activity-model-project",
+                name_normalized="activity-model-project",
+                series_type="archive",
+                created_by_id="activity-owner",
+                created_at=old,
+                updated_at=old,
+            )
+        )
+        session.flush()
+        session.add(
+            Video(
+                id="activity-video",
+                project_id="activity-project",
+                short_code="ABCDEFGH",
+                source_type="local",
+                title="activity-video",
+                status="ready",
+                created_at=dataset_activity,
+                updated_at=dataset_activity,
+            )
+        )
+        session.add(
+            InferenceModel(
+                id="activity-model",
+                model_project_id="activity-model-project",
+                model_code="activity-model",
+                name="activity-model",
+                kind="yolo",
+                status="ready",
+                source_name="activity.pt",
+                created_by_id="activity-owner",
+                created_at=model_activity,
+                updated_at=model_activity,
+            )
+        )
+        session.commit()
+    engine.dispose()
+
+    command.upgrade(config, "head")
+
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        assert session.get(Project, "activity-project").updated_at == dataset_activity
+        assert (
+            session.get(ModelProject, "activity-model-project").updated_at
+            == model_activity
+        )
+    engine.dispose()
+
+
+def test_access_control_migration_converts_accounts_and_backfills_training_projects(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "workbench.sqlite3"
+    monkeypatch.setenv(
+        "VDW_DATABASE_URL",
+        database_url(database_path).render_as_string(hide_password=False),
+    )
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    command.upgrade(config, "0025_model_operations")
+    engine = make_engine(database_path)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO users "
+            "(id, username, username_normalized, password_hash, status, "
+            "is_system_admin, created_at, updated_at) VALUES (?, ?, ?, 'hash', ?, ?, ?, ?)",
+            [
+                ("admin-id", "admin", "admin", "active", True, "2026-09-20", "2026-09-20"),
+                ("pending-id", "pending", "pending", "pending", False, "2026-09-20", "2026-09-20"),
+                ("rejected-id", "rejected", "rejected", "rejected", False, "2026-09-20", "2026-09-20"),
+            ],
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO training_tasks "
+            "(id, code, name, description, status, mode, progress, created_by_id, "
+            "version, created_at, updated_at) VALUES "
+            "('task-id', 'task-code', 'Task', '', 'draft', 'single_model', 0, "
+            "'pending-id', 1, '2026-09-20', '2026-09-20')"
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = make_engine(database_path)
+    user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    assert "must_change_password" in user_columns
+    assert {"reviewed_at", "reviewed_by_id"}.isdisjoint(user_columns)
+    with engine.connect() as connection:
+        assert connection.exec_driver_sql(
+            "SELECT status FROM users WHERE id='pending-id'"
+        ).scalar_one() == "disabled"
+        assert connection.exec_driver_sql(
+            "SELECT status FROM users WHERE id='rejected-id'"
+        ).scalar_one() == "disabled"
+        assert connection.exec_driver_sql(
+            "SELECT count(*) FROM model_project_memberships"
+        ).scalar_one() == 0
+        assert connection.exec_driver_sql(
+            "SELECT count(*) FROM model_projects WHERE training_task_id='task-id'"
+        ).scalar_one() == 1
+
+    with engine.begin() as connection, pytest.raises(IntegrityError):
+        connection.exec_driver_sql(
+            "INSERT INTO users "
+            "(id, username, username_normalized, password_hash, status, is_system_admin, "
+            "must_change_password, created_at, updated_at) VALUES "
+            "('admin-2', 'admin2', 'admin2', 'hash', 'active', 1, 0, '2026-09-20', '2026-09-20')"
+        )
+    with engine.begin() as connection, pytest.raises(IntegrityError):
+        connection.exec_driver_sql(
+            "INSERT INTO users "
+            "(id, username, username_normalized, password_hash, status, is_system_admin, "
+            "must_change_password, created_at, updated_at) VALUES "
+            "('pending-2', 'pending2', 'pending2', 'hash', 'pending', 0, 0, '2026-09-20', '2026-09-20')"
+        )
     engine.dispose()
 
 
@@ -834,11 +1006,12 @@ def test_inference_models_and_auto_annotation_task_constraints(tmp_path):
     create_workspace_database(database_path)
     engine = make_engine(database_path)
     with Session(engine) as session:
-        temporary = session.scalar(
-            select(ModelProject).where(ModelProject.system_key == "temporary")
+        official = session.scalar(
+            select(ModelProject).where(
+                ModelProject.system_key == OFFICIAL_YOLO11_SYSTEM_KEY
+            )
         )
-        assert temporary is not None
-        assert temporary.name == "临时模型项目"
+        assert official is not None
         session.add(
             User(
                 id="admin-id",
@@ -864,6 +1037,7 @@ def test_inference_models_and_auto_annotation_task_constraints(tmp_path):
         session.add(
             InferenceModel(
                 id="model-id",
+                model_project_id=OFFICIAL_YOLO11_MODEL_PROJECT_ID,
                 name="YOLO detector",
                 kind="yolo",
                 status="ready",
@@ -877,7 +1051,7 @@ def test_inference_models_and_auto_annotation_task_constraints(tmp_path):
                 Task(
                     id="import-model-task",
                     project_id=None,
-                    model_project_id="00000000-0000-0000-0000-000000000001",
+                    model_project_id=OFFICIAL_YOLO11_MODEL_PROJECT_ID,
                     submitted_by_id="admin-id",
                     type="import_model",
                 ),
@@ -894,6 +1068,7 @@ def test_inference_models_and_auto_annotation_task_constraints(tmp_path):
 
         session.add(
             InferenceModel(
+                model_project_id=OFFICIAL_YOLO11_MODEL_PROJECT_ID,
                 name="invalid",
                 kind="unknown",
                 status="ready",
@@ -924,6 +1099,189 @@ def test_inference_models_and_auto_annotation_task_constraints(tmp_path):
         session.commit()
         assert session.get(UserXAnyLabelingSetting, "remote-user-id") is None
     engine.dispose()
+
+
+def _upgrade_to_access_control(database_path, monkeypatch) -> Config:
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(
+        "VDW_DATABASE_URL",
+        database_url(database_path).render_as_string(hide_password=False),
+    )
+    config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    command.upgrade(config, "0026_access_control_refactor")
+    return config
+
+
+def test_official_model_project_migration_converts_existing_project_and_cleans_files(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / ".vision-dataset-workbench"
+    database_path = workspace / "db" / "workbench.sqlite3"
+    _upgrade_to_access_control(database_path, monkeypatch)
+    engine = make_engine(database_path)
+    existing_id = "000001aa-0000-4000-8000-000000000001"
+    temporary_model_id = "10000000-0000-4000-8000-000000000001"
+    official_model_id = "10000000-0000-4000-8000-000000000002"
+    with Session(engine) as session:
+        owner = User(
+            id="owner-id",
+            username="owner",
+            username_normalized="owner",
+            password_hash="hash",
+        )
+        member = User(
+            id="member-id",
+            username="member",
+            username_normalized="member",
+            password_hash="hash",
+        )
+        session.add_all((owner, member))
+        session.flush()
+        session.add(
+            ModelProject(
+                id=existing_id,
+                name=OFFICIAL_YOLO11_MODEL_PROJECT_NAME,
+                name_normalized=OFFICIAL_YOLO11_MODEL_PROJECT_NAME.lower(),
+                description="existing models",
+                series_type="archive",
+                created_by_id=owner.id,
+            )
+        )
+        session.flush()
+        session.add(
+            ModelProjectMembership(
+                model_project_id=existing_id,
+                user_id=member.id,
+                role="editor",
+            )
+        )
+        session.add_all(
+            (
+                InferenceModel(
+                    id=temporary_model_id,
+                    model_project_id="00000000-0000-0000-0000-000000000001",
+                    name="temporary",
+                    kind="yolo",
+                    status="ready",
+                    source_name="temporary.pt",
+                    created_by_id=owner.id,
+                ),
+                InferenceModel(
+                    id=official_model_id,
+                    model_project_id=existing_id,
+                    name="official",
+                    kind="yolo",
+                    status="ready",
+                    source_name="official.pt",
+                    created_by_id=owner.id,
+                ),
+            )
+        )
+        session.commit()
+    engine.dispose()
+    temporary_model_dir = workspace / "models" / temporary_model_id
+    temporary_project_dir = (
+        workspace / "model-projects" / "00000000-0000-0000-0000-000000000001"
+    )
+    temporary_model_dir.mkdir(parents=True)
+    temporary_project_dir.mkdir(parents=True)
+
+    create_workspace_database(database_path)
+
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        official = session.get(ModelProject, existing_id)
+        assert official is not None
+        assert official.system_key == OFFICIAL_YOLO11_SYSTEM_KEY
+        assert official.created_by_id is None
+        assert session.get(InferenceModel, official_model_id) is not None
+        assert session.get(InferenceModel, temporary_model_id) is None
+        assert session.query(ModelProjectMembership).filter_by(
+            model_project_id=existing_id
+        ).count() == 0
+        assert session.scalar(
+            select(ModelProject).where(ModelProject.system_key == "temporary")
+        ) is None
+    engine.dispose()
+    assert not temporary_model_dir.exists()
+    assert not temporary_project_dir.exists()
+
+
+def test_official_model_project_migration_preserves_existing_candidate_id(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "workbench.sqlite3"
+    config = _upgrade_to_access_control(database_path, monkeypatch)
+    engine = make_engine(database_path)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO model_projects "
+            "(id, name, name_normalized, description, series_type, system_key, "
+            "version, created_at, updated_at) VALUES (?, ?, ?, '', 'archive', NULL, 1, ?, ?)",
+            (
+                "99999900-0000-4000-8000-000000000001",
+                OFFICIAL_YOLO11_MODEL_PROJECT_NAME,
+                OFFICIAL_YOLO11_MODEL_PROJECT_NAME.lower(),
+                "2026-09-21",
+                "2026-09-21",
+            ),
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+
+    engine = make_engine(database_path)
+    with Session(engine) as session:
+        official = session.get(
+            ModelProject, "99999900-0000-4000-8000-000000000001"
+        )
+        assert official is not None
+        assert official.system_key == OFFICIAL_YOLO11_SYSTEM_KEY
+        assert session.get(ModelProject, OFFICIAL_YOLO11_MODEL_PROJECT_ID) is None
+    engine.dispose()
+
+
+def test_official_model_project_migration_rejects_external_training_reference(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "workbench.sqlite3"
+    config = _upgrade_to_access_control(database_path, monkeypatch)
+    engine = make_engine(database_path)
+    temporary_model_id = "10000000-0000-4000-8000-000000000003"
+    with Session(engine) as session:
+        owner = User(
+            id="owner-id",
+            username="owner",
+            username_normalized="owner",
+            password_hash="hash",
+        )
+        session.add(owner)
+        session.flush()
+        session.add(
+            InferenceModel(
+                id=temporary_model_id,
+                model_project_id="00000000-0000-0000-0000-000000000001",
+                name="temporary",
+                kind="yolo",
+                status="ready",
+                source_name="temporary.pt",
+                created_by_id=owner.id,
+            )
+        )
+        session.flush()
+        session.add(
+            TrainingTask(
+                code="uses-temporary",
+                name="Uses temporary",
+                default_base_model_id=temporary_model_id,
+                created_by_id=owner.id,
+            )
+        )
+        session.commit()
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="training resource"):
+        command.upgrade(config, "head")
 
 
 def test_dataset_export_schema_and_active_project_constraint(tmp_path):

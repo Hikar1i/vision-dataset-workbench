@@ -1,4 +1,5 @@
 import { json } from "./auth";
+import type { ResourceAccess } from "./access";
 import type { BatchMode } from "./hyperparameters";
 
 export type TrainingStatus =
@@ -126,6 +127,8 @@ export type TrainingModel = {
 };
 export type TrainingTask = {
   id: string;
+  model_project_id: string;
+  access: ResourceAccess;
   code: string;
   name: string;
   description: string;
@@ -186,6 +189,7 @@ export type TrainingResources = {
   }[];
   templates: {
     id: string;
+    model_project_id?: string | null;
     name: string;
     description: string;
     epochs: number;

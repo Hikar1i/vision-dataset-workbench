@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from .models import InferenceModel, ModelArtifact, Task
 from .services.gpu_leases import GpuLeaseService
 from .services.model_artifacts import default_runtime_fingerprint
+from .services.models import touch_model_project
 
 
 class ModelConversionDeferred(RuntimeError):
@@ -145,6 +146,8 @@ def execute_model_conversion(
             task.updated_at = finished
             task.lease_owner = None
             task.lease_expires_at = None
+            if task.model_project_id is not None:
+                touch_model_project(database, task.model_project_id, at=finished)
             database.commit()
     finally:
         stop.set()

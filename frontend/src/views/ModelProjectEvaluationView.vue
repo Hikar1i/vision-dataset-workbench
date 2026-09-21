@@ -3,6 +3,7 @@ import { Delete, Plus, Refresh, UploadFilled, View } from '@element-plus/icons-v
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { can } from '../api/access'
 
 import { getModelProject, listModelProjectModels, type InferenceModel, type ModelProject } from '../api/models'
 import { listModelArtifacts, type ModelArtifact } from '../api/modelArtifacts'
@@ -53,6 +54,8 @@ const active = computed(() =>
 )
 const readyDatasets = computed(() => datasets.value.filter((item) => item.status === 'ready'))
 const readyModels = computed(() => models.value.filter((item) => item.status === 'ready'))
+const canExecute = computed(() => can(project.value?.access, 'task.execute'))
+const canUpdate = computed(() => can(project.value?.access, 'project.update'))
 const formats = computed(() => [
   { value: 'pt' as const, label: 'PyTorch (.pt)', enabled: true },
   { value: 'onnx' as const, label: 'ONNX', enabled: artifacts.value.some((item) => item.format === 'onnx' && item.status === 'ready') },
@@ -185,7 +188,7 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
       <template v-if="tab === 'records'">
         <div class="toolbar evaluation-toolbar">
           <span>固定参数：conf 0.001 · IOU 0.70 · batch 1 · max_det 300</span>
-          <div class="toolbar-actions"><VButton :loading="loading" @click="load()"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton><VButton v-if="project?.can_manage" variant="primary" :disabled="!readyModels.length || !readyDatasets.length" :title="!readyModels.length ? '暂无可用模型' : !readyDatasets.length ? '请先导入并校验测试集' : '新建评估'" @click="evaluationOpen = true"><template #icon><el-icon><Plus /></el-icon></template>新建评估</VButton></div>
+          <div class="toolbar-actions"><VButton :loading="loading" @click="load()"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton><VButton v-if="canExecute" variant="primary" :disabled="!readyModels.length || !readyDatasets.length" :title="!readyModels.length ? '暂无可用模型' : !readyDatasets.length ? '请先导入并校验测试集' : '新建评估'" @click="evaluationOpen = true"><template #icon><el-icon><Plus /></el-icon></template>新建评估</VButton></div>
         </div>
         <VPanel flush><VTable :columns="RECORD_COLUMNS" :headers="['模型', '测试集', '格式', '状态', 'mAP50-95', '操作']">
           <VRow v-for="item in evaluations" :key="item.id" :columns="RECORD_COLUMNS">
@@ -203,7 +206,7 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
       <template v-else>
         <div class="toolbar evaluation-toolbar">
           <span>测试集为不可变内容快照；同项目内按内容哈希去重。</span>
-          <div class="toolbar-actions"><VButton :loading="loading" @click="load()"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton><VButton v-if="project?.can_manage" variant="primary" @click="importOpen = true"><template #icon><el-icon><UploadFilled /></el-icon></template>导入测试集</VButton></div>
+          <div class="toolbar-actions"><VButton :loading="loading" @click="load()"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton><VButton v-if="canExecute" variant="primary" @click="importOpen = true"><template #icon><el-icon><UploadFilled /></el-icon></template>导入测试集</VButton></div>
         </div>
         <VPanel flush><VTable :columns="DATASET_COLUMNS" :headers="['测试集', '图像', '类别', '内容哈希', '状态', '操作']">
           <VRow v-for="item in datasets" :key="item.id" :columns="DATASET_COLUMNS">
@@ -211,7 +214,7 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
             <span class="metric">{{ item.image_count }}</span><span class="metric">{{ item.classes.length }}</span>
             <span class="mono ellipsis" :title="item.content_sha256 || ''">{{ item.content_sha256 || '校验后生成' }}</span>
             <VTag :tone="status(item.status).tone" :title="item.error || undefined">{{ status(item.status).label }}</VTag>
-            <VButton v-if="project?.can_manage" variant="danger" size="sm" :disabled="['queued','validating'].includes(item.status)" :title="['queued','validating'].includes(item.status) ? '测试集校验期间不可删除' : '删除测试集'" @click="removeDataset(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
+            <VButton v-if="canUpdate" variant="danger" size="sm" :disabled="['queued','validating'].includes(item.status)" :title="['queued','validating'].includes(item.status) ? '测试集校验期间不可删除' : '删除测试集'" @click="removeDataset(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
           </VRow>
           <template #empty><VEmpty v-if="!datasets.length" title="还没有测试集" note="上传结构受控的 ZIP 后，系统会在后台完成安全校验。" /></template>
         </VTable></VPanel>

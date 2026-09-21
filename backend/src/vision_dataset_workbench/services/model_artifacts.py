@@ -10,7 +10,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from ..capabilities import SystemCapabilities
-from ..models import InferenceModel, ModelArtifact, ModelProject, Task, User
+from ..models import InferenceModel, ModelArtifact, Task, User
+from .authorization import Permission
+from .models import ModelNotFound, ModelService, touch_model_project
 
 
 class ModelArtifactNotFound(ValueError):
@@ -51,21 +53,27 @@ class ModelArtifactService:
         engine: Engine,
         workspace: Path,
         capabilities: SystemCapabilities,
+        models: ModelService,
         *,
         fingerprint: Callable[[], dict[str, object]] = default_runtime_fingerprint,
     ):
         self.workspace = workspace.resolve()
         self.capabilities = capabilities
+        self.models = models
         self._fingerprint = fingerprint
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
-    @staticmethod
-    def _can_manage(actor: User, project: ModelProject) -> bool:
-        return project.system_key is None and (
-            actor.is_system_admin or project.created_by_id == actor.id
-        )
+    def _require(self, actor: User, model_id: str, permission: Permission) -> None:
+        try:
+            model = self.models.get_model(actor, model_id)
+            access = self.models.project_access(actor, model.model_project_id)
+        except ModelNotFound as exc:
+            raise ModelArtifactNotFound("model not found") from exc
+        if not access.allows(permission):
+            raise ModelArtifactForbidden(f"{permission} permission required")
 
     def list(self, actor: User, model_id: str) -> list[ModelArtifact]:
+        self._require(actor, model_id, "artifact.read")
         with self._session_factory() as database:
             model = self._model(database, model_id)
             rows = list(
@@ -97,6 +105,8 @@ class ModelArtifactService:
         dynamic: bool = False,
         precision: str = "fp16",
     ) -> tuple[ModelArtifact, Task]:
+        self._require(actor, model_id, "artifact.consume")
+        self._require(actor, model_id, "task.execute")
         if artifact_format not in {"onnx", "engine"}:
             raise InvalidModelArtifact("unsupported model format")
         if image_size < 32 or image_size > 8192 or image_size % 32:
@@ -115,9 +125,6 @@ class ModelArtifactService:
         now = _now()
         with self._session_factory() as database:
             model = self._model(database, model_id)
-            project = database.get(ModelProject, model.model_project_id)
-            if project is None or not self._can_manage(actor, project):
-                raise ModelArtifactForbidden("model project is read-only")
             if not model.sha256:
                 raise InvalidModelArtifact("model source hash is unavailable")
             config = {
@@ -160,6 +167,7 @@ class ModelArtifactService:
                 database.add(task)
                 database.flush()
                 database.add(artifact)
+                touch_model_project(database, model.model_project_id, at=now)
                 database.commit()
             except IntegrityError as exc:
                 database.rollback()
@@ -173,8 +181,10 @@ class ModelArtifactService:
             artifact = database.get(ModelArtifact, artifact_id)
             if artifact is None or artifact.deleted_at is not None:
                 raise ModelArtifactNotFound("model artifact not found")
+            self._require(actor, artifact.model_id, "artifact.download")
             model = self._model(database, artifact.model_id)
             if self._mark_stale(artifact, model):
+                touch_model_project(database, model.model_project_id, at=artifact.updated_at)
                 database.commit()
             if artifact.status != "ready" or not artifact.storage_path:
                 raise ModelArtifactConflict("model artifact is not ready")
@@ -191,10 +201,8 @@ class ModelArtifactService:
             artifact = database.get(ModelArtifact, artifact_id)
             if artifact is None or artifact.deleted_at is not None:
                 raise ModelArtifactNotFound("model artifact not found")
+            self._require(actor, artifact.model_id, "project.update")
             model = self._model(database, artifact.model_id)
-            project = database.get(ModelProject, model.model_project_id)
-            if project is None or not self._can_manage(actor, project):
-                raise ModelArtifactForbidden("model project is read-only")
             active = list(
                 database.scalars(
                     select(Task).where(Task.status.in_(("queued", "running")))
@@ -215,6 +223,7 @@ class ModelArtifactService:
                     path.unlink()
             artifact.deleted_at = now
             artifact.updated_at = now
+            touch_model_project(database, model.model_project_id, at=now)
             database.commit()
 
     def invalidate_model(self, database, model: InferenceModel) -> None:

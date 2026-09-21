@@ -19,6 +19,7 @@ from vision_dataset_workbench.models import (
     EvaluationDataset,
     InferenceModel,
     ModelArtifact,
+    ModelProjectMembership,
     Task,
     User,
 )
@@ -83,6 +84,13 @@ def setup_app(tmp_path):
         headers=ORIGIN,
         json={"name": "Models", "description": ""},
     ).json()
+    with app.state.model_service._session_factory() as database:
+        database.add(
+            ModelProjectMembership(
+                model_project_id=project["id"], user_id="viewer-id", role="viewer"
+            )
+        )
+        database.commit()
     source = workspace / "models" / "model-id" / "best.pt"
     source.parent.mkdir(parents=True)
     source.write_bytes(b"weights")

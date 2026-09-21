@@ -7,6 +7,12 @@ import { createAppRouter } from './router'
 beforeEach(() => vi.restoreAllMocks())
 
 describe('setup routing', () => {
+  it('has no public registration route and keeps required password change outside the shell', () => {
+    const router = createAppRouter()
+    expect(router.getRoutes().some((route) => route.path === '/register')).toBe(false)
+    expect(router.resolve('/password/change-required').matched).toHaveLength(1)
+  })
+
   it('redirects an uninitialized instance to setup', async () => {
     vi.stubGlobal(
       'fetch',
@@ -30,7 +36,7 @@ describe('setup routing', () => {
         if (path.includes('/auth/status')) {
           return Promise.resolve({
             ok: true,
-            json: async () => ({ mode: 'multi', registration_enabled: false }),
+            json: async () => ({ mode: 'multi' }),
           })
         }
         return Promise.resolve({
@@ -56,7 +62,7 @@ describe('setup routing', () => {
         if (path.includes('/auth/status')) {
           return Promise.resolve({
             ok: true,
-            json: async () => ({ mode: 'multi', registration_enabled: false }),
+            json: async () => ({ mode: 'multi' }),
           })
         }
         return Promise.resolve({
@@ -66,6 +72,7 @@ describe('setup routing', () => {
             username: 'admin',
             status: 'active',
             is_system_admin: true,
+            must_change_password: false,
           }),
         })
       }),
@@ -73,13 +80,37 @@ describe('setup routing', () => {
     const router = createAppRouter()
     await router.push('/login')
     await router.isReady()
-    expect(router.currentRoute.value.path).toBe('/projects')
+    expect(router.currentRoute.value.path).toBe('/overview')
+  })
+
+  it('forces an initial-password user onto the required change page', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((path: string) => {
+      const value = path.includes('/setup/')
+        ? { initialized: true }
+        : path.includes('/auth/status')
+          ? { mode: 'multi' }
+          : {
+              id: 'worker-id', username: 'worker', status: 'active',
+              is_system_admin: false, must_change_password: true,
+            }
+      return Promise.resolve({ ok: true, json: async () => value })
+    }))
+    const router = createAppRouter()
+    await router.push('/projects')
+    await router.isReady()
+    expect(router.currentRoute.value.path).toBe('/password/change-required')
+    expect(router.currentRoute.value.matched).toHaveLength(1)
   })
 
   it('keeps the application scroll container while annotation opens and history moves', async () => {
     const project = {
       id: 'project-id', name: 'Dataset', description: '', creator_id: 'creator-id',
-      creator_username: 'creator', role: 'editor', version: 1,
+      creator_username: 'creator',
+      access: {
+        role: 'editor', source: 'membership',
+        permissions: ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+      },
+      version: 1,
       created_at: '', updated_at: '',
     }
     vi.stubGlobal(
@@ -90,10 +121,11 @@ describe('setup routing', () => {
         if (path.includes('/setup/')) {
           value = { initialized: true }
         } else if (path.includes('/auth/status')) {
-          value = { mode: 'multi', registration_enabled: false }
+          value = { mode: 'multi' }
         } else if (path.includes('/auth/me')) {
           value = {
             id: 'editor-id', username: 'editor', status: 'active', is_system_admin: false,
+            must_change_password: false,
           }
         } else if (path.includes('/projects/project-id/videos?')) {
           value = { items: [], page: 1, page_size: 50, total: 0 }

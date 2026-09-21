@@ -6,7 +6,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from ..models import Frame, FrameAnnotation, ProjectLabel, Task, User, Video
-from .projects import ProjectForbidden, ProjectService
+from .projects import ProjectForbidden, ProjectService, touch_project
 from .dataset_exports import video_has_active_export
 
 
@@ -68,7 +68,7 @@ class AnnotationService:
         revision: int,
         items: list[AnnotationInput],
     ) -> tuple[Frame, list[FrameAnnotation]]:
-        if self.projects.get_project(actor, project_id).role == "viewer":
+        if not self.projects.get_project(actor, project_id).access.allows("project.update"):
             raise ProjectForbidden("project edit permission required")
         with self._session_factory() as database:
             frame, video = self._context(database, project_id, video_id, frame_id)
@@ -119,6 +119,7 @@ class AnnotationService:
                     for sort_order, item in enumerate(items)
                 ]
             )
+            touch_project(database, project_id, at=now)
             database.commit()
             database.expire_all()
             saved_frame = database.get(Frame, frame_id)

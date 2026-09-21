@@ -3,6 +3,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Delete, Download, UploadFilled } from '@element-plus/icons-vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { can } from '../api/access'
 
 import { getInferenceModel, modelDownloadUrl, type InferenceModel } from '../api/models'
 import { listModelArtifacts, modelArtifactDownloadUrl, type ModelArtifact } from '../api/modelArtifacts'
@@ -61,6 +62,8 @@ const displayedRun = computed(() => mode.value === 'saved' ? selectedSaved.value
 const previewUrl = computed(() => displayedRun.value ? inferenceFileUrl(displayedRun.value.id, view.value === 'source' ? 'preview' : 'result') : '')
 const isWorking = computed(() => ['queued', 'running'].includes(current.value?.status || ''))
 const displayedWorking = computed(() => ['queued', 'running'].includes(displayedRun.value?.status || ''))
+const canExecute = computed(() => can(model.value?.access, 'task.execute'))
+const canUpdate = computed(() => can(model.value?.access, 'project.update'))
 const statusLabel = computed(() => {
   const labels: Record<string, string> = { queued: '等待 GPU', running: '推理中', succeeded: '已完成', failed: '失败', canceled: '已取消' }
   return labels[displayedRun.value?.status || ''] || '未开始'
@@ -193,15 +196,15 @@ onBeforeUnmount(() => {
     <PageHeader :title="model ? `${model.name} · 在线推理` : '在线推理'" kind="model" :code="model?.model_code" :back-to="backTarget.to" :back-label="backTarget.label">
       <template #meta><span>图片最大 20 MB</span><span>视频最大 500 MB</span><span>会话 24 小时无访问后清理</span></template>
       <template #actions>
-        <div v-if="model?.status === 'ready'" class="download-split">
+        <div v-if="model?.status === 'ready' && can(model.access, 'artifact.download')" class="download-split">
           <VButton :href="modelDownloadUrl(model.id)" title="下载 PyTorch 模型"><template #icon><el-icon><Download /></el-icon></template>下载模型</VButton>
           <el-dropdown trigger="click" @command="downloadArtifact">
             <VButton icon-only label="选择转换格式" title="选择转换格式"><template #icon><el-icon><ArrowDown /></el-icon></template></VButton>
             <template #dropdown><el-dropdown-menu><el-dropdown-item v-for="artifact in artifacts" :key="artifact.id" :command="artifact.id" :disabled="artifact.status !== 'ready'">下载 {{ artifact.format === 'onnx' ? 'ONNX' : 'TensorRT' }}</el-dropdown-item><el-dropdown-item v-if="!artifacts.length" disabled>暂无转换产物</el-dropdown-item></el-dropdown-menu></template>
           </el-dropdown>
         </div>
-        <VButton v-if="mode === 'current' && current?.status === 'succeeded' && model?.can_manage" data-test="save-inference" variant="primary" @click="save">保存推理结果</VButton>
-        <VButton v-if="mode === 'current' && current" variant="danger" @click="clear"><template #icon><el-icon><Delete /></el-icon></template>清理</VButton>
+        <VButton v-if="mode === 'current' && current?.status === 'succeeded' && canUpdate" data-test="save-inference" variant="primary" @click="save">保存推理结果</VButton>
+        <VButton v-if="mode === 'current' && current && canExecute" variant="danger" @click="clear"><template #icon><el-icon><Delete /></el-icon></template>清理</VButton>
       </template>
     </PageHeader>
 
@@ -244,7 +247,7 @@ onBeforeUnmount(() => {
         </section>
 
         <aside class="control-column">
-          <VPanel v-if="mode === 'current'" title="推理设置">
+          <VPanel v-if="mode === 'current' && canExecute" title="推理设置">
           <div class="control-stack">
             <label>模型格式<el-select v-model="format" :disabled="isWorking" :title="isWorking ? '当前推理期间不可切换格式' : undefined"><el-option v-for="item in formats" :key="item.value" :value="item.value" :label="item.label" :disabled="!item.enabled" /></el-select></label>
             <label>置信度 <b>{{ parameters.confidence.toFixed(2) }}</b><el-slider v-model="parameters.confidence" :min="0" :max="1" :step="0.01" /></label>
@@ -264,7 +267,7 @@ onBeforeUnmount(() => {
                 </button>
                 <div class="saved-actions">
                   <VButton size="sm" :href="inferenceFileUrl(item.id, 'result')"><template #icon><el-icon><Download /></el-icon></template>下载结果</VButton>
-                  <VButton v-if="model?.can_manage" variant="danger" size="sm" @click="removeSaved(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
+                  <VButton v-if="canUpdate" variant="danger" size="sm" @click="removeSaved(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
                 </div>
               </article>
             </div>

@@ -124,12 +124,17 @@ def test_create_projects_allows_duplicate_names_and_lists_visible_projects(
 
     assert first.project.name == second.project.name == "Shared name"
     assert first.project.description == "first"
-    assert first.role == "owner"
+    assert first.access.role == "owner"
     assert (workspace / "projects" / first.project.id).is_dir()
     items, total = service.list_projects(users["creator-id"], page=1, page_size=1)
     assert total == 2
     assert len(items) == 1
     assert service.list_projects(users["outsider-id"], page=1, page_size=50)[1] == 0
+
+    admin_project = service.create_project(users["admin-id"], "Admin project", "")
+    assert admin_project.access.role == "owner"
+    assert admin_project.access.source == "owner"
+    assert service.get_project(users["admin-id"], admin_project.project.id).access.role == "owner"
 
 
 def test_roles_control_read_update_and_version_conflicts(project_runtime):
@@ -139,12 +144,14 @@ def test_roles_control_read_update_and_version_conflicts(project_runtime):
     service.add_member(users["creator-id"], project.id, "editor", "editor")
     service.add_member(users["creator-id"], project.id, "viewer", "viewer")
 
-    assert service.get_project(users["editor-id"], project.id).role == "editor"
-    assert service.get_project(users["viewer-id"], project.id).role == "viewer"
+    assert service.get_project(users["editor-id"], project.id).access.role == "editor"
+    assert service.get_project(users["viewer-id"], project.id).access.role == "viewer"
     with pytest.raises(ProjectNotFound):
         service.get_project(users["outsider-id"], project.id)
-    with pytest.raises(ProjectNotFound):
-        service.get_project(users["admin-id"], project.id)
+    admin_access = service.get_project(users["admin-id"], project.id).access
+    assert admin_access.role is None
+    assert admin_access.source == "system_admin"
+    assert admin_access.allows("project.delete")
 
     updated = service.update_project(
         users["editor-id"], project.id, "Changed", "description", version=1
@@ -193,13 +200,32 @@ def test_owner_manages_members_but_creator_is_immutable(project_runtime):
         service.remove_member(users["creator-id"], project.id, "creator-id")
 
 
-def test_single_mode_admin_has_owner_access_without_membership(project_runtime):
+def test_member_changes_touch_project_without_changing_metadata_version(project_runtime):
+    service = make_service(project_runtime)
+    engine, _workspace, users = project_runtime
+    project = service.create_project(users["creator-id"], "Project", "").project
+    old = datetime(2025, 1, 1)
+    with Session(engine) as session:
+        stored = session.get(Project, project.id)
+        stored.updated_at = old
+        version = stored.version
+        session.commit()
+
+    service.add_member(users["creator-id"], project.id, "editor", "editor")
+
+    with Session(engine) as session:
+        stored = session.get(Project, project.id)
+        assert stored.updated_at == datetime(2026, 7, 23)
+        assert stored.version == version
+
+
+def test_admin_has_full_access_without_membership(project_runtime):
     multi = make_service(project_runtime)
     users = project_runtime[2]
     project = multi.create_project(users["creator-id"], "Project", "").project
     single = make_service(project_runtime, mode="single")
 
-    assert single.get_project(users["admin-id"], project.id).role == "owner"
+    assert single.get_project(users["admin-id"], project.id).access.source == "system_admin"
     single.add_member(users["admin-id"], project.id, "viewer", "viewer")
     with Session(project_runtime[0]) as session:
         assert session.scalar(

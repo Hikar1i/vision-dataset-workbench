@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from .models import EvaluationDataset, Task
+from .services.models import touch_model_project
 
 MAX_EXPANDED_BYTES = 5 * 1024 * 1024 * 1024
 MAX_ENTRIES = 10_500
@@ -99,6 +100,8 @@ def execute_evaluation_dataset_import(
         task.updated_at = finished
         task.lease_owner = None
         task.lease_expires_at = None
+        if task.model_project_id is not None:
+            touch_model_project(database, task.model_project_id, at=finished)
         try:
             database.commit()
         except IntegrityError as exc:

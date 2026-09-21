@@ -40,6 +40,10 @@ beforeEach(() => {
     version: 1,
     can_manage: true,
     can_convert: true,
+    access: {
+      role: 'owner', source: 'owner',
+      permissions: ['project.read', 'project.update', 'project.members.manage', 'project.delete', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+    },
     created_at: '2026-09-17T08:00:00Z',
     updated_at: '2026-09-17T08:00:00Z',
     training: null,

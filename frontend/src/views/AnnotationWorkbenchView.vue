@@ -28,6 +28,7 @@ import {
   type FrameAnnotationSet,
 } from '../api/annotations'
 import { getCurrentUser, type CurrentUser } from '../api/auth'
+import { can } from '../api/access'
 import { getCapabilities, type SystemCapabilities } from '../api/capabilities'
 import { listLabels, type ProjectLabel } from '../api/labels'
 import {
@@ -718,7 +719,7 @@ async function load() {
       getCapabilities(),
       getCurrentUser(),
     ])
-    if (project.role === 'viewer') {
+    if (!can(project.access, 'task.execute')) {
       ElMessage.warning('只读成员不能进入在线标注。')
       await router.replace(`/projects/${projectId}/videos`)
       return
@@ -726,14 +727,15 @@ async function load() {
     video.value = videos.items.find((item) => item.id === videoId) ?? null
     if (!video.value) throw new Error('视频不存在或不可访问')
     labels.value = projectLabels
-    modelProjects.value = projects
+    const usableModelProjects = projects.filter((item) => can(item.access, 'artifact.consume'))
+    modelProjects.value = usableModelProjects
     xanylabelingSetting.value = remoteSetting
     capabilities.value = detectedCapabilities
     currentUser.value = user
     activeAutoTask.value = video.value.latest_task?.type === 'auto_annotate'
       ? video.value.latest_task
       : null
-    const firstProject = projects[0]
+    const firstProject = usableModelProjects[0]
     if (firstProject) {
       selectedSource.value = `project:${firstProject.id}`
       inferenceModels.value = await listModelProjectModels(firstProject.id)

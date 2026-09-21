@@ -4,6 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { clearRecentRows, isRecentRow } from '../ui/recentRows'
 import ProjectVideosView from './ProjectVideosView.vue'
+import type { ProjectRole, ResourceAccess } from '../api/access'
+
+const access = (role: ProjectRole): ResourceAccess => ({
+  role,
+  source: role === 'owner' ? 'owner' : 'membership',
+  permissions: role === 'viewer'
+    ? ['project.read', 'artifact.read', 'artifact.download', 'task.read']
+    : ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+})
 
 const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }))
 vi.mock('vue-router', () => ({
@@ -18,7 +27,7 @@ const project = {
   creator_id: 'creator-id',
   creator_username: 'creator',
   categories: [],
-  role: 'viewer',
+  access: access('viewer'),
   version: 1,
   created_at: '2026-07-23T00:00:00Z',
   updated_at: '2026-07-23T00:00:00Z',
@@ -62,9 +71,13 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-function mountView(role: 'owner' | 'editor' | 'viewer' = 'viewer') {
+function projectFor(role: ProjectRole) {
+  return { ...project, access: access(role) }
+}
+
+function mountView(role: ProjectRole = 'viewer') {
   return mount(ProjectVideosView, {
-    props: { project: { ...project, role } },
+    props: { project: projectFor(role) },
     global: {
       plugins: [ElementPlus],
       stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } },
@@ -151,7 +164,7 @@ describe('ProjectVideosView', () => {
           json: async () =>
             path.includes('/videos?')
               ? { items: [video], page: 1, page_size: 50, total: 1 }
-              : { ...project, role: 'editor' },
+              : projectFor('editor'),
         }),
       ),
     )
@@ -191,7 +204,7 @@ describe('ProjectVideosView', () => {
         json: async () =>
           path.includes('/videos?')
             ? { items: [video, second], page: 1, page_size: pageSize, total: 2 }
-            : { ...project, role: 'editor' },
+            : projectFor('editor'),
       })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -243,7 +256,7 @@ describe('ProjectVideosView', () => {
         ok: true,
         json: async () => path.includes('/videos?')
           ? { items: [video, second], page: 1, page_size: 999, total: 2 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       })),
     )
     const wrapper = mountView('editor')
@@ -267,7 +280,7 @@ describe('ProjectVideosView', () => {
         ok: true,
         json: async () => path.includes('/videos?')
           ? { items: [video, stopped], page: 1, page_size: 999, total: 2 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       })),
     )
     const wrapper = mountView('editor')
@@ -293,7 +306,7 @@ describe('ProjectVideosView', () => {
         ok: true,
         json: async () => path.includes('/videos?')
           ? { items: [video, stopped], page: 1, page_size: 999, total: 2 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       })),
     )
     const wrapper = mountView('editor')
@@ -326,7 +339,7 @@ describe('ProjectVideosView', () => {
         ok: true,
         json: async () => path.includes('/videos?')
           ? { items: [video], page: 1, page_size: 999, total: 1 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       })),
     )
     const wrapper = mountView('editor')
@@ -352,7 +365,7 @@ describe('ProjectVideosView', () => {
         ? { deleted: ['video-stopped'], skipped: [] }
         : path.includes('/videos?')
           ? { items: [video, stopped], page: 1, page_size: 999, total: 2 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       init,
     }))
     vi.stubGlobal('fetch', fetchMock)
@@ -384,7 +397,7 @@ describe('ProjectVideosView', () => {
           json: async () =>
             path.includes('/videos?')
               ? { items: [video], page: 1, page_size: 50, total: 999 }
-              : { ...project, role: 'owner' },
+              : projectFor('owner'),
         }),
       ),
     )
@@ -405,7 +418,7 @@ describe('ProjectVideosView', () => {
           json: async () =>
             path.includes('/videos?')
               ? { items: [{ ...video, enabled: false }], page: 1, page_size: 50, total: 1 }
-              : { ...project, role: 'editor' },
+              : projectFor('editor'),
         }),
       ),
     )
@@ -426,7 +439,7 @@ describe('ProjectVideosView', () => {
           if (path.endsWith('/enabled')) return { ...video, enabled: false, version: 3 }
           return path.includes('/videos?')
             ? { items: [video], page: 1, page_size: 50, total: 1 }
-            : { ...project, role: 'editor' }
+            : projectFor('editor')
         },
         init,
       }),
@@ -453,7 +466,7 @@ describe('ProjectVideosView', () => {
         ok: true,
         json: async () => path.includes('/videos?')
           ? { items: [unconfigured, protectedVideo], page: 1, page_size: 50, total: 2 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       })),
     )
     const wrapper = mountView('editor')
@@ -490,7 +503,7 @@ describe('ProjectVideosView', () => {
         ok: true,
         json: async () => path.includes('/videos?')
           ? { items: [configured, protectedVideo], page: 1, page_size: 50, total: 2 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       })),
     )
     const wrapper = mountView('editor')
@@ -513,7 +526,7 @@ describe('ProjectVideosView', () => {
         ok: true,
         json: async () => path.includes('/videos?')
           ? { items: [unannotated, annotated], page: 1, page_size: 50, total: 2 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       })),
     )
     const wrapper = mountView('editor')
@@ -555,7 +568,7 @@ describe('ProjectVideosView', () => {
           }
         : path.includes('/videos?')
           ? { items: [annotatedUnscreened, annotatedScreened, emptyUnscreened, emptyScreened], page: 1, page_size: 50, total: 4 }
-          : { ...project, role: 'editor' },
+          : projectFor('editor'),
       init,
     }))
     vi.stubGlobal('fetch', fetchMock)

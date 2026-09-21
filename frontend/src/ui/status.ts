@@ -24,9 +24,7 @@ const TRAINING: Record<string, { tone: Tone; label: string }> = {
 
 /** 账号状态（后端 ManagedUser.status） */
 const USER: Record<string, { tone: Tone; label: string }> = {
-  pending: { tone: 'warn', label: '待审批' },
   active: { tone: 'ok', label: '正常' },
-  rejected: { tone: 'danger', label: '已拒绝' },
   disabled: { tone: 'idle', label: '已禁用' },
 }
 

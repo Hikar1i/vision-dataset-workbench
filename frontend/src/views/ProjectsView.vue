@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { Delete, Right } from '@element-plus/icons-vue'
+import { Delete, Files, Right } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 
 import { ApiError } from '../api/auth'
+import { accessLabel, can } from '../api/access'
 import { createProject, deleteProject, listProjects, type Project } from '../api/projects'
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
@@ -34,9 +35,7 @@ const deleting = ref('')
 const error = ref('')
 const valid = computed(() => name.value.trim().length > 0 && name.value.trim().length <= 128)
 
-const roleLabels = { owner: '所有者', editor: '编辑者', viewer: '只读' } as const
-
-const COLUMNS = 'minmax(240px, 1.5fr) minmax(180px, 1fr) 96px minmax(120px, 0.7fr) 110px 150px'
+const COLUMNS = 'minmax(220px, 1.4fr) minmax(160px, 1fr) 84px minmax(110px, 0.7fr) 106px 106px 150px'
 const RECENT_SCOPE = 'projects'
 
 async function load(nextPage = page.value) {
@@ -105,7 +104,7 @@ onMounted(() => load())
 
 <template>
   <main class="content-page">
-    <PageHeader title="数据集项目" kind="projects">
+    <PageHeader title="数据集项目" kind="projects" :icon="Files">
       <template #meta><span data-test="page-stat">{{ total }} 个项目</span></template>
       <template #actions>
         <VButton
@@ -161,7 +160,7 @@ onMounted(() => load())
       <VPanel v-loading="loading" flush>
         <VTable
           :columns="COLUMNS"
-          :headers="['项目', '类别', '权限', '所有者', '最近更新', '操作']"
+          :headers="['项目', '类别', '权限', '所有者', '创建时间', '更新时间', '操作']"
         >
           <VRow
             v-for="project in projects"
@@ -182,10 +181,11 @@ onMounted(() => load())
               <VChip v-for="category in project.categories ?? []" :key="category">{{ category }}</VChip>
               <span v-if="!project.categories?.length" class="cell-muted">—</span>
             </div>
-            <VTag :tone="project.role === 'owner' ? 'run' : 'idle'">
-              {{ roleLabels[project.role] }}
+            <VTag :tone="project.access.role === 'owner' || project.access.source === 'system_admin' ? 'run' : 'idle'">
+              {{ accessLabel(project.access) }}
             </VTag>
             <span class="cell-muted">{{ project.creator_username }}</span>
+            <VDateTime :value="project.created_at" />
             <VDateTime :value="project.updated_at" />
             <div
               class="row-actions"
@@ -198,7 +198,7 @@ onMounted(() => load())
                 @click="router.push(`/projects/${project.id}/videos`)"
               ><template #icon><el-icon><Right /></el-icon></template>打开</VButton>
               <VButton
-                v-if="project.role === 'owner'"
+                v-if="can(project.access, 'project.delete')"
                 variant="danger"
                 size="sm"
                 :data-test="`delete-${project.id}`"

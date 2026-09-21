@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Connection, Delete, EditPen, Plus } from '@element-plus/icons-vue'
+import { Connection, Delete, EditPen, Plus, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 
@@ -170,7 +170,7 @@ onMounted(() => void load())
 
 <template>
   <main class="content-page">
-    <PageHeader title="大模型配置" kind="llm configs">
+    <PageHeader title="大模型配置" kind="llm configs" :icon="Setting">
       <template #meta>
         <span data-test="page-stat">{{ configs.length }} 个配置 · 仅当前用户可见</span>
       </template>

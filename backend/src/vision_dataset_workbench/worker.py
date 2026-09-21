@@ -59,6 +59,8 @@ from .models import (
 from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
 from .services.labels import automatic_label_color, normalize_label_name
 from .services.gpu_leases import GpuLeaseService
+from .services.models import touch_model_project
+from .services.projects import touch_project
 from .services.xanylabeling_settings import XAnyLabelingSettingsService
 from .security.credentials import resolve_credential_key
 from .services.llm_configs import LLMConfigService
@@ -421,6 +423,8 @@ class TaskWorker:
             task.updated_at = now
             task.lease_owner = None
             task.lease_expires_at = None
+            if task.model_project_id is not None:
+                touch_model_project(database, task.model_project_id, at=now)
             database.commit()
 
     def _copy_file_with_progress(
@@ -617,6 +621,8 @@ class TaskWorker:
             task.updated_at = now
             task.lease_owner = None
             task.lease_expires_at = None
+            if task.project_id is not None:
+                touch_project(database, task.project_id, at=now)
             database.commit()
 
     def _managed_model_path(self, model: InferenceModel) -> Path:
@@ -992,6 +998,7 @@ class TaskWorker:
                 stored_task.updated_at = now
                 stored_task.lease_owner = None
                 stored_task.lease_expires_at = None
+                touch_project(database, video.project_id, at=now)
                 database.commit()
         except Exception:
             if target.exists():
@@ -1129,6 +1136,7 @@ class TaskWorker:
                 stored_task.updated_at = now
                 stored_task.lease_owner = None
                 stored_task.lease_expires_at = None
+                touch_project(database, stored_video.project_id, at=now)
                 database.commit()
         except Exception:
             destination.unlink(missing_ok=True)
@@ -1170,6 +1178,8 @@ class TaskWorker:
             task.lease_expires_at = None
             if video is not None:
                 database.delete(video)
+            if task.project_id is not None:
+                touch_project(database, task.project_id, at=now)
             database.commit()
 
     def _finish_canceled(self, task_id: str) -> None:
@@ -1188,6 +1198,7 @@ class TaskWorker:
             self._finish_model_artifact(database, task, "failed", "model conversion canceled")
             self._finish_model_inference(database, task, "canceled", "inference canceled")
             self._finish_evaluation_resource(database, task, "canceled", "evaluation canceled")
+            self._touch_terminal_parent(database, task, now)
             database.commit()
 
     def _safe_error(self, exc: Exception) -> str:
@@ -1212,6 +1223,7 @@ class TaskWorker:
             self._finish_model_artifact(database, task, "failed", task.error)
             self._finish_model_inference(database, task, "failed", task.error)
             self._finish_evaluation_resource(database, task, "failed", task.error)
+            self._touch_terminal_parent(database, task, now)
             database.commit()
 
     def _requeue(self, task_id: str) -> None:
@@ -1304,6 +1316,13 @@ class TaskWorker:
                 evaluation.status = status
                 evaluation.error = error
                 evaluation.finished_at = task.updated_at
+
+    @staticmethod
+    def _touch_terminal_parent(database, task: Task, now: datetime) -> None:
+        if task.project_id is not None:
+            touch_project(database, task.project_id, at=now)
+        elif task.model_project_id is not None and task.type != "infer_video":
+            touch_model_project(database, task.model_project_id, at=now)
 
     def _remove_task_temp(self, path: Path) -> None:
         expected_parent = (self.workspace / "tmp").resolve()

@@ -19,8 +19,6 @@ from ..models import (
     InferenceModel,
     ModelArtifact,
     ModelProject,
-    ModelProjectTag,
-    ModelProjectTagLink,
     TrainingMetric,
     TrainingModel,
     TrainingPreparation,
@@ -32,6 +30,7 @@ from .retention import cleanup_intermediate_checkpoints
 from .state import aggregate_progress, aggregate_task_state
 from .telemetry import training_telemetry
 from ..services.gpu_leases import GpuLeaseService
+from ..services.models import touch_training_model_project
 
 
 def _now() -> datetime:
@@ -279,21 +278,24 @@ class TrainingScheduler:
                 model.dataset_snapshot = json.dumps(snapshot, ensure_ascii=False)
         from ..services.training import TrainingService
 
-        TrainingService._queue_initial_runs(db, task, models, _now())
+        now = _now()
+        TrainingService._queue_initial_runs(db, task, models, now)
         item.status = "succeeded"
         item.phase = "completed"
         item.progress = 100
         item.processed = item.total
-        item.finished_at = _now()
+        item.finished_at = now
         item.lease_expires_at = None
-        task.updated_at = _now()
+        task.updated_at = now
+        touch_training_model_project(db, task.id, at=now)
 
     def _finish_preparation(
         self, db, item: TrainingPreparation, status: str, error: str | None
     ) -> None:
+        now = _now()
         item.status = status
         item.error = error[:2000] if error else None
-        item.finished_at = _now()
+        item.finished_at = now
         item.lease_expires_at = None
         task = db.get(TrainingTask, item.training_task_id)
         assert task
@@ -302,10 +304,12 @@ class TrainingScheduler:
             select(TrainingModel).where(TrainingModel.training_task_id == task.id)
         ):
             model.status = model_status
-            model.finished_at = _now()
+            model.finished_at = now
+            model.updated_at = now
         task.status = "canceled" if status == "canceled" else "preparation_failed"
-        task.finished_at = _now()
-        task.updated_at = _now()
+        task.finished_at = now
+        task.updated_at = now
+        touch_training_model_project(db, task.id, at=now)
         datasets = self.workspace / "training" / "tasks" / task.id / "datasets"
         if datasets.is_dir():
             for staged in datasets.glob(".preparing-*"):
@@ -467,15 +471,19 @@ class TrainingScheduler:
                     "training", run.id, gpu_index=run.gpu_index
                 ) is None:
                     continue
+                now = _now()
                 run.status = "running"
-                run.started_at = _now()
+                run.started_at = now
                 run.worker_id = self.worker_id
-                run.lease_expires_at = _now() + timedelta(seconds=30)
+                run.lease_expires_at = now + timedelta(seconds=30)
                 model.status = "running"
-                model.started_at = model.started_at or _now()
+                model.started_at = model.started_at or now
+                model.updated_at = now
                 task = db.get(TrainingTask, model.training_task_id)
                 task.status = "running"
-                task.started_at = task.started_at or _now()
+                task.started_at = task.started_at or now
+                task.updated_at = now
+                touch_training_model_project(db, task.id, at=now)
                 active_gpus.add(run.gpu_index)
                 selected.append(run.id)
             db.commit()
@@ -611,6 +619,7 @@ class TrainingScheduler:
         task.progress = aggregate_progress(models)
         task.status = aggregate_task_state(models)
         task.updated_at = now
+        touch_training_model_project(db, task.id, at=now)
         if task.status not in {"queued", "running", "canceling"}:
             task.finished_at = now
 
@@ -625,29 +634,7 @@ class TrainingScheduler:
         project = db.scalar(select(ModelProject).where(ModelProject.training_task_id == task.id))
         now = _now()
         if project is None:
-            project = ModelProject(
-                id=str(uuid4()),
-                name=task.name,
-                name_normalized=task.name.lower(),
-                description=task.description,
-                series_type="training",
-                training_task_id=task.id,
-                created_by_id=task.created_by_id,
-                created_at=now,
-                updated_at=now,
-            )
-            db.add(project)
-            db.flush()
-            tag = db.scalar(
-                select(ModelProjectTag).where(ModelProjectTag.name_normalized == "训练")
-            )
-            if tag is None:
-                tag = ModelProjectTag(
-                    id=str(uuid4()), name="训练", name_normalized="训练", created_at=now
-                )
-                db.add(tag)
-                db.flush()
-            db.add(ModelProjectTagLink(model_project_id=project.id, tag_id=tag.id))
+            raise RuntimeError("training model project is missing")
         published = db.scalar(
             select(InferenceModel).where(InferenceModel.training_model_id == model.id)
         )
@@ -687,6 +674,7 @@ class TrainingScheduler:
         published.updated_at = now
         published.deleted_at = None
         published.status = "ready"
+        touch_training_model_project(db, task.id, at=now)
         for artifact in db.scalars(
             select(ModelArtifact).where(
                 ModelArtifact.model_id == published.id,

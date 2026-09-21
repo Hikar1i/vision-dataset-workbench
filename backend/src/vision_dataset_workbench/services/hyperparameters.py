@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from ..models import HyperparameterTemplate, User
 from ..training.hyperparameters import CATALOG_VERSION, effective_parameters, validate_values
+from .models import ModelNotFound, ModelService, touch_model_project
 
 
 class TemplateNotFound(ValueError):
@@ -39,14 +40,32 @@ def _text(value: str, maximum: int, field: str, required: bool = False) -> str:
 
 
 class HyperparameterTemplateService:
-    def __init__(self, engine: Engine):
+    def __init__(self, engine: Engine, models: ModelService):
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
+        self.models = models
 
-    @staticmethod
-    def can_manage(actor: User, template: HyperparameterTemplate) -> bool:
-        return template.system_key is None and (
-            actor.is_system_admin or template.created_by_id == actor.id
-        )
+    def can_manage(self, actor: User, template: HyperparameterTemplate) -> bool:
+        if template.system_key is not None:
+            return False
+        if template.model_project_id is None:
+            return actor.is_system_admin or template.created_by_id == actor.id
+        try:
+            return self.models.project_access(actor, template.model_project_id).allows(
+                "project.update"
+            )
+        except ModelNotFound:
+            return False
+
+    def _visible(self, actor: User, template: HyperparameterTemplate) -> bool:
+        if template.system_key is not None:
+            return True
+        if template.model_project_id is None:
+            return actor.is_system_admin or template.created_by_id == actor.id
+        try:
+            self.models.project_access(actor, template.model_project_id)
+            return True
+        except ModelNotFound:
+            return False
 
     def list(self, actor: User) -> list[HyperparameterTemplate]:
         with self._session_factory() as database:
@@ -57,6 +76,7 @@ class HyperparameterTemplateService:
                     .order_by(HyperparameterTemplate.created_at.desc(), HyperparameterTemplate.id)
                 )
             )
+            items = [item for item in items if self._visible(actor, item)]
             for item in items:
                 database.expunge(item)
             return items
@@ -65,6 +85,8 @@ class HyperparameterTemplateService:
         with self._session_factory() as database:
             item = database.get(HyperparameterTemplate, template_id)
             if item is None or item.deleted_at is not None:
+                raise TemplateNotFound("hyperparameter template not found")
+            if not self._visible(actor, item):
                 raise TemplateNotFound("hyperparameter template not found")
             database.expunge(item)
             return item
@@ -80,8 +102,15 @@ class HyperparameterTemplateService:
         batch_value: float | None,
         image_size: int,
         extra_parameters: dict[str, object],
+        model_project_id: str,
         derived_from_id: str | None = None,
     ) -> HyperparameterTemplate:
+        try:
+            access = self.models.project_access(actor, model_project_id)
+        except ModelNotFound as exc:
+            raise TemplateNotFound("model project not found") from exc
+        if not access.allows("project.update"):
+            raise TemplateForbidden("model project edit permission required")
         fields = self._validated_fields(
             name=name,
             description=description,
@@ -97,6 +126,7 @@ class HyperparameterTemplateService:
         template = HyperparameterTemplate(
             id=str(uuid4()),
             **fields,
+            model_project_id=model_project_id,
             derived_from_id=derived_from_id,
             created_by_id=actor.id,
             version=1,
@@ -106,6 +136,7 @@ class HyperparameterTemplateService:
         with self._session_factory() as database:
             try:
                 database.add(template)
+                touch_model_project(database, model_project_id, at=now)
                 database.commit()
             except IntegrityError as exc:
                 database.rollback()
@@ -186,6 +217,7 @@ class HyperparameterTemplateService:
                 raise TemplateForbidden("hyperparameter template is read-only")
             if template.version != version:
                 raise TemplateConflict("hyperparameter template version changed")
+            now = _now()
             try:
                 result = database.execute(
                     update(HyperparameterTemplate)
@@ -194,11 +226,13 @@ class HyperparameterTemplateService:
                         HyperparameterTemplate.version == version,
                         HyperparameterTemplate.deleted_at.is_(None),
                     )
-                    .values(**fields, version=version + 1, updated_at=_now())
+                    .values(**fields, version=version + 1, updated_at=now)
                 )
                 if result.rowcount != 1:
                     database.rollback()
                     raise TemplateConflict("hyperparameter template version changed")
+                if template.model_project_id is not None:
+                    touch_model_project(database, template.model_project_id, at=now)
                 database.commit()
             except IntegrityError as exc:
                 database.rollback()
@@ -215,7 +249,11 @@ class HyperparameterTemplateService:
                 raise TemplateNotFound("hyperparameter template not found")
             if not self.can_manage(actor, template):
                 raise TemplateForbidden("hyperparameter template is read-only")
-            template.deleted_at = _now()
+            now = _now()
+            template.deleted_at = now
+            template.updated_at = now
+            if template.model_project_id is not None:
+                touch_model_project(database, template.model_project_id, at=now)
             database.commit()
 
     @staticmethod

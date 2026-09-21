@@ -15,12 +15,13 @@ import {
   type InferenceModel,
   type ModelProject,
 } from '../api/models'
+import { accessLabel, can } from '../api/access'
 import { MODEL_EXTENSIONS } from '../api/filesystem'
 import { listModelArtifacts, modelArtifactDownloadUrl, type ModelArtifact } from '../api/modelArtifacts'
 import ServerFilePicker from '../components/ServerFilePicker.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ModelArtifactDialog from '../components/ModelArtifactDialog.vue'
-import { rememberResource } from '../navigation/recentResources'
+import ModelProjectMembersPanel from '../components/ModelProjectMembersPanel.vue'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
 import VChip from '../ui/VChip.vue'
@@ -57,6 +58,8 @@ const importing = ref(false)
 const conversionModel = ref<InferenceModel>()
 const conversionOpen = ref(false)
 const readyCount = computed(() => models.value.filter((model) => model.status === 'ready').length)
+const canUpdate = computed(() => can(project.value?.access, 'project.update'))
+const canExecute = computed(() => can(project.value?.access, 'task.execute'))
 let loadVersion = 0
 
 const COLUMNS = 'minmax(230px,1.25fr) 84px 90px minmax(220px,1fr) 106px 350px'
@@ -74,7 +77,7 @@ const summary = computed(() => {
   if (!value) return []
   return [
     { key: '项目类型', text: value.series_type === 'training' ? '训练' : '归档' },
-    { key: '权限', text: value.can_manage ? '可管理' : '只读' },
+    { key: '权限', text: accessLabel(value.access) },
     { key: '创建时间', text: formatDateTime(value.created_at) },
     { key: '更新时间', text: formatDateTime(value.updated_at) },
   ]
@@ -97,7 +100,6 @@ async function load() {
       model.status === 'ready' ? await listModelArtifacts(model.id) : [],
     ])))
     availableTags.value = nextTags
-    rememberResource('vdm.recent-model-projects', nextProject)
   } catch (reason) {
     if (version !== loadVersion) return
     error.value = reason instanceof Error ? reason.message : '模型项目加载失败'
@@ -128,7 +130,6 @@ async function saveProject() {
     project.value = await updateModelProject(
       projectId.value, name.value, description.value, project.value.version, tags.value,
     )
-    rememberResource('vdm.recent-model-projects', project.value)
     editOpen.value = false
     ElMessage.success('模型项目信息已更新。')
   } catch (reason) {
@@ -201,7 +202,9 @@ watch(projectId, loadRouteProject, { immediate: true })
     <PageHeader
       :title="project?.name || '加载中'"
       kind="model project"
-      :code="project ? project.id.slice(0, 6).toUpperCase() : undefined"
+      :code="project
+        ? project.system_key === 'official_yolo11' ? '000001' : project.id.slice(0, 6).toUpperCase()
+        : undefined"
       back-to="/model-projects"
       back-label="返回模型项目"
     >
@@ -227,14 +230,14 @@ watch(projectId, loadRouteProject, { immediate: true })
         />
         <div class="model-list-toolbar__actions">
           <VButton :loading="loading" @click="load"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton>
-          <VButton v-if="project.can_manage" @click="openEdit"><template #icon><el-icon><Edit /></el-icon></template>编辑项目</VButton>
-          <VButton v-if="project.can_manage && project.series_type === 'archive'" variant="primary" @click="importOpen = true"><template #icon><el-icon><Plus /></el-icon></template>导入模型</VButton>
+          <VButton v-if="canUpdate" @click="openEdit"><template #icon><el-icon><Edit /></el-icon></template>编辑项目</VButton>
+          <VButton v-if="canExecute && project.series_type === 'archive'" variant="primary" @click="importOpen = true"><template #icon><el-icon><Plus /></el-icon></template>导入模型</VButton>
         </div>
       </div>
       <el-alert
         v-if="project?.system_key"
-        title="临时模型项目为历史兼容资源，已设为只读。"
-        type="warning"
+        title="内置模型项目对普通用户只读；系统管理员可维护项目及其中模型，但不能删除项目或配置成员。"
+        type="info"
         :closable="false"
         show-icon
       />
@@ -257,6 +260,12 @@ watch(projectId, loadRouteProject, { immediate: true })
           </div>
         </dl>
       </VPanel>
+
+      <ModelProjectMembersPanel
+        v-if="project"
+        :project="project"
+        scope-description="成员授权覆盖整个模型项目及其中模型、转换产物、推理和评估资源。"
+      />
 
       <VPanel flush>
         <VTable
@@ -319,19 +328,20 @@ watch(projectId, loadRouteProject, { immediate: true })
                   </template>
                 </el-dropdown>
               </div>
-              <VButton size="sm" :disabled="model.status !== 'ready'" :title="model.status === 'ready' ? '在线推理' : '模型可用后才能推理'" @click="$router.push({ path: `/model-projects/${projectId}/models/${model.id}/inference`, query: { source: 'models' } })"><template #icon><el-icon><VideoCamera /></el-icon></template>推理</VButton>
-              <el-dropdown trigger="click" @command="handleModelMore">
+              <VButton v-if="canExecute" size="sm" :disabled="model.status !== 'ready'" :title="model.status === 'ready' ? '在线推理' : '模型可用后才能推理'" @click="$router.push({ path: `/model-projects/${projectId}/models/${model.id}/inference`, query: { source: 'models' } })"><template #icon><el-icon><VideoCamera /></el-icon></template>推理</VButton>
+              <el-dropdown v-if="canExecute || can(model.access, 'project.update')" trigger="click" @command="handleModelMore">
                 <VButton variant="quiet" size="sm">
                   <template #icon><el-icon><MoreFilled /></el-icon></template>更多
                 </VButton>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item :command="`evaluate:${model.id}`" :disabled="model.status !== 'ready'"><el-icon><DataAnalysis /></el-icon>在线评估</el-dropdown-item>
+                    <el-dropdown-item v-if="canExecute" :command="`evaluate:${model.id}`" :disabled="model.status !== 'ready'"><el-icon><DataAnalysis /></el-icon>在线评估</el-dropdown-item>
                     <el-dropdown-item
+                      v-if="canExecute"
                       :command="`convert:${model.id}`"
-                      :disabled="model.status !== 'ready' || !project?.can_manage"
+                      :disabled="model.status !== 'ready' || !canExecute"
                     ><el-icon><Operation /></el-icon>格式转换</el-dropdown-item>
-                    <el-dropdown-item v-if="model.can_manage" divided :command="`delete:${model.id}`"><el-icon><Delete /></el-icon>删除模型</el-dropdown-item>
+                    <el-dropdown-item v-if="can(model.access, 'project.update')" divided :command="`delete:${model.id}`"><el-icon><Delete /></el-icon>删除模型</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -347,7 +357,7 @@ watch(projectId, loadRouteProject, { immediate: true })
                 : '导入 .pt 权重文件后即可用于自动标注。'"
             >
               <VButton
-                v-if="project?.can_manage && project.series_type === 'archive'"
+                v-if="canExecute && project?.series_type === 'archive'"
                 variant="primary"
                 @click="importOpen = true"
               >导入模型</VButton>
@@ -459,7 +469,6 @@ watch(projectId, loadRouteProject, { immediate: true })
 .model-list-toolbar { display: flex; align-items: center; gap: 12px; }
 .model-list-toolbar :deep(.el-alert) { flex: 1; min-width: 0; }
 .model-list-toolbar__actions { display: flex; flex: 0 0 auto; gap: 8px; }
-
 .fact-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -526,3 +535,4 @@ time {
   width: 100%;
 }
 </style>
+  removeModelProjectMember,

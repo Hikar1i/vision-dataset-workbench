@@ -1,18 +1,28 @@
 import json
+from datetime import datetime
 
 import pytest
 from PIL import Image
 from sqlalchemy.orm import Session
 
 from vision_dataset_workbench.database import create_workspace_database, make_engine
+from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.inference import Detection
 from vision_dataset_workbench.model_inference_task import _draw_video_detection
-from vision_dataset_workbench.models import InferenceModel, ModelProject, Task, User
+from vision_dataset_workbench.models import (
+    InferenceModel,
+    ModelProject,
+    ModelProjectMembership,
+    Task,
+    User,
+)
 from vision_dataset_workbench.services.model_inference import (
     ModelInferenceConflict,
     ModelInferenceForbidden,
     ModelInferenceService,
 )
+from vision_dataset_workbench.services.models import ModelService
+from vision_dataset_workbench.services.projects import ProjectService
 
 
 class FakeRunner:
@@ -34,13 +44,27 @@ def setup(tmp_path):
         database.flush()
         database.add(ModelProject(id="project", name="Models", name_normalized="models", series_type="archive", created_by_id=owner.id))
         database.flush()
+        database.add(
+            ModelProjectMembership(
+                model_project_id="project", user_id="viewer", role="viewer"
+            )
+        )
         database.add(InferenceModel(id="model-id", model_project_id="project", model_code="detector", name="Detector", kind="yolo", status="ready", storage_path="models/model-id/best.pt", sha256="a" * 64, source_name="best.pt", created_by_id=owner.id))
         database.commit()
         owner = database.get(User, "owner")
         viewer = database.get(User, "viewer")
         database.expunge(owner)
         database.expunge(viewer)
-    return engine, workspace, ModelInferenceService(engine, workspace, FakeRunner()), owner, viewer
+    settings = RuntimeSettings(home=tmp_path, workspace=workspace)
+    projects = ProjectService(engine, settings, workspace)
+    models = ModelService(engine, settings, workspace, projects)
+    return (
+        engine,
+        workspace,
+        ModelInferenceService(engine, workspace, FakeRunner(), models),
+        owner,
+        viewer,
+    )
 
 
 def upload_image(tmp_path, name="upload.jpg"):
@@ -51,6 +75,12 @@ def upload_image(tmp_path, name="upload.jpg"):
 
 def test_image_session_is_persistent_replaceable_downloadable_and_saveable(tmp_path):
     engine, workspace, service, owner, viewer = setup(tmp_path)
+    old = datetime(2025, 1, 1)
+    with Session(engine) as database:
+        project = database.get(ModelProject, "project")
+        project.updated_at = old
+        version = project.version
+        database.commit()
     run = service.create(owner, "model-id", "image", "pt", upload_image(tmp_path), "car.jpg", {}, replace=False)
     assert run.status == "succeeded"
     assert json.loads(run.statistics)["detections"] == 1
@@ -67,8 +97,14 @@ def test_image_session_is_persistent_replaceable_downloadable_and_saveable(tmp_p
         service.create(owner, "model-id", "image", "pt", upload_image(tmp_path, "second.jpg"), "second.jpg", {}, replace=False)
     with pytest.raises(ModelInferenceForbidden):
         service.save(viewer, run.id)
+    with Session(engine) as database:
+        assert database.get(ModelProject, "project").updated_at == old
     saved = service.save(owner, run.id)
     assert saved.saved_at is not None and saved.expires_at is None
+    with Session(engine) as database:
+        project = database.get(ModelProject, "project")
+        assert project.updated_at > old
+        assert project.version == version
     replacement = service.create(owner, "model-id", "image", "pt", upload_image(tmp_path, "third.jpg"), "third.jpg", {"image_size": 672}, replace=False)
     assert json.loads(replacement.parameters)["image_size"] == 672
     assert (workspace / replacement.result_path).is_file()

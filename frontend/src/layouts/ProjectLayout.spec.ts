@@ -10,7 +10,10 @@ vi.mock('../api/projects', () => ({
   getProject: vi.fn().mockResolvedValue({
     id: 'project-1',
     name: 'Smoke Dataset',
-    role: 'owner',
+    access: {
+      role: 'owner', source: 'owner',
+      permissions: ['project.read', 'project.update', 'project.members.manage', 'project.delete', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+    },
   }),
 }))
 

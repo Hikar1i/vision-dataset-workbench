@@ -3,6 +3,10 @@ import { ArrowDown, Close, Delete, Plus, RefreshLeft, RefreshRight, View } from 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { can } from '../api/access'
+import { accessLabel } from '../api/access'
+import { listHyperparameterTemplates, type HyperparameterTemplate } from '../api/hyperparameters'
+import { getModelProject, listModelProjects, type ModelProject } from '../api/models'
 
 import {
   cancelTrainingModel,
@@ -22,10 +26,7 @@ import {
   type TrainingTask,
 } from '../api/training'
 import PageHeader from '../components/PageHeader.vue'
-import {
-  forgetResource,
-  rememberResource,
-} from '../navigation/recentResources'
+import ModelProjectMembersPanel from '../components/ModelProjectMembersPanel.vue'
 import VBar from '../ui/VBar.vue'
 import VButton from '../ui/VButton.vue'
 import VChip from '../ui/VChip.vue'
@@ -42,6 +43,9 @@ const recentModelScope = computed(
   () => `training-task:${String(route.params.id)}:models`,
 )
 const task = ref<TrainingTask>()
+const project = ref<ModelProject>()
+const availableProjects = ref<ModelProject[]>([])
+const availableTemplates = ref<HyperparameterTemplate[]>([])
 const error = ref('')
 const preparationLog = ref('')
 const preparationLogOpen = ref(false)
@@ -60,6 +64,31 @@ const MODE_LABEL: Record<string, string> = {
 const active = computed(
   () => task.value && ['preparing', 'queued', 'running', 'canceling'].includes(task.value.status),
 )
+const canExecute = computed(() => can(task.value?.access, 'task.execute'))
+
+const templateReferences = computed(() => {
+  if (!task.value) return []
+  const references: Array<{ key: string; usage: string; id: string }> = []
+  if (task.value.default_template_id) {
+    references.push({
+      key: 'default',
+      usage: '任务默认模板',
+      id: task.value.default_template_id,
+    })
+  }
+  for (const model of task.value.models || []) {
+    if (model.template_id) {
+      references.push({ key: model.id, usage: `模型：${model.name}`, id: model.template_id })
+    }
+  }
+  return references.map((reference) => {
+    const template = availableTemplates.value.find((item) => item.id === reference.id)
+    const sourceProject = availableProjects.value.find(
+      (item) => item.id === template?.model_project_id,
+    )
+    return { ...reference, template, sourceProject }
+  })
+})
 
 const groups = computed(() => {
   const map = new Map<number, NonNullable<TrainingTask['models']>>()
@@ -90,9 +119,19 @@ async function load() {
   try {
     const nextTask = await getTrainingTask(id)
     if (version !== loadVersion) return
+    if (project.value?.id !== nextTask.model_project_id) {
+      const [nextProject, nextProjects, nextTemplates] = await Promise.all([
+        getModelProject(nextTask.model_project_id),
+        listModelProjects(),
+        listHyperparameterTemplates(),
+      ])
+      if (version !== loadVersion) return
+      project.value = nextProject
+      availableProjects.value = nextProjects
+      availableTemplates.value = nextTemplates
+    }
     task.value = nextTask
     error.value = ''
-    rememberResource('vdm.recent-training-tasks', nextTask)
   } catch (e) {
     if (version !== loadVersion) return
     error.value = e instanceof Error ? e.message : '训练任务加载失败'
@@ -101,6 +140,9 @@ async function load() {
 
 function loadRouteTask() {
   task.value = undefined
+  project.value = undefined
+  availableProjects.value = []
+  availableTemplates.value = []
   error.value = ''
   void load()
 }
@@ -190,7 +232,6 @@ async function remove() {
       { type: 'warning' },
     )
     await deleteTrainingTask(String(route.params.id))
-    forgetResource('vdm.recent-training-tasks', String(route.params.id))
     await router.push('/training-tasks')
   } catch (e) {
     if (e instanceof Error) ElMessage.error(e.message)
@@ -281,15 +322,15 @@ onBeforeUnmount(() => clearInterval(timer))
       <template v-if="task" #meta>
         <span>{{ task.model_count }} 个模型 · {{ MODE_LABEL[task.mode] ?? task.mode }}</span>
       </template>
-      <template v-if="task" #actions>
+      <template v-if="task && canExecute" #actions>
         <VButton
-          :disabled="!task.can_manage || !task.actions.edit?.allowed"
+          :disabled="!task.actions.edit?.allowed"
           :title="task.actions.edit?.message || '编辑训练草稿'"
           @click="router.push(`/training-tasks/${task.id}/edit`)"
         >编辑草稿</VButton>
         <VButton
           variant="primary"
-          :disabled="!task.can_manage || !task.actions.start?.allowed"
+          :disabled="!task.actions.start?.allowed"
           :title="task.actions.start?.message || '开始训练'"
           @click="start"
         >开始训练</VButton>
@@ -303,24 +344,24 @@ onBeforeUnmount(() => clearInterval(timer))
             <el-dropdown-menu>
               <el-dropdown-item
                 command="derive"
-                :disabled="!task.can_manage || !task.actions.derive?.allowed"
+                :disabled="!task.actions.derive?.allowed"
               >派生任务</el-dropdown-item>
               <el-dropdown-item
                 command="retry"
-                :disabled="!task.can_manage || !task.actions.retry?.allowed"
+                :disabled="!task.actions.retry?.allowed"
               >重试未成功模型</el-dropdown-item>
               <el-dropdown-item
                 command="resume"
-                :disabled="!task.can_manage || !task.actions.resume?.allowed"
+                :disabled="!task.actions.resume?.allowed"
               >恢复中断模型</el-dropdown-item>
               <el-dropdown-item
                 command="cancel"
                 divided
-                :disabled="!task.can_manage || !task.actions.cancel?.allowed"
+                :disabled="!task.actions.cancel?.allowed"
               >取消任务</el-dropdown-item>
               <el-dropdown-item
                 command="delete"
-                :disabled="!task.can_manage || !task.actions.delete?.allowed"
+                :disabled="!task.actions.delete?.allowed"
               >删除任务</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -352,6 +393,37 @@ onBeforeUnmount(() => clearInterval(timer))
               </div>
             </dl>
           </div>
+        </VPanel>
+
+        <VPanel v-if="project" title="权限归属">
+          <dl class="permission-summary">
+            <div><dt>绑定模型项目</dt><dd><RouterLink :to="`/model-projects/${project.id}`">{{ project.name }}</RouterLink></dd></div>
+            <div><dt>项目编号</dt><dd><code>{{ project.id.slice(0, 6).toUpperCase() }}</code></dd></div>
+            <div><dt>当前权限</dt><dd>{{ accessLabel(project.access) }}</dd></div>
+          </dl>
+          <p class="permission-note">成员授权覆盖当前训练任务、训练模型、日志和产物。</p>
+        </VPanel>
+
+        <ModelProjectMembersPanel
+          v-if="project"
+          :project="project"
+          scope-description="成员授权作用于绑定的 training 模型项目，并覆盖当前训练任务、训练模型、日志和产物。"
+        />
+
+        <VPanel title="超参数模板引用">
+          <div v-if="templateReferences.length" class="template-references">
+            <article v-for="reference in templateReferences" :key="reference.key">
+              <span>{{ reference.usage }}</span>
+              <strong>{{ reference.template?.name || reference.id }}</strong>
+              <small v-if="reference.sourceProject">
+                来源项目：{{ reference.sourceProject.name }}
+                <template v-if="reference.sourceProject.id !== task.model_project_id">（独立权限范围）</template>
+              </small>
+              <small v-else-if="reference.template?.system_key">系统模板，全员可读</small>
+              <small v-else>模板详情当前不可读取，训练记录仍保留其 ID</small>
+            </article>
+          </div>
+          <p v-else class="cell-muted">当前任务未引用超参数模板。</p>
         </VPanel>
 
         <VPanel v-if="task.preparation" title="准备训练数据">
@@ -443,6 +515,7 @@ onBeforeUnmount(() => clearInterval(timer))
                   @click="router.push(`/training-tasks/${task.id}/models/${model.id}`)"
                 ><template #icon><el-icon><View /></el-icon></template>详情</VButton>
                 <VButton
+                  v-if="canExecute"
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.cancel?.allowed"
@@ -450,6 +523,7 @@ onBeforeUnmount(() => clearInterval(timer))
                   @click="modelAction(model, 'cancel')"
                 ><template #icon><el-icon><Close /></el-icon></template>取消</VButton>
                 <VButton
+                  v-if="canExecute"
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.retry?.allowed"
@@ -457,6 +531,7 @@ onBeforeUnmount(() => clearInterval(timer))
                   @click="modelAction(model, 'retry')"
                 ><template #icon><el-icon><RefreshRight /></el-icon></template>重试</VButton>
                 <VButton
+                  v-if="canExecute"
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.resume?.allowed"
@@ -464,6 +539,7 @@ onBeforeUnmount(() => clearInterval(timer))
                   @click="modelAction(model, 'resume')"
                 ><template #icon><el-icon><RefreshLeft /></el-icon></template>恢复</VButton>
                 <VButton
+                  v-if="canExecute"
                   variant="quiet"
                   size="sm"
                   :disabled="!model.actions.extend?.allowed"
@@ -473,6 +549,7 @@ onBeforeUnmount(() => clearInterval(timer))
                   )"
                 ><template #icon><el-icon><Plus /></el-icon></template>追加</VButton>
                 <VButton
+                  v-if="canExecute"
                   variant="danger"
                   size="sm"
                   :disabled="!model.actions.delete?.allowed"
@@ -530,6 +607,15 @@ onBeforeUnmount(() => clearInterval(timer))
   font-family: var(--vdw-mono);
   font-size: 14px;
 }
+
+.permission-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 0; }
+.permission-summary dt { color: var(--vdw-ink-3); font-size: 13px; }
+.permission-summary dd { margin: 5px 0 0; }
+.permission-note { margin: 14px 0 0; color: var(--vdw-ink-2); font-size: 14px; }
+.template-references { display: grid; gap: 8px; }
+.template-references article { display: grid; grid-template-columns: 150px minmax(180px, 1fr) minmax(220px, 1fr); align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--vdw-line); background: var(--vdw-surface-2); }
+.template-references span,
+.template-references small { color: var(--vdw-ink-2); font-size: 13px; }
 
 .preparation-stage { display: grid; gap: 12px; }
 .preparation-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

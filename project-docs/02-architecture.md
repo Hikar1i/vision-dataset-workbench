@@ -4,7 +4,7 @@
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、二十三版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、带标签的模型项目管理、可编辑超参数预设、本地/远程模型推理、数据集导出、GPU 实时遥测和独立 Worker 训练调度器。
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、二十八版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、带标签的模型项目管理、可编辑超参数预设、本地/远程模型推理、数据集导出、GPU 实时遥测和独立 Worker 训练调度器。
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -15,12 +15,12 @@
 ```text
 Vue setup/auth/admin/project/media pages
   ├─ /api/v1/setup/* → SetupService → HomePathResolver / WorkspaceLocator
-  ├─ /api/v1/auth + registrations + admin/users → AuthService
+  ├─ /api/v1/auth + admin/users → AuthService
   │    ├─ Argon2 password verification
   │    ├─ SHA-256 token digest + SQLite sessions
-  │    └─ User registration/status transitions
+  │    └─ administrator provisioning + forced first password change
   ├─ /api/v1/projects + members → ProjectService
-  │    ├─ private project visibility + role checks
+  │    ├─ private project visibility + fixed permission mapping
   │    └─ optimistic version updates
   ├─ /api/v1/projects/<id>/labels → LabelService
   │    ├─ project-scoped English classes + stable UUID
@@ -40,14 +40,16 @@ Vue setup/auth/admin/project/media pages
   ├─ /api/v1/.../frames/<id>/annotations → AnnotationService
   │    └─ original-pixel rectangles + stable display order + annotation revision
   ├─ /api/v1/model-projects|models → ModelService
-  │    ├─ 全局可见、创建者/管理员写入的归档项目与多标签分类
+  │    ├─ 私有项目、owner/editor/viewer 成员与管理员隐式全权访问
+  │    ├─ 内置 YOLO11 项目对普通账号隐式只读、管理员可维护但不可删除项目
   │    ├─ 后台 `.pt` 导入、归档项目间移动与乐观并发
   │    └─ `.deleted/model-projects|models` 逻辑删除
   ├─ /api/v1/hyperparameter-* → HyperparameterTemplateService
-  │    ├─ 工作区全局预设、乐观版本编辑、派生和逻辑删除
+  │    ├─ 系统只读预设与模型项目作用域预设、乐观版本编辑、派生和逻辑删除
   │    └─ Detect v1 参数目录与严格 RAW YAML 校验
   ├─ /api/v1/training-* → TrainingService
-  │    ├─ 全局草稿、任务/模型稀疏超参覆盖、冻结快照、生命周期操作与逻辑删除
+  │    ├─ 草稿同步创建训练模型项目，任务访问继承项目权限
+  │    ├─ 任务/模型稀疏超参覆盖、冻结快照、生命周期操作与逻辑删除
   │    ├─ 单模型/单卡串行/多卡自定义序列
   │    └─ 独立指标/曲线、终端快照日志和训练模型项目发布
   ├─ /api/v1/me/x-anylabeling-server → XAnyLabelingSettingsService
@@ -117,7 +119,7 @@ Vue 3 + TypeScript Client
               │ HTTP + 任务事件
               ▼
 FastAPI Application
-  ├─ 初始化、身份、注册审批与项目权限
+  ├─ 初始化、身份、管理员账号创建与项目权限
   ├─ 请求校验与响应映射
   └─ 应用服务编排
        ├─ Project / Video / Frame / Annotation / InferenceModel / Export
@@ -142,13 +144,14 @@ SQLite             Persistent Worker
 - 路由页面只组织用户流程，不直接实现业务算法。
 - 项目、媒体、帧、标注、模型、任务和导出使用独立的功能模块。
 - 服务端状态是任务与资源的事实来源；页面本地状态只保存交互状态和可丢弃缓存。
-- 侧栏最近资源在 `AppShell` 挂载时形成会话快照，访问只持久化时间而不实时重排；复用的详情路由监听资源 ID，并拒绝过期响应覆盖当前 URL。
+- `AppShell` 侧栏只使用服务端当前账号可见资源：数据集和模型项目按 `updated_at`、训练任务按 `last_run_at`（未训练时回退 `updated_at`）倒序取 5 项；挂载、路由切换和后台任务完成时刷新，过期响应不得覆盖新快照，不保存浏览器访问历史。详情路由同样拒绝过期响应覆盖当前 URL。
 - 批量操作提交服务端任务，不在浏览器中制造 O(视频数 × 帧数) 的请求瀑布。
 - UI 追求高信息密度、清晰层级和键鼠高效操作，具体设计系统在前端实现前确认。
 
 ### API 应用职责
 
 - 校验输入、认证上下文和资源权限。
+- 将系统管理员、owner、editor、viewer 映射为固定原子权限；访问来源先判断永久 owner，再以系统管理员隐式权限兜底，跨项目操作同时校验每个输入资源的消费权限。
 - 把 HTTP 契约映射到应用服务，不直接包含 SQL、FFmpeg 或文件复制细节。
 - 所有状态转移调用同一领域规则，查询不得隐式迁移 schema 或修复业务状态。
 - 对跨数据库与文件系统的操作创建 SQLite 持久任务，并暴露明确的部分失败状态。
@@ -182,6 +185,7 @@ SQLite             Persistent Worker
 ## 一致性原则
 
 - 数据库是资源元数据和任务状态的事实来源；文件存在本身不自动代表业务完成。
+- 数据集项目和模型项目的 `updated_at` 表示资源树最近一次持久化变化。子资源写入、权限变化、任务提交和任务终态在原业务事务内显式触碰父项目；读取、下载、临时推理访问续期及任务进度/心跳不传播，也不增加父项目乐观锁 `version`。
 - 文件输出先写临时位置，验证后原子发布；任务重试不得重复破坏已完成结果。
 - 跨资源事务无法原子完成时，记录执行阶段并提供补偿或安全重试。
 - 事件从持久任务状态派生；进程重启和多 Worker 不得丢失最终状态。
@@ -191,7 +195,7 @@ SQLite             Persistent Worker
 - 默认多用户；可通过配置切换为仅初始化管理员可登录的单用户账号密码模式。
 - 浏览器会话只把随机原始值放入 HttpOnly Cookie，SQLite 只保存 SHA-256 摘要；12 小时空闲过期、7 天绝对过期，访问触达最多每 5 分钟写库一次。
 - 所有浏览器写请求要求 `Origin` 与当前请求 origin 完全一致；当前不提供跨域认证、IP 规则或可信代理模式。
-- 所有模式共用用户、权限和数据，单用户模式临时以工作区管理员访问全部项目。
+- 所有模式共用用户、权限和数据；唯一系统管理员始终对全部项目拥有隐式全权限，不写入成员表。
 - 所有受管理数据位于 `<parent>/.vision-dataset-workbench/`。
 - 所有认证用户可浏览启动用户 `~`，导入后复制到工作区；API 不暴露绝对路径。
 - Worker 与 API 读取同一 SQLite 和工作区。复制、下载、抽帧和批量自动标注各自全局并发 2，模型入库和数据集导出各自全局并发 1；同类型每用户并发 1。每个 FFmpeg 抽帧进程限制 2 个线程，当前只部署一个调度 Worker。

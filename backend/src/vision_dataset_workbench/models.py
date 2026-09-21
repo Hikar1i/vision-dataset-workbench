@@ -24,7 +24,9 @@ class Base(DeclarativeBase):
 
 VIDEO_SHORT_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 VIDEO_SHORT_CODE_LENGTH = 8
-TEMPORARY_MODEL_PROJECT_ID = "00000000-0000-0000-0000-000000000001"
+OFFICIAL_YOLO11_MODEL_PROJECT_ID = "00000100-0000-4000-8000-000000000001"
+OFFICIAL_YOLO11_SYSTEM_KEY = "official_yolo11"
+OFFICIAL_YOLO11_MODEL_PROJECT_NAME = "YOLO11目标检测官方模型"
 
 
 def generate_video_short_code() -> str:
@@ -39,6 +41,15 @@ def generate_model_code() -> str:
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'disabled')", name="ck_users_status"),
+        Index(
+            "uq_users_single_system_admin",
+            "is_system_admin",
+            unique=True,
+            sqlite_where=text("is_system_admin = 1"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     username: Mapped[str] = mapped_column(String(64))
@@ -46,14 +57,13 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(16), default="active")
     is_system_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
-    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    reviewed_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
 class AuthSession(Base):
@@ -329,6 +339,24 @@ class ModelProject(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ModelProjectMembership(Base):
+    __tablename__ = "model_project_memberships"
+    __table_args__ = (
+        CheckConstraint("role IN ('editor', 'viewer')", name="ck_model_memberships_role"),
+    )
+
+    model_project_id: Mapped[str] = mapped_column(
+        ForeignKey("model_projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    role: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class ModelProjectTag(Base):
     __tablename__ = "model_project_tags"
 
@@ -377,7 +405,6 @@ class InferenceModel(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     model_project_id: Mapped[str] = mapped_column(
         ForeignKey("model_projects.id", ondelete="RESTRICT"),
-        default=TEMPORARY_MODEL_PROJECT_ID,
         index=True,
     )
     name: Mapped[str] = mapped_column(String(128))
@@ -711,6 +738,9 @@ class HyperparameterTemplate(Base):
     )
     created_by_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    model_project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("model_projects.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(

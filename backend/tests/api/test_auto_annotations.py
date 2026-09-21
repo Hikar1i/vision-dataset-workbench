@@ -16,6 +16,7 @@ from vision_dataset_workbench.main import create_app
 from vision_dataset_workbench.models import (
     Frame,
     InferenceModel,
+    ModelProject,
     ProjectLabel,
     SamplingPlan,
     Task,
@@ -96,9 +97,18 @@ def make_app(tmp_path):
         from vision_dataset_workbench.models import Project, ProjectMembership
         session.add(Project(id="project-id", name="project", creator_id="owner-id"))
         session.add(ProjectMembership(project_id="project-id", user_id="viewer-id", role="viewer"))
+        session.add(
+            ModelProject(
+                id="model-project-id",
+                name="models",
+                name_normalized="models",
+                series_type="archive",
+                created_by_id="owner-id",
+            )
+        )
         session.flush()
         session.add(Video(id="video-id", project_id="project-id", short_code="TESTV001", source_type="local", title="video", status="ready", width=1920, height=1080))
-        session.add(InferenceModel(id="model-id", name="YOLO", kind="yolo", status="ready", storage_path="models/model-id/model.pt", source_name="model.pt", created_by_id="owner-id"))
+        session.add(InferenceModel(id="model-id", model_project_id="model-project-id", name="YOLO", kind="yolo", status="ready", storage_path="models/model-id/model.pt", source_name="model.pt", created_by_id="owner-id"))
         session.flush()
         session.add(SamplingPlan(id="plan-id", video_id="video-id", mode="target_frames", parameters="{}", output_format="jpg", output_quality=2, expected_frames=1, extracted_frames=1, enabled_frames=1))
         session.add(Frame(id="frame-id", video_id="video-id", generation=1, sequence=1, source_frame_index=0, time_offset=0, file_path=frame_path.relative_to(workspace).as_posix()))

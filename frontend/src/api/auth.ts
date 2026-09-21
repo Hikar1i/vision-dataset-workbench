@@ -1,6 +1,5 @@
 export type AuthStatus = {
   mode: 'multi' | 'single'
-  registration_enabled: boolean
 }
 
 export type CurrentUser = {
@@ -8,13 +7,15 @@ export type CurrentUser = {
   username: string
   status: 'active'
   is_system_admin: boolean
+  must_change_password: boolean
 }
 
 export type ManagedUser = Omit<CurrentUser, 'status'> & {
-  status: 'pending' | 'active' | 'rejected' | 'disabled'
+  status: 'active' | 'disabled'
   created_at: string
-  reviewed_at: string | null
 }
+
+export type ProvisionedUser = ManagedUser & { initial_password: string }
 
 export type UserPage = {
   items: ManagedUser[]
@@ -23,7 +24,7 @@ export type UserPage = {
   total: number
 }
 
-export type UserAction = 'approve' | 'reject' | 'disable' | 'enable'
+export type UserAction = 'disable' | 'enable'
 
 export class ApiError extends Error {
   readonly status: number
@@ -53,13 +54,13 @@ export const login = (username: string, password: string) =>
     body: JSON.stringify({ username, password }),
   })
 export const logout = () => json<void>('/api/v1/auth/logout', { method: 'POST' })
-export const register = (username: string, password: string) =>
-  json<{ id: string; username: string; status: 'pending' }>('/api/v1/registrations', {
+export const createUser = (username: string) =>
+  json<ProvisionedUser>('/api/v1/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username }),
   })
-export const changePassword = (current_password: string, new_password: string) =>
+export const changePassword = (current_password: string | null, new_password: string) =>
   json<CurrentUser>('/api/v1/auth/password', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -71,3 +72,5 @@ export const listUsers = (status = '', page = 1) =>
   )
 export const setUserStatus = (id: string, action: UserAction) =>
   json<ManagedUser>(`/api/v1/admin/users/${id}/${action}`, { method: 'POST' })
+export const resetUserPassword = (id: string) =>
+  json<ProvisionedUser>(`/api/v1/admin/users/${id}/reset-password`, { method: 'POST' })

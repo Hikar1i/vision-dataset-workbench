@@ -12,6 +12,8 @@ from sqlalchemy.orm import sessionmaker
 
 from ..inference import InferenceRunner
 from ..models import InferenceModel, ModelArtifact, ModelInferenceRun, ModelProject, Task, User
+from .authorization import Permission
+from .models import ModelNotFound, ModelService, touch_model_project
 
 IMAGE_LIMIT = 20 * 1024 * 1024
 VIDEO_LIMIT = 500 * 1024 * 1024
@@ -39,12 +41,27 @@ def _now() -> datetime:
 
 
 class ModelInferenceService:
-    def __init__(self, engine: Engine, workspace: Path, runner: InferenceRunner):
+    def __init__(
+        self, engine: Engine, workspace: Path, runner: InferenceRunner, models: ModelService
+    ):
         self.workspace = workspace.resolve()
         self.runner = runner
+        self.models = models
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
+    def _require_model(
+        self, actor: User, model_id: str, permission: Permission
+    ) -> None:
+        try:
+            model = self.models.get_model(actor, model_id)
+            access = self.models.project_access(actor, model.model_project_id)
+        except ModelNotFound as exc:
+            raise ModelInferenceNotFound("可用模型不存在") from exc
+        if not access.allows(permission):
+            raise ModelInferenceForbidden(f"{permission} permission required")
+
     def current(self, actor: User, model_id: str) -> ModelInferenceRun | None:
+        self._require_model(actor, model_id, "artifact.read")
         with self._session_factory() as database:
             self._model(database, model_id)
             run = database.scalar(
@@ -60,6 +77,7 @@ class ModelInferenceService:
             return run
 
     def saved(self, actor: User, model_id: str) -> list[ModelInferenceRun]:
+        self._require_model(actor, model_id, "artifact.read")
         with self._session_factory() as database:
             self._model(database, model_id)
             rows = list(
@@ -89,6 +107,8 @@ class ModelInferenceService:
         *,
         replace: bool,
     ) -> ModelInferenceRun:
+        self._require_model(actor, model_id, "artifact.consume")
+        self._require_model(actor, model_id, "task.execute")
         if input_type not in {"image", "video"} or artifact_format not in {
             "pt",
             "onnx",
@@ -185,6 +205,8 @@ class ModelInferenceService:
             run = self._run(database, run_id)
             if run.saved_at is None and run.created_by_id != actor.id and not actor.is_system_admin:
                 raise ModelInferenceForbidden("无权访问该推理会话")
+            if run.saved_at is not None:
+                self._require_model(actor, run.model_id, "artifact.read")
             database.expunge(run)
             return run
 
@@ -203,15 +225,13 @@ class ModelInferenceService:
         with self._session_factory() as database:
             run = self._owned(database, actor, run_id)
             model = self._model(database, run.model_id)
-            project = database.get(ModelProject, model.model_project_id)
-            if project is None or not (
-                actor.is_system_admin or project.created_by_id == actor.id
-            ):
-                raise ModelInferenceForbidden("仅模型项目管理员可保存推理结果")
+            self._require_model(actor, model.id, "task.execute")
             if run.status != "succeeded":
                 raise ModelInferenceConflict("仅成功的推理结果可以保存")
-            run.saved_at = _now()
+            now = _now()
+            run.saved_at = now
             run.expires_at = None
+            touch_model_project(database, model.model_project_id, at=now)
             database.commit()
             database.expunge(run)
             return run
@@ -219,7 +239,14 @@ class ModelInferenceService:
     def delete(self, actor: User, run_id: str) -> None:
         with self._session_factory() as database:
             run = self._owned(database, actor, run_id)
-            self._discard(database, run, _now())
+            was_saved = run.saved_at is not None
+            model = self._model(database, run.model_id) if was_saved else None
+            if was_saved:
+                self._require_model(actor, run.model_id, "project.update")
+            now = _now()
+            self._discard(database, run, now)
+            if model is not None:
+                touch_model_project(database, model.model_project_id, at=now)
             database.commit()
             if run.status not in {"queued", "running"}:
                 shutil.rmtree(self._directory(run), ignore_errors=True)

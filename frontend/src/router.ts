@@ -14,7 +14,6 @@ import ProjectSettingsView from "./views/ProjectSettingsView.vue";
 import ProjectLabelsView from "./views/ProjectLabelsView.vue";
 import ProjectDatasetsView from "./views/ProjectDatasetsView.vue";
 import ProjectVideosView from "./views/ProjectVideosView.vue";
-import RegisterView from "./views/RegisterView.vue";
 import SetupView from "./views/SetupView.vue";
 
 export function createAppRouter() {
@@ -24,7 +23,11 @@ export function createAppRouter() {
       { path: "/", redirect: "/overview" },
       { path: "/setup", component: SetupView },
       { path: "/login", component: LoginView },
-      { path: "/register", component: RegisterView },
+      {
+        path: "/password/change-required",
+        component: AccountView,
+        props: { required: true },
+      },
       { path: "/ready", redirect: "/overview" },
       {
         path: "/",
@@ -203,7 +206,7 @@ export function createAppRouter() {
     if (!initialized && to.path !== "/setup") return "/setup";
     if (!initialized) return;
 
-    const authStatus = await getAuthStatus();
+    await getAuthStatus();
     let user = null;
     try {
       user = await getCurrentUser();
@@ -213,11 +216,13 @@ export function createAppRouter() {
 
     if (!user) {
       if (to.path === "/login") return;
-      if (to.path === "/register" && authStatus.registration_enabled) return;
       return "/login";
     }
-    if (to.path === "/setup" || to.path === "/login" || to.path === "/register")
-      return "/projects";
+    if (user.must_change_password && to.path !== "/password/change-required")
+      return "/password/change-required";
+    if (!user.must_change_password && to.path === "/password/change-required")
+      return "/overview";
+    if (to.path === "/setup" || to.path === "/login") return "/overview";
     if (to.path.startsWith("/admin/") && !user.is_system_admin)
       return "/projects";
   });

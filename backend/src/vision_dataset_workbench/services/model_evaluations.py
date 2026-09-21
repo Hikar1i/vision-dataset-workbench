@@ -17,6 +17,8 @@ from ..models import (
     Task,
     User,
 )
+from .authorization import Permission
+from .models import ModelNotFound, ModelService, touch_model_project
 
 ZIP_LIMIT = 1024 * 1024 * 1024
 
@@ -42,16 +44,33 @@ def _now():
 
 
 class ModelEvaluationService:
-    def __init__(self, engine: Engine, workspace: Path, artifact_service=None):
+    def __init__(
+        self,
+        engine: Engine,
+        workspace: Path,
+        artifact_service=None,
+        models: ModelService | None = None,
+    ):
         self.workspace = workspace.resolve()
         self.artifact_service = artifact_service
+        self.models = models
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
+    def _require(self, actor: User, project_id: str, permission: Permission) -> None:
+        if self.models is None:
+            raise ModelEvaluationForbidden("model authorization is unavailable")
+        try:
+            access = self.models.project_access(actor, project_id)
+        except ModelNotFound as exc:
+            raise ModelEvaluationNotFound("模型项目不存在") from exc
+        if not access.allows(permission):
+            raise ModelEvaluationForbidden(f"{permission} permission required")
+
     def require_manage(self, actor: User, project_id: str) -> None:
-        with self._session_factory() as database:
-            self._manage(actor, self._project(database, project_id))
+        self._require(actor, project_id, "task.execute")
 
     def list_datasets(self, actor: User, project_id: str):
+        self._require(actor, project_id, "artifact.read")
         with self._session_factory() as database:
             self._project(database, project_id)
             rows = list(
@@ -69,6 +88,7 @@ class ModelEvaluationService:
             return rows
 
     def create_dataset(self, actor: User, project_id: str, name: str, upload: Path):
+        self._require(actor, project_id, "task.execute")
         if not name.strip() or len(name.strip()) > 128:
             raise ModelEvaluationError("测试集名称长度必须为 1 到 128")
         if not upload.is_file() or upload.stat().st_size == 0 or upload.stat().st_size > ZIP_LIMIT:
@@ -76,7 +96,6 @@ class ModelEvaluationService:
         now = _now()
         with self._session_factory() as database:
             project = self._project(database, project_id)
-            self._manage(actor, project)
             dataset = EvaluationDataset(
                 id=str(uuid4()),
                 model_project_id=project.id,
@@ -103,6 +122,7 @@ class ModelEvaluationService:
             shutil.move(str(upload), staging)
             dataset.storage_path = staging.relative_to(self.workspace).as_posix()
             database.add(dataset)
+            touch_model_project(database, project.id, at=now)
             database.commit()
             database.expunge(dataset)
             database.expunge(task)
@@ -113,7 +133,7 @@ class ModelEvaluationService:
         with self._session_factory() as database:
             dataset = self._dataset(database, dataset_id)
             project = self._project(database, dataset.model_project_id)
-            self._manage(actor, project)
+            self._require(actor, project.id, "project.update")
             active = database.scalar(
                 select(ModelEvaluation).where(
                     ModelEvaluation.evaluation_dataset_id == dataset.id,
@@ -123,6 +143,7 @@ class ModelEvaluationService:
             if active:
                 raise ModelEvaluationConflict("测试集正在被评估任务使用")
             dataset.deleted_at = now
+            touch_model_project(database, project.id, at=now)
             database.commit()
             if dataset.storage_path:
                 path = (self.workspace / dataset.storage_path).resolve()
@@ -145,6 +166,7 @@ class ModelEvaluationService:
                     shutil.move(str(path), trash)
 
     def list_evaluations(self, actor: User, project_id: str):
+        self._require(actor, project_id, "artifact.read")
         with self._session_factory() as database:
             self._project(database, project_id)
             rows = list(
@@ -161,12 +183,13 @@ class ModelEvaluationService:
     def create_evaluation(
         self, actor: User, project_id: str, model_id: str, dataset_id: str, artifact_format: str
     ):
+        self._require(actor, project_id, "artifact.consume")
+        self._require(actor, project_id, "task.execute")
         if artifact_format not in {"pt", "onnx", "engine"}:
             raise ModelEvaluationError("不支持的模型格式")
         now = _now()
         with self._session_factory() as database:
             project = self._project(database, project_id)
-            self._manage(actor, project)
             model = database.get(InferenceModel, model_id)
             dataset = self._dataset(database, dataset_id)
             if (
@@ -221,6 +244,7 @@ class ModelEvaluationService:
             database.flush()
             evaluation.task_id = task.id
             database.add(evaluation)
+            touch_model_project(database, project.id, at=now)
             database.commit()
             database.expunge(evaluation)
             database.expunge(task)
@@ -232,6 +256,7 @@ class ModelEvaluationService:
             if row is None:
                 raise ModelEvaluationNotFound("评估记录不存在")
             self._project(database, row.model_project_id)
+            self._require(actor, row.model_project_id, "artifact.read")
             database.expunge(row)
             return row
 
@@ -274,12 +299,14 @@ class ModelEvaluationService:
             row = database.get(ModelEvaluation, evaluation_id)
             if row is None:
                 raise ModelEvaluationNotFound("评估记录不存在")
-            self._manage(actor, self._project(database, row.model_project_id))
+            self._project(database, row.model_project_id)
+            self._require(actor, row.model_project_id, "task.execute")
             if row.status not in {"queued", "running"}:
                 raise ModelEvaluationConflict("评估任务已结束")
             task = database.get(Task, row.task_id) if row.task_id else None
             if task:
                 task.cancel_requested = True
+            touch_model_project(database, row.model_project_id, at=_now())
             database.commit()
 
     def result_file(self, actor: User, evaluation_id: str, kind: str):
@@ -294,11 +321,6 @@ class ModelEvaluationService:
         if not path.is_file() or not path.is_relative_to(root):
             raise ModelEvaluationNotFound("评估图表不存在")
         return path
-
-    @staticmethod
-    def _manage(actor, project):
-        if not (actor.is_system_admin or project.created_by_id == actor.id):
-            raise ModelEvaluationForbidden("无权管理模型项目")
 
     @staticmethod
     def _project(database, project_id):

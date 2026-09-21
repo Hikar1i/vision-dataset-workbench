@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 
 import PageHeader from './PageHeader.vue'
 
+const TestIcon = { template: '<svg data-test="test-icon" />' }
+
 const router = () => {
   const instance = createRouter({
     history: createMemoryHistory(),
@@ -16,6 +18,31 @@ const router = () => {
 }
 
 describe('PageHeader', () => {
+  it('renders a non-interactive leading icon when no back destination exists', () => {
+    const wrapper = mount(PageHeader, {
+      props: { title: '数据集项目', icon: TestIcon },
+      global: { stubs: { 'el-icon': { template: '<i><slot /></i>' } } },
+    })
+
+    const icon = wrapper.get('[data-test="page-icon"]')
+    expect(icon.attributes('aria-hidden')).toBe('true')
+    expect(icon.find('a').exists()).toBe(false)
+    expect(icon.find('button').exists()).toBe(false)
+  })
+
+  it('prefers back navigation when backTo and icon are both provided', async () => {
+    const instance = router()
+    await instance.push('/')
+    await instance.isReady()
+    const wrapper = mount(PageHeader, {
+      props: { title: '详情', backTo: '/model-projects/p1', icon: TestIcon },
+      global: { plugins: [instance], stubs: { 'el-icon': true } },
+    })
+
+    expect(wrapper.find('.page-header__back').exists()).toBe(true)
+    expect(wrapper.find('[data-test="page-icon"]').exists()).toBe(false)
+  })
+
   it('renders back navigation, eyebrow, title, metadata, actions, and tabs', async () => {
     const instance = router()
     await instance.push('/')

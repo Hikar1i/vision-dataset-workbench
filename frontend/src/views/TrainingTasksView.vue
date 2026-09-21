@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import {
-  Delete, EditPen, Plus, Refresh, RefreshLeft, RefreshRight, VideoPlay, View,
+  Cpu, Delete, EditPen, Plus, Refresh, RefreshLeft, RefreshRight, VideoPlay, View,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { can } from '../api/access'
 
 import {
   deleteTrainingTask,
@@ -70,7 +71,7 @@ const visible = computed(() => {
  * 且禁用项比可用项更显眼。
  */
 function primaryAction(task: TrainingTask): 'start' | 'retry' | 'resume' | null {
-  if (!task.can_manage) return null
+  if (!can(task.access, 'task.execute')) return null
   if (task.actions.resume?.allowed) return 'resume'
   if (task.actions.retry?.allowed) return 'retry'
   if (task.actions.start?.allowed) return 'start'
@@ -127,7 +128,7 @@ onMounted(load)
 
 <template>
   <main class="content-page">
-    <PageHeader title="训练任务" kind="training tasks">
+    <PageHeader title="训练任务" kind="training tasks" :icon="Cpu">
       <template #meta>
         <span data-test="page-stat">{{ tasks.length }} 个任务 · 最近训练优先</span>
       </template>
@@ -216,7 +217,8 @@ onMounted(load)
               <VButton
                 variant="quiet"
                 size="sm"
-                :disabled="!task.actions.edit?.allowed || !task.can_manage"
+                v-if="can(task.access, 'task.execute')"
+                :disabled="!task.actions.edit?.allowed"
                 :title="task.actions.edit?.message || '编辑训练草稿'"
                 @click="router.push(`/training-tasks/${task.id}/edit`)"
               ><template #icon><el-icon><EditPen /></el-icon></template>编辑</VButton>
@@ -227,17 +229,19 @@ onMounted(load)
                   { key: 'resume', label: '恢复', fallback: '恢复中断', icon: RefreshLeft },
                 ] as const)"
                 :key="action.key"
+                v-if="can(task.access, 'task.execute')"
                 :variant="primaryAction(task) === action.key ? 'default' : 'quiet'"
                 size="sm"
                 :loading="busy[task.id] && primaryAction(task) === action.key"
-                :disabled="!task.can_manage || !task.actions[action.key]?.allowed"
+                :disabled="!task.actions[action.key]?.allowed"
                 :title="task.actions[action.key]?.message || action.fallback"
                 @click="runAction(task, action.key)"
               ><template #icon><el-icon><component :is="action.icon" /></el-icon></template>{{ action.label }}</VButton>
               <VButton
+                v-if="can(task.access, 'task.execute')"
                 variant="danger"
                 size="sm"
-                :disabled="!task.can_manage || !task.actions.delete?.allowed"
+                :disabled="!task.actions.delete?.allowed"
                 :title="task.actions.delete?.message || '删除任务'"
                 @click="remove(task)"
               ><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>

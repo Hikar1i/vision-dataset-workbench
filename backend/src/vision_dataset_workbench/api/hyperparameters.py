@@ -34,6 +34,7 @@ class CreateTemplateRequest(BaseModel):
     batch_value: float | None = None
     image_size: int
     extra_parameters: dict[str, object] = Field(default_factory=dict)
+    model_project_id: str
     derived_from_id: str | None = None
 
 
@@ -83,6 +84,7 @@ class TemplateResponse(BaseModel):
     system_key: str | None
     derived_from_id: str | None
     created_by_id: str | None
+    model_project_id: str | None
     can_manage: bool
     can_edit: bool
     version: int
@@ -123,6 +125,7 @@ def _response(
         system_key=item.system_key,
         derived_from_id=item.derived_from_id,
         created_by_id=item.created_by_id,
+        model_project_id=item.model_project_id,
         can_manage=svc.can_manage(actor, item),
         can_edit=svc.can_manage(actor, item),
         version=item.version,
@@ -199,6 +202,7 @@ def create_template(
     except (
         InvalidTemplate,
         TemplateNotFound,
+        TemplateForbidden,
         TemplateConflict,
         HyperparameterValidationError,
     ) as exc:

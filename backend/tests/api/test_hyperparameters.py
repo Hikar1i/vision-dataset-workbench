@@ -52,6 +52,11 @@ def make_client(tmp_path):
 
 def test_templates_are_editable_derivable_versioned_and_logically_deleted(tmp_path):
     client = make_client(tmp_path)
+    project_id = client.post(
+        "/api/v1/model-projects",
+        headers=ORIGIN,
+        json={"name": "Template project", "description": ""},
+    ).json()["id"]
     templates = client.get("/api/v1/hyperparameter-templates").json()
     system = templates[0]
     assert system["system_key"] == "ultralytics-detect-default"
@@ -94,6 +99,7 @@ def test_templates_are_editable_derivable_versioned_and_logically_deleted(tmp_pa
             "batch_value": 16,
             "image_size": 640,
             "extra_parameters": {"lr0": 0.01},
+            "model_project_id": project_id,
             "derived_from_id": system["id"],
         },
     )

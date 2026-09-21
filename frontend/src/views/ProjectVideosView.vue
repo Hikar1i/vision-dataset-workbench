@@ -7,6 +7,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 
 import { ApiError } from '../api/auth'
+import { can } from '../api/access'
 import {
   createExtractions,
   deleteVideos,
@@ -69,7 +70,7 @@ let enabledByAnnotationTimer: number | undefined
 const changingEnabled = ref('')
 const error = ref('')
 
-const canEdit = computed(() => props.project.role === 'owner' || props.project.role === 'editor')
+const canEdit = computed(() => can(props.project.access, 'task.execute'))
 const importLimitReached = computed(() => total.value >= 999)
 const enabledTotal = computed(() => videos.value.filter((video) => video.enabled).length)
 const enabledFilterLabel = computed(() => ({
@@ -1086,8 +1087,8 @@ const headerHost = useProjectHeaderHost()
      末列 344px 是 5 个"图标+文字"操作的实测所需宽度；给少了会撑破网格
      并在台账里产生横向滚动。 */
   grid-template-columns:
-    16px 46px minmax(180px, 1fr) 80px 110px 76px
-    minmax(260px, 1.35fr) 340px;
+    16px 46px minmax(180px, 1fr) 80px 105px 70px
+    minmax(260px, 1.2fr) 370px;
   gap: 8px;
   align-items: center;
   /* 固定列合计 + 两个弹性列的下限；小于此宽度时才允许台账横向滚动 */
@@ -1378,10 +1379,7 @@ const headerHost = useProjectHeaderHost()
   display: flex;
 }
 
-.row-actions :deep(.vdw-btn--sm) {
-  gap: 4px;
-  padding-inline: 4px;
-}
+
 
 .row-delete {
   width: 30px;

@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Bottom, Top } from '@element-plus/icons-vue'
 
 import { ApiError } from '../api/auth'
+import { can } from '../api/access'
 import {
   createLabel,
   deleteLabel,
@@ -32,7 +33,7 @@ const newColor = ref('')
 const loading = ref(false)
 const saving = ref('')
 const error = ref('')
-const canEdit = computed(() => props.project.role !== 'viewer')
+const canEdit = computed(() => can(props.project.access, 'project.update'))
 
 function setLabels(value: ProjectLabel[]) {
   labels.value = value

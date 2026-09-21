@@ -15,6 +15,7 @@
  * 几像素，标题和正文起点随页面漂移。定高换来的是跨页面完全一致的几何。
  */
 import { ArrowLeft } from '@element-plus/icons-vue'
+import type { Component } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 
 withDefaults(defineProps<{
@@ -25,6 +26,7 @@ withDefaults(defineProps<{
   code?: string
   backTo?: RouteLocationRaw
   backLabel?: string
+  icon?: Component
 }>(), { backLabel: '返回上一页' })
 </script>
 
@@ -40,6 +42,14 @@ withDefaults(defineProps<{
       >
         <el-icon><ArrowLeft /></el-icon>
       </RouterLink>
+      <span
+        v-else-if="icon"
+        class="page-header__icon"
+        data-test="page-icon"
+        aria-hidden="true"
+      >
+        <el-icon><component :is="icon" /></el-icon>
+      </span>
       <div class="page-header__id">
         <p class="page-header__eyebrow">
           <span class="page-header__tick" aria-hidden="true" />
@@ -79,7 +89,8 @@ withDefaults(defineProps<{
   min-width: 0;
 }
 
-.page-header__back {
+.page-header__back,
+.page-header__icon {
   display: grid;
   flex: 0 0 var(--vdw-control-height);
   place-items: center;
@@ -87,10 +98,13 @@ withDefaults(defineProps<{
   height: var(--vdw-control-height);
   margin-top: 2px;
   color: var(--vdw-ink);
-  text-decoration: none;
   background: var(--vdw-surface);
   border: 1px solid var(--vdw-line-2);
   border-radius: var(--vdw-radius-control);
+}
+
+.page-header__back {
+  text-decoration: none;
   transition: color var(--vdw-motion-fast) var(--vdw-ease),
     background-color var(--vdw-motion-fast) var(--vdw-ease),
     border-color var(--vdw-motion-fast) var(--vdw-ease);

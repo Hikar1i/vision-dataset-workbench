@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 
 import { ApiError } from '../api/auth'
+import { can } from '../api/access'
 import { useProjectHeaderHost } from '../ui/projectHeaderHost'
 import VButton from '../ui/VButton.vue'
 import VField from '../ui/VField.vue'
@@ -33,8 +34,8 @@ const saving = ref(false)
 const changingMember = ref('')
 const error = ref('')
 
-const canEdit = computed(() => project.value?.role === 'owner' || project.value?.role === 'editor')
-const canManageMembers = computed(() => project.value?.role === 'owner')
+const canEdit = computed(() => can(project.value?.access, 'project.update'))
+const canManageMembers = computed(() => can(project.value?.access, 'project.members.manage'))
 const roleLabels = { owner: '所有者', editor: '编辑者', viewer: '只读' } as const
 
 function setProject(value: Project) {

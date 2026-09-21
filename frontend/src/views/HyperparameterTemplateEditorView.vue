@@ -12,6 +12,8 @@ import {
   type HyperparameterTemplate,
   type ParameterDefinition,
 } from '../api/hyperparameters'
+import { can } from '../api/access'
+import { listModelProjects, type ModelProject } from '../api/models'
 import HyperparameterConfigEditor from '../components/HyperparameterConfigEditor.vue'
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
@@ -20,6 +22,8 @@ const route = useRoute()
 const router = useRouter()
 const catalog = ref<ParameterDefinition[]>([])
 const source = ref<HyperparameterTemplate | null>(null)
+const projects = ref<ModelProject[]>([])
+const modelProjectId = ref('')
 const name = ref('')
 const description = ref('')
 const config = ref<HyperparameterConfig>({
@@ -54,6 +58,7 @@ async function save() {
   saving.value = true
   try {
     const created = await createHyperparameterTemplate({
+      model_project_id: modelProjectId.value,
       name: name.value,
       description: description.value,
       ...config.value,
@@ -103,6 +108,7 @@ async function derive() {
   saving.value = true
   try {
     const created = await createHyperparameterTemplate({
+      model_project_id: modelProjectId.value,
       name: nextName,
       description: description.value,
       ...config.value,
@@ -123,13 +129,21 @@ onMounted(async () => {
     : typeof route.query.from === 'string'
       ? route.query.from
       : null
-  const [nextCatalog, loadedSource] = await Promise.all([
+  const [nextCatalog, loadedSource, modelProjects] = await Promise.all([
     getHyperparameterCatalog(),
     sourceId
       ? getHyperparameterTemplate(sourceId)
       : Promise.resolve(null),
+    listModelProjects(),
   ])
   catalog.value = nextCatalog.items
+  projects.value = modelProjects.filter((project) => (
+    !project.system_key && can(project.access, 'project.update')
+  ))
+  modelProjectId.value = loadedSource?.model_project_id
+    && projects.value.some((project) => project.id === loadedSource.model_project_id)
+    ? loadedSource.model_project_id
+    : projects.value[0]?.id || ''
   if (!loadedSource) return
   source.value = loadedSource
   derivedFromId.value = editing.value ? null : loadedSource.id
@@ -162,7 +176,7 @@ onMounted(async () => {
         <VButton
           variant="primary"
           :loading="saving"
-          :disabled="!name.trim() || rawDirty"
+          :disabled="!name.trim() || rawDirty || (!editing && !modelProjectId)"
           @click="editing ? saveCurrent() : save()"
         >
           {{ editing ? '保存当前模板' : '创建模板' }}
@@ -173,6 +187,16 @@ onMounted(async () => {
     <div class="editor-body">
       <section class="identity-pane">
         <el-form label-position="top">
+          <el-form-item v-if="!editing" label="所属模型项目">
+            <el-select v-model="modelProjectId" placeholder="选择可编辑的模型项目">
+              <el-option
+                v-for="project in projects"
+                :key="project.id"
+                :label="project.name"
+                :value="project.id"
+              />
+            </el-select>
+          </el-form-item>
           <el-form-item label="模板名称">
             <el-input v-model="name" maxlength="128" show-word-limit />
           </el-form-item>

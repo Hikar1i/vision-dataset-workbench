@@ -8,12 +8,15 @@ from PIL import Image
 from sqlalchemy.orm import Session, sessionmaker
 
 from vision_dataset_workbench.database import create_workspace_database, make_engine
+from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.evaluation_dataset_task import (
     execute_evaluation_dataset_import,
     validate_evaluation_zip,
 )
 from vision_dataset_workbench.models import EvaluationDataset, ModelProject, Task, User
 from vision_dataset_workbench.services.model_evaluations import ModelEvaluationService
+from vision_dataset_workbench.services.models import ModelService
+from vision_dataset_workbench.services.projects import ProjectService
 
 
 def png_bytes():
@@ -53,7 +56,10 @@ def setup(tmp_path):
         database.commit()
         owner = database.get(User, "owner")
         database.expunge(owner)
-    return engine, workspace, ModelEvaluationService(engine, workspace), owner
+    settings = RuntimeSettings(home=tmp_path, workspace=workspace)
+    projects = ProjectService(engine, settings, workspace)
+    models = ModelService(engine, settings, workspace, projects)
+    return engine, workspace, ModelEvaluationService(engine, workspace, models=models), owner
 
 
 def test_zip_validation_accepts_simple_and_wrapped_layout_and_hashes_content(tmp_path):

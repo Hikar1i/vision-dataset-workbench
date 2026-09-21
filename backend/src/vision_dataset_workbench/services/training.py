@@ -14,6 +14,9 @@ from ..models import (
     DatasetExport,
     HyperparameterTemplate,
     InferenceModel,
+    ModelProject,
+    ModelProjectTag,
+    ModelProjectTagLink,
     Project,
     TrainingActionRequest,
     TrainingMetric,
@@ -37,6 +40,9 @@ from ..training.hyperparameters import (
     validate_values,
 )
 from ..training.naming import build_artifact_code, validate_task_code
+from .authorization import AccessContext, access_for_role, administrator_access
+from .models import ModelNotFound, ModelService, touch_training_model_project
+from .projects import ProjectNotFound
 
 ACTIVE = {"preparing", "queued", "running", "canceling"}
 
@@ -96,13 +102,38 @@ def _extra_override_json(value: object | None) -> str | None:
 
 
 class TrainingService:
-    def __init__(self, engine: Engine, workspace: Path):
+    def __init__(self, engine: Engine, workspace: Path, models: ModelService):
         self.workspace = workspace.resolve()
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
+        self.models = models
 
-    @staticmethod
-    def can_manage(actor: User, task: TrainingTask) -> bool:
-        return actor.is_system_admin or task.created_by_id == actor.id
+    def task_access(self, actor: User, task: TrainingTask) -> AccessContext:
+        with self._session_factory() as db:
+            project_id = db.scalar(
+                select(ModelProject.id).where(ModelProject.training_task_id == task.id)
+            )
+        if project_id is not None:
+            try:
+                return self.models.project_access(actor, project_id)
+            except ModelNotFound as exc:
+                raise TrainingNotFound("training task not found") from exc
+        if task.created_by_id == actor.id:
+            return access_for_role("owner")
+        if actor.is_system_admin:
+            return administrator_access()
+        raise TrainingNotFound("training task not found")
+
+    def can_manage(self, actor: User, task: TrainingTask) -> bool:
+        try:
+            return self.task_access(actor, task).allows("task.execute")
+        except TrainingNotFound:
+            return False
+
+    def model_project_id(self, task_id: str) -> str | None:
+        with self._session_factory() as db:
+            return db.scalar(
+                select(ModelProject.id).where(ModelProject.training_task_id == task_id)
+            )
 
     def list_tasks(self, actor: User) -> list[TrainingTask]:
         with self._session_factory() as db:
@@ -115,6 +146,7 @@ class TrainingService:
                     )
                 )
             )
+            items = [item for item in items if self._task_visible(actor, item)]
             for item in items:
                 db.expunge(item)
             return items
@@ -124,8 +156,85 @@ class TrainingService:
             item = db.get(TrainingTask, task_id)
             if item is None or item.deleted_at is not None:
                 raise TrainingNotFound("training task not found")
+            self.task_access(actor, item)
             db.expunge(item)
             return item
+
+    def _task_visible(self, actor: User, task: TrainingTask) -> bool:
+        try:
+            self.task_access(actor, task)
+            return True
+        except TrainingNotFound:
+            return False
+
+    @staticmethod
+    def _config_dataset_ids(value: str | None) -> set[str]:
+        if not value:
+            return set()
+        try:
+            payload = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return set()
+        ids = payload.get("dataset_export_ids", []) if isinstance(payload, dict) else []
+        return {item for item in ids if isinstance(item, str)}
+
+    def _require_input_access(
+        self,
+        actor: User,
+        db,
+        task: TrainingTask,
+        rows: list[TrainingModel],
+    ) -> None:
+        dataset_ids = self._config_dataset_ids(task.default_multi_dataset_config)
+        if task.default_dataset_export_id:
+            dataset_ids.add(task.default_dataset_export_id)
+        model_ids = {task.default_base_model_id} if task.default_base_model_id else set()
+        template_ids = {task.default_template_id} if task.default_template_id else set()
+        for row in rows:
+            if row.dataset_export_id:
+                dataset_ids.add(row.dataset_export_id)
+            dataset_ids.update(self._config_dataset_ids(row.multi_dataset_config))
+            if row.base_model_id:
+                model_ids.add(row.base_model_id)
+            if row.template_id:
+                template_ids.add(row.template_id)
+
+        for export_id in dataset_ids:
+            export = db.get(DatasetExport, export_id)
+            if export is None or export.deleted_at is not None:
+                raise TrainingNotFound("training dataset not found")
+            try:
+                access = self.models.projects.get_project(actor, export.project_id).access
+            except ProjectNotFound as exc:
+                raise TrainingNotFound("training dataset not found") from exc
+            if not access.allows("artifact.consume"):
+                raise TrainingForbidden("dataset consume permission required")
+
+        for model_id in model_ids:
+            try:
+                model = self.models.get_model(actor, model_id)
+                access = self.models.project_access(actor, model.model_project_id)
+            except ModelNotFound as exc:
+                raise TrainingNotFound("base model not found") from exc
+            if not access.allows("artifact.consume"):
+                raise TrainingForbidden("base model consume permission required")
+
+        for template_id in template_ids:
+            template = db.get(HyperparameterTemplate, template_id)
+            if template is None or template.deleted_at is not None:
+                raise TrainingNotFound("hyperparameter template not found")
+            if template.system_key is not None:
+                continue
+            if template.model_project_id is None:
+                if actor.is_system_admin or template.created_by_id == actor.id:
+                    continue
+                raise TrainingNotFound("hyperparameter template not found")
+            try:
+                access = self.models.project_access(actor, template.model_project_id)
+            except ModelNotFound as exc:
+                raise TrainingNotFound("hyperparameter template not found") from exc
+            if not access.allows("artifact.consume"):
+                raise TrainingForbidden("template consume permission required")
 
     def task_models(self, task_id: str) -> list[TrainingModel]:
         with self._session_factory() as db:
@@ -441,6 +550,7 @@ class TrainingService:
             raise InvalidTraining("single_device_serial must use one GPU")
         with self._session_factory() as db:
             try:
+                self._require_input_access(actor, db, task, rows)
                 if task.default_multi_dataset_config:
                     self._multi_dataset_snapshot(db, task.default_multi_dataset_config)
                 for row in rows:
@@ -448,6 +558,43 @@ class TrainingService:
                         self._multi_dataset_snapshot(db, row.multi_dataset_config)
                 db.add(task)
                 db.flush()
+                project_name = task.name
+                if db.scalar(
+                    select(ModelProject.id).where(
+                        ModelProject.name_normalized == project_name.lower(),
+                        ModelProject.deleted_at.is_(None),
+                    )
+                ):
+                    project_name = f"{task.name} · {task.code}"
+                project = ModelProject(
+                    id=str(uuid4()),
+                    name=project_name,
+                    name_normalized=project_name.lower(),
+                    description=task.description,
+                    series_type="training",
+                    training_task_id=task.id,
+                    created_by_id=actor.id,
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(project)
+                db.flush()
+                tag = db.scalar(
+                    select(ModelProjectTag).where(
+                        ModelProjectTag.name_normalized == "训练"
+                    )
+                )
+                if tag is None:
+                    tag = ModelProjectTag(
+                        id=str(uuid4()),
+                        name="训练",
+                        name_normalized="训练",
+                        created_at=now,
+                    )
+                    db.add(tag)
+                    db.flush()
+                db.add(ModelProjectTagLink(model_project_id=project.id, tag_id=tag.id))
                 db.add_all(rows)
                 db.commit()
             except IntegrityError as exc:
@@ -558,6 +705,13 @@ class TrainingService:
             ):
                 if row.multi_dataset_config:
                     self._multi_dataset_snapshot(db, row.multi_dataset_config)
+            current_rows = list(
+                db.scalars(
+                    select(TrainingModel).where(TrainingModel.training_task_id == task.id)
+                )
+            )
+            self._require_input_access(actor, db, task, current_rows)
+            touch_training_model_project(db, task.id, at=now)
             db.commit()
             db.expunge(task)
             return task
@@ -690,6 +844,7 @@ class TrainingService:
                     .order_by(TrainingModel.gpu_index, TrainingModel.queue_order)
                 )
             )
+            self._require_input_access(actor, db, task, models)
             issues: list[str] = []
             for index, row in enumerate(models):
                 issue_count = len(issues)
@@ -833,6 +988,7 @@ class TrainingService:
             task.submitted_at = task.last_run_at = now
             task.updated_at = now
             task.version += 1
+            touch_training_model_project(db, task.id, at=now)
             db.commit()
             db.expunge(task)
             return task
@@ -887,6 +1043,8 @@ class TrainingService:
                     model.finished_at = now if preparation.status == "canceled" else None
                 task.status = "canceled" if preparation.status == "canceled" else "canceling"
                 task.finished_at = now if preparation.status == "canceled" else None
+                task.updated_at = now
+                touch_training_model_project(db, task.id, at=now)
                 db.commit()
                 db.expunge(task)
                 return task
@@ -897,6 +1055,7 @@ class TrainingService:
                     )
                 )
             )
+            now = _now()
             for model in models:
                 run = db.scalar(
                     select(TrainingRun)
@@ -907,14 +1066,16 @@ class TrainingService:
                 )
                 if run and run.status == "queued":
                     run.status = model.status = "canceled"
-                    run.finished_at = model.finished_at = _now()
+                    run.finished_at = model.finished_at = now
                 elif run:
                     run.status = model.status = "canceling"
             task.status = (
                 "canceling" if any(row.status == "canceling" for row in models) else "canceled"
             )
             if task.status == "canceled":
-                task.finished_at = _now()
+                task.finished_at = now
+            task.updated_at = now
+            touch_training_model_project(db, task.id, at=now)
             db.commit()
             db.expunge(task)
             return task
@@ -955,6 +1116,7 @@ class TrainingService:
             task.status = "preparing"
             task.finished_at = None
             task.updated_at = now
+            touch_training_model_project(db, task.id, at=now)
             db.commit()
             db.expunge(task)
             return task
@@ -977,9 +1139,16 @@ class TrainingService:
             )
             if run and run.status == "queued":
                 run.status = model.status = "canceled"
-                run.finished_at = model.finished_at = _now()
+                now = _now()
+                run.finished_at = model.finished_at = now
             elif run:
+                now = _now()
                 run.status = model.status = "canceling"
+            else:
+                now = _now()
+            model.updated_at = now
+            task.updated_at = now
+            touch_training_model_project(db, task.id, at=now)
             db.commit()
 
     def new_run(
@@ -1029,6 +1198,9 @@ class TrainingService:
             task.status = "queued"
             task.finished_at = None
             task.last_run_at = now
+            task.updated_at = now
+            model.updated_at = now
+            touch_training_model_project(db, task.id, at=now)
             db.commit()
             db.expunge(run)
             return run
@@ -1277,7 +1449,10 @@ class TrainingService:
             shutil.move(str(source), str(target))
         with self._session_factory() as db:
             item = db.get(TrainingTask, task_id)
-            item.deleted_at = _now()
+            now = _now()
+            item.deleted_at = now
+            item.updated_at = now
+            touch_training_model_project(db, item.id, at=now)
             db.commit()
 
     def delete_model(
@@ -1293,13 +1468,15 @@ class TrainingService:
                 raise TrainingForbidden("training model is read-only")
             if model.status in ACTIVE:
                 raise TrainingConflict("active training model cannot be deleted")
+            now = _now()
             published = db.scalar(
                 select(InferenceModel).where(InferenceModel.training_model_id == model.id)
             )
             if published is not None and published.deleted_at is None:
                 if not confirm_published_model:
                     raise TrainingConflict("confirm_published_model is required")
-                published.deleted_at = _now()
+                published.deleted_at = now
+                published.updated_at = now
                 published.version += 1
                 published_dir = self.workspace / "models" / published.id
                 published_archive = (
@@ -1313,7 +1490,10 @@ class TrainingService:
             if source.exists():
                 archive.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(source), str(archive))
-            model.deleted_at = _now()
+            model.deleted_at = now
+            model.updated_at = now
+            task.updated_at = now
+            touch_training_model_project(db, task.id, at=now)
             db.commit()
 
     def action_availability(

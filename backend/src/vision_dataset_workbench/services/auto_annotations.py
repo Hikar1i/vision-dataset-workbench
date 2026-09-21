@@ -21,7 +21,7 @@ from .labels import (
     normalize_label_name,
 )
 from .models import ModelService
-from .projects import ProjectForbidden, ProjectService
+from .projects import ProjectForbidden, ProjectService, touch_project
 from .sampling import SamplingService
 from .xanylabeling_settings import XAnyLabelingSettingsService
 from .llm_configs import LLMConfigService
@@ -105,7 +105,7 @@ class AutoAnnotationService:
         source: str = "local",
         remote_task_id: str | None = None,
     ) -> AutoAnnotationResult:
-        if self.projects.get_project(actor, project_id).role == "viewer":
+        if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         frame, image_path = self.sampling.ready_frame_file(
             actor, project_id, video_id, frame_id
@@ -167,7 +167,7 @@ class AutoAnnotationService:
         source: str = "local",
         remote_task_id: str | None = None,
     ) -> Task:
-        if self.projects.get_project(actor, project_id).role == "viewer":
+        if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         selection = AutoAnnotationModel(source, model_id, remote_task_id)
         self._validate_model(actor, selection)
@@ -221,6 +221,7 @@ class AutoAnnotationService:
             )
             try:
                 database.add(task)
+                touch_project(database, project_id, at=now)
                 database.commit()
             except IntegrityError as exc:
                 database.rollback()
@@ -242,7 +243,7 @@ class AutoAnnotationService:
         source: str = "local",
         remote_task_id: str | None = None,
     ) -> AutoAnnotationBatchResult:
-        if self.projects.get_project(actor, project_id).role == "viewer":
+        if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         if scope not in {"unannotated", "all"}:
             raise AutoAnnotationConflict("invalid batch annotation scope")
@@ -326,6 +327,7 @@ class AutoAnnotationService:
                 updated_at=now,
             )
             database.add(task)
+            touch_project(database, project_id, at=now)
             database.commit()
             database.expunge(task)
             return AutoAnnotationBatchResult(task, accepted, rejected)
@@ -360,7 +362,9 @@ class AutoAnnotationService:
         self, actor: User, selection: AutoAnnotationModel
     ) -> tuple[object, object]:
         if selection.source == "local":
-            model, model_path = self.models.ready_model(selection.model_id)
+            model, model_path = self.models.ready_model(
+                actor, selection.model_id, "artifact.consume"
+            )
             capability = self.capabilities.features.yolo_auto_annotation
             if not capability.available:
                 raise AutoAnnotationUnavailable(

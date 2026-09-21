@@ -15,6 +15,7 @@ from vision_dataset_workbench.models import (
     Frame,
     FrameAnnotation,
     InferenceModel,
+    ModelProject,
     Project,
     ProjectLabel,
     SamplingPlan,
@@ -48,6 +49,15 @@ def make_worker(
             )
         session.flush()
         session.add(Project(id="project-id", name="project", creator_id="one-id"))
+        session.add(
+            ModelProject(
+                id="model-project-id",
+                name="models",
+                name_normalized="models",
+                series_type="archive",
+                created_by_id="one-id",
+            )
+        )
         session.commit()
     settings = RuntimeSettings(home=home, workspace=workspace)
     worker = TaskWorker(
@@ -128,6 +138,31 @@ def test_claim_respects_type_and_user_limits_and_recovers_expired_lease(tmp_path
     engine.dispose()
 
 
+def test_task_heartbeat_does_not_touch_parent_but_terminal_failure_does(tmp_path):
+    worker, engine, _home, _workspace = make_worker(tmp_path)
+    add_task(engine, task_id="activity-task", user_id="one-id")
+    old = datetime(2025, 1, 1)
+    with Session(engine) as session:
+        project = session.get(Project, "project-id")
+        task = session.get(Task, "activity-task")
+        project.updated_at = old
+        version = project.version
+        task.status = "running"
+        session.commit()
+
+    worker._heartbeat("activity-task", 50)
+    with Session(engine) as session:
+        project = session.get(Project, "project-id")
+        assert project.updated_at == old
+
+    worker._finish_failed("activity-task", RuntimeError("boom"))
+    with Session(engine) as session:
+        project = session.get(Project, "project-id")
+        assert project.updated_at > old
+        assert project.version == version
+    engine.dispose()
+
+
 def test_copy_task_publishes_metadata_and_hash(tmp_path):
     worker, engine, home, workspace = make_worker(tmp_path)
     source = home / "clips" / "one.MKV"
@@ -170,6 +205,7 @@ def test_import_model_task_copies_into_managed_storage(tmp_path):
         session.add(
             InferenceModel(
                 id="model-id",
+                model_project_id="model-project-id",
                 name="detector",
                 kind="yolo",
                 status="copying",
@@ -181,7 +217,7 @@ def test_import_model_task_copies_into_managed_storage(tmp_path):
             Task(
                 id="import-model",
                 project_id=None,
-                model_project_id="00000000-0000-0000-0000-000000000001",
+                model_project_id="model-project-id",
                 submitted_by_id="one-id",
                 type="import_model",
                 payload=json.dumps({"model_id": "model-id", "source_path": "models/detector.pt"}),
@@ -234,6 +270,7 @@ def test_auto_annotation_task_processes_only_starting_enabled_frames(tmp_path):
         session.add(
             InferenceModel(
                 id="model-id",
+                model_project_id="model-project-id",
                 name="detector",
                 kind="yolo",
                 status="ready",
@@ -469,6 +506,7 @@ def test_project_auto_annotation_task_processes_multiple_videos(tmp_path):
         session.add(
             InferenceModel(
                 id="model-id",
+                model_project_id="model-project-id",
                 name="detector",
                 kind="yolo",
                 status="ready",

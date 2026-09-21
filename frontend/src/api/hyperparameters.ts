@@ -25,6 +25,7 @@ export type HyperparameterConfig = {
 }
 export type HyperparameterTemplate = {
   id: string
+  model_project_id: string | null
   name: string
   description: string
   epochs: number
@@ -64,6 +65,7 @@ export const listHyperparameterTemplates = () =>
 export const getHyperparameterTemplate = (id: string) =>
   json<HyperparameterTemplate>(`/api/v1/hyperparameter-templates/${id}`)
 export const createHyperparameterTemplate = (payload: {
+  model_project_id: string
   name: string
   description: string
   epochs: number

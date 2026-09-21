@@ -20,23 +20,24 @@
 | `GET /api/v1/setup/directories` | `X-Setup-Token` | 分页浏览启动用户 `~` 内目录；支持当前目录 `search` 包含过滤 |
 | `POST /api/v1/setup/directories` | `X-Setup-Token` | 在受控父目录中新建目录 |
 | `POST /api/v1/setup/initialize` | `X-Setup-Token` | 创建工作区和首个管理员 |
-| `GET /api/v1/auth/status` | 无 | 返回 `multi/single` 运行模式和注册开关 |
+| `GET /api/v1/auth/status` | 无 | 返回 `multi/single` 运行模式 |
 | `POST /api/v1/auth/login` | 同源 | 登录并设置 `vdw_session` Cookie |
 | `GET /api/v1/auth/me` | Session | 返回当前安全用户字段 |
 | `POST /api/v1/auth/logout` | 同源 | 存在 Session 时撤销，并删除 Cookie |
-| `PUT /api/v1/auth/password` | Session + 同源 | 校验当前密码、改密并撤销该用户其他会话 |
-| `POST /api/v1/registrations` | 同源；注册已开放 | 创建 `pending` 用户 |
-| `GET /api/v1/admin/users` | 系统管理员 | 按状态过滤并分页查询用户 |
-| `POST /api/v1/admin/users/{id}/{action}` | 系统管理员 + 同源 | approve、reject、disable 或 enable |
+| `PUT /api/v1/auth/password` | Session + 同源 | 首次强制改密可省略当前密码；普通改密必须校验当前密码；成功后撤销该用户其他会话 |
+| `POST /api/v1/admin/users` | 系统管理员 + 同源 | 创建 active 普通账号并一次性返回随机初始密码 |
+| `GET /api/v1/admin/users` | 系统管理员 | 按 active/disabled 状态过滤并分页查询用户；不返回密码 |
+| `POST /api/v1/admin/users/{id}/disable|enable` | 系统管理员 + 同源 | 禁用或启用普通账号 |
+| `POST /api/v1/admin/users/{id}/reset-password` | 系统管理员 + 同源 | 撤销会话、强制首次改密并一次性返回新随机密码 |
 | `GET /api/v1/projects` | Session | 分页返回当前用户可见项目 |
 | `POST /api/v1/projects` | Session + 同源 | 创建默认私有项目 |
 | `GET /api/v1/projects/{id}` | 项目成员 | 读取项目元数据 |
 | `PATCH /api/v1/projects/{id}` | owner/editor + 同源 | 按 `version` 修改名称和描述 |
 | `DELETE /api/v1/projects/{id}` | owner + 同源 | 归档完整项目并删除数据库记录，返回 204 |
 | `GET /api/v1/projects/{id}/members` | 项目成员 | 返回永久 owner 和 editor/viewer 成员 |
-| `POST /api/v1/projects/{id}/members` | owner + 同源 | 按用户名添加已有有效账号 |
-| `PATCH /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 在 editor/viewer 间切换角色 |
-| `DELETE /api/v1/projects/{id}/members/{user_id}` | owner + 同源 | 移除 editor/viewer，返回 204 |
+| `POST /api/v1/projects/{id}/members` | `project.members.manage` + 同源 | 按用户名添加已有有效账号 |
+| `PATCH /api/v1/projects/{id}/members/{user_id}` | `project.members.manage` + 同源 | 在 editor/viewer 间切换角色 |
+| `DELETE /api/v1/projects/{id}/members/{user_id}` | `project.members.manage` + 同源 | 移除 editor/viewer，返回 204 |
 | `GET /api/v1/projects/{id}/labels` | 项目成员 | 按顺序返回项目全部标签，不分页 |
 | `POST /api/v1/projects/{id}/labels` | owner/editor + 同源 | 新增英文类别、可选中文描述和颜色 |
 | `PATCH /api/v1/projects/{id}/labels/{label_id}` | owner/editor + 同源 | 按 `version` 修改名称、中文描述、颜色或启用状态 |
@@ -49,7 +50,7 @@
 | `POST /api/v1/projects/{id}/videos/delete` | owner/editor + 同源 | 批量归档删除停用视频；逐项返回 `deleted` 与 `skipped`，启用视频不受影响 |
 | `POST /api/v1/projects/{id}/imports/local/preview` | owner/editor + 同源 | 预览单文件或目录第一层视频，不递归 |
 | `POST /api/v1/projects/{id}/imports/local` | owner/editor + 同源 | 批量创建本地复制任务，返回 202 |
-| `POST /api/v1/projects/{id}/imports/remote/preview` | owner/editor + 同源 | 用 yt-dlp 解析 HTTP(S) 单视频或播放列表 |
+| `POST /api/v1/projects/{id}/imports/remote/preview` | owner/editor + 同源 | 用 yt-dlp 解析 HTTP(S) 单视频或播放列表；空白标题回退为外部视频 ID |
 | `POST /api/v1/projects/{id}/imports/remote` | owner/editor + 同源 | 为已选远程条目创建下载任务，返回 202 |
 | `GET /api/v1/tasks` | Session | 分页返回当前用户可见项目的后台任务及项目上下文 |
 | `GET /api/v1/projects/{id}/tasks` | 项目成员 | 分页读取持久任务、进度和错误 |
@@ -67,21 +68,23 @@
 | `PUT /api/v1/projects/{id}/videos/{video_id}/frames/enabled` | owner/editor + 同源 | 原子提交帧 ID 与启停状态的混合变更，校验 `frame_revision` |
 | `GET /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/annotations` | 项目成员 | 读取整帧矩形标注及 `annotation_revision` |
 | `PUT /api/v1/projects/{id}/videos/{video_id}/frames/{frame_id}/annotations` | owner/editor + 同源 | 按修订号整体替换当前帧标注 |
-| `GET /api/v1/models` | Session | 返回工作区内推理模型及入库状态 |
-| `GET /api/v1/model-projects` | Session | 返回工作区全局模型项目 |
+| `GET /api/v1/models` | Session | 返回当前用户可见项目内的推理模型及入库状态 |
+| `GET /api/v1/model-projects` | Session | 返回当前用户可见模型项目；普通项目按创建时间倒序，内置 `official_yolo11` 固定在末尾 |
 | `POST /api/v1/model-projects` | Session + same-origin | 创建归档模型项目；训练类型拒绝手工创建 |
-| `GET/PATCH/DELETE /api/v1/model-projects/{id}` | Session；写入需创建者或管理员 | 查看、版本化编辑或逻辑删除模型项目 |
-| `GET /api/v1/model-projects/{id}/models` | Session | 返回指定模型项目内模型 |
+| `GET/PATCH/DELETE /api/v1/model-projects/{id}` | 项目可见；写入需对应原子权限 | 查看、版本化编辑或逻辑删除模型项目 |
+| `GET/POST /api/v1/model-projects/{id}/members` | 项目成员；写入需 `project.members.manage` | 列出或添加 owner/editor/viewer 成员；内置项目不接受成员授权 |
+| `PATCH/DELETE /api/v1/model-projects/{id}/members/{user_id}` | `project.members.manage` + 同源 | 切换 editor/viewer 或移除成员；内置项目拒绝写入 |
+| `GET /api/v1/model-projects/{id}/models` | 项目成员 | 返回指定模型项目内模型 |
 | `GET /api/v1/model-project-tags` | Session | 返回工作区模型项目标签候选 |
-| `POST /api/v1/model-projects/{id}/models` | Session + same-origin；创建者或管理员 | 创建 `.pt` 模型导入任务 |
+| `POST /api/v1/model-projects/{id}/models` | `task.execute` + same-origin | 创建 `.pt` 模型导入任务 |
 | `GET/PATCH/DELETE /api/v1/models/{id}` | Session；写入需项目管理权 | 查看、编辑/移动或逻辑删除模型；详情响应对训练发布模型附带冻结的训练参数、`base_model_name`/`base_model_code` 与数据集摘要 |
 | `GET /api/v1/models/{id}/download` | Session | 下载 ready 且路径通过受管目录校验的 `.pt` 模型 |
 | `GET /api/v1/models/{id}/artifacts` | Session | 列出模型的 ONNX/TensorRT 转换产物；源模型或 TensorRT 构建环境变化时返回 `stale` |
-| `POST /api/v1/models/{id}/artifacts` | 模型项目管理员 + 同源 | 创建 ONNX 或 TensorRT 转换任务；同一模型同一格式只保留一个当前产物 |
+| `POST /api/v1/models/{id}/artifacts` | `artifact.consume` + `task.execute` + 同源 | 创建 ONNX 或 TensorRT 转换任务；同一模型同一格式只保留一个当前产物 |
 | `GET /api/v1/model-artifacts/{id}/download` | Session | 下载 ready 转换产物；TensorRT 响应携带仅限当前服务器使用的兼容性提示头 |
 | `DELETE /api/v1/model-artifacts/{id}` | 模型项目管理员 + 同源 | 删除转换产物；活动任务正在使用时返回 409 |
 | `GET /api/v1/models/{id}/inference/current` | Session | 恢复当前用户在该模型下唯一的未保存推理会话 |
-| `POST /api/v1/models/{id}/inference` | Session + 同源 | 以原始请求体流式上传图片或视频；图片最大 20 MB、视频最大 500 MB，视频返回后台任务会话 |
+| `POST /api/v1/models/{id}/inference` | `artifact.consume` + `task.execute` + 同源 | 以原始请求体流式上传图片或视频；图片最大 20 MB、视频最大 500 MB，视频返回后台任务会话 |
 | `GET /api/v1/models/{id}/inference/saved` | Session | 列出模型项目内已保存的共享推理结果 |
 | `GET /api/v1/model-inference/{id}` | 会话所有者；已保存结果对登录用户可读 | 查询图片/视频推理状态、参数和统计 |
 | `POST /api/v1/model-inference/{id}/keepalive` | 会话所有者 + 同源 | 将未保存会话的 24 小时过期时间向后延长 |
@@ -96,24 +99,23 @@
 | `GET /api/v1/model-evaluations/{id}/plots/{confusion|pr-curve}` | Session | 读取受管目录内的混淆矩阵或 PR 曲线图片 |
 | `GET /api/v1/hyperparameter-catalog` | Session | 返回 Detect v1 参数目录、类型、默认值和约束 |
 | `POST /api/v1/hyperparameter-templates/validate-raw` | Session | 严格校验完整 RAW YAML；失败不返回可应用配置 |
-| `GET/POST /api/v1/hyperparameter-templates` | Session；创建需同源 | 列出或创建工作区全局参数预设，可指定派生来源 |
-| `GET/PATCH/DELETE /api/v1/hyperparameter-templates/{id}` | Session；写入需创建者或管理员与同源 | 查看、按 `version` 原地编辑或逻辑删除用户模板；系统模板只读 |
+| `GET/POST /api/v1/hyperparameter-templates` | Session；创建需模型项目 `project.update` 与同源 | 列出可见的系统/项目预设，或在指定模型项目中创建预设 |
+| `GET/PATCH/DELETE /api/v1/hyperparameter-templates/{id}` | 可见项目成员；写入需 `project.update` 与同源 | 查看、按 `version` 编辑或逻辑删除项目模板；系统模板只读 |
 | `GET /api/v1/training/capabilities` | Session | 返回 2 秒缓存的主机/GPU 实时显存、利用率、颜色级别和训练可用性 |
 | `GET /api/v1/training/resources` | Session | 返回工作区 ready 数据集导出、含版本/完整参数/编辑权限的活动模板和 ready basemodel 候选 |
 | `GET /api/v1/training-tasks/code-availability` | Session | 校验新任务不可变 code 的格式和可用性 |
-| `GET/POST /api/v1/training-tasks` | Session；创建需同源 | 按最近训练倒序列出任务，或创建含 1–10 个模型的草稿 |
-| `GET/PATCH /api/v1/training-tasks/{id}` | Session；PATCH 需创建者/管理员与同源 | 查看任务详情；已启动模型的数据集快照在读取时补全项目/数据集显示名；仅 draft 可按 `version` 修改，支持任务默认与模型显式稀疏超参覆盖且 code 不可变 |
-| `POST /api/v1/training-tasks/{id}/start|cancel` | 创建者/管理员 + 同源 | 原子预检并冻结；多数据集任务先进入无 GPU 的数据准备阶段，准备完成后才排队训练；取消覆盖准备和训练阶段 |
-| `POST /api/v1/training-tasks/{id}/retry-preparation` | 创建者/管理员 + 同源 | 仅为 `preparation_failed` 任务重建并排队数据准备记录 |
+| `GET/POST /api/v1/training-tasks` | Session；创建需同源 | 列出可见任务；创建草稿时同步创建仅创建者/管理员可见的训练模型项目 |
+| `GET/PATCH /api/v1/training-tasks/{id}` | 项目 `task.read`；PATCH 需 `task.execute` 与同源 | 查看或修改任务；仅 draft 可按 `version` 修改 |
+| `POST /api/v1/training-tasks/{id}/start|cancel` | `task.execute` + 同源 | 原子预检并冻结；多数据集任务先准备数据再排队训练 |
+| `POST /api/v1/training-tasks/{id}/retry-preparation` | `task.execute` + 同源 | 仅为 `preparation_failed` 任务重建并排队数据准备记录 |
 | `GET /api/v1/training-tasks/{id}/preparation-log` | Session | 返回当前数据准备子进程的去 ANSI 文本日志快照 |
-| `POST /api/v1/training-tasks/{id}/retry-failed|resume-interrupted|derive` | 创建者/管理员 + 同源 | 重试未成功子项、恢复具备 last.pt 的中断子项，或固定各模型数据集/basemodel 派生新草稿 |
-| `DELETE /api/v1/training-tasks/{id}` | 创建者/管理员 + 同源 | 拒绝活动任务；归档运行目录并保留已发布模型 |
-| `POST /api/v1/training-models/{id}/cancel|retry|resume` | 创建者/管理员 + 同源 | 单模型取消、从 epoch 0 重试或基于 last.pt 恢复中断 |
-| `POST /api/v1/training-models/{id}/derive|extend` | 创建者/管理员 + 同源 | 固定原数据集/basemodel 改超参派生，或从 best/last 追加 epoch |
-| `DELETE /api/v1/training-models/{id}` | 创建者/管理员 + 同源 | 活动模型拒绝；已发布模型要求 `confirm_published_model=true` |
+| `POST /api/v1/training-tasks/{id}/retry-failed|resume-interrupted|derive` | `task.execute` + 同源 | 重试、恢复或派生新草稿 |
+| `DELETE /api/v1/training-tasks/{id}` | `task.execute` + 同源 | 拒绝活动任务；归档运行目录并保留已发布模型 |
+| `POST /api/v1/training-models/{id}/cancel|retry|resume` | `task.execute` + 同源 | 单模型取消、重试或恢复 |
+| `POST /api/v1/training-models/{id}/derive|extend` | `task.execute` + 同源 | 派生或追加训练 |
+| `DELETE /api/v1/training-models/{id}` | `task.execute` + 同源 | 活动模型拒绝；已发布模型要求显式确认 |
 | `GET /api/v1/training-runs/{id}/metrics|log|pr-curve` | Session | epoch 指标、去 ANSI 且按回车覆盖语义还原的末尾日志快照和交互 P-R JSON；日志页在活动训练期间每 1.5 秒轮询 |
 | `GET /api/v1/training-runs/{id}/log/download` | Session | 下载工作区内完整原始 `train.log`，不受页面末尾快照截断影响 |
-| `POST /api/v1/projects/{id}/models` | 系统管理员 + 项目访问 + 同源 | 登记 `~` 内 `.pt` YOLO 并归入临时模型项目 |
 | `GET /api/v1/me/x-anylabeling-server` | Session | 返回当前用户脱敏远程配置和 `null|true|false` 最近可用状态，不返回 API 密钥 |
 | `PUT /api/v1/me/x-anylabeling-server` | Session + 同源 | 验证远程模型目录后保存 URL 和可选密钥 |
 | `GET /api/v1/me/x-anylabeling-server/models` | Session | 实时刷新当前用户远程模型目录 |
@@ -134,9 +136,11 @@
 
 目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接，并从列表隐藏当前工作区。`GET /filesystem` 的 `extensions` 可重复传入，当前只接受服务端白名单中的视频扩展名和 `pt`；不传扩展名时只返回目录。返回条目的 `type` 为小写真实类型：目录是 `dir`，文件是去掉点号的扩展名。`search` 是不区分大小写的当前目录文件名包含匹配，在分页前执行且不递归。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户、项目和任务列表最大页大小 200，视频列表最大页大小 999，帧列表保持自身接口约束。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
 
-认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误、状态或模式限制。禁用账号立即撤销其会话，且不能禁用最后一个有效系统管理员。
+认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误、状态或模式限制。普通账号由唯一系统管理员创建，创建/重置响应仅当次返回随机密码，数据库只保存 Argon2 哈希；首次改密前除 `/auth/me`、改密和退出外的业务请求返回 403 `password_change_required`。用户已通过初始密码建立会话，因此该次强制改密不重复要求当前密码；完成首次改密后的普通改密仍必须提交并校验当前密码。禁用账号立即撤销其会话；系统管理员不可禁用、重置或删除。
 
-项目名称允许重复，资源主键和路由身份使用 UUID。项目列表与详情的 `categories` 仅包含按标签顺序排列的启用类别；停用类别仍保留在标签和数据集映射详情中。Video 响应额外返回不可变 `short_code`，用于界面显示和本地媒体/帧文件对应；短码不是路由参数，也不替代 UUID。无访问权的项目返回 404，避免泄露项目是否存在；viewer 修改返回 403；项目元数据版本不匹配返回 409。项目列表默认每页 50，最大 200。创建者是永久 owner，不存在 owner 成员记录或所有权转移接口。多用户模式下系统管理员不自动获得项目访问权；单用户模式下管理员运行时获得所有项目的 owner 等效权限，但不会改写成员数据。
+项目名称允许重复，资源主键和路由身份使用 UUID。项目列表与详情的 `categories` 仅包含按标签顺序排列的启用类别；停用类别仍保留在标签和数据集映射详情中。Video 响应额外返回不可变 `short_code`，用于界面显示和本地媒体/帧文件对应；短码不是路由参数，也不替代 UUID。无访问权的项目返回 404，避免泄露项目是否存在；已知成员权限不足返回 403；版本或资源状态冲突返回 409。创建者是永久 owner，不存在 owner 成员记录或所有权转移接口。访问来源优先判定创建者，因此系统管理员自建项目返回 `access.role=owner`、`access.source=owner`；管理员访问他人项目时在 multi/single 模式下都隐式获得全部权限，返回 `access.role=null`、`access.source=system_admin`，但不写入成员表。前端将后一来源简写为“管理员”。
+
+项目响应的 `access.permissions` 使用固定集合：`project.read`、`project.update`、`project.members.manage`、`project.delete`、`artifact.read`、`artifact.download`、`artifact.consume`、`task.read`、`task.execute`。owner 和系统管理员拥有全部权限；editor 缺少成员管理和项目删除；viewer 只有项目/产物/任务读取及产物下载。该映射同时用于数据集项目、模型项目及其子资源，不提供自定义角色或权限表。
 
 当前角色能力：
 
@@ -162,11 +166,12 @@
 | 进入在线标注工作台并保存标注 | 是 | 是 | 否 |
 | 运行单张或批量自动标注 | 是 | 是 | 否 |
 | 创建模型项目 | 是 | 是 | 是 |
-| 编辑、导入和删除模型项目资源 | 创建者或系统管理员 | 创建者或系统管理员 | 其他用户只读 |
+| 编辑、导入和执行模型项目任务 | 是 | 是 | 否 |
+| 查看和下载已有模型/转换/训练/推理/评估产物 | 是 | 是 | 是 |
 | 查看和下载已有数据集导出 | 是 | 是 | 是 |
 | 创建和逻辑删除数据集导出 | 是 | 是 | 否 |
 
-viewer 已可查看、播放和下载原始视频，查看任务、采样方案、采样帧图片、标注数据和数据集导出，并可下载 ready 产物；不能添加或导入视频、启停视频整体、改变采样策略、重新采样、启停帧、写入标注、创建或删除导出。为简化交互，视频列表的“标注”入口对 viewer 禁用；读取标注 API 保留，以支持只读展示。
+viewer 可查看、播放和下载授权范围内的原始视频、采样帧、数据集导出、模型、转换产物、训练结果、已保存推理结果和评估结果；不能修改项目/标签/标注/帧状态，不能创建或删除产物，也不能发起自动标注、转换、推理、评估或训练。为简化交互，视频列表的“标注”入口对 viewer 禁用；读取标注 API 保留，以支持只读展示。
 
 项目删除要求 owner 权限，且任意 queued/running 项目任务都会返回 409。服务端先在项目目录写入包含项目、成员、标签、视频、采样方案、帧、标注、任务和数据集导出全部当前持久字段的 `project_metadata.json`，再将目录原子移动到 `.deleted/projects/<project UUID>/project/`，最后级联删除数据库记录；提交失败时尝试把目录移回。该快照仅对应生成时 schema，不承诺未来兼容，当前也不提供加载或恢复接口。
 
@@ -184,13 +189,13 @@ viewer 已可查看、播放和下载原始视频，查看任务、采样方案�
 
 大模型配置创建时 `version` 从 1 开始；更新使用乐观版本。API Key 写入前由工作区凭据密钥加密，配置响应不返回明文，仅提供 `has_api_key` 和类似 `sk-test-******abcd` 的 `masked_api_key`。编辑请求省略或留空 `api_key` 表示保留旧密钥。连接测试不依赖 `/models` 列表能力，而是按配置的 API 类型向指定模型发送最小请求，因此兼容不实现模型目录接口的本地和在线服务。
 
-模型项目全局可见，所有认证用户可创建 archive 项目，创建者或系统管理员可管理；training 项目仅由训练发布服务创建。项目创建/编辑接受 1–20 个标签名，未指定时使用“未分类”。导入只接受 `.pt` YOLO，Worker 发布时记录大小和 SHA-256。项目和模型删除从普通查询隐藏数据库记录，并将受管文件移入 `.deleted`；临时项目只读。ready 模型可经授权下载接口读取，接口拒绝任意路径。X-AnyLabeling 用户配置语义不变。
+模型项目默认私有，创建者是永久 owner，可将有效普通账号授权为 editor/viewer；系统管理员自建项目仍以 owner 身份呈现，访问他人项目时无需成员授权即可管理。内置“YOLO11目标检测官方模型”对所有 active 普通账号提供隐式 viewer 权限，不接受成员授权，也不能作为普通账号的自动标注、转换、推理、评估或训练输入；管理员可编辑该项目并导入、编辑或删除其中的具体模型，但不能删除整个内置项目。training 项目只随训练草稿创建并继承关联模型项目的访问来源，不能手工创建。普通项目和模型删除从查询隐藏记录并归档受管文件；可见范围内的 ready 模型和已有产物允许下载。
 
-超参数模板全局可见，所有认证用户可创建或派生；非系统模板仅创建者或系统管理员可按版本原地编辑和逻辑删除，系统模板保持只读。模板响应包含 `version/updated_at`，PATCH 的旧版本返回 409。RAW 接口仅接受单文档、顶层 mapping、无锚点/别名/重复键的 YAML，未知键、系统控制键、嵌套值、类型或范围错误都会整体拒绝；只有 `valid=true` 的响应可覆盖客户端表单。
+系统超参数模板全局可读且不可修改；用户模板归属指定模型项目，按项目权限可见，只有 `project.update` 可创建、派生、编辑或删除，viewer 不可将其用于训练。模板响应包含 `model_project_id`、`version/updated_at`；PATCH 的旧版本返回 409。RAW 接口只接受经严格校验的单文档顶层 mapping。
 
 训练草稿的附加参数覆盖格式固定为 `{"version":1,"set":{...},"remove":[...]}`；核心参数使用独立可空字段。模型未选择显式模板时严格继承任务最终超参；选择显式模板时只叠加模型覆盖。启动接口读取模板最新版本并冻结最终参数快照，此后模板编辑不影响已提交、运行中或已完成任务。
 
-训练资源当前按已确认的工作区全局权限实现：所有认证用户可读和创建任务，创建者或系统管理员可修改草稿及执行生命周期操作；最终按功能/RBAC 的权限优化另行重构。任务 code 是不可变全局业务标识而非主键，UUID 继续承担路由和外键身份。
+创建训练草稿时同步建立唯一关联的 training 模型项目；任务、日志、指标和发布结果均继承该项目访问。owner/editor/管理员可执行生命周期操作，viewer 只读，非成员得到 404。保存草稿和启动训练都会验证目标项目的执行权限，以及每个数据集导出、basemodel 和非系统模板所属项目的 `artifact.consume` 权限。任务 code 是不可变全局业务标识而非主键，UUID 继续承担路由和外键身份。
 
 三种模式分别为 `single_model`、`single_device_serial` 和 `custom_sequence`。一个模型只属于一个 GPU lane，同卡严格串行、不同 GPU 可并行，不支持单 GPU 多模型并行或一个模型使用多 GPU。GPU 高显存只产生红/橙风险提示，不阻止选择；本系统已有 active run 会由数据库和调度器强制排队。
 
@@ -351,10 +356,10 @@ FastAPI OpenAPI 是唯一契约来源。前端类型从规范生成或在 CI 中
 - SSE/WebSocket 与文件下载执行同样的授权检查。
 - 关键写操作记录操作者和请求追踪信息。
 - 浏览器使用 HttpOnly Session Cookie，写请求执行同源/CSRF 检查。
-- 注册默认关闭；启用后新账号需管理员批准。
+- 系统不提供开放注册；唯一系统管理员创建普通账号并发放一次性随机初始密码。
 - 当前可信局域网部署不提供浏览器 Token、无认证、IP/CIDR 或可信代理模式。
 
-项目角色为 owner、editor、viewer。系统管理员在多用户模式下不自动读取全部项目内容；单用户模式临时授予工作区管理员全部项目访问权。
+项目角色为 owner、editor、viewer。系统管理员在所有运行模式下隐式拥有全部数据集与模型项目权限，不需要 owner 授权，也不写入成员表。
 
 ## 规范与兼容性
 

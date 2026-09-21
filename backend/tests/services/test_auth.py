@@ -8,7 +8,11 @@ from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.models import AuthSession, User
 from vision_dataset_workbench.security.passwords import hash_password
-from vision_dataset_workbench.services.auth import AuthenticationFailed, AuthService
+from vision_dataset_workbench.services.auth import (
+    AuthenticationFailed,
+    AuthService,
+    CurrentPasswordRequired,
+)
 
 PASSWORD = "correct horse battery staple"
 NEW_PASSWORD = "new correct horse battery"
@@ -157,6 +161,42 @@ def test_password_change_revokes_old_sessions(auth_runtime):
     with pytest.raises(AuthenticationFailed):
         service.login("admin", PASSWORD)
     assert service.login("admin", NEW_PASSWORD).user.id == "admin-id"
+
+
+def test_required_password_change_does_not_repeat_initial_password(auth_runtime):
+    service = make_service(auth_runtime)
+    provisioned = service.create_user("first-login")
+    initial = service.login("first-login", provisioned.initial_password)
+
+    replacement = service.change_password(initial.token, None, NEW_PASSWORD)
+
+    assert replacement.user.must_change_password is False
+    with pytest.raises(AuthenticationFailed):
+        service.authenticate(initial.token)
+    assert service.login("first-login", NEW_PASSWORD).user.id == provisioned.user.id
+
+
+def test_ordinary_password_change_requires_current_password(auth_runtime):
+    service = make_service(auth_runtime)
+    session = service.login("admin", PASSWORD)
+
+    with pytest.raises(CurrentPasswordRequired):
+        service.change_password(session.token, None, NEW_PASSWORD)
+
+
+def test_provision_and_reset_require_password_change(auth_runtime):
+    service = make_service(auth_runtime)
+    created = service.create_user("New.User")
+
+    assert created.user.status == "active"
+    assert created.user.must_change_password is True
+    assert service.login("new.user", created.initial_password).user.id == created.user.id
+
+    reset = service.reset_user_password(created.user.id)
+
+    with pytest.raises(AuthenticationFailed):
+        service.login("new.user", created.initial_password)
+    assert service.login("new.user", reset.initial_password).user.must_change_password is True
 
 
 def test_single_mode_startup_revokes_non_admin_sessions(auth_runtime):

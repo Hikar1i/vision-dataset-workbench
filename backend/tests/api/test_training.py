@@ -75,7 +75,17 @@ def setup_app(tmp_path, monkeypatch):
             series_type="archive",
             created_by_id=user.id,
         )
-        db.add(user)
+        db.add_all([
+            user,
+            User(
+                id="admin-id",
+                username="admin",
+                username_normalized="admin",
+                password_hash=hash_password(PASSWORD),
+                status="active",
+                is_system_admin=True,
+            ),
+        ])
         db.flush()
         db.add_all([project, model_project])
         db.flush()
@@ -133,6 +143,37 @@ def setup_app(tmp_path, monkeypatch):
         == 200
     )
     return app, client, workspace
+
+
+def test_admin_training_access_distinguishes_owner_from_global_access(tmp_path, monkeypatch):
+    app, user, _workspace = setup_app(tmp_path, monkeypatch)
+    admin = TestClient(app)
+    assert admin.post(
+        "/api/v1/auth/login",
+        headers=ORIGIN,
+        json={"username": "admin", "password": PASSWORD},
+    ).status_code == 200
+    payload = {
+        "name": "Task",
+        "models": [{"name": "one"}],
+    }
+
+    user_task = user.post(
+        "/api/v1/training-tasks",
+        headers=ORIGIN,
+        json={**payload, "code": "user-task"},
+    ).json()
+    admin_task = admin.post(
+        "/api/v1/training-tasks",
+        headers=ORIGIN,
+        json={**payload, "code": "admin-task"},
+    ).json()
+
+    global_access = admin.get(f"/api/v1/training-tasks/{user_task['id']}").json()["access"]
+    assert global_access["role"] is None
+    assert global_access["source"] == "system_admin"
+    assert admin_task["access"]["role"] == "owner"
+    assert admin_task["access"]["source"] == "owner"
 
 
 def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypatch):
@@ -328,7 +369,8 @@ def test_template_changes_rebase_drafts_and_started_snapshots_stay_frozen(tmp_pa
             "batch_mode": "auto",
             "batch_value": None,
             "image_size": 640,
-            "extra_parameters": {"lr0": 0.01, "patience": 50},
+                "extra_parameters": {"lr0": 0.01, "patience": 50},
+                "model_project_id": "base-project",
         },
     ).json()
     resources_template = next(

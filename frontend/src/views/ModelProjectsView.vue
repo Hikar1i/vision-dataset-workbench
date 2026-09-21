@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Delete, Plus, Right } from '@element-plus/icons-vue'
+import { Box, Delete, Plus, Right } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -11,7 +11,7 @@ import {
   listModelProjectTags,
   type ModelProject,
 } from '../api/models'
-import { forgetResource } from '../navigation/recentResources'
+import { accessLabel, can } from '../api/access'
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
@@ -86,7 +86,6 @@ async function remove(project: ModelProject) {
   deleting.value = project.id
   try {
     await deleteModelProject(project.id)
-    forgetResource('vdm.recent-model-projects', project.id)
     ElMessage.success('模型项目已逻辑删除。')
     await load()
   } catch (reason) {
@@ -101,7 +100,7 @@ onMounted(load)
 
 <template>
   <main class="content-page">
-    <PageHeader title="模型项目" kind="model projects">
+    <PageHeader title="模型项目" kind="model projects" :icon="Box">
       <template #meta><span data-test="page-stat">{{ projects.length }} 个项目</span></template>
       <template #actions>
         <VButton
@@ -186,7 +185,8 @@ onMounted(load)
           >
             <VCellName :name="project.name" :sub="project.description || '暂无描述'">
               <template #badge>
-                <VChip variant="id">{{ project.id.slice(0, 6).toUpperCase() }}</VChip>
+                <VChip variant="id">{{ project.system_key === 'official_yolo11' ? '000001' : project.id.slice(0, 6).toUpperCase() }}</VChip>
+                <VChip v-if="project.system_key === 'official_yolo11'">内置</VChip>
               </template>
             </VCellName>
             <div class="vdw-chip-stack" :title="project.tags.join('、')">
@@ -195,7 +195,7 @@ onMounted(load)
             <VTag :tone="project.series_type === 'training' ? 'run' : 'idle'">
               {{ project.series_type === 'training' ? '训练' : '归档' }}
             </VTag>
-            <span class="cell-muted">{{ project.can_manage ? '可管理' : '只读' }}</span>
+            <span class="cell-muted">{{ accessLabel(project.access) }}</span>
             <VDateTime :value="project.created_at" />
             <VDateTime :value="project.updated_at" />
             <div
@@ -208,7 +208,7 @@ onMounted(load)
                 @click="router.push(`/model-projects/${project.id}`)"
               ><template #icon><el-icon><Right /></el-icon></template>打开</VButton>
               <VButton
-                v-if="project.can_manage"
+                v-if="can(project.access, 'project.delete') && !project.system_key"
                 variant="danger"
                 size="sm"
                 :loading="deleting === project.id"

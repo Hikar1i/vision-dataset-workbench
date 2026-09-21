@@ -4,6 +4,15 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { clearRecentRows, isRecentRow } from '../ui/recentRows'
 import ProjectDatasetsView from './ProjectDatasetsView.vue'
+import type { ProjectRole, ResourceAccess } from '../api/access'
+
+const access = (role: ProjectRole): ResourceAccess => ({
+  role,
+  source: role === 'owner' ? 'owner' : 'membership',
+  permissions: role === 'viewer'
+    ? ['project.read', 'artifact.read', 'artifact.download', 'task.read']
+    : ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+})
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -76,13 +85,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function mountView(role: 'owner' | 'editor' | 'viewer') {
+function mountView(role: ProjectRole) {
   return mount(ProjectDatasetsView, {
     attachTo: document.body,
     props: {
       project: {
         id: 'project-id', name: 'project', description: '', creator_id: 'owner-id',
-        creator_username: 'owner', categories: [], role, version: 1,
+        creator_username: 'owner', categories: [], access: access(role), version: 1,
         created_at: '2026-07-30T00:00:00Z', updated_at: '2026-07-30T00:00:00Z',
       },
     },

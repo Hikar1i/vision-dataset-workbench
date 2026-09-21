@@ -11,6 +11,7 @@ import {
   type DatasetExport,
   type DatasetExportDetail,
 } from '../api/datasetExports'
+import { can } from '../api/access'
 import type { Project } from '../api/projects'
 import { copyText } from '../ui/clipboard'
 import { formatDateTime } from '../ui/dateTime'
@@ -34,7 +35,7 @@ const detail = ref<DatasetExportDetail | null>(null)
 const detailLoading = ref(false)
 const deleting = ref('')
 const manifestOpen = ref(false)
-const canEdit = computed(() => props.project.role !== 'viewer')
+const canEdit = computed(() => can(props.project.access, 'project.update'))
 const recentDatasetScope = computed(() => `project:${props.project.id}:datasets`)
 const manifestText = computed(() => (
   detail.value?.manifest ? JSON.stringify(detail.value.manifest, null, 2) : ''
@@ -159,12 +160,12 @@ const headerHost = useProjectHeaderHost()
             </VTag>
           </template>
         </el-table-column>
-        <el-table-column label="导出时间" width="100">
+        <el-table-column label="导出时间" width="105">
           <template #default="{ row }">
             <VDateTime :value="row.completed_at || row.created_at" />
           </template>
         </el-table-column>
-        <el-table-column label="类别数量" width="112">
+        <el-table-column label="类别数量" width="100">
           <template #default="{ row }">
             <el-popover trigger="click" width="280">
               <template #reference>
@@ -183,7 +184,7 @@ const headerHost = useProjectHeaderHost()
             </el-popover>
           </template>
         </el-table-column>
-        <el-table-column label="类别" min-width="190">
+        <el-table-column label="类别" min-width="200">
           <template #default="{ row }">
             <div
               class="vdw-chip-stack"
@@ -197,7 +198,7 @@ const headerHost = useProjectHeaderHost()
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="样本分布" width="270">
+        <el-table-column label="样本分布" width="240">
           <template #default="{ row }">
             <div class="sample-distribution" :data-test="`sample-distribution-${row.id}`">
               <div class="sample-distribution__head">
@@ -221,7 +222,7 @@ const headerHost = useProjectHeaderHost()
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="训练集 : 验证集" width="210">
+        <el-table-column label="训练集 : 验证集" width="180">
           <template #default="{ row }">
             <div class="ratio-summary" :data-test="`ratio-summary-${row.id}`">
               <span><small>期望</small><b>{{ ratio(row.train_ratio) }}</b></span>
@@ -229,7 +230,7 @@ const headerHost = useProjectHeaderHost()
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <div
               class="row-actions"
@@ -372,7 +373,7 @@ const headerHost = useProjectHeaderHost()
 </template>
 
 <style scoped>
-.datasets-view { min-height: 100%; padding: 18px; background: var(--vdw-app); }
+.datasets-view { min-height: 100%; padding: 14px; background: var(--vdw-app); }
 .datasets-view :deep(.page-header) { margin: -20px -20px 20px; }
 .datasets-table { min-height: 260px; background: white; border: 1px solid var(--vdw-line); }
 .frame-summary { display: grid; grid-template-columns: repeat(3, minmax(42px, 1fr)); gap: 8px; }

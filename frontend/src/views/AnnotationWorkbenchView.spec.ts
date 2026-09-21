@@ -80,7 +80,10 @@ const project = {
   description: '',
   creator_id: 'creator-id',
   creator_username: 'creator',
-  role: 'editor',
+  access: {
+    role: 'editor', source: 'membership',
+    permissions: ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+  },
   version: 1,
   created_at: '',
   updated_at: '',
@@ -112,6 +115,24 @@ const video = {
   },
   latest_task: null,
 }
+const modelProject = {
+  id: 'model-project-id',
+  name: '可操作模型项目',
+  description: '',
+  series_type: 'archive' as const,
+  system_key: null,
+  created_by_id: 'editor-id',
+  version: 1,
+  can_manage: true,
+  access: {
+    role: 'owner' as const,
+    source: 'owner' as const,
+    permissions: ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+  },
+  created_at: '',
+  updated_at: '',
+  tags: [],
+}
 const frames = [1, 2].map((sequence) => ({
   id: `frame-${sequence}`,
   sequence,
@@ -142,13 +163,7 @@ beforeEach(() => {
     },
   })
   mocks.listInferenceModels.mockResolvedValue([])
-  mocks.listModelProjects.mockResolvedValue([{
-    id: 'temporary-model-project',
-    name: '临时模型项目',
-    series_type: 'archive',
-    system_key: 'temporary',
-    created_at: '',
-  }])
+  mocks.listModelProjects.mockResolvedValue([modelProject])
   mocks.listModelProjectModels.mockImplementation(() => mocks.listInferenceModels())
   mocks.getXAnyLabelingSetting.mockResolvedValue({
     configured: false,
@@ -181,6 +196,29 @@ beforeEach(() => {
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('AnnotationWorkbenchView', () => {
+  it('does not offer read-only built-in projects as auto-annotation sources', async () => {
+    mocks.listModelProjects.mockResolvedValueOnce([{
+      ...modelProject,
+      id: 'official-project-id',
+      name: 'YOLO11目标检测官方模型',
+      system_key: 'official_yolo11',
+      can_manage: false,
+      access: {
+        role: 'viewer',
+        source: 'system_resource',
+        permissions: ['project.read', 'artifact.read', 'artifact.download', 'task.read'],
+      },
+    }])
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub } },
+    })
+    await flushPromises()
+
+    expect(mocks.listModelProjectModels).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('YOLO11目标检测官方模型')
+    wrapper.unmount()
+  })
+
   it('saves a dirty frame once before switching and before closing', async () => {
     const wrapper = mount(AnnotationWorkbenchView, {
       attachTo: document.body,
@@ -251,7 +289,13 @@ describe('AnnotationWorkbenchView', () => {
   })
 
   it('redirects viewers instead of opening annotation controls', async () => {
-    mocks.getProject.mockResolvedValueOnce({ ...project, role: 'viewer' })
+    mocks.getProject.mockResolvedValueOnce({
+      ...project,
+      access: {
+        role: 'viewer', source: 'membership',
+        permissions: ['project.read', 'artifact.read', 'artifact.download', 'task.read'],
+      },
+    })
     const wrapper = mount(AnnotationWorkbenchView, { global: { stubs: { AnnotationCanvas: CanvasStub } } })
     await flushPromises()
 

@@ -2,7 +2,7 @@
 
 ## 最近迁移
 
-迁移 `0025_model_operations` 新增模型转换产物、在线推理运行、评估测试集、模型评估和 GPU 租约表，并扩展持久任务类型。`0024_xanylabeling_availability` 为每用户 X-AnyLabeling 配置增加可空可用状态。
+迁移 `0028_resource_activity_timestamps` 不改变 schema，按可追溯子资源的最后持久化时间向后修正数据集项目、模型项目、超参数模板和训练任务的存量 `updated_at`，且不会让时间倒退。迁移 `0027_official_model_project` 创建或接管“YOLO11目标检测官方模型”，并删除早期“临时模型项目”及其仅用于测试的关联数据和受管目录；若临时项目已被训练、评估或模板等业务记录引用，迁移会中止并保留可诊断状态。`0026_access_control_refactor` 将账号状态收口为 active/disabled，增加首次改密标记和唯一系统管理员约束，建立模型项目成员关系和模板项目归属，并为既有训练任务补建关联模型项目。
 
 状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、模型项目、超参数模板、训练任务/模型/运行/指标、用户远程配置、推理模型、数据集导出及模型操作迁移已实现。
 
@@ -17,7 +17,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015_model_management` 完善模型项目管理并把 `import_model` Task 迁移到全局模型项目；`0016_hyperparameter_templates` 增加超参数模板；`0017_training_core` 建立训练核心表和发布来源关系；`0018_training_action_requests` 保存生命周期操作幂等结果；`0019_add_dfl_loss` 增加 Detect 的 dfl loss 指标；`0020_add_model_project_tags` 增加模型项目多标签关系；`0021_user_llm_configs` 增加用户大模型配置；`0022_multi_dataset_training` 增加多数据集训练准备；`0023_editable_hyperparameter_templates` 增加可编辑模板版本和训练覆盖；`0024_xanylabeling_availability` 增加远程标注服务三态可用性；`0025_model_operations` 增加 `model_artifacts`、`model_inference_runs`、`evaluation_datasets`、`model_evaluations`、`gpu_leases`，并让模型相关任务归属 `model_project_id`。当前 `users` 表为：
+Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015` 至 `0025` 增加模型管理、超参数模板、训练、多数据集准备、用户大模型配置和模型操作；`0026_access_control_refactor` 重构账号与项目权限；`0027_official_model_project` 以官方只读项目替代临时模型项目；`0028_resource_activity_timestamps` 回填资源活动时间。项目子资源触碰只更新父项目 `updated_at`，不更新父项目 `version`。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -25,11 +25,11 @@ Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体�
 | `username` | 用户显示名，最长 64 字符 |
 | `username_normalized` | 小写登录名，唯一索引；确保用户名大小写不重复 |
 | `password_hash` | Argon2 密码哈希 |
-| `status` | `pending`、`active`、`rejected` 或 `disabled` |
-| `is_system_admin` | 系统管理员标记 |
+| `status` | 仅允许 `active` 或 `disabled` |
+| `is_system_admin` | 系统管理员标记；部分唯一索引保证全库最多一条 true |
+| `must_change_password` | 管理员创建或重置密码后为 true，用户成功改密后为 false |
 | `created_at` | 创建时间 |
 | `updated_at` | 最后修改时间 |
-| `reviewed_at` / `reviewed_by_id` | 最近审批/状态操作时间及管理员 |
 
 `sessions` 表为：
 
@@ -63,7 +63,7 @@ SQLite 不保留时区偏移，当前认证表按 naive UTC 持久化，API 输�
 | `role` | 仅允许 `editor` 或 `viewer` |
 | `created_at` | 加入项目时间 |
 
-owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过成员接口转移、降级或移除。创建项目时同步创建空的 `projects/<project UUID>/` 目录；`videos/` 和 `thumbnails/` 由 Worker 首次发布对应文件时创建。仅 owner 可删除项目，且项目存在 queued/running 任务时拒绝删除。删除前在项目目录生成当前 schema 的完整 `project_metadata.json`，再将目录移动到 `.deleted/projects/<project UUID>/project/`，最后删除 `projects` 记录并由外键级联删除关联数据；快照不承诺兼容未来 schema，也不提供恢复入口。
+owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过成员接口转移、降级或移除。系统管理员拥有隐式全权限，同样不写入成员表。创建项目时同步创建空的 `projects/<project UUID>/` 目录；`videos/` 和 `thumbnails/` 由 Worker 首次发布对应文件时创建。项目存在 queued/running 任务时拒绝删除。删除前在项目目录生成当前 schema 的完整 `project_metadata.json`，再将目录移动到 `.deleted/projects/<project UUID>/project/`，最后删除 `projects` 记录并由外键级联删除关联数据；快照不承诺兼容未来 schema，也不提供恢复入口。
 
 `labels` 表保存项目级目标检测类别：
 
@@ -150,10 +150,12 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 | --- | --- |
 | `id` / `name` | 模型项目 UUID 和名称 |
 | `series_type` | `archive` 或 `training` |
-| `system_key` | 可空唯一系统标识；`temporary` 对应兼容登记入口 |
+| `system_key` | 可空唯一系统标识；`official_yolo11` 对应内置官方模型项目 |
 | `created_at` | 创建时间 |
 
 `model_project_tags` 保存工作区全局标签名称，`model_project_tag_links` 以 `(model_project_id, tag_id)` 复合主键保存多对多关系。每个模型项目必须有 1–20 个标签；迁移为既有项目关联“未分类”，训练任务自动发布的项目关联“训练”。归档项目更新标签或删除后，同一事务会删除已无任何项目引用的标签记录。
+
+`model_project_memberships` 以 `(model_project_id, user_id)` 为复合主键，只保存 editor/viewer；owner 由 `model_projects.created_by_id` 推导，系统管理员为隐式访问。普通模型项目默认私有；内置官方项目不保存成员，所有 active 普通账号由运行时获得 viewer 权限，管理员获得全权限。官方项目不能增删成员或删除整个项目，管理员仍可维护其元数据和具体模型。
 
 `inference_models` 表保存全局受管推理模型：
 
@@ -169,9 +171,9 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 | `error` | 入库失败的安全错误信息 |
 | 时间字段 | 创建和更新时间 |
 
-模型属于工作区而非单个数据集项目；旧模型迁移和兼容登记模型均归入固定“临时模型项目”。
+模型属于模型项目而非数据集项目。新工作区使用固定 UUID 创建内置官方项目；升级工作区若已存在同名官方项目则保留其真实 UUID，前端统一显示业务 ID `000001`。迁移只接管同名项目，不改写其主键；早期临时项目及其测试模型被清理。
 
-`hyperparameter_templates` 保存工作区全局 YOLO Detect 训练配置：
+`hyperparameter_templates` 保存系统级或模型项目级 YOLO Detect 训练配置：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -180,11 +182,12 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 | `extra_parameters` | 经过 Detect v1 参数目录校验和规范化的扩展参数 JSON；不重复保存三项核心参数 |
 | `catalog_version` | 解析该模板所用参数目录版本，当前为 `detect-v1` |
 | `derived_from_id` | 可空派生来源；删除来源模板时保留历史关系 |
+| `model_project_id` | 用户模板所属模型项目；系统模板和迁移保留的旧模板可为空 |
 | `created_by_id` / `system_key` | 创建者和只读系统模板标记 |
 | `version` / `updated_at` | 从 1 开始的乐观版本和最近编辑时间 |
 | `created_at` / `deleted_at` | 创建时间和逻辑删除时间 |
 
-系统模板只读；用户模板仅创建者或系统管理员可原地编辑和逻辑删除。名称在逻辑删除后可复用，但模板 UUID 与派生关系不复用；不保存完整编辑历史。
+系统模板只读；项目模板按所属模型项目权限可见，需 `project.update` 才能创建、派生、编辑或逻辑删除。迁移保留的无项目旧模板继续使用创建者兜底规则。名称在逻辑删除后可复用，但模板 UUID 与派生关系不复用；不保存完整编辑历史。
 
 训练数据拆成五个层级，避免任务配置、数据准备、模型配置、每次尝试和 epoch 指标相互覆盖：
 
@@ -200,7 +203,7 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 
 任务和模型分别以 `default_dataset_mode/default_multi_dataset_config`、`dataset_mode/multi_dataset_config` 保存数据选择。单数据集快照冻结导出与项目身份、显示名、存储路径和 manifest；读取旧快照时可按导出 UUID 补全显示名但不回写冻结内容。多数据集配置冻结导出 UUID、连续目标类别顺序和精确区分大小写的来源类别映射。启动后先创建 `training_preparations`：子进程在同一文件系统的 staging 目录硬链接图片、改写 YOLO TXT 第一列并生成 `data.yaml`，校验完成后原子发布；原导出目录及其标签文件不修改。相同规范化配置可复用已发布目录。准备阶段不申请 GPU，成功后才创建并排队 initial run；失败保留安全错误和日志，可由任务级操作重试。
 
-启动成功前草稿仍可编辑。任务默认层与模型显式层使用版本 1 的 `{set,remove}` JSON 保存附加参数差异；模型模板为空时严格继承任务最终配置。启动事务读取模板最新版本、叠加覆盖并重新校验，随后冻结含模板版本和最终参数的 JSON 快照、不可变 artifact code 和 initial run。后续模板修改不影响已启动任务。`model_projects.training_task_id` 与 `inference_models.training_model_id` 都是唯一可空来源关系，确保一个训练任务最多发布一个训练项目、一个训练模型最多对应一个发布模型。
+创建训练草稿时在同一事务中创建唯一关联的 training 模型项目，任务读写继承该项目权限。启动成功前草稿仍可编辑。任务默认层与模型显式层使用版本 1 的 `{set,remove}` JSON 保存附加参数差异；模型模板为空时严格继承任务最终配置。启动事务读取模板最新版本、叠加覆盖并重新校验，随后冻结含模板版本和最终参数的 JSON 快照、不可变 artifact code 和 initial run。后续模板修改不影响已启动任务。`model_projects.training_task_id` 与 `inference_models.training_model_id` 都是唯一可空来源关系，确保一个训练任务最多对应一个训练项目、一个训练模型最多对应一个发布模型。
 
 `training_action_requests` 以 `(actor_id, action, idempotency_key)` 唯一，保存 action API 已创建的 task/run ID。它只提供请求重放保护，不替代训练状态机校验。
 
@@ -295,8 +298,8 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 | --- | --- |
 | Dataset Project | 项目身份、类型、存储位置、生命周期 |
 | User / Session | 内置账号和服务端浏览器会话 |
-| Registration State | User 的 pending、active、rejected、disabled 状态 |
-| Project Membership | owner、editor、viewer 项目权限 |
+| Account State | User 的 active/disabled 状态与首次改密标记 |
+| Project Membership | 数据集与模型项目的 owner、editor、viewer 权限 |
 | Project Label | 英文类别名、颜色、顺序、启用状态和稳定 UUID |
 | Video Asset | 来源、稳定身份、媒体元数据、业务状态、启用状态 |
 | Frame Asset | 稳定帧身份、视频关系、序号/时间、文件引用、启用状态 |
@@ -307,7 +310,7 @@ Frame 使用 `(video_id, sequence)` 唯一索引覆盖视频内排序和查找�
 | Project Setting | 类型化或受约束的项目配置 |
 | Audit Event | 认证、权限和关键资源操作记录 |
 
-系统管理员与项目角色分开。首批只实现系统管理员及 owner/editor/viewer，不预建组织、用户组或 ABAC。
+系统管理员与项目角色分开。全库最多一个系统管理员；其对所有项目的全权限由运行时推导，不写成员行。系统只实现 owner/editor/viewer 和固定权限集合，不预建组织、用户组、可配置 RBAC 或 ABAC。
 
 ## 关系与约束要求
 

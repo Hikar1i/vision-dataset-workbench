@@ -3,6 +3,17 @@ import ElementPlus from 'element-plus'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProjectSettingsView from './ProjectSettingsView.vue'
+import type { ProjectRole, ResourceAccess } from '../api/access'
+
+const access = (role: ProjectRole): ResourceAccess => ({
+  role,
+  source: role === 'owner' ? 'owner' : 'membership',
+  permissions: role === 'owner'
+    ? ['project.read', 'project.update', 'project.members.manage', 'project.delete', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute']
+    : role === 'editor'
+      ? ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute']
+      : ['project.read', 'artifact.read', 'artifact.download', 'task.read'],
+})
 
 const project = {
   id: 'project-id',
@@ -11,7 +22,7 @@ const project = {
   creator_id: 'creator-id',
   creator_username: 'creator',
   categories: [],
-  role: 'owner',
+  access: access('owner'),
   version: 1,
   created_at: '2026-07-23T00:00:00Z',
   updated_at: '2026-07-23T00:00:00Z',
@@ -27,9 +38,9 @@ const owner = {
 
 beforeEach(() => vi.restoreAllMocks())
 
-function mountView(role: 'owner' | 'editor' | 'viewer' = 'owner') {
+function mountView(role: ProjectRole = 'owner') {
   return mount(ProjectSettingsView, {
-    props: { project: { ...project, role } },
+    props: { project: { ...project, access: access(role) } },
     global: {
       plugins: [ElementPlus],
       stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } },

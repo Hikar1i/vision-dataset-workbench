@@ -1,4 +1,5 @@
 import type { FrameAnnotation } from './annotations'
+import type { ProjectRole, ResourceAccess } from './access'
 import { json } from './auth'
 import type { ProjectLabel } from './labels'
 import type { ProjectTask } from './media'
@@ -30,6 +31,7 @@ export type InferenceModel = {
   version: number
   can_manage: boolean
   can_convert: boolean
+  access: ResourceAccess
   created_at: string
   updated_at: string
   training: ModelTrainingInfo | null
@@ -60,9 +62,18 @@ export type ModelProject = {
   created_by_id: string | null
   version: number
   can_manage: boolean
+  access: ResourceAccess
   created_at: string
   updated_at: string
   tags: string[]
+}
+
+export type ModelProjectMember = {
+  id: string
+  username: string
+  status: string
+  role: ProjectRole
+  created_at: string
 }
 
 export type RemoteModelOption = {
@@ -125,6 +136,32 @@ export const updateModelProject = (
 
 export const deleteModelProject = (modelProjectId: string) =>
   json<void>(`/api/v1/model-projects/${modelProjectId}`, { method: 'DELETE' })
+
+export const listModelProjectMembers = (modelProjectId: string) =>
+  json<ModelProjectMember[]>(`/api/v1/model-projects/${modelProjectId}/members`)
+
+export const addModelProjectMember = (
+  modelProjectId: string,
+  username: string,
+  role: 'editor' | 'viewer',
+) => json<ModelProjectMember>(`/api/v1/model-projects/${modelProjectId}/members`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ username, role }),
+})
+
+export const changeModelProjectMemberRole = (
+  modelProjectId: string,
+  userId: string,
+  role: 'editor' | 'viewer',
+) => json<ModelProjectMember>(`/api/v1/model-projects/${modelProjectId}/members/${userId}`, {
+  method: 'PATCH',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ role }),
+})
+
+export const removeModelProjectMember = (modelProjectId: string, userId: string) =>
+  json<void>(`/api/v1/model-projects/${modelProjectId}/members/${userId}`, { method: 'DELETE' })
 
 export const listModelProjectModels = (modelProjectId: string) =>
   json<InferenceModel[]>(`/api/v1/model-projects/${modelProjectId}/models`)

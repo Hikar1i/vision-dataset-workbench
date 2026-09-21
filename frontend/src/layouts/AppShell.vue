@@ -13,7 +13,7 @@ import {
   Setting,
   User,
 } from "@element-plus/icons-vue";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ElNotification } from "element-plus";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 
@@ -23,16 +23,6 @@ import { listProjects, type Project } from "../api/projects";
 import { listModelProjects, type ModelProject } from "../api/models";
 import { listTrainingTasks, type TrainingTask } from "../api/training";
 import TaskCenterDrawer from "../components/TaskCenterDrawer.vue";
-import {
-  forgetProject,
-  readRecentProjects,
-  rememberProject,
-  resolveProjectShortcuts,
-} from "../navigation/recentProjects";
-import {
-  readRecentResources,
-  resolveRecentResources,
-} from "../navigation/recentResources";
 import { clearRecentRows } from "../ui/recentRows";
 import type { GlobalProjectTask } from "../api/media";
 
@@ -41,22 +31,15 @@ const router = useRouter();
 const user = ref<CurrentUser>();
 const fallbackProjects = ref<Project[]>([]);
 const activeProject = ref<Project>();
-const recentProjects = ref(readRecentProjects());
 const projectGroupOpen = ref(
   localStorage.getItem("vdm.nav-projects-open") !== "false",
 );
 const modelProjectGroupOpen = ref(
   localStorage.getItem("vdm.nav-model-projects-open") !== "false",
 );
-const recentModelProjects = ref(
-  readRecentResources("vdm.recent-model-projects"),
-);
 const fallbackModelProjects = ref<ModelProject[]>([]);
 const trainingTaskGroupOpen = ref(
   localStorage.getItem("vdm.nav-training-tasks-open") !== "false",
-);
-const recentTrainingTasks = ref(
-  readRecentResources("vdm.recent-training-tasks"),
 );
 const fallbackTrainingTasks = ref<TrainingTask[]>([]);
 const collapsed = ref(
@@ -66,12 +49,14 @@ const taskCenterOpen = ref(false);
 const taskCenterUnread = ref(false);
 const taskBellPulse = ref(false);
 let taskBellTimer: number | undefined;
+let shortcutLoadVersion = 0;
 type UserMenuCommand = "account" | "admin" | "logout";
 const capabilityNoticeKey = "vdm.gpu-capability-notice-shown";
 
-const shortcuts = computed(() =>
-  resolveProjectShortcuts(recentProjects.value, fallbackProjects.value),
-);
+const timestamp = (value: string | null | undefined) => Date.parse(value ?? "") || 0;
+const shortcuts = computed(() => [...fallbackProjects.value]
+  .sort((a, b) => timestamp(b.updated_at) - timestamp(a.updated_at))
+  .slice(0, 5));
 const sectionDestinations: Record<string, string> = {
   Overview: "/overview",
   数据集项目: "/projects",
@@ -97,15 +82,14 @@ const breadcrumbs = computed(() => {
   if (page && page !== section) items.push({ label: page });
   return items;
 });
-const modelProjectShortcuts = computed(() => {
-  return resolveRecentResources(
-    recentModelProjects.value,
-    fallbackModelProjects.value,
-  );
-});
-const trainingTaskShortcuts = computed(() =>
-  resolveRecentResources(recentTrainingTasks.value, fallbackTrainingTasks.value),
-);
+const modelProjectShortcuts = computed(() => [...fallbackModelProjects.value]
+  .sort((a, b) => timestamp(b.updated_at) - timestamp(a.updated_at))
+  .slice(0, 5));
+const trainingTaskShortcuts = computed(() => [...fallbackTrainingTasks.value]
+  .sort((a, b) => (
+    timestamp(b.last_run_at ?? b.updated_at) - timestamp(a.last_run_at ?? a.updated_at)
+  ))
+  .slice(0, 5));
 const sidebarExpanded = computed(() => !collapsed.value);
 
 function toggleSidebar() {
@@ -135,11 +119,13 @@ function toggleTrainingTaskGroup() {
 
 function projectLoaded(project: Project) {
   activeProject.value = project;
-  rememberProject(project);
+  fallbackProjects.value = [
+    project,
+    ...fallbackProjects.value.filter((item) => item.id !== project.id),
+  ];
 }
 
 function projectDeleted(projectId: string) {
-  recentProjects.value = forgetProject(projectId);
   fallbackProjects.value = fallbackProjects.value.filter(
     (project) => project.id !== projectId,
   );
@@ -193,6 +179,24 @@ function taskSettled(tasks: GlobalProjectTask[]) {
     });
   }
   window.dispatchEvent(new Event("vdm:tasks-settled"));
+  void refreshResourceShortcuts();
+}
+
+async function refreshResourceShortcuts() {
+  const version = ++shortcutLoadVersion;
+  try {
+    const [projects, modelProjects, trainingTasks] = await Promise.all([
+      listProjects(1, 5),
+      listModelProjects(),
+      listTrainingTasks(),
+    ]);
+    if (version !== shortcutLoadVersion) return;
+    fallbackProjects.value = projects.items;
+    fallbackModelProjects.value = modelProjects;
+    fallbackTrainingTasks.value = trainingTasks;
+  } catch {
+    // 侧栏刷新失败时保留上次成功数据，主页面负责呈现具体错误。
+  }
 }
 
 async function showCapabilityWarning() {
@@ -217,18 +221,14 @@ async function showCapabilityWarning() {
 }
 
 onMounted(async () => {
-  const [currentUser, projects, modelProjects, trainingTasks] = await Promise.all([
+  const [currentUser] = await Promise.all([
     getCurrentUser(),
-    listProjects(1, 5),
-    listModelProjects(),
-    listTrainingTasks(),
+    refreshResourceShortcuts(),
   ]);
   user.value = currentUser;
-  fallbackProjects.value = projects.items;
-  fallbackModelProjects.value = modelProjects;
-  fallbackTrainingTasks.value = trainingTasks;
   await showCapabilityWarning();
 });
+watch(() => route.fullPath, () => void refreshResourceShortcuts());
 onUnmounted(() => {
   if (taskBellTimer !== undefined) window.clearTimeout(taskBellTimer);
 });

@@ -14,10 +14,12 @@ from vision_dataset_workbench.capabilities import (
     SystemCapabilities,
 )
 from vision_dataset_workbench.database import create_workspace_database, make_engine
+from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.models import (
     InferenceModel,
     ModelArtifact,
     ModelProject,
+    ModelProjectMembership,
     Task,
     User,
 )
@@ -29,6 +31,8 @@ from vision_dataset_workbench.services.model_artifacts import (
     ModelArtifactForbidden,
     ModelArtifactService,
 )
+from vision_dataset_workbench.services.models import ModelService
+from vision_dataset_workbench.services.projects import ProjectService
 
 
 def ready_capabilities():
@@ -77,6 +81,11 @@ def setup_service(tmp_path):
         )
         database.flush()
         database.add(
+            ModelProjectMembership(
+                model_project_id="project-id", user_id="viewer", role="viewer"
+            )
+        )
+        database.add(
             InferenceModel(
                 id="model-id",
                 model_project_id="project-id",
@@ -95,10 +104,14 @@ def setup_service(tmp_path):
         viewer = database.get(User, "viewer")
         database.expunge(owner)
         database.expunge(viewer)
+    settings = RuntimeSettings(home=tmp_path, workspace=workspace)
+    projects = ProjectService(engine, settings, workspace)
+    models = ModelService(engine, settings, workspace, projects)
     service = ModelArtifactService(
         engine,
         workspace,
         ready_capabilities(),
+        models,
         fingerprint=lambda: {"tensorrt": "11.3.0", "cuda_runtime": "12.8.1"},
     )
     return engine, service, owner, viewer

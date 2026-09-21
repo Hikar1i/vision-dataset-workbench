@@ -28,13 +28,22 @@ const parsing = ref(false)
 const submitting = ref(false)
 const error = ref('')
 
+function remoteTitle(item: RemotePreview) {
+  return item.title.trim() || item.external_id.trim() || item.url
+}
+
 const candidates = computed(() => remoteItems.value.map((item) => ({
   key: item.url,
-  title: item.title,
+  title: remoteTitle(item),
+  source: item.extractor.trim() || 'remote',
   detail: item.playlist
-    ? `${item.playlist} · #${item.playlist_index ?? '-'}`
-    : item.extractor,
+    ? `${item.playlist} · #${item.playlist_index ?? '-'} · ${item.url}`
+    : item.url,
 })))
+const allRemoteSelected = computed(() => candidates.value.length > 0
+  && candidates.value.every((item) => selected.value.includes(item.key)))
+const someRemoteSelected = computed(() => candidates.value
+  .some((item) => selected.value.includes(item.key)))
 const canSubmit = computed(() => tab.value === 'local'
   ? Boolean(selectedLocalDirectory.value || selectedLocalFiles.value.length)
   : Boolean(selected.value.length))
@@ -44,6 +53,18 @@ const submitLabel = computed(() => {
     ? '导入选中目录下的视频'
     : `导入选中的 ${selectedLocalFiles.value.length} 个视频`
 })
+
+function toggleRemote(key: string) {
+  selected.value = selected.value.includes(key)
+    ? selected.value.filter((item) => item !== key)
+    : [...selected.value, key]
+}
+
+function toggleAllRemote() {
+  selected.value = allRemoteSelected.value
+    ? []
+    : candidates.value.map((item) => item.key)
+}
 
 async function parse() {
   parsing.value = true
@@ -82,7 +103,7 @@ async function submit() {
         props.projectId,
         remoteItems.value
           .filter((item) => selected.value.includes(item.url))
-          .map((item) => ({ title: item.title, url: item.url })),
+          .map((item) => ({ title: remoteTitle(item), url: item.url })),
       )
     }
     emit('submitted', batch)
@@ -144,13 +165,62 @@ watch(tab, () => {
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
 
     <section v-if="tab === 'remote' && candidates.length" class="candidate-panel">
-      <header><strong>选择要导入的视频</strong><span>{{ selected.length }}/{{ candidates.length }}</span></header>
-      <el-checkbox-group v-model="selected">
-        <div v-for="item in candidates" :key="item.key" class="candidate">
-          <el-checkbox :value="item.key" />
-          <span><strong>{{ item.title }}</strong><small>{{ item.detail }}</small></span>
+      <div class="candidate-status">
+        已解析 {{ candidates.length }} 个视频，已选择 {{ selected.length }}/{{ candidates.length }}
+      </div>
+      <div class="candidate-table">
+        <div class="candidate-row candidate-header">
+          <div class="selection-cell">
+            <el-checkbox
+              :model-value="allRemoteSelected"
+              :indeterminate="someRemoteSelected && !allRemoteSelected"
+              data-test="select-all-remote"
+              aria-label="选择全部远程视频"
+              @click="toggleAllRemote"
+            />
+          </div>
+          <div>来源</div>
+          <div>视频标题 / 地址</div>
+          <div class="action-cell">操作</div>
         </div>
-      </el-checkbox-group>
+        <div class="candidate-body">
+          <div
+            v-for="item in candidates"
+            :key="item.key"
+            class="candidate-row candidate"
+            :class="{ selected: selected.includes(item.key) }"
+            :data-test="`remote-candidate-${item.key}`"
+          >
+            <div class="selection-cell">
+              <el-checkbox
+                :model-value="selected.includes(item.key)"
+                :aria-label="`选择远程视频 ${item.title}`"
+                @click="toggleRemote(item.key)"
+              />
+            </div>
+            <span class="candidate-source" :title="item.source">{{ item.source }}</span>
+            <button
+              type="button"
+              class="candidate-name"
+              :title="item.title"
+              @click="toggleRemote(item.key)"
+            >
+              <strong>{{ item.title }}</strong>
+              <small :title="item.detail">{{ item.detail }}</small>
+            </button>
+            <div class="action-cell">
+              <VButton
+                variant="primary"
+                size="sm"
+                :data-test="`toggle-remote-${item.key}`"
+                @click="toggleRemote(item.key)"
+              >
+                {{ selected.includes(item.key) ? '已选择' : '选择' }}
+              </VButton>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <template #footer>
@@ -180,53 +250,109 @@ watch(tab, () => {
 
 .candidate-panel {
   margin-top: 20px;
+  overflow: hidden;
   border: 1px solid var(--vdw-line);
+  border-radius: 8px;
+  background: #fff;
 }
 
-.candidate-panel > header,
-.candidate {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-}
-
-.candidate-panel > header {
-  justify-content: space-between;
-  padding: 12px 15px;
-  background: var(--vdw-surface-2);
-  border-bottom: 1px solid var(--vdw-line);
-}
-
-.candidate-panel > header span {
+.candidate-status {
+  min-height: 34px;
+  padding: 8px 15px;
   color: var(--vdw-ink-2);
   font-size: 13px;
-}
-
-.el-checkbox-group {
-  max-height: 286px;
-  overflow: auto;
-}
-
-.candidate {
-  padding: 11px 15px;
+  background: #fff;
   border-bottom: 1px solid var(--vdw-surface-3);
 }
 
-.candidate > span {
-  display: grid;
-  min-width: 0;
+.candidate-table {
+  --columns: 42px 100px minmax(0, 1fr) 112px;
 }
 
-.candidate small {
-  overflow: hidden;
+.candidate-row {
+  display: grid;
+  grid-template-columns: var(--columns);
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 0 15px;
+  font-size: 14px;
+  line-height: 1.4;
+  border-bottom: 1px solid var(--vdw-surface-3);
+}
+
+.candidate-header {
+  min-height: 40px;
   color: var(--vdw-ink-2);
+  font-size: 13px;
+  font-weight: 650;
+  background: var(--vdw-surface-2);
+}
+
+.candidate-body {
+  height: clamp(180px, 28vh, 300px);
+  overflow: auto;
+}
+
+.candidate:hover,
+.candidate.selected {
+  background: var(--vdw-accent-soft);
+}
+
+.selection-cell {
+  display: flex;
+  justify-content: center;
+}
+
+.candidate-source {
+  overflow: hidden;
+  color: var(--vdw-accent);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.candidate-name {
+  display: grid;
+  min-width: 0;
+  padding: 7px 0;
+  color: var(--vdw-ink);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.candidate-name strong,
+.candidate-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-name small {
+  color: var(--vdw-ink-2);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.action-cell {
+  text-align: right;
 }
 
 @media (max-width: 620px) {
   .remote-entry {
     grid-template-columns: 1fr;
+  }
+
+  .candidate-table {
+    --columns: 34px 62px minmax(0, 1fr) 72px;
+  }
+
+  .candidate-row {
+    gap: 8px;
+    padding: 0 10px;
   }
 }
 </style>

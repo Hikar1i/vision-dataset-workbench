@@ -71,7 +71,13 @@ describe('ModelInferenceView', () => {
   })
 
   it('opens the newly saved result in the visible history workspace', async () => {
-    mocks.getModel.mockResolvedValue({ id: 'm1', name: '模型 1', model_code: 'MODEL-1', status: 'ready', can_manage: true })
+    mocks.getModel.mockResolvedValue({
+      id: 'm1', name: '模型 1', model_code: 'MODEL-1', status: 'ready', can_manage: true,
+      access: {
+        role: 'owner', source: 'owner',
+        permissions: ['project.read', 'project.update', 'project.members.manage', 'project.delete', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
+      },
+    })
     mocks.listArtifacts.mockResolvedValue([])
     mocks.getCurrent.mockResolvedValue(currentRun)
     mocks.listSaved.mockResolvedValueOnce([]).mockResolvedValue([savedRun])

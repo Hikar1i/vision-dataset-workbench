@@ -20,6 +20,7 @@ from .models import (
     Task,
     Video,
 )
+from .services.projects import touch_project
 
 
 class DatasetExportTaskCanceled(RuntimeError):
@@ -324,6 +325,7 @@ def execute_dataset_export(
             task.updated_at = completed_at
             task.lease_owner = None
             task.lease_expires_at = None
+            touch_project(database, record.project_id, at=completed_at)
             database.commit()
     except Exception:
         shutil.rmtree(target, ignore_errors=True)

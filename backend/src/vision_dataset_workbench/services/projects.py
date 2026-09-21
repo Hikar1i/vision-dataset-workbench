@@ -27,8 +27,14 @@ from ..models import (
     Video,
 )
 from .auth import normalize_username
+from .authorization import (
+    AccessContext,
+    ProjectRole,
+    access_for_role,
+    administrator_access,
+    require_permission,
+)
 
-ProjectRole = Literal["owner", "editor", "viewer"]
 MemberRole = Literal["editor", "viewer"]
 
 
@@ -51,7 +57,7 @@ class InvalidProjectMember(ValueError):
 @dataclass(frozen=True)
 class ProjectView:
     project: Project
-    role: ProjectRole
+    access: AccessContext
     creator_username: str
     categories: tuple[str, ...]
 
@@ -65,6 +71,17 @@ class MemberView:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def touch_project(
+    database: Session, project_id: str, *, at: datetime | None = None
+) -> None:
+    database.execute(
+        update(Project)
+        .where(Project.id == project_id)
+        .values(updated_at=at or _utc_now())
+        .execution_options(synchronize_session=False)
+    )
 
 
 def _project_text(name: str, description: str) -> tuple[str, str]:
@@ -130,7 +147,7 @@ class ProjectService:
             raise
         return ProjectView(
             project=project,
-            role="owner",
+            access=access_for_role("owner"),
             creator_username=actor.username,
             categories=(),
         )
@@ -141,7 +158,7 @@ class ProjectService:
         with self._session_factory() as database:
             projects_query = select(Project)
             total_query = select(func.count()).select_from(Project)
-            if not (self.settings.app_mode == "single" and actor.is_system_admin):
+            if not actor.is_system_admin:
                 membership_ids = select(ProjectMembership.project_id).where(
                     ProjectMembership.user_id == actor.id
                 )
@@ -199,8 +216,11 @@ class ProjectService:
         name, description = _project_text(name, description)
         with self._session_factory() as database:
             current = self._authorized_view(database, actor, project_id)
-            if current.role == "viewer":
-                raise ProjectForbidden("project edit permission required")
+            require_permission(
+                current.access,
+                "project.update",
+                ProjectForbidden("project edit permission required"),
+            )
             result = database.execute(
                 update(Project)
                 .where(Project.id == project_id, Project.version == version)
@@ -226,7 +246,9 @@ class ProjectService:
         destination = self.workspace / ".deleted" / "projects" / project_id / "project"
         metadata = source / "project_metadata.json"
         with self._session_factory() as database:
-            project = self._require_owner(database, actor, project_id)
+            project = self._require_permission(
+                database, actor, project_id, "project.delete"
+            )
             if database.scalar(
                 select(func.count())
                 .select_from(Task)
@@ -395,22 +417,26 @@ class ProjectService:
         except ValueError:
             raise InvalidProjectMember("active user not found") from None
         with self._session_factory() as database:
-            project = self._require_owner(database, actor, project_id)
+            project = self._require_permission(
+                database, actor, project_id, "project.members.manage"
+            )
             user = database.scalar(
                 select(User).where(User.username_normalized == normalized)
             )
-            if user is None or user.status != "active":
+            if user is None or user.status != "active" or user.is_system_admin:
                 raise InvalidProjectMember("active user not found")
             if user.id == project.creator_id:
                 raise InvalidProjectMember("project creator is already the owner")
+            now = self._now()
             membership = ProjectMembership(
                 project_id=project_id,
                 user_id=user.id,
                 role=accepted_role,
-                created_at=self._now(),
+                created_at=now,
             )
             try:
                 database.add(membership)
+                touch_project(database, project_id, at=now)
                 database.commit()
             except IntegrityError as exc:
                 database.rollback()
@@ -426,7 +452,9 @@ class ProjectService:
     ) -> MemberView:
         accepted_role = _member_role(role)
         with self._session_factory() as database:
-            project = self._require_owner(database, actor, project_id)
+            project = self._require_permission(
+                database, actor, project_id, "project.members.manage"
+            )
             if user_id == project.creator_id:
                 raise InvalidProjectMember("project owner cannot be changed")
             membership = database.get(ProjectMembership, (project_id, user_id))
@@ -434,6 +462,7 @@ class ProjectService:
             if membership is None or user is None:
                 raise InvalidProjectMember("project member not found")
             membership.role = accepted_role
+            touch_project(database, project_id, at=self._now())
             database.commit()
             return MemberView(
                 user=user, role=accepted_role, created_at=membership.created_at
@@ -441,19 +470,31 @@ class ProjectService:
 
     def remove_member(self, actor: User, project_id: str, user_id: str) -> None:
         with self._session_factory() as database:
-            project = self._require_owner(database, actor, project_id)
+            project = self._require_permission(
+                database, actor, project_id, "project.members.manage"
+            )
             if user_id == project.creator_id:
                 raise InvalidProjectMember("project owner cannot be removed")
             membership = database.get(ProjectMembership, (project_id, user_id))
             if membership is None:
                 raise InvalidProjectMember("project member not found")
             database.delete(membership)
+            touch_project(database, project_id, at=self._now())
             database.commit()
 
-    def _require_owner(self, database: Session, actor: User, project_id: str) -> Project:
+    def _require_permission(
+        self,
+        database: Session,
+        actor: User,
+        project_id: str,
+        permission,
+    ) -> Project:
         view = self._authorized_view(database, actor, project_id)
-        if view.role != "owner":
-            raise ProjectForbidden("project owner permission required")
+        require_permission(
+            view.access,
+            permission,
+            ProjectForbidden(f"{permission} permission required"),
+        )
         return view.project
 
     def _authorized_view(
@@ -462,8 +503,8 @@ class ProjectService:
         project = database.get(Project, project_id)
         if project is None:
             raise ProjectNotFound("project not found")
-        role = self._role(database, actor, project)
-        if role is None:
+        access = self._access(database, actor, project)
+        if access is None:
             raise ProjectNotFound("project not found")
         creator_username = database.scalar(
             select(User.username).where(User.id == project.creator_id)
@@ -471,7 +512,7 @@ class ProjectService:
         assert creator_username is not None
         return ProjectView(
             project=project,
-            role=role,
+            access=access,
             creator_username=creator_username,
             categories=self._categories(database, project.id),
         )
@@ -483,15 +524,15 @@ class ProjectService:
         project: Project,
         categories: tuple[str, ...] | None = None,
     ) -> ProjectView:
-        role = self._role(database, actor, project)
-        assert role is not None
+        access = self._access(database, actor, project)
+        assert access is not None
         creator_username = database.scalar(
             select(User.username).where(User.id == project.creator_id)
         )
         assert creator_username is not None
         return ProjectView(
             project=project,
-            role=role,
+            access=access,
             creator_username=creator_username,
             categories=(
                 categories
@@ -513,14 +554,14 @@ class ProjectService:
             ).all()
         )
 
-    def _role(
+    def _access(
         self, database: Session, actor: User, project: Project
-    ) -> ProjectRole | None:
-        if self.settings.app_mode == "single" and actor.is_system_admin:
-            return "owner"
+    ) -> AccessContext | None:
         if project.creator_id == actor.id:
-            return "owner"
+            return access_for_role("owner")
+        if actor.is_system_admin:
+            return administrator_access()
         membership = database.get(ProjectMembership, (project.id, actor.id))
         if membership is None:
             return None
-        return membership.role
+        return access_for_role(membership.role)

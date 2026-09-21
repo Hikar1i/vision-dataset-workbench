@@ -109,7 +109,6 @@ uv run python -c "from vision_dataset_workbench.database import sqlite_supports_
 
 ```text
 APP_MODE=multi|single
-REGISTRATION_ENABLED=false|true
 VDW_WORKSPACE=<workspace-path>
 YTDLP_PROXY=<optional-proxy-url>
 YTDLP_COOKIE_FILE=<optional-netscape-cookie-file>
@@ -124,7 +123,7 @@ VDW_CREDENTIAL_ENCRYPTION_KEY=<optional-fernet-key>
 - yt-dlp 默认不使用代理或 Cookie；仅在实例确有需要时配置上述两个变量。`YTDLP_COOKIE_FILE` 必须是 yt-dlp 可读取的 Netscape 格式文件，不是 Chrome/Firefox 的 SQLite 配置目录。推荐由运维使用专用浏览器配置登录共享下载账号后导出，API 与 Worker 读取同一份只读文件；本地文件权限使用 `0600`，容器使用 Secret 或只读单文件挂载。Cookie 更新后无需把浏览器本身放入容器。
 - `VDW_CREDENTIAL_ENCRYPTION_KEY` 可显式覆盖用于加密用户远程 API 密钥的 Fernet 密钥。未配置时，初始化后的 API 会自动创建 `<workspace>/config/credential.key`（目录权限 `0700`、文件权限 `0600`），API 与 Worker 从同一工作区读取，因此无需用户手工维护。显式配置时两者仍必须一致。
 
-上述六个变量均已实现。布尔值只接受 `true` 或 `false`；`APP_MODE=single` 与 `REGISTRATION_ENABLED=true` 同时出现会使应用启动失败。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
+上述五个变量均已实现。系统不再读取 `REGISTRATION_ENABLED`，也不开放注册。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
 
 管理员忘记密码时，先停止 API，再在终端交互式重置；密码不会出现在命令参数中：
 
@@ -147,7 +146,7 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 | Tasks | Worker 并发、租约、重试、超时 |
 | Media | FFmpeg/ffprobe/yt-dlp 路径与限制 |
 | Web | 绑定地址、前端来源和 Cookie 安全属性 |
-| Auth | 运行模式、注册开关和 Session 生命周期 |
+| Auth | 运行模式、管理员创建账号、首次改密和 Session 生命周期 |
 | GPU | 已实现启动时运行时能力检测、2 秒动态显存遥测、显卡选择、每 GPU 串行训练 lane 和跨 GPU 并行；不支持同卡多模型并行或单模型多 GPU |
 
 本地示例配置只能包含无敏感默认值；真实密钥通过未提交文件或密钥管理服务注入。

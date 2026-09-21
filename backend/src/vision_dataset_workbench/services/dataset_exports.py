@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..dataset_export import safe_export_name
 from ..models import DatasetExport, Frame, ProjectLabel, SamplingPlan, Task, User, Video
-from .projects import ProjectForbidden, ProjectService
+from .projects import ProjectForbidden, ProjectService, touch_project
 
 
 class DatasetExportNotFound(ValueError):
@@ -77,7 +77,7 @@ class DatasetExportService:
         train_ratio: float,
         labels: list[ExportLabelInput],
     ) -> DatasetExport:
-        if self.projects.get_project(actor, project_id).role == "viewer":
+        if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         clean_name = name.strip()
         if not 1 <= len(clean_name) <= 128 or not safe_export_name(clean_name):
@@ -165,6 +165,7 @@ class DatasetExportService:
                 database.add(task)
                 database.flush()
                 database.add(record)
+                touch_project(database, project_id, at=now)
                 database.commit()
             except IntegrityError as exc:
                 database.rollback()
@@ -224,7 +225,7 @@ class DatasetExportService:
         return record, self._managed_directory(record)
 
     def delete(self, actor: User, project_id: str, export_id: str) -> None:
-        if self.projects.get_project(actor, project_id).role == "viewer":
+        if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         with self._session_factory() as database:
             record = database.scalar(
@@ -260,7 +261,9 @@ class DatasetExportService:
                     suffix += 1
                 os.replace(source, destination)
                 record.storage_path = destination.relative_to(self.workspace).as_posix()
-            record.deleted_at = self._now()
+            now = self._now()
+            record.deleted_at = now
+            touch_project(database, project_id, at=now)
             try:
                 database.commit()
             except Exception:

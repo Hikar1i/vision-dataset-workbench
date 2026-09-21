@@ -262,11 +262,11 @@ def test_private_inference_and_active_evaluation_tasks_are_not_globally_visible(
         session.commit()
 
     outsider_ids = {item.task.id for item in service.list_visible_tasks(actors["outsider"], page=1, page_size=20)[0]}
-    assert outsider_ids == {"shared-evaluation"}
+    assert outsider_ids == set()
     viewer_ids = {item.task.id for item in service.list_visible_tasks(actors["viewer"], page=1, page_size=20)[0]}
-    assert viewer_ids == {"private-inference", "active-evaluation", "shared-evaluation"}
+    assert viewer_ids == {"private-inference"}
     owner_ids = {item.task.id for item in service.list_visible_tasks(actors["owner"], page=1, page_size=20)[0]}
-    assert owner_ids == viewer_ids
+    assert owner_ids == {"active-evaluation", "shared-evaluation"}
     engine.dispose()
 
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CopyDocument, Delete, Edit, Plus, View } from '@element-plus/icons-vue'
+import { CopyDocument, Delete, Edit, Operation, Plus, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -66,7 +66,7 @@ onMounted(load)
 
 <template>
   <main class="content-page">
-    <PageHeader title="超参数模板" kind="hyperparameters">
+    <PageHeader title="超参数模板" kind="hyperparameters" :icon="Operation">
       <template #meta><span data-test="page-stat">{{ templates.length }} 个模板</span></template>
       <template #actions>
         <VButton variant="primary" @click="router.push('/hyperparameter-templates/new')">

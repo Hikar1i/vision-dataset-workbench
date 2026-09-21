@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from vision_dataset_workbench.capabilities import GpuDevice
 from vision_dataset_workbench.database import create_workspace_database, make_engine
+from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.model_evaluation_task import execute_model_evaluation
 from vision_dataset_workbench.models import (
     EvaluationDataset,
@@ -19,6 +20,8 @@ from vision_dataset_workbench.models import (
 )
 from vision_dataset_workbench.services.gpu_leases import GpuLeaseService
 from vision_dataset_workbench.services.model_evaluations import ModelEvaluationService
+from vision_dataset_workbench.services.models import ModelService
+from vision_dataset_workbench.services.projects import ProjectService
 
 
 def setup(tmp_path):
@@ -81,7 +84,10 @@ def setup(tmp_path):
         database.commit()
         owner = database.get(User, "owner")
         database.expunge(owner)
-    return engine, workspace, ModelEvaluationService(engine, workspace), owner
+    settings = RuntimeSettings(home=tmp_path, workspace=workspace)
+    projects = ProjectService(engine, settings, workspace)
+    models = ModelService(engine, settings, workspace, projects)
+    return engine, workspace, ModelEvaluationService(engine, workspace, models=models), owner
 
 
 def test_evaluation_remaps_class_order_and_persists_metrics(tmp_path, monkeypatch):

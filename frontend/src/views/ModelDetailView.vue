@@ -3,6 +3,7 @@ import { ElMessage } from 'element-plus'
 import { ArrowDown, CopyDocument, DataAnalysis, Download, Operation, VideoCamera } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { can } from '../api/access'
 
 import {
   getInferenceModel,
@@ -44,7 +45,9 @@ const parameterText = computed(() => JSON.stringify(model.value?.parameters ?? {
 
 const movableProjects = computed(() =>
   projects.value.filter(
-    (item) => item.series_type === 'archive' && item.can_manage && !item.system_key,
+    (item) => item.series_type === 'archive'
+      && can(item.access, 'project.update')
+      && (!item.system_key || item.id === model.value?.model_project_id),
   ),
 )
 
@@ -147,16 +150,16 @@ onMounted(load)
         <VTag :tone="status.tone">{{ status.label }}</VTag>
       </template>
       <template #actions>
-        <VButton v-if="model?.status === 'ready'" :href="`/model-projects/${route.params.id}/models/${modelId}/inference?source=detail`">
+        <VButton v-if="model?.status === 'ready' && can(model.access, 'task.execute')" :href="`/model-projects/${route.params.id}/models/${modelId}/inference?source=detail`">
           <template #icon><el-icon><VideoCamera /></el-icon></template>在线推理
         </VButton>
-        <VButton v-if="model?.status === 'ready'" :href="`/model-projects/${route.params.id}/evaluations?modelId=${modelId}&source=detail`">
+        <VButton v-if="model?.status === 'ready' && can(model.access, 'task.execute')" :href="`/model-projects/${route.params.id}/evaluations?modelId=${modelId}&source=detail`">
           <template #icon><el-icon><DataAnalysis /></el-icon></template>在线评估
         </VButton>
-        <VButton v-if="model?.can_convert" @click="artifactDialogOpen = true">
+        <VButton v-if="can(model?.access, 'task.execute')" @click="artifactDialogOpen = true">
           <template #icon><el-icon><Operation /></el-icon></template>格式转换
         </VButton>
-        <div v-if="model?.status === 'ready'" class="download-split">
+        <div v-if="model?.status === 'ready' && can(model.access, 'artifact.download')" class="download-split">
           <VButton :href="modelDownloadUrl(model.id)">
             <template #icon><el-icon><Download /></el-icon></template>下载 .pt
           </VButton>
@@ -177,7 +180,7 @@ onMounted(load)
             </template>
           </el-dropdown>
         </div>
-        <VButton v-if="model?.can_manage" variant="primary" @click="edit">编辑模型</VButton>
+        <VButton v-if="can(model?.access, 'project.update')" variant="primary" @click="edit">编辑模型</VButton>
       </template>
     </PageHeader>
 
@@ -196,7 +199,7 @@ onMounted(load)
 
         <VPanel title="转换产物">
           <template #actions>
-            <VButton v-if="model.can_convert" size="sm" @click="artifactDialogOpen = true">
+            <VButton v-if="can(model.access, 'task.execute')" size="sm" @click="artifactDialogOpen = true">
               <template #icon><el-icon><Operation /></el-icon></template>管理转换
             </VButton>
           </template>

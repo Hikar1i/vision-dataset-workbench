@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from ..models import ProjectLabel, User
-from .projects import ProjectForbidden, ProjectService
+from .projects import ProjectForbidden, ProjectService, touch_project
 
 
 class LabelNotFound(ValueError):
@@ -129,6 +129,7 @@ class LabelService:
             )
             try:
                 database.add(label)
+                touch_project(database, project_id, at=now)
                 database.commit()
             except IntegrityError as exc:
                 database.rollback()
@@ -157,7 +158,8 @@ class LabelService:
             values["enabled"] = changes.enabled
         if not values:
             raise InvalidLabel("at least one label field must be changed")
-        values.update(updated_at=_utc_now(), version=ProjectLabel.version + 1)
+        now = _utc_now()
+        values.update(updated_at=now, version=ProjectLabel.version + 1)
 
         with self._session_factory() as database:
             current = database.scalar(
@@ -178,6 +180,7 @@ class LabelService:
                 if result.rowcount != 1:
                     database.rollback()
                     raise LabelConflict("label was modified by another user")
+                touch_project(database, project_id, at=now)
                 database.commit()
                 database.expire_all()
             except IntegrityError as exc:
@@ -207,6 +210,7 @@ class LabelService:
                 label.sort_order = sort_order
                 label.version += 1
                 label.updated_at = now
+            touch_project(database, project_id, at=now)
             database.commit()
             return [by_id[label_id] for label_id in label_ids]
 
@@ -243,8 +247,9 @@ class LabelService:
                     item.sort_order = sort_order
                     item.version += 1
                     item.updated_at = now
+            touch_project(database, project_id, at=now)
             database.commit()
 
     def _require_write(self, actor: User, project_id: str) -> None:
-        if self.projects.get_project(actor, project_id).role == "viewer":
+        if not self.projects.get_project(actor, project_id).access.allows("project.update"):
             raise ProjectForbidden("project edit permission required")

@@ -83,10 +83,14 @@ def test_project_creation_and_private_lists(tmp_path):
 
     assert created.status_code == duplicate_name.status_code == 201
     assert created.json()["name"] == "Same name"
-    assert created.json()["role"] == "owner"
+    assert created.json()["access"]["role"] == "owner"
     assert creator.get("/api/v1/projects").json()["total"] == 2
     assert outsider.get("/api/v1/projects").json()["total"] == 0
-    assert admin.get("/api/v1/projects").json()["total"] == 0
+    assert admin.get("/api/v1/projects").json()["total"] == 2
+    admin_access = admin.get(f"/api/v1/projects/{project_id}").json()["access"]
+    assert admin_access["role"] is None
+    assert admin_access["source"] == "system_admin"
+    assert "project.delete" in admin_access["permissions"]
     assert outsider.get(f"/api/v1/projects/{project_id}").status_code == 404
 
 
@@ -166,7 +170,7 @@ def test_editor_updates_viewer_reads_and_version_conflicts(tmp_path):
 
     assert updated.status_code == 200
     assert updated.json()["version"] == 2
-    assert viewer.get(f"/api/v1/projects/{project_id}").json()["role"] == "viewer"
+    assert viewer.get(f"/api/v1/projects/{project_id}").json()["access"]["role"] == "viewer"
     assert denied.status_code == 403
     assert stale.status_code == 409
 
@@ -262,5 +266,7 @@ def test_single_mode_admin_has_owner_equivalent_access(tmp_path):
     )
     admin = client_for(single_app, "admin")
 
-    assert admin.get(f"/api/v1/projects/{project_id}").json()["role"] == "owner"
+    access = admin.get(f"/api/v1/projects/{project_id}").json()["access"]
+    assert access["role"] is None
+    assert access["source"] == "system_admin"
     assert add_member(admin, project_id, "viewer", "viewer").status_code == 201
