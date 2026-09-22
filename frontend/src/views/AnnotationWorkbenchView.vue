@@ -953,7 +953,7 @@ watch(reuseLabel, (reuse) => {
       <button type="button" title="放大" @click="canvasRef?.zoomBy(1.1)">
         <el-icon><ZoomIn /></el-icon>
       </button>
-      <button data-test="drag-to-draw-toggle" class="tool-toggle-start" :class="{ active: dragToDraw }" type="button" title="拖拽模式：按住左键拖动并在松开时完成拉框" aria-label="拖拽模式" :aria-pressed="dragToDraw" :disabled="batchActive" @click="dragToDraw = !dragToDraw">
+      <button data-test="drag-to-draw-toggle" class="tool-toggle-start" :class="{ active: dragToDraw }" type="button" title="拖拽拉框：按住左键拖动并在松开时完成拉框" aria-label="拖拽模式" :aria-pressed="dragToDraw" :disabled="batchActive" @click="dragToDraw = !dragToDraw">
         <el-icon><Mouse /></el-icon>
       </button>
       <button data-test="reuse-label-toggle" :class="{ active: reuseLabel }" type="button" title="标签沿用：新标注框沿用上次选择的类别" aria-label="标签沿用" :aria-pressed="reuseLabel" :disabled="batchActive" @click="reuseLabel = !reuseLabel">
@@ -1160,7 +1160,7 @@ watch(reuseLabel, (reuse) => {
   <el-dialog v-model="shortcutsOpen" title="快捷键操作指南" width="460px" append-to-body>
     <dl class="shortcut-list" data-test="shortcut-list">
       <dt>A / D</dt><dd>上一张 / 下一张</dd><dt>R</dt><dd>新建矩形框</dd>
-      <dt>Space</dt><dd>按住进入拖拽模式</dd><dt>Ctrl + 滚轮</dt><dd>缩放图像</dd>
+      <dt>Space</dt><dd>按住进入画布拖拽模式</dd><dt>Ctrl + 滚轮</dt><dd>缩放图像</dd>
       <dt>Ctrl + Z</dt><dd>撤销</dd><dt>Ctrl + Shift + Z</dt><dd>重做</dd>
       <dt>Delete</dt><dd>删除选中标注框</dd>
       <dt>拖动四角</dt><dd>自由调整标注框宽高</dd>
