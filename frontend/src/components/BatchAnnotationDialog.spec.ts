@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import BatchAnnotationDialog from './BatchAnnotationDialog.vue'
 import AutoAnnotationCategorySelect from './AutoAnnotationCategorySelect.vue'
+import XAnyLabelingSettingsDialog from './XAnyLabelingSettingsDialog.vue'
 
 const mocks = vi.hoisted(() => ({
   listProjects: vi.fn(), listModels: vi.fn(), listRemote: vi.fn(), getSetting: vi.fn(),
@@ -124,5 +125,66 @@ describe('BatchAnnotationDialog', () => {
     expect(wrapper.text()).toContain('类别列表加载失败，可继续输入新类别。')
     expect(wrapper.getComponent(AutoAnnotationCategorySelect).props('labels')).toEqual([])
     expect(wrapper.getComponent(AutoAnnotationCategorySelect).props('disabled')).toBe(false)
+  })
+
+  it('expands All to enabled project labels for X-AnyLabeling text-prompt tasks', async () => {
+    const wrapper = mountDialog('unannotated')
+    await flushPromises()
+    wrapper.getComponent(XAnyLabelingSettingsDialog).vm.$emit('saved', {
+      configured: true,
+      server_url: 'http://127.0.0.1:44444',
+      has_api_key: false,
+      available: true,
+    }, [{
+      key: '["remote","grounding"]',
+      model_id: 'remote',
+      task_id: 'grounding',
+      name: 'Remote / Grounding',
+      batch_processing_mode: 'text_prompt',
+    }])
+    await flushPromises()
+
+    await wrapper.get('[data-test="annotation-create-task"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.create).toHaveBeenCalledWith(
+      'project-id',
+      ['video-new'],
+      expect.objectContaining({
+        source: 'xanylabeling',
+        categories: ['person'],
+      }),
+      'unannotated',
+      false,
+    )
+  })
+
+  it('blocks an empty All prompt for X-AnyLabeling text-prompt tasks', async () => {
+    mocks.listLabels.mockResolvedValueOnce([
+      { id: 'disabled', name: 'disabled', enabled: false },
+    ])
+    const wrapper = mountDialog('unannotated')
+    await flushPromises()
+    wrapper.getComponent(XAnyLabelingSettingsDialog).vm.$emit('saved', {
+      configured: true,
+      server_url: 'http://127.0.0.1:44444',
+      has_api_key: false,
+      available: true,
+    }, [{
+      key: '["remote","grounding"]',
+      model_id: 'remote',
+      task_id: 'grounding',
+      name: 'Remote / Grounding',
+      batch_processing_mode: 'text_prompt',
+    }])
+    await flushPromises()
+
+    await wrapper.get('[data-test="annotation-create-task"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.create).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain(
+      '当前 X-AnyLabeling 模型需要类别提示词，请先新增、启用或手动输入类别。',
+    )
   })
 })

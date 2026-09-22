@@ -159,15 +159,29 @@ watch(() => props.modelValue, (open) => {
 
 async function submit() {
   if (!valid.value) return
-  loading.value = true
   error.value = ''
   const pendingCategory = categoryQuery.value.trim().toLowerCase()
   const selectedCategories = pendingCategory
     ? [...categories.value.filter((item) => item !== '__all__'), pendingCategory]
     : categories.value
-  const categoryPrompts = selectedCategories.includes('__all__')
+  const allSelected = selectedCategories.includes('__all__')
+  let categoryPrompts = allSelected
     ? []
     : [...new Set(selectedCategories.map((item) => item.trim().toLowerCase()).filter(Boolean))]
+  if (
+    allSelected
+    && source.value === 'xanylabeling'
+    && selectedRemoteModel.value?.batch_processing_mode === 'text_prompt'
+  ) {
+    categoryPrompts = [...new Set(labels.value
+      .filter((label) => label.enabled)
+      .map((label) => label.name.trim().toLowerCase())
+      .filter(Boolean))]
+    if (!categoryPrompts.length) {
+      error.value = '当前 X-AnyLabeling 模型需要类别提示词，请先新增、启用或手动输入类别。'
+      return
+    }
+  }
   const config: AutoAnnotationConfig = {
     source: source.value === 'xanylabeling'
       ? 'xanylabeling'
@@ -180,6 +194,7 @@ async function submit() {
     confidence: confidence.value,
     iou: iou.value,
   }
+  loading.value = true
   try {
     const result = await createProjectBatchAutoAnnotation(
       props.projectId,

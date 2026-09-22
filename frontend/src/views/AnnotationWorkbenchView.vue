@@ -525,9 +525,23 @@ function autoConfig(): AutoAnnotationConfig | null {
   const selectedCategories = pendingCategory
     ? [...autoCategories.value.filter((item) => item !== '__all__'), pendingCategory]
     : autoCategories.value
-  const categories = selectedCategories.includes('__all__')
+  const allSelected = selectedCategories.includes('__all__')
+  let categories = allSelected
     ? []
     : [...new Set(selectedCategories.map((item) => item.trim().toLowerCase()).filter(Boolean))]
+  if (
+    allSelected
+    && selectedSource.value === 'xanylabeling'
+    && remote?.batch_processing_mode === 'text_prompt'
+  ) {
+    categories = [...new Set(enabledLabels.value
+      .map((label) => label.name.trim().toLowerCase())
+      .filter(Boolean))]
+    if (!categories.length) {
+      notify.warning('当前 X-AnyLabeling 模型需要类别提示词，请先新增、启用或手动输入类别。')
+      return null
+    }
+  }
   return {
     source: selectedSource.value === 'xanylabeling'
       ? 'xanylabeling'

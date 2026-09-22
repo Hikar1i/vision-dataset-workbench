@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { Aim, Mouse, PriceTag } from '@element-plus/icons-vue'
+import { ElNotification } from 'element-plus'
 import { defineComponent } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -212,7 +213,10 @@ beforeEach(() => {
   )
 })
 
-afterEach(() => { document.body.innerHTML = '' })
+afterEach(() => {
+  vi.restoreAllMocks()
+  document.body.innerHTML = ''
+})
 
 describe('AnnotationWorkbenchView', () => {
   it('keeps only frame enablement at the top and uses icon toggles in the tool rail', async () => {
@@ -749,6 +753,124 @@ describe('AnnotationWorkbenchView', () => {
       source: 'xanylabeling', model_id: 'remote', remote_task_id: 'grounding',
       categories: ['person'],
     })
+    wrapper.unmount()
+  })
+
+  it('expands All to enabled project labels for an X-AnyLabeling text-prompt model', async () => {
+    mocks.listModelProjects.mockResolvedValueOnce([])
+    mocks.getXAnyLabelingSetting.mockResolvedValueOnce({
+      configured: true,
+      server_url: 'http://127.0.0.1:44444',
+      has_api_key: false,
+      available: true,
+    })
+    mocks.listXAnyLabelingModels.mockResolvedValueOnce([{
+      key: '["remote","grounding"]',
+      model_id: 'remote',
+      task_id: 'grounding',
+      name: 'Remote / Grounding',
+      batch_processing_mode: 'text_prompt',
+    }])
+    mocks.runFrameAutoAnnotation.mockResolvedValue({ items: [], created_labels: [] })
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="run-single-auto"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3]).toMatchObject({
+      source: 'xanylabeling',
+      categories: ['helmet'],
+    })
+    wrapper.unmount()
+  })
+
+  it('keeps All unfiltered for default X-AnyLabeling models', async () => {
+    mocks.listModelProjects.mockResolvedValueOnce([])
+    mocks.getXAnyLabelingSetting.mockResolvedValueOnce({
+      configured: true,
+      server_url: 'http://127.0.0.1:44444',
+      has_api_key: false,
+      available: true,
+    })
+    mocks.listXAnyLabelingModels.mockResolvedValueOnce([{
+      key: '["remote",null]',
+      model_id: 'remote',
+      task_id: null,
+      name: 'Remote',
+      batch_processing_mode: 'default',
+    }])
+    mocks.runFrameAutoAnnotation.mockResolvedValue({ items: [], created_labels: [] })
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="run-single-auto"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3].categories).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('blocks an empty All prompt for an X-AnyLabeling text-prompt model', async () => {
+    const warning = vi.spyOn(ElNotification, 'warning').mockReturnValue({ close: vi.fn() } as never)
+    mocks.listLabels.mockResolvedValueOnce([])
+    mocks.listModelProjects.mockResolvedValueOnce([])
+    mocks.getXAnyLabelingSetting.mockResolvedValueOnce({
+      configured: true,
+      server_url: 'http://127.0.0.1:44444',
+      has_api_key: false,
+      available: true,
+    })
+    mocks.listXAnyLabelingModels.mockResolvedValueOnce([{
+      key: '["remote","grounding"]',
+      model_id: 'remote',
+      task_id: 'grounding',
+      name: 'Remote / Grounding',
+      batch_processing_mode: 'text_prompt',
+    }])
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="run-single-auto"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.runFrameAutoAnnotation).not.toHaveBeenCalled()
+    expect(warning).toHaveBeenCalledWith(expect.objectContaining({
+      message: '当前 X-AnyLabeling 模型需要类别提示词，请先新增、启用或手动输入类别。',
+    }))
     wrapper.unmount()
   })
 
