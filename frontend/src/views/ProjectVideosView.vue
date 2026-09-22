@@ -5,7 +5,7 @@ import {
 import { ElMessageBox } from 'element-plus'
 import { notify } from '../ui/notify'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { RouterView, useRouter } from 'vue-router'
+import { onBeforeRouteUpdate, RouterView, useRouter } from 'vue-router'
 
 import { ApiError } from '../api/auth'
 import { can } from '../api/access'
@@ -500,6 +500,12 @@ async function submitExtraction(
 function refreshAfterTask() {
   void load()
 }
+
+onBeforeRouteUpdate((to, from) => {
+  if (from.name === 'video-annotation' && to.name === 'project-videos') {
+    return load(page.value, pageSize.value, true)
+  }
+})
 
 onMounted(() => {
   void load()

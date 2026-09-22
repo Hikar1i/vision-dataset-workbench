@@ -641,6 +641,61 @@ describe('AnnotationWorkbenchView', () => {
     wrapper.unmount()
   })
 
+  it('waits for the frame enablement save before closing and ignores duplicate shortcuts', async () => {
+    let finishFrameSave: ((value: unknown) => void) | undefined
+    const pendingFrameSave = new Promise((resolve) => {
+      finishFrameSave = resolve
+    })
+    mocks.setFramesEnabled.mockReturnValue(pendingFrameSave)
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElSelect: true,
+          ElOption: true,
+          ElInputNumber: true,
+          ElSwitch: true,
+          ElDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' }))
+    document.querySelector<HTMLButtonElement>('[data-test="close-annotation"]')?.click()
+    await wrapper.vm.$nextTick()
+
+    expect(mocks.setFramesEnabled).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('[data-test="frame-enabled-switch"]').attributes('disabled')).toBe('true')
+    expect(mocks.routerBack).not.toHaveBeenCalled()
+
+    finishFrameSave?.({ ...video.sampling, enabled_frames: 1, frame_revision: 2 })
+    await flushPromises()
+
+    expect(mocks.routerBack).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it('blocks route leave when the pending frame enablement save fails', async () => {
+    let failFrameSave: ((reason: Error) => void) | undefined
+    mocks.setFramesEnabled.mockReturnValue(new Promise((_resolve, reject) => {
+      failFrameSave = reject
+    }))
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
+    })
+    await flushPromises()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' }))
+    const guard = mocks.routeLeaveGuard.mock.calls[0]?.[0]
+    const leaving = guard()
+    failFrameSave?.(new Error('帧状态保存失败'))
+
+    expect(await leaving).toBe(false)
+    wrapper.unmount()
+  })
+
   it('reuses the remembered project label without opening the picker', async () => {
     localStorage.setItem(
       'vdm:annotation-preference:project-id',

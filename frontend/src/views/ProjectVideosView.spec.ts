@@ -14,10 +14,14 @@ const access = (role: ProjectRole): ResourceAccess => ({
     : ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],
 })
 
-const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }))
+const { routerPush, routeUpdateGuard } = vi.hoisted(() => ({
+  routerPush: vi.fn(),
+  routeUpdateGuard: vi.fn(),
+}))
 vi.mock('vue-router', () => ({
   RouterView: { name: 'RouterView', template: '<div />' },
   useRouter: () => ({ push: routerPush }),
+  onBeforeRouteUpdate: routeUpdateGuard,
 }))
 
 const project = {
@@ -64,6 +68,7 @@ const video = {
 beforeEach(() => {
   vi.restoreAllMocks()
   routerPush.mockReset()
+  routeUpdateGuard.mockReset()
   clearRecentRows()
 })
 afterEach(() => {
@@ -86,6 +91,41 @@ function mountView(role: ProjectRole = 'viewer') {
 }
 
 describe('ProjectVideosView', () => {
+  it('reloads sampling totals when returning from the annotation child route', async () => {
+    let enabledFrames = 20
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve({
+      ok: true,
+      json: async () => ({
+        items: [{
+          ...video,
+          sampling: {
+            ...video.sampling,
+            expected_frames: 20,
+            extracted_frames: 20,
+            enabled_frames: enabledFrames,
+          },
+        }],
+        page: 1,
+        page_size: 999,
+        total: 1,
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('20/20')
+
+    enabledFrames = 19
+    const guard = routeUpdateGuard.mock.calls[0]?.[0]
+    expect(guard).toBeTypeOf('function')
+    await guard({ name: 'project-videos' }, { name: 'video-annotation' })
+    await flushPromises()
+    expect(wrapper.text()).toContain('19/20')
+
+    await guard({ name: 'project-labels' }, { name: 'project-videos' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('renders workflow tags above a fixed detail row', async () => {
     const sampled = { ...video, has_annotations: true }
     const ready = {

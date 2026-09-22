@@ -181,7 +181,7 @@ viewer 可查看、播放和下载授权范围内的原始视频、采样帧、�
 
 能力接口在后端进程启动时探测一次。`gpu` 返回设备序号、名称和总显存；`pytorch_cuda` 以及 `features.manual_annotation/yolo_auto_annotation/model_training` 分别返回 `available` 和可空 `reason`。本地 YOLO 能力要求 PyTorch CUDA 与 Ultralytics；探测失败只降级本地功能，不影响应用启动或外部 X-AnyLabeling 使用。
 
-矩形标注坐标使用原图像素整数，必须位于图片边界内，单帧最多 10000 项；响应顺序同时是稳定对象编号和图层顺序。客户端只在切换帧、点击其他缩略图、启动批量任务或关闭标注工作台时提交整帧草稿；`annotation_revision` 过期返回 409。浏览器意外刷新、崩溃或断电不会后台频繁保存，页面只通过 `beforeunload` 警告未保存修改。帧列表默认不返回标注，标注工作台显式使用 `include_annotations=true` 一次加载缩略图所需的框坐标和标签 ID。
+矩形标注坐标使用原图像素整数，必须位于图片边界内，单帧最多 10000 项；响应顺序同时是稳定对象编号和图层顺序。客户端只在切换帧、点击其他缩略图、启动批量任务或关闭标注工作台时提交整帧草稿；`annotation_revision` 过期返回 409。标注工作台的当前帧启停通过 `PUT .../frames/enabled` 即时保存；关闭或站内路由离开会等待进行中的帧启停请求，再保存标注草稿，任一请求失败均阻止离开。从标注子路由返回父级视频列表时重新读取视频汇总，确保 `enabled_frames`、业务状态和 `frame_revision` 不使用进入标注页前的快照。浏览器意外刷新、崩溃或断电不会后台频繁保存，页面只通过 `beforeunload` 警告未保存修改或进行中的帧状态请求。帧列表默认不返回标注，标注工作台显式使用 `include_annotations=true` 一次加载缩略图所需的框坐标和标签 ID。
 
 筛帧工作台先在浏览器维护启停草稿，保存时只提交与打开页面时基准不同的帧。`PUT .../frames/enabled` 请求体为 `{"changes":[{"frame_id":"...","enabled":false}],"frame_revision":4}`；同一请求中的帧 ID 必须唯一且都属于目标视频，服务端在一个事务内更新全部状态并只递增一次帧修订号。版本过期返回 409且不进行部分写入。标注帧摘要只返回存在至少一个已保存标注框的帧 ID；前端用该集合结合当前启停草稿实时计算标注帧启用/停用统计和“按标注启停”结果。批量按标注启停的 `scope=unscreened-only` 只处理有标注且 `frame_revision <= 1` 的视频；`scope=all` 可覆盖已筛帧视频，但存在 `frame_revision > 1` 的有标注视频时必须提交 `confirm_all=true`。无标注视频在两种范围中都进入 `rejected(code=no_annotations)`，其帧启停不变。
 

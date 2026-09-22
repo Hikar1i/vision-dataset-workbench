@@ -129,6 +129,7 @@ const selectedSource = ref<ModelSourceValue>('' as ModelSourceValue)
 const modelListLoading = ref(false)
 const xanylabelingSettingsOpen = ref(false)
 const inferenceRunning = ref(false)
+const frameStateSaving = ref(false)
 const activeAutoTask = ref<ProjectTask | null>(null)
 const pendingBounds = ref<BoxBounds | null>(null)
 const categoryAnchor = ref<Point | null>(null)
@@ -152,6 +153,7 @@ let history = createAnnotationHistory([])
 let spaceHeld = false
 let modeBeforeSpace: CanvasMode = 'select'
 let taskTimer: ReturnType<typeof setInterval> | undefined
+let frameStateSave: Promise<boolean> | null = null
 
 const currentFrame = computed(() => frames.value[currentIndex.value] ?? null)
 const imageUrl = computed(() =>
@@ -694,27 +696,47 @@ async function switchFrame(index: number) {
 }
 
 async function closeWorkbench() {
-  if (!await saveCurrent('close')) return
+  if (!await saveBeforeLeave()) return
   if (openedFromVideoList) router.back()
   else await router.replace(`/projects/${projectId}/videos`)
 }
 
-onBeforeRouteLeave(() => saveCurrent('close'))
+async function saveBeforeLeave() {
+  if (frameStateSave && !await frameStateSave) return false
+  return saveCurrent('close')
+}
 
-async function toggleFrameEnabled(value: boolean | string | number) {
+onBeforeRouteLeave(saveBeforeLeave)
+
+function toggleFrameEnabled(value: boolean | string | number): Promise<boolean> {
+  if (frameStateSave) return frameStateSave
   const frame = currentFrame.value
-  if (!frame || !sampling.value) return
-  try {
-    sampling.value = await setFramesEnabled(
-      projectId,
-      videoId,
-      [{ frame_id: frame.id, enabled: Boolean(value) }],
-      sampling.value.frame_revision,
-    )
-    frame.enabled = Boolean(value)
-  } catch (reason) {
-    notify.error(reason instanceof Error ? reason.message : '采样帧状态保存失败')
-  }
+  const frameSampling = sampling.value
+  if (!frame || !frameSampling) return Promise.resolve(false)
+  const enabled = Boolean(value)
+  frameStateSaving.value = true
+  const pending = (async () => {
+    try {
+      sampling.value = await setFramesEnabled(
+        projectId,
+        videoId,
+        [{ frame_id: frame.id, enabled }],
+        frameSampling.frame_revision,
+      )
+      frame.enabled = enabled
+      return true
+    } catch (reason) {
+      notify.error(reason instanceof Error ? reason.message : '采样帧状态保存失败')
+      return false
+    } finally {
+      frameStateSaving.value = false
+    }
+  })()
+  frameStateSave = pending
+  void pending.finally(() => {
+    if (frameStateSave === pending) frameStateSave = null
+  })
+  return pending
 }
 
 function toggleLabelHidden(labelId: string) {
@@ -784,7 +806,7 @@ function handleKeyDown(event: KeyboardEvent) {
   if (key === 'a') void switchFrame(currentIndex.value - 1)
   else if (key === 'd') void switchFrame(currentIndex.value + 1)
   else if (key === 'r') mode.value = 'draw'
-  else if (key === 's' && currentFrame.value) void toggleFrameEnabled(!currentFrame.value.enabled)
+  else if (key === 's' && currentFrame.value && !frameStateSaving.value) void toggleFrameEnabled(!currentFrame.value.enabled)
   else if (key === 'y') reuseLabel.value = !reuseLabel.value
   else if (key === 'l') crosshair.value = !crosshair.value
   else if (key === 'h') toggleAllBoxes()
@@ -799,7 +821,7 @@ function handleKeyUp(event: KeyboardEvent) {
 }
 
 function handleBeforeUnload(event: BeforeUnloadEvent) {
-  if (!dirty.value) return
+  if (!dirty.value && !frameStateSaving.value) return
   event.preventDefault()
   event.returnValue = ''
 }
@@ -906,7 +928,7 @@ watch(reuseLabel, (reuse) => {
         <span data-test="frame-counter">{{ frames.length ? currentIndex + 1 : 0 }} / {{ frames.length }}</span>
       </div>
       <div class="focus-actions">
-        <span class="save-state" :data-state="dirty ? 'dirty' : 'saved'">{{ batchActive ? `自动标注 ${activeAutoTask?.progress ?? 0}%` : saveText }}</span>
+        <span class="save-state" :data-state="dirty || frameStateSaving ? 'dirty' : 'saved'">{{ batchActive ? `自动标注 ${activeAutoTask?.progress ?? 0}%` : frameStateSaving ? '保存帧状态…' : saveText }}</span>
         <button data-test="stats-action" class="primary-action" type="button" @click="statsOpen = true">标注统计</button>
         <button type="button" data-test="close-annotation" title="保存并关闭" :disabled="saving" @click="closeWorkbench">关闭</button>
       </div>
@@ -994,7 +1016,7 @@ watch(reuseLabel, (reuse) => {
         <span v-if="autoUnavailableReason" class="auto-warning" :title="autoUnavailableReason">{{ autoUnavailableText }}</span>
       </div>
       <div class="frame-controls">
-        <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" data-test="frame-enabled-switch" :disabled="!currentFrame || batchActive" @change="toggleFrameEnabled" /></label>
+        <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" data-test="frame-enabled-switch" :disabled="!currentFrame || batchActive || frameStateSaving" @change="toggleFrameEnabled" /></label>
       </div>
     </section>
 
