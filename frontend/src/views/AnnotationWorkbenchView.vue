@@ -11,6 +11,7 @@ import {
   FullScreen,
   Hide,
   Mouse,
+  Plus,
   PriceTag,
   QuestionFilled,
   Rank,
@@ -34,7 +35,7 @@ import {
 import { getCurrentUser, type CurrentUser } from '../api/auth'
 import { can } from '../api/access'
 import { getCapabilities, type SystemCapabilities } from '../api/capabilities'
-import { listLabels, type ProjectLabel } from '../api/labels'
+import { createLabel, listLabels, type ProjectLabel } from '../api/labels'
 import {
   frameImageUrl,
   listFrames,
@@ -68,6 +69,7 @@ import { formatFrameFileName } from '../components/framePresentation'
 import { type BoxBounds, type Point } from './annotationGeometry'
 import { createAnnotationHistory } from './annotationHistory'
 import { createAnnotationId } from './annotationId'
+import { randomLabelColor } from './labelColor'
 import {
   loadAnnotationPreference,
   saveAnnotationPreference,
@@ -77,6 +79,8 @@ type CanvasMode = 'select' | 'draw' | 'pan'
 type CanvasApi = { zoomBy: (factor: number) => void; resetView: () => void; zoomPercent: number }
 type SaveContext = 'switch' | 'close' | 'batch'
 type ModelSourceValue = 'xanylabeling' | 'online' | `project:${string}`
+
+const LABEL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9 _-]{0,62}[a-z0-9])?$/
 
 const route = useRoute()
 const router = useRouter()
@@ -128,6 +132,12 @@ const inferenceRunning = ref(false)
 const activeAutoTask = ref<ProjectTask | null>(null)
 const pendingBounds = ref<BoxBounds | null>(null)
 const categoryAnchor = ref<Point | null>(null)
+const newLabelOpen = ref(false)
+const newLabelName = ref('')
+const newLabelColor = ref('')
+const newLabelError = ref('')
+const creatingLabel = ref(false)
+const newLabelInput = ref<HTMLInputElement | null>(null)
 const lastLabelId = ref(storedPreference.labelId)
 const lastUsedLabelId = ref(storedPreference.labelId)
 const reuseLabel = ref(storedPreference.reuse)
@@ -322,6 +332,58 @@ function requestCategory(bounds: BoxBounds, anchor: Point) {
   if (!lastLabelId.value) lastLabelId.value = enabledLabels.value[0]?.id ?? ''
 }
 
+function resetNewLabel() {
+  newLabelOpen.value = false
+  newLabelName.value = ''
+  newLabelColor.value = ''
+  newLabelError.value = ''
+}
+
+function toggleNewLabel() {
+  if (newLabelOpen.value) {
+    resetNewLabel()
+    return
+  }
+  newLabelOpen.value = true
+  newLabelColor.value = randomLabelColor(labels.value.map((label) => label.color))
+  newLabelError.value = ''
+  void nextTick(() => newLabelInput.value?.focus())
+}
+
+function normalizedLabelName(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+async function createAndApplyLabel() {
+  const bounds = pendingBounds.value
+  if (!bounds || creatingLabel.value) return
+  const name = normalizedLabelName(newLabelName.value)
+  if (!LABEL_NAME_PATTERN.test(name)) {
+    newLabelError.value = '类别名只能使用 1–64 个小写字母、数字、空格、连字符或下划线，且首尾必须是字母或数字'
+    return
+  }
+  const existing = labels.value.find((label) => normalizedLabelName(label.name) === name)
+  if (existing) {
+    if (!existing.enabled) {
+      newLabelError.value = '类别已存在但已停用，请在标签管理中启用'
+      return
+    }
+    addManualBox(bounds, existing.id)
+    return
+  }
+  creatingLabel.value = true
+  newLabelError.value = ''
+  try {
+    const label = await createLabel(projectId, name, '', newLabelColor.value)
+    labels.value.push(label)
+    addManualBox(bounds, label.id)
+  } catch (reason) {
+    newLabelError.value = reason instanceof Error ? reason.message : '标签添加失败'
+  } finally {
+    creatingLabel.value = false
+  }
+}
+
 function addManualBox(bounds: BoxBounds, labelId: string) {
   const item: FrameAnnotation = {
     id: createAnnotationId(),
@@ -337,6 +399,7 @@ function addManualBox(bounds: BoxBounds, labelId: string) {
   saveAnnotationPreference(projectId, { reuse: reuseLabel.value, labelId })
   pendingBounds.value = null
   categoryAnchor.value = null
+  resetNewLabel()
   mode.value = 'select'
 }
 
@@ -348,6 +411,7 @@ function confirmCategory() {
 function cancelCategory() {
   pendingBounds.value = null
   categoryAnchor.value = null
+  resetNewLabel()
   mode.value = 'select'
 }
 
@@ -589,6 +653,7 @@ async function loadFrame(index: number) {
     hiddenAnnotationIds.value = []
     pendingBounds.value = null
     categoryAnchor.value = null
+    resetNewLabel()
     history = createAnnotationHistory(value.items)
     dirty.value = false
     saveText.value = '已同步'
@@ -689,7 +754,9 @@ function handleKeyDown(event: KeyboardEvent) {
   }
   if (pendingBounds.value && event.key === 'Escape') {
     event.preventDefault()
-    cancelCategory()
+    if (creatingLabel.value) return
+    if (newLabelOpen.value) resetNewLabel()
+    else cancelCategory()
     return
   }
   if (isInputTarget(event.target) || event.repeat || pendingBounds.value) return
@@ -1147,13 +1214,22 @@ watch(reuseLabel, (reuse) => {
     <div v-if="pendingBounds" class="category-scrim" data-test="category-scrim" />
     <div v-if="pendingBounds" class="category-picker" :class="categoryPickerClass" :style="categoryPickerStyle" data-test="category-picker">
       <label>选择类别
-        <select v-model="lastLabelId" autofocus>
+        <select v-model="lastLabelId" autofocus :disabled="creatingLabel">
           <option v-if="!enabledLabels.length" value="">暂无启用类别</option>
           <option v-for="label in enabledLabels" :key="label.id" :value="label.id">{{ label.name }}</option>
         </select>
       </label>
-      <button data-test="confirm-category" type="button" :disabled="!lastLabelId" @click="confirmCategory">确认</button>
-      <button data-test="cancel-category" type="button" @click="cancelCategory">取消</button>
+      <button data-test="add-category-toggle" class="category-add-toggle" type="button" title="新增类别" aria-label="新增类别" :aria-expanded="newLabelOpen" :disabled="creatingLabel" @click="toggleNewLabel">
+        <el-icon><Plus /></el-icon>
+      </button>
+      <button data-test="confirm-category" type="button" :disabled="!lastLabelId || creatingLabel" @click="confirmCategory">确认</button>
+      <button data-test="cancel-category" type="button" :disabled="creatingLabel" @click="cancelCategory">取消</button>
+      <form v-if="newLabelOpen" class="category-create" data-test="category-create-form" @submit.prevent="createAndApplyLabel">
+        <span data-test="category-color-preview" class="category-color-preview" :style="{ backgroundColor: newLabelColor }" :aria-label="`自动颜色 ${newLabelColor}`" role="img" />
+        <input ref="newLabelInput" v-model="newLabelName" data-test="new-category-name" maxlength="64" placeholder="例如 safety_vest" aria-label="新类别英文名" :aria-invalid="Boolean(newLabelError)" :disabled="creatingLabel" @input="newLabelError = ''" />
+        <button data-test="create-category" type="submit" :disabled="creatingLabel || !newLabelName.trim()">{{ creatingLabel ? '创建中…' : '创建' }}</button>
+        <p v-if="newLabelError" class="category-create-error" data-test="category-create-error" aria-live="polite">{{ newLabelError }}</p>
+      </form>
     </div>
   </main>
 
@@ -1262,12 +1338,17 @@ watch(reuseLabel, (reuse) => {
 
 .canvas-panel { position: relative; grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
 .category-scrim { position: fixed; inset: 0; z-index: 3000; background: rgb(4 8 11 / 52%); }
-.category-picker { --picker-x: 8px; --picker-y: 8px; position: fixed; z-index: 3001; display: grid; grid-template-columns: minmax(170px, 1fr) auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: var(--vdw-focus-ink); border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(var(--picker-x), var(--picker-y)); }
+.category-picker { --picker-x: 8px; --picker-y: 8px; position: fixed; z-index: 3001; display: grid; grid-template-columns: minmax(170px, 1fr) 32px auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: var(--vdw-focus-ink); border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(var(--picker-x), var(--picker-y)); }
 .category-picker.opens-left { --picker-x: calc(-100% - 8px); }
 .category-picker.opens-up { --picker-y: calc(-100% - 8px); }
 .category-picker label { display: grid; gap: 3px; color: #51606b; font-size: 14px; }
 .category-picker select { min-width: 140px; height: 29px; }
 .category-picker button { align-self: end; height: 29px; }
+.category-picker .category-add-toggle { display: grid; place-items: center; width: 32px; padding: 0; }
+.category-create { display: grid; grid-column: 1 / -1; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid #ccd5da; }
+.category-color-preview { width: 12px; height: 12px; border: 1px solid #8798a3; border-radius: 50%; }
+.category-create input { min-width: 0; height: 29px; padding: 0 8px; }
+.category-create-error { grid-column: 1 / -1; margin: 0; color: var(--vdw-danger); font-size: 12px; }
 .panel-overlay { position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; color: #afbdc6; background: rgb(12 18 23 / 62%); }
 .panel-overlay--passive { pointer-events: none; background: rgb(12 18 23 / 22%); }
 

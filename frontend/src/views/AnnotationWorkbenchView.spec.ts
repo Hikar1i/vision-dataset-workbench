@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   getProject: vi.fn(),
   listVideos: vi.fn(),
   listLabels: vi.fn(),
+  createLabel: vi.fn(),
   listFrames: vi.fn(),
   setFramesEnabled: vi.fn(),
   getFrameAnnotations: vi.fn(),
@@ -45,7 +46,10 @@ vi.mock('vue-router', () => ({
 vi.mock('../api/projects', () => ({ getProject: mocks.getProject }))
 vi.mock('../api/auth', () => ({ getCurrentUser: mocks.getCurrentUser }))
 vi.mock('../api/capabilities', () => ({ getCapabilities: mocks.getCapabilities }))
-vi.mock('../api/labels', () => ({ listLabels: mocks.listLabels }))
+vi.mock('../api/labels', () => ({
+  listLabels: mocks.listLabels,
+  createLabel: mocks.createLabel,
+}))
 vi.mock('../api/media', () => ({
   listVideos: mocks.listVideos,
   listFrames: mocks.listFrames,
@@ -444,6 +448,12 @@ describe('AnnotationWorkbenchView', () => {
     expect(wrapper.get('[data-test="category-picker"]').attributes('style')).toContain('top: 260px')
     expect(wrapper.get('[data-test="category-picker"]').classes()).not.toContain('opens-left')
     expect(wrapper.get('[data-test="category-picker"]').classes()).not.toContain('opens-up')
+    await wrapper.get('[data-test="add-category-toggle"]').trigger('click')
+    expect(wrapper.find('[data-test="category-create-form"]').exists()).toBe(true)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.find('[data-test="category-create-form"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(true)
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(false)
@@ -460,6 +470,114 @@ describe('AnnotationWorkbenchView', () => {
     await wrapper.get('[data-test="next-frame"]').trigger('click')
     await flushPromises()
     expect(mocks.replaceFrameAnnotations.mock.calls[0]?.[2].items).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('creates a label from the picker and applies it to the pending rectangle', async () => {
+    mocks.createLabel.mockResolvedValue({
+      id: 'safety-vest-id',
+      name: 'safety_vest',
+      description_zh: '',
+      color: '#d94f91',
+      sort_order: 1,
+      enabled: true,
+      version: 1,
+      created_at: '',
+      updated_at: '',
+    })
+    const wrapper = mount(AnnotationWorkbenchView, {
+      attachTo: document.body,
+      global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="request-category"]').trigger('click')
+    await wrapper.get('[data-test="add-category-toggle"]').trigger('click')
+    const input = wrapper.get('[data-test="new-category-name"]')
+    const preview = wrapper.get('[data-test="category-color-preview"]')
+    expect(document.activeElement).toBe(input.element)
+    expect(preview.attributes('aria-label')).toMatch(/^自动颜色 #[0-9a-f]{6}$/)
+
+    await input.setValue(' Safety_Vest ')
+    await wrapper.get('[data-test="category-create-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(mocks.createLabel).toHaveBeenCalledWith(
+      'project-id',
+      'safety_vest',
+      '',
+      expect.stringMatching(/^#[0-9a-f]{6}$/),
+    )
+    expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(false)
+    await wrapper.get('[data-test="next-frame"]').trigger('click')
+    await flushPromises()
+    expect(mocks.replaceFrameAnnotations.mock.calls[0]?.[2].items[0].label_id).toBe('safety-vest-id')
+    wrapper.unmount()
+  })
+
+  it('reuses an enabled label and rejects invalid or disabled names locally', async () => {
+    mocks.listLabels.mockResolvedValueOnce([
+      { id: 'label-id', name: 'helmet', description_zh: '安全帽', color: '#16866f', sort_order: 0, enabled: true, version: 1, created_at: '', updated_at: '' },
+      { id: 'archived-id', name: 'archived', description_zh: '', color: '#e85d4a', sort_order: 1, enabled: false, version: 1, created_at: '', updated_at: '' },
+    ])
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="request-category"]').trigger('click')
+    await wrapper.get('[data-test="add-category-toggle"]').trigger('click')
+    const input = wrapper.get('[data-test="new-category-name"]')
+    await input.setValue('helmet@person')
+    await wrapper.get('[data-test="category-create-form"]').trigger('submit')
+    expect(wrapper.get('[data-test="category-create-error"]').text()).toContain('小写字母')
+    expect(mocks.createLabel).not.toHaveBeenCalled()
+
+    await input.setValue(' archived ')
+    await wrapper.get('[data-test="category-create-form"]').trigger('submit')
+    expect(wrapper.get('[data-test="category-create-error"]').text()).toContain('已停用')
+    expect(mocks.createLabel).not.toHaveBeenCalled()
+
+    await input.setValue(' HELMET ')
+    await wrapper.get('[data-test="category-create-form"]').trigger('submit')
+    expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(false)
+    expect(mocks.createLabel).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="next-frame"]').trigger('click')
+    await flushPromises()
+    expect(mocks.replaceFrameAnnotations.mock.calls[0]?.[2].items[0].label_id).toBe('label-id')
+    wrapper.unmount()
+  })
+
+  it('keeps quick-create state after an API failure and allows retry', async () => {
+    const created = {
+      id: 'dog-id', name: 'dog', description_zh: '', color: '#2f80ed', sort_order: 1,
+      enabled: true, version: 1, created_at: '', updated_at: '',
+    }
+    mocks.createLabel
+      .mockRejectedValueOnce(new Error('标签添加失败'))
+      .mockResolvedValueOnce(created)
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="request-category"]').trigger('click')
+    await wrapper.get('[data-test="add-category-toggle"]').trigger('click')
+    const input = wrapper.get('[data-test="new-category-name"]')
+    const colorLabel = wrapper.get('[data-test="category-color-preview"]').attributes('aria-label')
+    await input.setValue('dog')
+    await wrapper.get('[data-test="category-create-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="category-create-error"]').text()).toBe('标签添加失败')
+    expect(wrapper.get('[data-test="new-category-name"]').element).toHaveProperty('value', 'dog')
+    expect(wrapper.get('[data-test="category-color-preview"]').attributes('aria-label')).toBe(colorLabel)
+    expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="category-create-form"]').trigger('submit')
+    await flushPromises()
+    expect(mocks.createLabel).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-test="category-picker"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
