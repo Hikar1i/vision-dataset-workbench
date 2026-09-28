@@ -1,11 +1,13 @@
 import argparse
 import hashlib
 import json
+import logging
 import os
 import queue
 import re
 import shutil
 import signal
+import sqlite3
 import subprocess
 import threading
 import time
@@ -19,6 +21,7 @@ from uuid import uuid4
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from .config import RuntimeSettings
@@ -86,10 +89,24 @@ LIMITS = {
 }
 LEASE_SECONDS = 30
 COPY_CHUNK_SIZE = 1024 * 1024
+DATABASE_LOCK_RETRY_MIN_SECONDS = 1.0
+DATABASE_LOCK_RETRY_MAX_SECONDS = 30.0
+
+logger = logging.getLogger(__name__)
 
 
 class TaskCanceled(RuntimeError):
     pass
+
+
+def _is_sqlite_lock_error(exc: OperationalError) -> bool:
+    original = exc.orig
+    code = getattr(original, "sqlite_errorcode", None)
+    return (
+        isinstance(original, sqlite3.OperationalError)
+        and isinstance(code, int)
+        and code & 0xFF in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+    )
 
 
 def _utc_now() -> datetime:
@@ -1373,14 +1390,27 @@ class TaskWorker:
         self._sweep_inference_runs()
         for task_id, future in list(self._futures.items()):
             if future.done():
-                future.result()
                 del self._futures[task_id]
+                future.result()
         for task in self.claim_available():
             self._futures[task.id] = self._executor.submit(self.execute_task, task.id)
 
     def run(self, poll_interval: float = 0.5) -> None:
+        retry_delay = DATABASE_LOCK_RETRY_MIN_SECONDS
         while not self._stop.is_set():
-            self.run_once()
+            try:
+                self.run_once()
+            except OperationalError as exc:
+                if not _is_sqlite_lock_error(exc):
+                    raise
+                logger.warning(
+                    "SQLite database is locked; retrying worker loop in %.1f seconds",
+                    retry_delay,
+                )
+                self._stop.wait(retry_delay)
+                retry_delay = min(retry_delay * 2, DATABASE_LOCK_RETRY_MAX_SECONDS)
+                continue
+            retry_delay = DATABASE_LOCK_RETRY_MIN_SECONDS
             self._stop.wait(poll_interval)
         self._executor.shutdown(wait=True, cancel_futures=False)
 

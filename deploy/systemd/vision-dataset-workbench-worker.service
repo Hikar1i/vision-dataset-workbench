@@ -1,0 +1,24 @@
+[Unit]
+Description=Vision Dataset Workbench Worker
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=5min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=vdw
+Group=vdw
+WorkingDirectory=/opt/vision-dataset-workbench/backend
+EnvironmentFile=-/etc/vision-dataset-workbench/worker.env
+ExecStart=/opt/vision-dataset-workbench/backend/.venv/bin/python -m vision_dataset_workbench.worker
+Restart=on-failure
+RestartSec=10s
+KillMode=control-group
+TimeoutStopSec=5min
+CPUWeight=50
+IOWeight=50
+TasksMax=512
+
+[Install]
+WantedBy=multi-user.target

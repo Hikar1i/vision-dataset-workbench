@@ -14,6 +14,9 @@
 - 仅支持本机磁盘，不支持 NFS、SMB 等网络文件系统。
 - 运行库包含 SQLite WAL-reset 修复时启用 WAL，否则使用 rollback journal。
 - 开启 foreign keys 和 busy timeout，禁止长事务包围文件复制或外部命令。
+- Worker 遇到 SQLite `BUSY`/`LOCKED` 时按 1、2、4 秒递增并以 30 秒封顶退避；成功轮询后重置。其他数据库异常仍直接失败。
+
+锁恢复只保护 Worker 轮询进程，不改变事务语义，也不把失败的业务提交视为成功。当前 Python 运行库若低于 SQLite 3.51.3，且不是已回移修复的 3.44.6 或 3.50.7，会继续使用 rollback journal；升级运行库达到上述安全版本后，现有连接配置自动切换到 WAL。不得为规避锁等待而绕过 WAL-reset 版本保护。
 
 ## 当前 schema
 

@@ -1,10 +1,15 @@
 import hashlib
 import io
 import json
+import sqlite3
+from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import Mock
 
+import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from vision_dataset_workbench.config import RuntimeSettings
@@ -24,8 +29,18 @@ from vision_dataset_workbench.models import (
     Video,
 )
 from vision_dataset_workbench.security.passwords import hash_password
-from vision_dataset_workbench.worker import TaskWorker, download_command
+from vision_dataset_workbench.worker import (
+    TaskWorker,
+    _is_sqlite_lock_error,
+    download_command,
+)
 from vision_dataset_workbench.xanylabeling import RemoteModelOption
+
+
+def sqlite_error(code: int) -> OperationalError:
+    original = sqlite3.OperationalError("database is locked")
+    original.sqlite_errorcode = code
+    return OperationalError("SELECT 1", {}, original)
 
 
 def make_worker(
@@ -1092,3 +1107,77 @@ def test_resampling_replaces_previous_generation(tmp_path):
         "TESTV001_frame_000002.jpg",
     ]
     engine.dispose()
+
+
+def test_sqlite_lock_classifier_uses_result_codes():
+    assert _is_sqlite_lock_error(sqlite_error(sqlite3.SQLITE_BUSY))
+    assert _is_sqlite_lock_error(sqlite_error(sqlite3.SQLITE_LOCKED))
+    assert _is_sqlite_lock_error(sqlite_error(sqlite3.SQLITE_BUSY | 0x100))
+    assert not _is_sqlite_lock_error(sqlite_error(sqlite3.SQLITE_ERROR))
+
+
+def test_worker_retries_database_locks_with_capped_resetting_backoff():
+    class FakeStop:
+        stopped = False
+
+        def is_set(self):
+            return self.stopped
+
+        def wait(self, delay):
+            waits.append(delay)
+            if len(waits) == 10:
+                self.stopped = True
+            return self.stopped
+
+        def set(self):
+            self.stopped = True
+
+    worker = TaskWorker.__new__(TaskWorker)
+    waits = []
+    worker._stop = FakeStop()
+    worker._executor = Mock()
+    worker.run_once = Mock(
+        side_effect=[
+            sqlite_error(sqlite3.SQLITE_BUSY),
+            sqlite_error(sqlite3.SQLITE_LOCKED),
+            sqlite_error(sqlite3.SQLITE_BUSY),
+            sqlite_error(sqlite3.SQLITE_LOCKED),
+            sqlite_error(sqlite3.SQLITE_BUSY),
+            sqlite_error(sqlite3.SQLITE_LOCKED),
+            sqlite_error(sqlite3.SQLITE_BUSY),
+            None,
+            sqlite_error(sqlite3.SQLITE_LOCKED),
+            None,
+        ]
+    )
+
+    worker.run(0.25)
+
+    assert waits == [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 0.25, 1.0, 0.25]
+    worker._executor.shutdown.assert_called_once_with(wait=True, cancel_futures=False)
+
+
+def test_worker_does_not_retry_other_operational_errors():
+    worker = TaskWorker.__new__(TaskWorker)
+    worker._stop = Mock()
+    worker._stop.is_set.return_value = False
+    worker.run_once = Mock(side_effect=sqlite_error(sqlite3.SQLITE_ERROR))
+
+    with pytest.raises(OperationalError):
+        worker.run()
+
+
+def test_run_once_does_not_replay_failed_future():
+    worker = TaskWorker.__new__(TaskWorker)
+    worker._training_scheduler = Mock()
+    worker._sweep_inference_runs = Mock()
+    worker.claim_available = Mock(return_value=[])
+    worker._futures = {}
+    future = Future()
+    future.set_exception(RuntimeError("boom"))
+    worker._futures["task-id"] = future
+
+    with pytest.raises(RuntimeError, match="boom"):
+        worker.run_once()
+
+    assert "task-id" not in worker._futures
