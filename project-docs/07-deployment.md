@@ -1,6 +1,6 @@
 # 部署
 
-状态：API、前端和独立 Worker 开发启动命令已实现，Linux Worker systemd 单元已提供；API systemd 单元、Windows 启动器和 Docker Compose 部署产物尚未实现。
+状态：API、前端和独立 Worker 开发启动命令已实现；systemd、Windows 启动器和 Docker Compose 部署产物尚未实现。
 
 ## 目标部署
 
@@ -24,61 +24,7 @@ ONNX 是可下载和可复用的通用转换产物；TensorRT `.engine` 绑定�
 - Docker Compose 使用 API 和 Worker 服务，共享本机工作区挂载。
 - Docker 基础配置不要求 GPU 且不应因未声明 GPU 资源而启动失败；可选 GPU 配置需要为 API 和 Worker 安装包含 PyTorch、torchvision 与 Ultralytics 的 `gpu` extra，并向两者暴露同一设备视图。API 负责能力检测和单张交互推理，Worker 负责批量推理和训练子进程，因此不能只给其中一个进程安装依赖或暴露 GPU。
 
-当前可按[环境与启动](08-environments.md)运行 API、前端和 Worker。Linux Worker 可使用仓库中的 systemd 单元托管；API 仍没有正式部署单元。不应将 Vite 开发服务器或 Uvicorn `--reload` 用作长期部署。
-
-## Linux Worker systemd
-
-单元文件位于 `deploy/systemd/vision-dataset-workbench-worker.service`，采用以下固定安装约定：
-
-- 仓库安装到 `/opt/vision-dataset-workbench`，后端虚拟环境位于 `backend/.venv`。
-- 使用 `vdw` 用户和组运行；API 与 Worker 必须以相同操作系统用户访问同一工作区和凭据密钥。
-- 可选环境文件为 `/etc/vision-dataset-workbench/worker.env`，至少显式设置位于 `vdw` home 下的 `VDW_WORKSPACE`。
-
-安装和启动：
-
-```bash
-sudo install -o root -g root -m 0644 \
-  deploy/systemd/vision-dataset-workbench-worker.service \
-  /etc/systemd/system/vision-dataset-workbench-worker.service
-sudo install -d -o root -g vdw -m 0750 /etc/vision-dataset-workbench
-sudoedit /etc/vision-dataset-workbench/worker.env
-sudo systemctl daemon-reload
-sudo systemctl enable --now vision-dataset-workbench-worker
-```
-
-环境文件示例：
-
-```text
-APP_MODE=multi
-VDW_WORKSPACE=/home/vdw/datasets/.vision-dataset-workbench
-```
-
-查看状态与日志：
-
-```bash
-systemctl status vision-dataset-workbench-worker
-journalctl -u vision-dataset-workbench-worker -f
-```
-
-单元仅在异常退出时等待 10 秒重启，并限制为 5 分钟内最多启动 5 次；达到限制后保持 failed，避免重启风暴。修复根因后手工恢复：
-
-```bash
-sudo systemctl reset-failed vision-dataset-workbench-worker
-sudo systemctl start vision-dataset-workbench-worker
-```
-
-默认以 `CPUWeight=50`、`IOWeight=50` 降低竞争优先级，并用 `TasksMax=512` 限制进程数，不预设未知主机的硬 CPU/内存上限。需要硬限制时执行 `sudo systemctl edit vision-dataset-workbench-worker`，按主机容量写入并经过真实训练冒烟，例如：
-
-```ini
-[Service]
-CPUQuota=400%
-MemoryHigh=80%
-MemoryMax=90%
-```
-
-这些限制覆盖 Worker 及其训练、转换、推理子进程。内存硬限制过低会触发 OOM 并使任务中断，不能未经容量验证直接照搬示例。
-
-systemd 只是 Linux 部署适配器。Windows 启动器未来使用 Windows Service 恢复动作，Docker 使用容器 restart policy 与资源限制；两者都复用 Worker 内部的 SQLite 锁退避，不在容器中运行 systemd。每个工作区仍只能有一个调度 Worker，Compose 不得扩容 Worker 副本，SQLite 工作区也不得放在网络文件系统。
+当前可按[环境与启动](08-environments.md)运行 API、前端和 Worker，但尚无受进程管理器监管的正式部署产物。不应将 Vite 开发服务器或 Uvicorn `--reload` 用作长期部署。
 
 ## 遗留部署风险
 

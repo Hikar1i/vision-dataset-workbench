@@ -6,7 +6,7 @@
 
 - 当前已能初始化、登录、管理及归档删除数据集项目、管理标签、导入媒体、采样、筛帧、矩形标注、管理模型项目与可编辑超参数预设、执行 YOLO Detect 在线训练、按本地模型项目、X-AnyLabeling Server 或用户配置的在线视觉大模型自动标注、转换/推理/评估模型及导出数据集；`.deleted` 恢复/导入/自动运维和所有权转移尚未提供。
 - 超参数参数目录当前固定为 `detect-v1`，覆盖常用 YOLO Detect 训练设置，不承诺与任意 Ultralytics 版本的全部配置键一一对应；未知键和系统控制键严格拒绝，新增键需先升级目录与验证规则。
-- Linux Worker systemd 单元已提供；API systemd 单元、Windows 启动器和 Docker Compose 尚未实现。Windows 和容器可复用 Worker 内部的 SQLite 锁退避，但仍需各自的进程托管配置。
+- systemd、Windows 启动器和 Docker Compose 尚未实现；当前 Worker 需单独手工启动。
 - PyTorch/Ultralytics 基础能力仍在 API 启动时检测；训练能力接口另以 2 秒缓存读取动态显存和利用率。GPU 高占用只警告、不阻止启动，外部进程不受本系统调度；本系统训练同卡严格串行。
 - 训练子进程、事件、指标、双 GPU 并行和发布已由确定性假训练集成测试覆盖，并已用真实 YOLO11n 在 GPU 1 完成 2 epoch 冒烟；尚未用长时训练执行 retry/resume/derive/extend 全操作矩阵。模型转换、在线推理和评估页面已在 Chrome 以 1920×1080、2560×1440 完成人工视觉验收，但项目仍未配置自动化像素级视觉回归。
 - Ultralytics 的 AMP 检查会下载与用户 basemodel 无关的辅助权重；当前已把子进程工作目录固定到工作区缓存，避免其落入源码目录。训练回调异常会记录 warning 而不再把已完成训练误判为失败，最终验证阶段的重复 epoch 回调也会被忽略。

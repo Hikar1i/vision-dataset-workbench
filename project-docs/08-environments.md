@@ -1,6 +1,6 @@
 # 环境与启动
 
-状态：后端、前端、首次初始化、认证模式、GPU 能力与实时显存检测，以及视频导入、抽帧、模型入库、自动标注、YOLO Detect 训练、模型转换、在线推理和测试集评估可在开发环境运行；Linux Worker systemd 单元已实现，API systemd 单元、Windows 启动器和 Docker Compose 尚未实现。
+状态：后端、前端、首次初始化、认证模式、GPU 能力与实时显存检测，以及视频导入、抽帧、模型入库、自动标注、YOLO Detect 训练、模型转换、在线推理和测试集评估可在开发环境运行；正式部署启动器尚未实现。
 
 ## 当前可执行操作
 
@@ -46,8 +46,6 @@ uv run python -m vision_dataset_workbench.worker
 ```
 
 默认地址为后端 `http://127.0.0.1:38000`、前端 `http://127.0.0.1:35173`。前端端口被占用时会直接报错，不会静默切换端口。后端未初始化时在终端输出一次性口令；前端向导使用该口令浏览启动用户的 `~`、新建目录、创建工作区和首个管理员。Worker 与 API 必须使用相同的 `HOME`、`VDW_WORKSPACE` 和媒体配置。按 `Ctrl+C` 停止各开发进程。
-
-Linux 原生长期运行 Worker 时使用[部署文档](07-deployment.md#linux-worker-systemd)中的 systemd 单元；上述命令仍用于开发、Windows 手工运行和容器入口。Windows 与 Docker 会复用 Worker 的 SQLite 锁退避，但分别需要 Windows Service 启动器和 Compose restart policy，不能使用 systemd 单元。
 
 需要从局域网访问时，可显式使用 `uvicorn ... --host 0.0.0.0 --port 38000`，并让前端或反向代理保持 `/api` 同源。系统不提供 IP 白名单，访问控制依赖用户名、密码和服务端 Session。
 

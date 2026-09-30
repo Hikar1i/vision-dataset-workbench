@@ -148,12 +148,9 @@
 ```bash
 cd backend && uv run pytest
 cd backend && uv run ruff check src tests alembic
-systemd-analyze verify deploy/systemd/vision-dataset-workbench-worker.service
 cd frontend && npm test
 cd frontend && npm run build
 ```
-
-`systemd-analyze verify` 需要生产约定的 `/opt/vision-dataset-workbench/backend/.venv/bin/python` 已安装；开发机缺少该路径时会报告环境错误。校验输出中的其他系统单元错误也不属于本项目文件，需与本项目单元的未知指令、无效段或语法错误区分。
 
 当前自动化测试数量以执行输出为准，避免人工维护计数失真。后端覆盖健康检查、路径逃逸、工作区定位、迁移、认证、权限、媒体/采样/标注、数据集导出、模型管理、训练生命周期和多数据集准备；前端覆盖路由、统一应用框架、训练资源继承、GPU lane、类别映射弹窗、编辑器布局和准备状态展示等核心交互。
 
