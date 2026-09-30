@@ -19,6 +19,7 @@ import { listLabels, type ProjectLabel } from '../api/labels'
 import type { Video } from '../api/media'
 import VButton from '../ui/VButton.vue'
 import AutoAnnotationCategorySelect from './AutoAnnotationCategorySelect.vue'
+import { resolveAutoAnnotationCategories } from './autoAnnotationCategories'
 import XAnyLabelingSettingsDialog from './XAnyLabelingSettingsDialog.vue'
 
 type ModelSourceValue = 'xanylabeling' | 'online' | `project:${string}`
@@ -160,27 +161,14 @@ watch(() => props.modelValue, (open) => {
 async function submit() {
   if (!valid.value) return
   error.value = ''
-  const pendingCategory = categoryQuery.value.trim().toLowerCase()
-  const selectedCategories = pendingCategory
-    ? [...categories.value.filter((item) => item !== '__all__'), pendingCategory]
-    : categories.value
-  const allSelected = selectedCategories.includes('__all__')
-  let categoryPrompts = allSelected
-    ? []
-    : [...new Set(selectedCategories.map((item) => item.trim().toLowerCase()).filter(Boolean))]
-  if (
-    allSelected
-    && source.value === 'xanylabeling'
-    && selectedRemoteModel.value?.batch_processing_mode === 'text_prompt'
-  ) {
-    categoryPrompts = [...new Set(labels.value
-      .filter((label) => label.enabled)
-      .map((label) => label.name.trim().toLowerCase())
-      .filter(Boolean))]
-    if (!categoryPrompts.length) {
-      error.value = '当前 X-AnyLabeling 模型需要类别提示词，请先新增、启用或手动输入类别。'
-      return
-    }
+  const resolved = resolveAutoAnnotationCategories(
+    categories.value,
+    categoryQuery.value,
+    labels.value,
+  )
+  if (resolved.error) {
+    error.value = resolved.error
+    return
   }
   const config: AutoAnnotationConfig = {
     source: source.value === 'xanylabeling'
@@ -190,7 +178,7 @@ async function submit() {
     remote_task_id: source.value === 'xanylabeling'
       ? selectedRemoteModel.value?.task_id || null
       : null,
-    categories: categoryPrompts,
+    categories: resolved.categories,
     confidence: confidence.value,
     iou: iou.value,
   }

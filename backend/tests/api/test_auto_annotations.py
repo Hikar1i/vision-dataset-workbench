@@ -220,10 +220,33 @@ def test_single_inference_rejects_viewer_and_requires_same_origin(tmp_path):
     app = make_app(tmp_path)
     owner = client_for(app, "owner")
     viewer = client_for(app, "viewer")
-    payload = {"model_id": "model-id", "categories": [], "confidence": 0.25, "iou": 0.45}
+    payload = {"model_id": "model-id", "categories": ["helmet"], "confidence": 0.25, "iou": 0.45}
 
     assert viewer.post(url(), headers=ORIGIN, json=payload).status_code == 403
     assert owner.post(url(), json=payload).status_code == 403
+
+
+def test_auto_annotation_endpoints_reject_empty_categories(tmp_path):
+    app = make_app(tmp_path)
+    owner = client_for(app, "owner")
+    payload = {
+        "model_id": "model-id",
+        "categories": [],
+        "confidence": 0.25,
+        "iou": 0.45,
+    }
+
+    assert owner.post(url(), headers=ORIGIN, json=payload).status_code == 422
+    assert owner.post(
+        "/api/v1/projects/project-id/videos/video-id/auto-annotations",
+        headers=ORIGIN,
+        json={**payload, "overwrite": False},
+    ).status_code == 422
+    assert owner.post(
+        "/api/v1/projects/project-id/auto-annotations/batch",
+        headers=ORIGIN,
+        json={**payload, "video_ids": ["video-id"], "scope": "all"},
+    ).status_code == 422
 
 
 def test_batch_inference_queues_one_video_task_and_rejects_viewer(tmp_path):
@@ -334,7 +357,7 @@ def test_project_batch_inference_queues_parent_task_and_reports_video_scope(tmp_
         json={
             "video_ids": ["video-id"],
             "model_id": "model-id",
-            "categories": [],
+            "categories": ["helmet"],
             "confidence": 0.25,
             "iou": 0.45,
             "scope": "all",

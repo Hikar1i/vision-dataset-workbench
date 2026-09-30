@@ -117,6 +117,36 @@ describe('BatchAnnotationDialog', () => {
     )
   })
 
+  it('expands project-all to enabled project labels for local models', async () => {
+    const wrapper = mountDialog('unannotated')
+    await flushPromises()
+
+    await wrapper.get('[data-test="annotation-create-task"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.create).toHaveBeenCalledWith(
+      'project-id',
+      ['video-new'],
+      expect.objectContaining({ source: 'local', categories: ['person'] }),
+      'unannotated',
+      false,
+    )
+  })
+
+  it('blocks project-all when the project has no enabled labels', async () => {
+    mocks.listLabels.mockResolvedValueOnce([
+      { id: 'disabled', name: 'disabled', enabled: false },
+    ])
+    const wrapper = mountDialog('unannotated')
+    await flushPromises()
+
+    await wrapper.get('[data-test="annotation-create-task"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.create).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('本项目暂无启用类别，请先新增或启用类别。')
+  })
+
   it('keeps typed category entry available when project labels fail to load', async () => {
     mocks.listLabels.mockRejectedValueOnce(new Error('offline'))
     const wrapper = mountDialog('unannotated')
@@ -159,7 +189,7 @@ describe('BatchAnnotationDialog', () => {
     )
   })
 
-  it('blocks an empty All prompt for X-AnyLabeling text-prompt tasks', async () => {
+  it('blocks project-all without enabled labels for X-AnyLabeling tasks', async () => {
     mocks.listLabels.mockResolvedValueOnce([
       { id: 'disabled', name: 'disabled', enabled: false },
     ])
@@ -183,8 +213,6 @@ describe('BatchAnnotationDialog', () => {
     await flushPromises()
 
     expect(mocks.create).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain(
-      '当前 X-AnyLabeling 模型需要类别提示词，请先新增、启用或手动输入类别。',
-    )
+    expect(wrapper.text()).toContain('本项目暂无启用类别，请先新增或启用类别。')
   })
 })

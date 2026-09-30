@@ -9,6 +9,7 @@ import {
   Delete as DeleteIcon,
   DeleteFilled,
   FullScreen,
+  Grid,
   Hide,
   Mouse,
   Plus,
@@ -63,6 +64,7 @@ import { listLLMConfigs, type LLMConfig } from '../api/llm'
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
 import AutoAnnotationCategorySelect from '../components/AutoAnnotationCategorySelect.vue'
+import { resolveAutoAnnotationCategories } from '../components/autoAnnotationCategories'
 import FrameAnnotationThumbnail from '../components/FrameAnnotationThumbnail.vue'
 import XAnyLabelingSettingsDialog from '../components/XAnyLabelingSettingsDialog.vue'
 import { formatFrameFileName } from '../components/framePresentation'
@@ -76,7 +78,13 @@ import {
 } from './annotationPreferences'
 
 type CanvasMode = 'select' | 'draw' | 'pan'
-type CanvasApi = { zoomBy: (factor: number) => void; resetView: () => void; zoomPercent: number }
+type CanvasApi = {
+  cancelDrawing: () => boolean
+  resetFrameView: (preserveZoom: boolean) => void
+  resetView: () => void
+  zoomBy: (factor: number) => void
+  zoomPercent: number
+}
 type SaveContext = 'switch' | 'close' | 'batch'
 type ModelSourceValue = 'xanylabeling' | 'online' | `project:${string}`
 
@@ -119,6 +127,14 @@ const hiddenAnnotationIds = ref<string[]>([])
 const expandedLabelIds = ref<string[]>([])
 const crosshair = ref(true)
 const dragToDraw = ref(false)
+const denseMode = ref(false)
+const densePromptOpen = ref(false)
+const densePromptReuse = ref(false)
+const denseSessionChoice = ref<boolean | null>(null)
+const promptedDenseFrameIds = new Set<string>()
+const zoomLocked = ref(false)
+const layerMenu = ref<{ annotationId: string; x: number; y: number } | null>(null)
+const layerMenuRef = ref<HTMLElement | null>(null)
 const overwrite = ref(false)
 const gridOpen = ref(false)
 const filmstripVisible = ref(true)
@@ -235,6 +251,13 @@ const allBoxesHidden = computed(() =>
 )
 const enabledFrameCount = computed(() => frames.value.filter((frame) => frame.enabled).length)
 const boxCount = computed(() => annotations.value.length)
+const layerMenuIndex = computed(() => layerMenu.value
+  ? annotations.value.findIndex((item) => item.id === layerMenu.value?.annotationId)
+  : -1)
+const layerMenuStyle = computed(() => layerMenu.value ? {
+  left: `${Math.max(8, Math.min(layerMenu.value.x, window.innerWidth - 152))}px`,
+  top: `${Math.max(8, Math.min(layerMenu.value.y, window.innerHeight - 84))}px`,
+} : undefined)
 const categoryPickerStyle = computed(() => {
   if (!categoryAnchor.value) return undefined
   return {
@@ -311,6 +334,47 @@ function deleteAnnotation(id: string) {
   pushDraft(annotations.value.filter((item) => item.id !== id))
   hiddenAnnotationIds.value = hiddenAnnotationIds.value.filter((item) => item !== id)
   if (selectedId.value === id) selectedId.value = null
+  if (layerMenu.value?.annotationId === id) layerMenu.value = null
+}
+
+function deleteCategoryAnnotations(labelId: string) {
+  if (batchActive.value) return
+  const removed = new Set(
+    annotations.value.filter((item) => item.label_id === labelId).map((item) => item.id),
+  )
+  if (!removed.size) return
+  pushDraft(annotations.value.filter((item) => !removed.has(item.id)))
+  hiddenLabelIds.value = hiddenLabelIds.value.filter((id) => id !== labelId)
+  hiddenAnnotationIds.value = hiddenAnnotationIds.value.filter((id) => !removed.has(id))
+  if (selectedId.value && removed.has(selectedId.value)) selectedId.value = null
+  layerMenu.value = null
+}
+
+function openLayerMenu(id: string, anchor: Point) {
+  if (batchActive.value) return
+  const panel = canvasPanelRef.value?.getBoundingClientRect()
+  selectedId.value = id
+  mode.value = 'select'
+  layerMenu.value = {
+    annotationId: id,
+    x: (panel?.left ?? 0) + anchor.x,
+    y: (panel?.top ?? 0) + anchor.y,
+  }
+  void nextTick(() => {
+    layerMenuRef.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+  })
+}
+
+function moveLayer(delta: -1 | 1) {
+  const id = layerMenu.value?.annotationId
+  const index = annotations.value.findIndex((item) => item.id === id)
+  const target = index + delta
+  if (!id || index < 0 || target < 0 || target >= annotations.value.length) return
+  const next = clone(annotations.value)
+  ;[next[index], next[target]] = [next[target]!, next[index]!]
+  pushDraft(next)
+  selectedId.value = id
+  layerMenu.value = null
 }
 
 function clearAll() {
@@ -523,26 +587,14 @@ function autoConfig(): AutoAnnotationConfig | null {
     notify.warning('请先选择可用模型。')
     return null
   }
-  const pendingCategory = categoryQuery.value.trim().toLowerCase()
-  const selectedCategories = pendingCategory
-    ? [...autoCategories.value.filter((item) => item !== '__all__'), pendingCategory]
-    : autoCategories.value
-  const allSelected = selectedCategories.includes('__all__')
-  let categories = allSelected
-    ? []
-    : [...new Set(selectedCategories.map((item) => item.trim().toLowerCase()).filter(Boolean))]
-  if (
-    allSelected
-    && selectedSource.value === 'xanylabeling'
-    && remote?.batch_processing_mode === 'text_prompt'
-  ) {
-    categories = [...new Set(enabledLabels.value
-      .map((label) => label.name.trim().toLowerCase())
-      .filter(Boolean))]
-    if (!categories.length) {
-      notify.warning('当前 X-AnyLabeling 模型需要类别提示词，请先新增、启用或手动输入类别。')
-      return null
-    }
+  const resolved = resolveAutoAnnotationCategories(
+    autoCategories.value,
+    categoryQuery.value,
+    labels.value,
+  )
+  if (resolved.error) {
+    notify.warning(resolved.error)
+    return null
   }
   return {
     source: selectedSource.value === 'xanylabeling'
@@ -554,7 +606,7 @@ function autoConfig(): AutoAnnotationConfig | null {
         ? selectedOnlineModel.value?.id ?? ''
         : local?.id ?? '',
     remote_task_id: selectedSource.value === 'xanylabeling' ? remote?.task_id ?? null : null,
-    categories,
+    categories: resolved.categories,
     confidence: confidence.value,
     iou: iou.value,
   }
@@ -593,7 +645,7 @@ async function runBatchAutoAnnotation() {
     return
   }
   if (!config || batchActive.value) return
-  const categoryText = config.categories.length ? config.categories.join(', ') : 'All / 全类别'
+  const categoryText = config.categories.length ? config.categories.join(', ') : '本项目全类别'
   try {
     await ElMessageBox.confirm(
       `将使用「${selectedModelName.value}」处理 ${enabledFrameCount.value} 个启用采样帧；类别：${categoryText}；${overwrite.value ? '覆盖已有标注' : '保留已有标注并追加结果'}。`,
@@ -669,11 +721,12 @@ async function loadFrame(index: number) {
     hiddenAnnotationIds.value = []
     pendingBounds.value = null
     categoryAnchor.value = null
+    layerMenu.value = null
     resetNewLabel()
     history = createAnnotationHistory(value.items)
     dirty.value = false
     saveText.value = '已同步'
-    canvasRef.value?.resetView()
+    canvasRef.value?.resetFrameView(zoomLocked.value)
     void nextTick(() => {
       workbenchRoot.value
         ?.querySelector<HTMLElement>('.film-frame.current')
@@ -740,12 +793,14 @@ function toggleFrameEnabled(value: boolean | string | number): Promise<boolean> 
 }
 
 function toggleLabelHidden(labelId: string) {
+  layerMenu.value = null
   hiddenLabelIds.value = hiddenLabelIds.value.includes(labelId)
     ? hiddenLabelIds.value.filter((id) => id !== labelId)
     : [...hiddenLabelIds.value, labelId]
 }
 
 function toggleAnnotationHidden(annotationId: string) {
+  if (layerMenu.value?.annotationId === annotationId) layerMenu.value = null
   const hiding = !hiddenAnnotationIds.value.includes(annotationId)
   hiddenAnnotationIds.value = hiding
     ? [...hiddenAnnotationIds.value, annotationId]
@@ -773,6 +828,35 @@ function collapseAllObjects() {
   expandedLabelIds.value = []
 }
 
+function considerDenseMode() {
+  const frameId = currentFrame.value?.id
+  if (
+    !frameId
+    || annotations.value.length <= 10
+    || batchActive.value
+    || loadingFrame.value
+  ) return
+  if (denseSessionChoice.value !== null) {
+    denseMode.value = denseSessionChoice.value
+    return
+  }
+  if (promptedDenseFrameIds.has(frameId)) return
+  promptedDenseFrameIds.add(frameId)
+  densePromptReuse.value = false
+  densePromptOpen.value = true
+}
+
+function applyDenseChoice(enabled: boolean) {
+  denseMode.value = enabled
+  if (densePromptReuse.value) denseSessionChoice.value = enabled
+  densePromptOpen.value = false
+}
+
+function toggleDenseMode() {
+  denseMode.value = !denseMode.value
+  if (denseSessionChoice.value !== null) denseSessionChoice.value = denseMode.value
+}
+
 function isInputTarget(target: EventTarget | null) {
   const element = target as HTMLElement | null
   return Boolean(element?.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(element?.tagName ?? ''))
@@ -796,6 +880,16 @@ function handleKeyDown(event: KeyboardEvent) {
     return
   }
   if (isInputTarget(event.target) || event.repeat || pendingBounds.value) return
+  if (densePromptOpen.value && event.key === 'Escape') return
+  if (event.key === 'Escape' && layerMenu.value) {
+    event.preventDefault()
+    layerMenu.value = null
+    return
+  }
+  if (event.key === 'Escape' && canvasRef.value?.cancelDrawing()) {
+    event.preventDefault()
+    return
+  }
   const key = event.key.toLowerCase()
   if (batchActive.value && ['r', 'delete', 'z', 's', 'y', 'l', 'p'].includes(key)) return
   if ((event.ctrlKey || event.metaKey) && key === 'z') {
@@ -809,6 +903,7 @@ function handleKeyDown(event: KeyboardEvent) {
   else if (key === 's' && currentFrame.value && !frameStateSaving.value) void toggleFrameEnabled(!currentFrame.value.enabled)
   else if (key === 'y') reuseLabel.value = !reuseLabel.value
   else if (key === 'l') crosshair.value = !crosshair.value
+  else if (key === 'k') zoomLocked.value = !zoomLocked.value
   else if (key === 'h') toggleAllBoxes()
   else if (key === 'p' && !inferenceRunning.value && autoModel.value) void runSingleAutoAnnotation()
   else if (event.key === 'Delete') deleteSelected()
@@ -918,6 +1013,10 @@ onBeforeUnmount(() => {
 watch(reuseLabel, (reuse) => {
   saveAnnotationPreference(projectId, { reuse, labelId: lastUsedLabelId.value })
 })
+watch(
+  [() => currentFrame.value?.id, () => annotations.value.length, batchActive, loadingFrame],
+  () => void nextTick(considerDenseMode),
+)
 </script>
 
 <template>
@@ -935,7 +1034,7 @@ watch(reuseLabel, (reuse) => {
     </div>
   </Teleport>
 
-  <main ref="workbenchRoot" class="annotation-workbench vdw-dark" :class="{ 'filmstrip-hidden': !filmstripVisible }" data-test="annotation-workbench">
+  <main ref="workbenchRoot" class="annotation-workbench vdw-dark" :class="{ 'filmstrip-hidden': !filmstripVisible }" data-test="annotation-workbench" @pointerdown="layerMenu = null">
     <section class="auto-bar" aria-label="自动标注控制">
       <div class="auto-controls">
         <el-select
@@ -1052,11 +1151,14 @@ watch(reuseLabel, (reuse) => {
       <button type="button" title="缩小" @click="canvasRef?.zoomBy(0.9)">
         <el-icon><ZoomOut /></el-icon>
       </button>
-      <output>{{ canvasRef?.zoomPercent ?? 100 }}%</output>
+      <output data-test="zoom-percent" :class="{ 'zoom-locked': zoomLocked }">{{ canvasRef?.zoomPercent ?? 100 }}%</output>
       <button type="button" title="放大" @click="canvasRef?.zoomBy(1.1)">
         <el-icon><ZoomIn /></el-icon>
       </button>
-      <button data-test="drag-to-draw-toggle" class="tool-toggle-start" :class="{ active: dragToDraw }" type="button" title="拖拽拉框：按住左键拖动并在松开时完成拉框" aria-label="拖拽模式" :aria-pressed="dragToDraw" :disabled="batchActive" @click="dragToDraw = !dragToDraw">
+      <button data-test="dense-mode-toggle" class="tool-toggle-start" :class="{ active: denseMode }" type="button" title="密集标注模式：隐藏标注框上方文字" aria-label="密集标注模式" :aria-pressed="denseMode" :disabled="batchActive" @click="toggleDenseMode">
+        <el-icon><Grid /></el-icon>
+      </button>
+      <button data-test="drag-to-draw-toggle" :class="{ active: dragToDraw }" type="button" title="拖拽拉框：按住左键拖动并在松开时完成拉框" aria-label="拖拽模式" :aria-pressed="dragToDraw" :disabled="batchActive" @click="dragToDraw = !dragToDraw">
         <el-icon><Mouse /></el-icon>
       </button>
       <button data-test="reuse-label-toggle" :class="{ active: reuseLabel }" type="button" title="标签沿用：新标注框沿用上次选择的类别" aria-label="标签沿用" :aria-pressed="reuseLabel" :disabled="batchActive" @click="reuseLabel = !reuseLabel">
@@ -1083,12 +1185,14 @@ watch(reuseLabel, (reuse) => {
         :mode="mode"
         :crosshair="crosshair"
         :drag-to-draw="dragToDraw"
+        :dense="denseMode"
         :hidden-label-ids="hiddenLabelIds"
         :hidden-annotation-ids="hiddenAnnotationIds"
         :pending-bounds="pendingBounds"
         :readonly="batchActive"
         @change="pushDraft"
         @select="selectedId = $event"
+        @context="openLayerMenu"
         @request-category="requestCategory"
         @view-change="viewport = $event"
       />
@@ -1134,6 +1238,9 @@ watch(reuseLabel, (reuse) => {
             <span>{{ group.items.length }}</span>
             <button type="button" :title="hiddenLabelIds.includes(group.label.id) ? '显示类别' : '隐藏类别'" @click="toggleLabelHidden(group.label.id)">
               <el-icon><View v-if="hiddenLabelIds.includes(group.label.id)" /><Hide v-else /></el-icon>
+            </button>
+            <button :data-test="`delete-category-${group.label.id}`" type="button" title="删除该类别的全部标注" :disabled="batchActive" @click="deleteCategoryAnnotations(group.label.id)">
+              <el-icon><DeleteIcon /></el-icon>
             </button>
             <button type="button" :title="expandedLabelIds.includes(group.label.id) ? '收起类别' : '展开类别'" @click="toggleExpanded(group.label.id)">
               <el-icon><ArrowUpBold v-if="expandedLabelIds.includes(group.label.id)" /><ArrowDownBold v-else /></el-icon>
@@ -1267,12 +1374,46 @@ watch(reuseLabel, (reuse) => {
         <p v-if="newLabelError" class="category-create-error" data-test="category-create-error" aria-live="polite">{{ newLabelError }}</p>
       </form>
     </div>
+    <div
+      v-if="layerMenu"
+      ref="layerMenuRef"
+      class="layer-context-menu"
+      data-test="layer-context-menu"
+      :style="layerMenuStyle"
+      role="menu"
+      aria-label="标注框图层"
+      @pointerdown.stop
+    >
+      <button data-test="move-layer-up" type="button" role="menuitem" :disabled="layerMenuIndex >= annotations.length - 1" @click="moveLayer(1)">上移一层</button>
+      <button data-test="move-layer-down" type="button" role="menuitem" :disabled="layerMenuIndex <= 0" @click="moveLayer(-1)">下移一层</button>
+    </div>
   </main>
+
+  <el-dialog
+    :model-value="densePromptOpen"
+    data-test="dense-mode-dialog"
+    title="检测到密集标注"
+    width="420px"
+    append-to-body
+    :show-close="false"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
+  >
+    <p class="dense-prompt-copy">当前帧有 {{ boxCount }} 个标注框。开启后将隐藏框上方的类别、序号和置信度文字。</p>
+    <el-checkbox v-model="densePromptReuse" data-test="dense-mode-reuse">本次标注会话沿用该设定</el-checkbox>
+    <template #footer>
+      <div class="dense-dialog-actions">
+        <button data-test="dense-mode-disable" type="button" @click="applyDenseChoice(false)">保持关闭</button>
+        <button data-test="dense-mode-enable" type="button" class="primary-action" @click="applyDenseChoice(true)">开启</button>
+      </div>
+    </template>
+  </el-dialog>
 
   <el-dialog v-model="shortcutsOpen" title="快捷键操作指南" width="460px" append-to-body>
     <dl class="shortcut-list" data-test="shortcut-list">
       <dt>A / D</dt><dd>上一张 / 下一张</dd><dt>R</dt><dd>新建矩形框</dd>
       <dt>Space</dt><dd>按住进入画布拖拽模式</dd><dt>Ctrl + 滚轮</dt><dd>缩放图像</dd>
+      <dt>K</dt><dd>开启 / 关闭固定缩放比例</dd>
       <dt>Ctrl + Z</dt><dd>撤销</dd><dt>Ctrl + Shift + Z</dt><dd>重做</dd>
       <dt>Delete</dt><dd>删除选中标注框</dd>
       <dt>拖动四角</dt><dd>自由调整标注框宽高</dd>
@@ -1368,11 +1509,17 @@ watch(reuseLabel, (reuse) => {
 .tool-rail button:hover:not(:disabled),
 .tool-rail button.active { color: var(--vdw-focus-accent); background: #233740; border-color: #3d665d; }
 .tool-rail button:disabled { color: #52616c; cursor: not-allowed; }
-.tool-rail output { width: 48px; color: var(--vdw-focus-ink-2); font: 13px var(--vdw-mono); text-align: center; }
+.tool-rail output { display: grid; place-items: center; box-sizing: border-box; width: 48px; height: 24px; color: var(--vdw-focus-ink-2); font: 13px var(--vdw-mono); border: 1px solid transparent; border-radius: 3px; text-align: center; }
+.tool-rail output.zoom-locked { color: var(--vdw-focus-accent); border-color: var(--vdw-focus-accent); }
 .tool-separator { flex: 0 0 1px; width: 34px; margin: 2px 0; background: #34424d; }
 .tool-rail button.tool-toggle-start { margin-top: auto; }
 
 .canvas-panel { position: relative; grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
+.layer-context-menu { position: fixed; z-index: 3010; display: grid; width: 140px; padding: 4px; background: #202d36; border: 1px solid #526570; border-radius: 4px; box-shadow: 0 10px 28px rgb(0 0 0 / 42%); }
+.layer-context-menu button { height: 34px; padding: 0 10px; color: var(--vdw-focus-ink); text-align: left; background: transparent; border: 0; border-radius: 2px; cursor: pointer; }
+.layer-context-menu button:hover:not(:disabled),
+.layer-context-menu button:focus-visible { color: var(--vdw-focus-accent); background: #294049; outline: 1px solid var(--vdw-focus-accent); }
+.layer-context-menu button:disabled { color: #667780; cursor: not-allowed; }
 .category-scrim { position: fixed; inset: 0; z-index: 3000; background: rgb(4 8 11 / 52%); }
 .category-picker { --picker-x: 8px; --picker-y: 8px; position: fixed; z-index: 3001; display: grid; grid-template-columns: minmax(170px, 1fr) 32px auto auto; gap: 8px; max-width: calc(100% - 24px); padding: 12px; background: var(--vdw-focus-ink); border: 1px solid #9fb0bb; box-shadow: 0 12px 32px rgb(0 0 0 / 42%); transform: translate(var(--picker-x), var(--picker-y)); }
 .category-picker.opens-left { --picker-x: calc(-100% - 8px); }
@@ -1418,7 +1565,7 @@ watch(reuseLabel, (reuse) => {
 .object-list::-webkit-scrollbar { display: none; }
 .empty-copy { margin: 20px 0; color: var(--vdw-focus-ink-2); font-size: 14px; text-align: center; }
 .object-group { margin-top: 5px; background: #1d303a; border: 1px solid var(--vdw-focus-line); }
-.object-group-row { display: grid; grid-template-columns: 15px minmax(0, 1fr) 36px 36px 36px; align-items: center; min-height: 45px; padding: 0 5px 0 8px; }
+.object-group-row { display: grid; grid-template-columns: 15px minmax(0, 1fr) 30px 30px 30px 30px; align-items: center; min-height: 45px; padding: 0 5px 0 8px; }
 .object-group-row i { width: 15px; height: 15px; border-radius: 50%; }
 .object-group-row button { display: grid; place-items: center; height: 34px; padding: 0; color: var(--vdw-focus-ink); background: transparent; border: 0; cursor: pointer; }
 .object-group-row button:not(.group-name) { font-size: 15px; }
@@ -1477,6 +1624,10 @@ watch(reuseLabel, (reuse) => {
 .stats-summary > div:last-child { border-bottom: 0; }
 .stats-summary dt { color: var(--vdw-ink-2); }
 .stats-summary dd { margin: 0; color: var(--vdw-accent); font: 700 20px var(--vdw-mono); }
+.dense-prompt-copy { margin: 0 0 16px; color: var(--vdw-ink-2); line-height: 1.6; }
+.dense-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dense-dialog-actions button { height: 34px; padding: 0 14px; color: var(--vdw-ink); background: var(--vdw-surface-2); border: 1px solid var(--vdw-line); border-radius: 3px; cursor: pointer; }
+.dense-dialog-actions button.primary-action { color: var(--vdw-accent); border-color: var(--vdw-accent); }
 .model-registration-form { display: grid; gap: 14px; }
 .model-registration-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 12px; }
 .model-registration-form > label > span { color: var(--vdw-focus-ink-2); font-size: 14px; }

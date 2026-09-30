@@ -32,7 +32,9 @@ const newCategory = computed(() => {
   return name
 })
 const showAll = computed(() => (
-  !normalizedQuery.value || 'all / 全类别'.includes(normalizedQuery.value)
+  !normalizedQuery.value
+  || '本项目全类别'.includes(normalizedQuery.value)
+  || 'all'.includes(normalizedQuery.value)
 ))
 
 function change(values: string[]) {
@@ -64,7 +66,7 @@ function change(values: string[]) {
       :label="`新建类别：${newCategory}`"
       :value="newCategory"
     />
-    <el-option v-if="showAll" label="All / 全类别" value="__all__" />
+    <el-option v-if="showAll" label="本项目全类别" value="__all__" />
     <el-option
       v-for="label in visibleLabels"
       :key="label.id"

@@ -25,7 +25,7 @@ class RunAutoAnnotationRequest(BaseModel):
     source: Literal["local", "xanylabeling", "online"] = "local"
     model_id: str = Field(min_length=1, max_length=255)
     remote_task_id: str | None = Field(default=None, max_length=128)
-    categories: list[str] = Field(max_length=64)
+    categories: list[str] = Field(min_length=1, max_length=64)
     confidence: float = Field(ge=0, le=1)
     iou: float = Field(ge=0, le=1)
 

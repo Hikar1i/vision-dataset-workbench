@@ -27,6 +27,7 @@ const props = defineProps<{
   readonly?: boolean
   crosshair?: boolean
   dragToDraw?: boolean
+  dense?: boolean
   hiddenLabelIds?: string[]
   hiddenAnnotationIds?: string[]
   pendingBounds?: BoxBounds | null
@@ -35,6 +36,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   change: [items: FrameAnnotation[]]
   select: [id: string | null]
+  context: [id: string, anchor: Point]
   'request-category': [bounds: BoxBounds, anchor: Point]
   'view-change': [viewport: BoxBounds]
 }>()
@@ -149,6 +151,12 @@ function resetDrawing() {
   drawCurrent.value = null
 }
 
+function cancelDrawing() {
+  const active = Boolean(drawStart.value || drawCurrent.value)
+  resetDrawing()
+  return active
+}
+
 function finishDrawing(anchor?: Point | null) {
   if (!drawStart.value || !drawCurrent.value) return
   const bounds = clampBox(
@@ -222,6 +230,16 @@ function selectAnnotation(event: Konva.KonvaEventObject<MouseEvent>, id: string)
   if (props.mode === 'select') emit('select', id)
 }
 
+function openContextMenu(event: Konva.KonvaEventObject<MouseEvent>, id: string) {
+  event.evt.preventDefault()
+  event.cancelBubble = true
+  if (props.readonly || props.mode !== 'select') return
+  const anchor = stagePoint(event)
+  if (!anchor) return
+  emit('select', id)
+  emit('context', id, anchor)
+}
+
 function replaceBox(id: string, bounds: BoxBounds) {
   const next = clampBox(bounds, props.imageWidth, props.imageHeight)
   if (!next) return
@@ -275,9 +293,13 @@ function zoomBy(factor: number) {
   pan.value = next.pan
 }
 
-function resetView() {
-  zoom.value = 1
+function resetFrameView(preserveZoom: boolean) {
+  if (!preserveZoom) zoom.value = 1
   pan.value = { x: 0, y: 0 }
+}
+
+function resetView() {
+  resetFrameView(false)
 }
 
 function emitViewport() {
@@ -322,7 +344,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => observer?.disconnect())
 
-defineExpose({ zoomBy, resetView, zoomPercent })
+defineExpose({ cancelDrawing, resetFrameView, zoomBy, resetView, zoomPercent })
 </script>
 
 <template>
@@ -368,12 +390,13 @@ defineExpose({ zoomBy, resetView, zoomPercent })
                 draggable: mode === 'select' && !readonly,
               }"
               @mousedown="selectAnnotation($event, item.id)"
+              @contextmenu="openContextMenu($event, item.id)"
               @mouseenter="hoveredId = item.id"
               @mouseleave="hoveredId = hoveredId === item.id ? null : hoveredId"
               @dragend="handleDragEnd($event, item)"
               @transformend="handleTransformEnd($event, item)"
             />
-            <v-group :config="{ x: item.x_min, y: item.y_min - 26, listening: false }">
+            <v-group v-if="!dense" :config="{ x: item.x_min, y: item.y_min - 26, listening: false }">
               <v-rect
                 :config="{
                   width: Math.max(70, annotationTitle(item).length * 11 + 12),

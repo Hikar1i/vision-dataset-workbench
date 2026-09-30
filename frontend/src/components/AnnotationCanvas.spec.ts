@@ -7,6 +7,7 @@ import AnnotationCanvas from './AnnotationCanvas.vue'
 
 const VRectStub = defineComponent({
   props: ['config'],
+  emits: ['mousedown', 'mouseenter', 'mouseleave', 'dragend', 'transformend', 'contextmenu'],
   template: '<div class="rect-stub" />',
 })
 const VTextStub = defineComponent({
@@ -182,6 +183,61 @@ describe('AnnotationCanvas', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  it('hides annotation titles in dense mode', () => {
+    const wrapper = mount(AnnotationCanvas, {
+      props: {
+        imageUrl: '/frame.jpg',
+        imageWidth: 1920,
+        imageHeight: 1080,
+        annotations,
+        labels: [
+          { id: 'helmet', name: 'helmet', color: '#16866f' },
+          { id: 'person', name: 'person', color: '#e85d4a' },
+        ],
+        selectedId: null,
+        mode: 'select',
+        dense: true,
+      },
+      global: { stubs },
+    })
+
+    expect(wrapper.findAllComponents(VTextStub)).toHaveLength(0)
+    expect(wrapper.findAllComponents(VRectStub).filter(
+      (item) => String(item.props('config').name ?? '').startsWith('annotation-'),
+    )).toHaveLength(2)
+  })
+
+  it('reports a selected annotation and pointer anchor on right click', () => {
+    const wrapper = mount(AnnotationCanvas, {
+      props: {
+        imageUrl: '/frame.jpg',
+        imageWidth: 1920,
+        imageHeight: 1080,
+        annotations,
+        labels: [],
+        selectedId: null,
+        mode: 'select',
+      },
+      global: { stubs },
+    })
+    const preventDefault = vi.fn()
+    const box = wrapper.findAllComponents(VRectStub).find(
+      (item) => item.props('config').name === 'annotation-helmet-box',
+    )!
+
+    box.vm.$emit('contextmenu', {
+      cancelBubble: false,
+      target: {
+        getStage: () => ({ getPointerPosition: () => ({ x: 50, y: 60 }) }),
+      },
+      evt: { preventDefault },
+    })
+
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(wrapper.emitted('select')).toEqual([['helmet-box']])
+    expect(wrapper.emitted('context')).toEqual([['helmet-box', { x: 50, y: 60 }]])
+  })
+
   it('completes the default drawing gesture on the second click', async () => {
     const wrapper = mount(AnnotationCanvas, {
       props: {
@@ -296,6 +352,51 @@ describe('AnnotationCanvas', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.emitted('request-category')).toBeUndefined()
+  })
+
+  it('cancels an unfinished drawing and resets frame view with optional zoom preservation', async () => {
+    const wrapper = mount(AnnotationCanvas, {
+      props: {
+        imageUrl: '/frame.jpg',
+        imageWidth: 1920,
+        imageHeight: 1080,
+        annotations: [],
+        labels: [],
+        selectedId: null,
+        mode: 'draw',
+      },
+      global: { stubs },
+    })
+    const stage = wrapper.findComponent(VStageStub)
+    const pointer = pointerFixture()
+
+    stage.vm.$emit('mousedown', pointer.event())
+    pointer.point.x = 0.8
+    pointer.point.y = 0.7
+    stage.vm.$emit('mousemove', pointer.event())
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAllComponents(VRectStub).some(
+      (item) => item.props('config').dash?.length,
+    )).toBe(true)
+
+    const canvas = wrapper.vm as unknown as {
+      cancelDrawing: () => boolean
+      resetFrameView: (preserveZoom: boolean) => void
+      zoomBy: (factor: number) => void
+      zoomPercent: number
+    }
+    expect(canvas.cancelDrawing()).toBe(true)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAllComponents(VRectStub).some(
+      (item) => item.props('config').dash?.length,
+    )).toBe(false)
+    expect(canvas.cancelDrawing()).toBe(false)
+
+    canvas.zoomBy(1.1)
+    canvas.resetFrameView(true)
+    expect(canvas.zoomPercent).toBe(110)
+    canvas.resetFrameView(false)
+    expect(canvas.zoomPercent).toBe(100)
   })
 
   it('lets draw gestures pass through existing annotation boxes', () => {

@@ -32,6 +32,10 @@ const mocks = vi.hoisted(() => ({
   createBatchAutoAnnotation: vi.fn(),
   registerInferenceModel: vi.fn(),
   confirmBatch: vi.fn(),
+  canvasCancelDrawing: vi.fn(),
+  canvasResetFrameView: vi.fn(),
+  canvasResetView: vi.fn(),
+  canvasZoomBy: vi.fn(),
 }))
 
 vi.mock('element-plus', async (importOriginal) => ({
@@ -74,9 +78,18 @@ vi.mock('../api/models', () => ({
 }))
 
 const CanvasStub = defineComponent({
-  props: ['dragToDraw'],
-  emits: ['change', 'request-category', 'view-change'],
-  template: '<div data-test="canvas-stub" :data-drag-to-draw="String(dragToDraw)"><button data-test="canvas-change" @click="$emit(\'change\', [{ id: \'box-id\', label_id: \'label-id\', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: \'manual\', confidence: null }])">change</button><button data-test="request-category" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 50, y: 60 })">draw</button><button data-test="request-category-lower-right" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 1200, y: 900 })">draw lower right</button><button data-test="view-change" @click="$emit(\'view-change\', { x_min: 100, y_min: 200, x_max: 900, y_max: 700 })">view</button></div>',
+  props: ['dragToDraw', 'dense'],
+  emits: ['change', 'request-category', 'view-change', 'context'],
+  setup(_props, { expose }) {
+    expose({
+      cancelDrawing: mocks.canvasCancelDrawing,
+      resetFrameView: mocks.canvasResetFrameView,
+      resetView: mocks.canvasResetView,
+      zoomBy: mocks.canvasZoomBy,
+      zoomPercent: 100,
+    })
+  },
+  template: '<div data-test="canvas-stub" :data-drag-to-draw="String(dragToDraw)" :data-dense="String(dense)"><button data-test="canvas-change" @click="$emit(\'change\', [{ id: \'box-id\', label_id: \'label-id\', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: \'manual\', confidence: null }])">change</button><button data-test="canvas-context" @click="$emit(\'context\', \'box-one\', { x: 50, y: 60 })">context</button><button data-test="request-category" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 50, y: 60 })">draw</button><button data-test="request-category-lower-right" @click="$emit(\'request-category\', { x_min: 10, y_min: 20, x_max: 110, y_max: 220 }, { x: 1200, y: 900 })">draw lower right</button><button data-test="view-change" @click="$emit(\'view-change\', { x_min: 100, y_min: 200, x_max: 900, y_max: 700 })">view</button></div>',
 })
 const SelectStub = defineComponent({
   props: ['filterMethod'],
@@ -91,6 +104,15 @@ const NativeSelectStub = defineComponent({
 const NativeOptionStub = defineComponent({
   props: ['value', 'label'],
   template: '<option :value="value">{{ label }}</option>',
+})
+const DialogStub = defineComponent({
+  props: ['modelValue'],
+  template: '<div v-if="modelValue"><slot /><slot name="footer" /></div>',
+})
+const CheckboxStub = defineComponent({
+  props: ['modelValue'],
+  emits: ['update:modelValue'],
+  template: '<label><input type="checkbox" :checked="modelValue" @change="$emit(\'update:modelValue\', $event.target.checked)" /><slot /></label>',
 })
 
 const project = {
@@ -167,6 +189,7 @@ beforeEach(() => {
   window.history.replaceState({ annotationFromVideoList: true }, '')
   localStorage.clear()
   for (const value of Object.values(mocks)) value.mockReset()
+  mocks.canvasCancelDrawing.mockReturnValue(false)
   mocks.confirmBatch.mockResolvedValue('confirm')
   mocks.getProject.mockResolvedValue(project)
   mocks.getCurrentUser.mockResolvedValue({
@@ -421,6 +444,139 @@ describe('AnnotationWorkbenchView', () => {
     expect(wrapper.findAll('.box-list')).toHaveLength(1)
     await wrapper.get('[data-test="collapse-all-objects"]').trigger('click')
     expect(wrapper.findAll('.box-list')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('moves annotation layers through the context menu and records the order in history', async () => {
+    const boxes = [
+      { id: 'box-one', label_id: 'label-id', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: 'manual' as const, confidence: null },
+      { id: 'box-two', label_id: 'label-id', x_min: 2, y_min: 3, x_max: 40, y_max: 50, source: 'manual' as const, confidence: null },
+    ]
+    mocks.getFrameAnnotations.mockImplementation(
+      (_project: string, _video: string, frameId: string) => Promise.resolve({
+        frame_id: frameId, annotation_revision: 1, items: structuredClone(boxes),
+      }),
+    )
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="canvas-context"]').trigger('click')
+    expect(wrapper.get('[data-test="layer-context-menu"]').attributes('role')).toBe('menu')
+    await wrapper.get('[data-test="move-layer-up"]').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }))
+    await wrapper.get('[data-test="canvas-context"]').trigger('click')
+    await wrapper.get('[data-test="move-layer-up"]').trigger('click')
+    await wrapper.get('[data-test="next-frame"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.replaceFrameAnnotations.mock.calls[0]?.[2].items.map(
+      (item: { id: string }) => item.id,
+    )).toEqual(['box-two', 'box-one'])
+
+    wrapper.getComponent(CanvasStub).vm.$emit('context', 'box-two', { x: 50, y: 60 })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-test="move-layer-up"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('deletes every current-frame annotation in one category and supports undo', async () => {
+    mocks.listLabels.mockResolvedValueOnce([
+      { id: 'label-id', name: 'helmet', description_zh: '', color: '#16866f', sort_order: 0, enabled: true, version: 1, created_at: '', updated_at: '' },
+      { id: 'person-id', name: 'person', description_zh: '', color: '#c83f49', sort_order: 1, enabled: true, version: 1, created_at: '', updated_at: '' },
+    ])
+    const boxes = [
+      { id: 'helmet-one', label_id: 'label-id', x_min: 1, y_min: 2, x_max: 30, y_max: 40, source: 'manual' as const, confidence: null },
+      { id: 'helmet-two', label_id: 'label-id', x_min: 2, y_min: 3, x_max: 40, y_max: 50, source: 'manual' as const, confidence: null },
+      { id: 'person-one', label_id: 'person-id', x_min: 3, y_min: 4, x_max: 50, y_max: 60, source: 'manual' as const, confidence: null },
+    ]
+    mocks.getFrameAnnotations.mockImplementation(
+      (_project: string, _video: string, frameId: string) => Promise.resolve({
+        frame_id: frameId, annotation_revision: 1, items: structuredClone(boxes),
+      }),
+    )
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="delete-category-label-id"]').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }))
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-test="delete-category-label-id"]').trigger('click')
+    await wrapper.get('[data-test="next-frame"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.replaceFrameAnnotations.mock.calls[0]?.[2].items.map(
+      (item: { id: string }) => item.id,
+    )).toEqual(['person-one'])
+    wrapper.unmount()
+  })
+
+  it('locks zoom across frames and lets Escape cancel an active drawing', async () => {
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: { stubs: { AnnotationCanvas: CanvasStub, ElSwitch: true } },
+    })
+    await flushPromises()
+    mocks.canvasResetFrameView.mockClear()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-test="zoom-percent"]').classes()).toContain('zoom-locked')
+    await wrapper.get('[data-test="next-frame"]').trigger('click')
+    await flushPromises()
+    expect(mocks.canvasResetFrameView).toHaveBeenCalledWith(true)
+
+    await wrapper.get('[title^="新建矩形框"]').trigger('click')
+    mocks.canvasCancelDrawing.mockReturnValueOnce(true)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(mocks.canvasCancelDrawing).toHaveBeenCalled()
+    expect(wrapper.get('[title^="新建矩形框"]').classes()).toContain('active')
+    wrapper.unmount()
+  })
+
+  it('offers dense mode above drag drawing and reuses the session choice', async () => {
+    const boxes = Array.from({ length: 11 }, (_, index) => ({
+      id: `box-${index}`,
+      label_id: 'label-id',
+      x_min: index,
+      y_min: index,
+      x_max: index + 20,
+      y_max: index + 20,
+      source: 'manual' as const,
+      confidence: null,
+    }))
+    mocks.getFrameAnnotations.mockImplementation(
+      (_project: string, _video: string, frameId: string) => Promise.resolve({
+        frame_id: frameId, annotation_revision: 1, items: structuredClone(boxes),
+      }),
+    )
+    const wrapper = mount(AnnotationWorkbenchView, {
+      global: {
+        stubs: {
+          AnnotationCanvas: CanvasStub,
+          ElDialog: DialogStub,
+          ElCheckbox: CheckboxStub,
+          ElSwitch: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="dense-mode-dialog"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="canvas-stub"]').attributes('data-dense')).toBe('false')
+    const drag = wrapper.get('[data-test="drag-to-draw-toggle"]').element
+    expect(drag.previousElementSibling).toBe(wrapper.get('[data-test="dense-mode-toggle"]').element)
+    await wrapper.get('[data-test="dense-mode-reuse"] input').setValue(true)
+    await wrapper.get('[data-test="dense-mode-enable"]').trigger('click')
+    expect(wrapper.get('[data-test="canvas-stub"]').attributes('data-dense')).toBe('true')
+
+    await wrapper.get('[data-test="next-frame"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="dense-mode-dialog"]').exists()).toBe(false)
+    await wrapper.get('[data-test="dense-mode-toggle"]').trigger('click')
+    expect(wrapper.get('[data-test="canvas-stub"]').attributes('data-dense')).toBe('false')
     wrapper.unmount()
   })
 
@@ -851,7 +1007,7 @@ describe('AnnotationWorkbenchView', () => {
     wrapper.unmount()
   })
 
-  it('keeps All unfiltered for default X-AnyLabeling models', async () => {
+  it('expands project-all for default X-AnyLabeling models', async () => {
     mocks.listModelProjects.mockResolvedValueOnce([])
     mocks.getXAnyLabelingSetting.mockResolvedValueOnce({
       configured: true,
@@ -884,11 +1040,11 @@ describe('AnnotationWorkbenchView', () => {
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
 
-    expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3].categories).toEqual([])
+    expect(mocks.runFrameAutoAnnotation.mock.calls[0]?.[3].categories).toEqual(['helmet'])
     wrapper.unmount()
   })
 
-  it('blocks an empty All prompt for an X-AnyLabeling text-prompt model', async () => {
+  it('blocks project-all without enabled labels for an X-AnyLabeling model', async () => {
     const warning = vi.spyOn(ElNotification, 'warning').mockReturnValue({ close: vi.fn() } as never)
     mocks.listLabels.mockResolvedValueOnce([])
     mocks.listModelProjects.mockResolvedValueOnce([])
@@ -924,7 +1080,7 @@ describe('AnnotationWorkbenchView', () => {
 
     expect(mocks.runFrameAutoAnnotation).not.toHaveBeenCalled()
     expect(warning).toHaveBeenCalledWith(expect.objectContaining({
-      message: '当前 X-AnyLabeling 模型需要类别提示词，请先新增、启用或手动输入类别。',
+      message: '本项目暂无启用类别，请先新增或启用类别。',
     }))
     wrapper.unmount()
   })
@@ -1027,7 +1183,7 @@ describe('AnnotationWorkbenchView', () => {
     wrapper.getComponent(AutoAnnotationCategorySelect).vm.$emit('update:modelValue', ['__all__'])
     await wrapper.get('[data-test="run-single-auto"]').trigger('click')
     await flushPromises()
-    expect(mocks.runFrameAutoAnnotation.mock.calls[1]?.[3].categories).toEqual([])
+    expect(mocks.runFrameAutoAnnotation.mock.calls[1]?.[3].categories).toEqual(['helmet'])
     wrapper.unmount()
   })
 
