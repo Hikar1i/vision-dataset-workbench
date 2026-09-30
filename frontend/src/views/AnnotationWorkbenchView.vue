@@ -1157,6 +1157,7 @@ watch(
       <button type="button" title="放大" @click="canvasRef?.zoomBy(1.1)">
         <el-icon><ZoomIn /></el-icon>
       </button>
+      <span class="tool-separator" />
       <button data-test="dense-mode-toggle" class="tool-toggle-start" :class="{ active: denseMode }" type="button" title="密集标注模式：隐藏标注框上方文字" aria-label="密集标注模式" :aria-pressed="denseMode" :disabled="batchActive" @click="toggleDenseMode">
         <el-icon><Grid /></el-icon>
       </button>
@@ -1506,7 +1507,7 @@ watch(
 .auto-bar button.primary-action:disabled { color: var(--vdw-focus-ink-2); background: var(--vdw-focus-panel); border-color: var(--vdw-focus-line); }
 .auto-warning { width: 96px; overflow: hidden; color: var(--vdw-warn); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 
-.tool-rail { display: flex; grid-row: 2 / 4; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; overflow-y: auto; background: #1a252e; border-right: 1px solid var(--vdw-focus-line); }
+.tool-rail { display: flex; grid-row: 2 / 4; flex-direction: column; align-items: center; gap: 6px; padding: 6px 0; overflow-y: auto; background: #1a252e; border-right: 1px solid var(--vdw-focus-line); }
 .tool-rail button { display: grid; place-items: center; flex: 0 0 40px; width: 40px; padding: 0; color: var(--vdw-focus-ink-2); font: 700 20px var(--vdw-mono); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; transition: background 150ms ease, border-color 150ms ease, color 150ms ease; }
 .tool-rail button:hover:not(:disabled),
 .tool-rail button.active { color: var(--vdw-focus-accent); background: #233740; border-color: #3d665d; }
