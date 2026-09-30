@@ -1151,7 +1151,9 @@ watch(
       <button type="button" title="缩小" @click="canvasRef?.zoomBy(0.9)">
         <el-icon><ZoomOut /></el-icon>
       </button>
-      <output data-test="zoom-percent" :class="{ 'zoom-locked': zoomLocked }">{{ canvasRef?.zoomPercent ?? 100 }}%</output>
+      <button data-test="zoom-percent" class="zoom-percent" :class="{ 'zoom-locked': zoomLocked }" type="button" title="固定缩放比例（K）" aria-label="固定缩放比例" :aria-pressed="zoomLocked" @click="zoomLocked = !zoomLocked">
+        {{ canvasRef?.zoomPercent ?? 100 }}%
+      </button>
       <button type="button" title="放大" @click="canvasRef?.zoomBy(1.1)">
         <el-icon><ZoomIn /></el-icon>
       </button>
@@ -1509,8 +1511,8 @@ watch(
 .tool-rail button:hover:not(:disabled),
 .tool-rail button.active { color: var(--vdw-focus-accent); background: #233740; border-color: #3d665d; }
 .tool-rail button:disabled { color: #52616c; cursor: not-allowed; }
-.tool-rail output { display: grid; place-items: center; box-sizing: border-box; width: 48px; height: 24px; color: var(--vdw-focus-ink-2); font: 13px var(--vdw-mono); border: 1px solid transparent; border-radius: 3px; text-align: center; }
-.tool-rail output.zoom-locked { color: var(--vdw-focus-accent); border-color: var(--vdw-focus-accent); }
+.tool-rail button.zoom-percent { flex-basis: 24px; width: 48px; height: 24px; color: var(--vdw-focus-ink-2); font: 13px var(--vdw-mono); }
+.tool-rail button.zoom-percent.zoom-locked { color: var(--vdw-focus-accent); border-color: var(--vdw-focus-accent); }
 .tool-separator { flex: 0 0 1px; width: 34px; margin: 2px 0; background: #34424d; }
 .tool-rail button.tool-toggle-start { margin-top: auto; }
 
