@@ -105,16 +105,6 @@ const NativeOptionStub = defineComponent({
   props: ['value', 'label'],
   template: '<option :value="value">{{ label }}</option>',
 })
-const DialogStub = defineComponent({
-  props: ['modelValue'],
-  template: '<div v-if="modelValue"><slot /><slot name="footer" /></div>',
-})
-const CheckboxStub = defineComponent({
-  props: ['modelValue'],
-  emits: ['update:modelValue'],
-  template: '<label><input type="checkbox" :checked="modelValue" @change="$emit(\'update:modelValue\', $event.target.checked)" /><slot /></label>',
-})
-
 const project = {
   id: 'project-id',
   name: '安全帽',
@@ -545,7 +535,7 @@ describe('AnnotationWorkbenchView', () => {
     wrapper.unmount()
   })
 
-  it('offers dense mode above drag drawing and reuses the session choice', async () => {
+  it('only hides annotation text when the user clicks the control or presses T', async () => {
     const boxes = Array.from({ length: 11 }, (_, index) => ({
       id: `box-${index}`,
       label_id: 'label-id',
@@ -565,27 +555,35 @@ describe('AnnotationWorkbenchView', () => {
       global: {
         stubs: {
           AnnotationCanvas: CanvasStub,
-          ElDialog: DialogStub,
-          ElCheckbox: CheckboxStub,
           ElSwitch: true,
         },
       },
     })
     await flushPromises()
 
-    expect(wrapper.find('[data-test="dense-mode-dialog"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="dense-mode-dialog"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="canvas-stub"]').attributes('data-dense')).toBe('false')
+    const toggle = wrapper.get('[data-test="dense-mode-toggle"]')
+    expect(toggle.attributes('aria-label')).toBe('隐藏标注文本')
+    expect(toggle.attributes('aria-pressed')).toBe('false')
     const drag = wrapper.get('[data-test="drag-to-draw-toggle"]').element
-    expect(drag.previousElementSibling).toBe(wrapper.get('[data-test="dense-mode-toggle"]').element)
-    await wrapper.get('[data-test="dense-mode-reuse"] input').setValue(true)
-    await wrapper.get('[data-test="dense-mode-enable"]').trigger('click')
+    expect(drag.previousElementSibling).toBe(toggle.element)
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-pressed')).toBe('true')
     expect(wrapper.get('[data-test="canvas-stub"]').attributes('data-dense')).toBe('true')
 
-    await wrapper.get('[data-test="next-frame"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.find('[data-test="dense-mode-dialog"]').exists()).toBe(false)
-    await wrapper.get('[data-test="dense-mode-toggle"]').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't' }))
+    await wrapper.vm.$nextTick()
+    expect(toggle.attributes('aria-pressed')).toBe('false')
     expect(wrapper.get('[data-test="canvas-stub"]').attributes('data-dense')).toBe('false')
+
+    const input = document.createElement('input')
+    document.body.append(input)
+    input.focus()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 't', bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(toggle.attributes('aria-pressed')).toBe('false')
+    input.remove()
     wrapper.unmount()
   })
 
@@ -607,7 +605,7 @@ describe('AnnotationWorkbenchView', () => {
     ])
     expect(
       wrapper.get('[data-test="shortcut-list"]').findAll('dt').map((item) => item.text()),
-    ).toEqual(expect.arrayContaining(['S', 'Y', 'L', 'H', 'P']))
+    ).toEqual(expect.arrayContaining(['S', 'Y', 'L', 'H', 'P', 'T']))
     expect(wrapper.get('[data-test="shortcut-list"]').text()).toContain('拖动四角自由调整标注框宽高')
     expect(wrapper.get('[data-test="shortcut-list"]').text()).toContain('Shift + 拖动四角等比例缩放标注框')
     expect(wrapper.get('[data-test="shortcut-list"]').text()).toContain('Alt + 拖动四角以中心为基准向四周缩放')

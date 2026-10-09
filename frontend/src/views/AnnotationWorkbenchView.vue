@@ -128,10 +128,6 @@ const expandedLabelIds = ref<string[]>([])
 const crosshair = ref(true)
 const dragToDraw = ref(false)
 const denseMode = ref(false)
-const densePromptOpen = ref(false)
-const densePromptReuse = ref(false)
-const denseSessionChoice = ref<boolean | null>(null)
-const promptedDenseFrameIds = new Set<string>()
 const zoomLocked = ref(false)
 const layerMenu = ref<{ annotationId: string; x: number; y: number } | null>(null)
 const layerMenuRef = ref<HTMLElement | null>(null)
@@ -828,33 +824,8 @@ function collapseAllObjects() {
   expandedLabelIds.value = []
 }
 
-function considerDenseMode() {
-  const frameId = currentFrame.value?.id
-  if (
-    !frameId
-    || annotations.value.length <= 10
-    || batchActive.value
-    || loadingFrame.value
-  ) return
-  if (denseSessionChoice.value !== null) {
-    denseMode.value = denseSessionChoice.value
-    return
-  }
-  if (promptedDenseFrameIds.has(frameId)) return
-  promptedDenseFrameIds.add(frameId)
-  densePromptReuse.value = false
-  densePromptOpen.value = true
-}
-
-function applyDenseChoice(enabled: boolean) {
-  denseMode.value = enabled
-  if (densePromptReuse.value) denseSessionChoice.value = enabled
-  densePromptOpen.value = false
-}
-
 function toggleDenseMode() {
   denseMode.value = !denseMode.value
-  if (denseSessionChoice.value !== null) denseSessionChoice.value = denseMode.value
 }
 
 function isInputTarget(target: EventTarget | null) {
@@ -880,7 +851,6 @@ function handleKeyDown(event: KeyboardEvent) {
     return
   }
   if (isInputTarget(event.target) || event.repeat || pendingBounds.value) return
-  if (densePromptOpen.value && event.key === 'Escape') return
   if (event.key === 'Escape' && layerMenu.value) {
     event.preventDefault()
     layerMenu.value = null
@@ -891,7 +861,7 @@ function handleKeyDown(event: KeyboardEvent) {
     return
   }
   const key = event.key.toLowerCase()
-  if (batchActive.value && ['r', 'delete', 'z', 's', 'y', 'l', 'p'].includes(key)) return
+  if (batchActive.value && ['r', 'delete', 'z', 's', 'y', 'l', 'p', 't'].includes(key)) return
   if ((event.ctrlKey || event.metaKey) && key === 'z') {
     event.preventDefault()
     event.shiftKey ? redo() : undo()
@@ -905,6 +875,7 @@ function handleKeyDown(event: KeyboardEvent) {
   else if (key === 'l') crosshair.value = !crosshair.value
   else if (key === 'k') zoomLocked.value = !zoomLocked.value
   else if (key === 'h') toggleAllBoxes()
+  else if (key === 't') toggleDenseMode()
   else if (key === 'p' && !inferenceRunning.value && autoModel.value) void runSingleAutoAnnotation()
   else if (event.key === 'Delete') deleteSelected()
 }
@@ -1013,10 +984,6 @@ onBeforeUnmount(() => {
 watch(reuseLabel, (reuse) => {
   saveAnnotationPreference(projectId, { reuse, labelId: lastUsedLabelId.value })
 })
-watch(
-  [() => currentFrame.value?.id, () => annotations.value.length, batchActive, loadingFrame],
-  () => void nextTick(considerDenseMode),
-)
 </script>
 
 <template>
@@ -1158,7 +1125,7 @@ watch(
         <el-icon><ZoomIn /></el-icon>
       </button>
       <span class="tool-separator" />
-      <button data-test="dense-mode-toggle" class="tool-toggle-start" :class="{ active: denseMode }" type="button" title="密集标注模式：隐藏标注框上方文字" aria-label="密集标注模式" :aria-pressed="denseMode" :disabled="batchActive" @click="toggleDenseMode">
+      <button data-test="dense-mode-toggle" class="tool-toggle-start" :class="{ active: denseMode }" type="button" title="隐藏标注文本（T）" aria-label="隐藏标注文本" :aria-pressed="denseMode" :disabled="batchActive" @click="toggleDenseMode">
         <el-icon><Grid /></el-icon>
       </button>
       <button data-test="drag-to-draw-toggle" :class="{ active: dragToDraw }" type="button" title="拖拽拉框：按住左键拖动并在松开时完成拉框" aria-label="拖拽模式" :aria-pressed="dragToDraw" :disabled="batchActive" @click="dragToDraw = !dragToDraw">
@@ -1392,31 +1359,12 @@ watch(
     </div>
   </main>
 
-  <el-dialog
-    :model-value="densePromptOpen"
-    data-test="dense-mode-dialog"
-    title="检测到密集标注"
-    width="420px"
-    append-to-body
-    :show-close="false"
-    :close-on-click-modal="false"
-    :close-on-press-escape="false"
-  >
-    <p class="dense-prompt-copy">当前帧有 {{ boxCount }} 个标注框。开启后将隐藏框上方的类别、序号和置信度文字。</p>
-    <el-checkbox v-model="densePromptReuse" data-test="dense-mode-reuse">本次标注会话沿用该设定</el-checkbox>
-    <template #footer>
-      <div class="dense-dialog-actions">
-        <button data-test="dense-mode-disable" type="button" @click="applyDenseChoice(false)">保持关闭</button>
-        <button data-test="dense-mode-enable" type="button" class="primary-action" @click="applyDenseChoice(true)">开启</button>
-      </div>
-    </template>
-  </el-dialog>
-
   <el-dialog v-model="shortcutsOpen" title="快捷键操作指南" width="460px" append-to-body>
     <dl class="shortcut-list" data-test="shortcut-list">
       <dt>A / D</dt><dd>上一张 / 下一张</dd><dt>R</dt><dd>新建矩形框</dd>
       <dt>Space</dt><dd>按住进入画布拖拽模式</dd><dt>Ctrl + 滚轮</dt><dd>缩放图像</dd>
       <dt>K</dt><dd>开启 / 关闭固定缩放比例</dd>
+      <dt>T</dt><dd>显示 / 隐藏标注文本</dd>
       <dt>Ctrl + Z</dt><dd>撤销</dd><dt>Ctrl + Shift + Z</dt><dd>重做</dd>
       <dt>Delete</dt><dd>删除选中标注框</dd>
       <dt>拖动四角</dt><dd>自由调整标注框宽高</dd>
@@ -1627,10 +1575,6 @@ watch(
 .stats-summary > div:last-child { border-bottom: 0; }
 .stats-summary dt { color: var(--vdw-ink-2); }
 .stats-summary dd { margin: 0; color: var(--vdw-accent); font: 700 20px var(--vdw-mono); }
-.dense-prompt-copy { margin: 0 0 16px; color: var(--vdw-ink-2); line-height: 1.6; }
-.dense-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.dense-dialog-actions button { height: 34px; padding: 0 14px; color: var(--vdw-ink); background: var(--vdw-surface-2); border: 1px solid var(--vdw-line); border-radius: 3px; cursor: pointer; }
-.dense-dialog-actions button.primary-action { color: var(--vdw-accent); border-color: var(--vdw-accent); }
 .model-registration-form { display: grid; gap: 14px; }
 .model-registration-form > label { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 12px; }
 .model-registration-form > label > span { color: var(--vdw-focus-ink-2); font-size: 14px; }
