@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -94,6 +95,57 @@ def _inside(workspace: Path, value: Path) -> Path:
     return resolved
 
 
+def dataset_stats(root: Path, allowed_classes: set[int] | None = None, manifest: dict | None = None) -> dict[str, int]:
+    stats = {"train_images": 0, "val_images": 0, "train_annotations": 0, "val_annotations": 0}
+    counts = (manifest or {}).get("class_counts")
+    if counts is not None and (not isinstance(counts, dict) or any(
+            not isinstance(counts.get(split), dict) or any(
+                not isinstance(key, str) or not key.isdigit() or type(value) is not int or value < 0
+                for key, value in counts[split].items()) for split in ("train", "val"))):
+        raise ValueError("训练快照类别计数无效")
+    for split in ("train", "val"):
+        directory = root / split / "images"
+        if not directory.is_dir():
+            continue
+        for image in directory.iterdir():
+            if not image.is_file():
+                continue
+            label = root / split / "labels" / (image.stem + ".txt")
+            if image.is_symlink() or label.is_symlink() or not image.resolve().is_relative_to(root.resolve()) or not label.resolve().is_relative_to(root.resolve()) or not label.is_file():
+                raise ValueError("训练数据文件或标注不可用")
+            stats[split+"_images"] += 1
+            if counts is not None:
+                continue
+            for line in label.read_text(encoding="utf-8-sig").splitlines():
+                if not line.strip():
+                    continue
+                parts = line.split()
+                if len(parts) != 5:
+                    raise ValueError("训练数据必须使用五列矩形框")
+                category = int(parts[0])
+                values = list(map(float, parts[1:]))
+                if category < 0 or not all(math.isfinite(v) for v in values):
+                    raise ValueError("训练标注数值无效")
+                cx, cy, width, height = values
+                if not (0 <= cx <= 1 and 0 <= cy <= 1 and 0 < width <= 1 and 0 < height <= 1
+                        and cx-width/2 >= -1e-6 and cy-height/2 >= -1e-6
+                        and cx+width/2 <= 1+1e-6 and cy+height/2 <= 1+1e-6):
+                    raise ValueError("训练标注矩形越界")
+                if allowed_classes is None or category in allowed_classes:
+                    stats[split+"_annotations"] += 1
+        if counts is not None:
+            stats[split+"_annotations"] = sum(value for key, value in counts[split].items()
+                if allowed_classes is None or int(key) in allowed_classes)
+    return stats
+
+
+def require_training_samples(stats):
+    if not stats.get("train_images") or not stats.get("val_images"):
+        raise ValueError("最终训练数据必须同时包含非空训练集和验证集；单侧快照可与其他快照组合")
+    if not stats.get("train_annotations"):
+        raise ValueError("最终训练集没有所选目标的标注，请调整类别或数据集")
+
+
 def materialize_snapshot(
     snapshot: dict[str, object],
     workspace: Path,
@@ -105,7 +157,10 @@ def materialize_snapshot(
     ready = target / "READY"
     if ready.is_file():
         manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
-        return dict(manifest["stats"])
+        stats = dict(manifest["stats"])
+        stats.update(dataset_stats(target))
+        require_training_samples(stats)
+        return stats
     sources = snapshot.get("sources")
     target_classes = snapshot.get("target_classes")
     if not isinstance(sources, list) or not sources or not isinstance(target_classes, list):
@@ -176,6 +231,8 @@ def materialize_snapshot(
                 if progress:
                     progress("rewrite_labels", processed, total)
 
+        stats.update(dataset_stats(staging))
+        require_training_samples(stats)
         yaml_text = dataset_yaml([str(item) for item in target_classes])
         if "test" in splits:
             yaml_text = yaml_text.replace("val: val/images\n", "val: val/images\ntest: test/images\n")

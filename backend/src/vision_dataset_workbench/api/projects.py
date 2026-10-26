@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..models import User
 from ..services.projects import (
@@ -22,9 +22,13 @@ router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 class CreateProjectRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str = Field(default="", max_length=2000)
+    project_type: Literal["video", "image"] = "video"
 
 
-class UpdateProjectRequest(CreateProjectRequest):
+class UpdateProjectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
     version: int = Field(ge=1)
 
 
@@ -41,6 +45,7 @@ class ProjectResponse(BaseModel):
     id: str
     name: str
     description: str
+    project_type: Literal["video", "image"]
     creator_id: str
     creator_username: str
     categories: list[str]
@@ -90,6 +95,7 @@ def _project_response(view: ProjectView) -> ProjectResponse:
         id=project.id,
         name=project.name,
         description=project.description,
+        project_type=project.project_type,
         creator_id=project.creator_id,
         creator_username=view.creator_username,
         categories=list(view.categories),
@@ -151,7 +157,7 @@ def create_project(
     require_same_origin(request)
     try:
         view = project_service(request).create_project(
-            user, payload.name, payload.description
+            user, payload.name, payload.description, project_type=payload.project_type
         )
     except ValueError as exc:
         _raise_http_error(exc)

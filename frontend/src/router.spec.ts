@@ -105,7 +105,7 @@ describe('setup routing', () => {
   it('keeps the application scroll container while annotation opens and history moves', async () => {
     const project = {
       id: 'project-id', name: 'Dataset', description: '', creator_id: 'creator-id',
-      creator_username: 'creator',
+      project_type: 'video', creator_username: 'creator',
       access: {
         role: 'editor', source: 'membership',
         permissions: ['project.read', 'project.update', 'artifact.read', 'artifact.download', 'artifact.consume', 'task.read', 'task.execute'],

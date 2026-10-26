@@ -47,9 +47,10 @@ def split_videos(
 
 def yolo_line(
     class_id: int,
-    box: tuple[int, int, int, int],
+    box: tuple[float, float, float, float],
     width: int,
     height: int,
+    *, continuous: bool = False,
 ) -> str:
     if width <= 0 or height <= 0:
         raise ValueError("image dimensions must be positive")
@@ -60,6 +61,8 @@ def yolo_line(
     center_y = (y_min + y_max) / 2 / height
     box_width = (x_max - x_min) / width
     box_height = (y_max - y_min) / height
+    if continuous:
+        return f"{class_id} {center_x:.17g} {center_y:.17g} {box_width:.17g} {box_height:.17g}"
     return (
         f"{class_id} {center_x:.6f} {center_y:.6f} "
         f"{box_width:.6f} {box_height:.6f}"

@@ -1,12 +1,13 @@
+import type { TrainingResources } from '../api/training';
 import { DOMWrapper, flushPromises, mount } from "@vue/test-utils";
 import ElementPlus from "element-plus";
 import { afterEach, expect, it } from "vitest";
 import MultiDatasetMappingDialog from "./MultiDatasetMappingDialog.vue";
 
-const datasets = [
+const datasets: TrainingResources["datasets"] = [
   {
     id: "a", name: "道路集", project_id: "p", project_name: "道路项目",
-    total_frames: 10, train_frames: 8, val_frames: 2,
+    project_type: 'video', total_samples: 10, total_frames: 10, train_samples: 8, train_frames: 8, val_samples: 2, val_frames: 2,
     labels: [{ index: 0, name: "car" }, { index: 1, name: "plane" }],
   },
 ];

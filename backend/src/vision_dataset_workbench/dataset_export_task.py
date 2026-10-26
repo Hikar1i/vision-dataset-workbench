@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from .image_dataset_export_task import execute_image_export
 from .dataset_export import dataset_yaml, safe_export_name, split_videos, yolo_line
 from .models import (
     DatasetExport,
@@ -64,6 +65,10 @@ def execute_dataset_export(
         record = database.get(DatasetExport, export_id)
         if record is None or record.task_id != task_id or record.status not in {"queued", "running"}:
             raise RuntimeError("dataset export record not found")
+        if json.loads(record.source_snapshot).get("project_type") == "image":
+            database.close()
+            return execute_image_export(session_factory, workspace, task_id, task_temp, now,
+                                        heartbeat, cancel_requested, DatasetExportTaskCanceled)
         record.status = "running"
         record.started_at = record.started_at or started_at
         labels = json.loads(record.label_snapshot)

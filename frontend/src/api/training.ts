@@ -177,11 +177,16 @@ export type TrainingCapabilities = {
   host: Record<string, unknown>;
 };
 export type TrainingResources = {
+  image_projects: {id: string; name: string; can_export: boolean; total_images: number}[];
   datasets: {
     id: string;
     name: string;
     project_id: string;
     project_name: string;
+    project_type: 'image' | 'video';
+    total_samples: number;
+    train_samples: number;
+    val_samples: number;
     total_frames: number;
     train_frames: number;
     val_frames: number;

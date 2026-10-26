@@ -10,9 +10,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from ..image_dataset_export import freeze_images, preview_response
 from ..dataset_export import safe_export_name
 from ..models import DatasetExport, Frame, ProjectLabel, SamplingPlan, Task, User, Video
-from .projects import ProjectForbidden, ProjectService, touch_project
+from .dataset_references import reference_count
+from .projects import ProjectForbidden, ProjectService, image_project_write_barrier, touch_project
 
 
 class DatasetExportNotFound(ValueError):
@@ -76,9 +78,16 @@ class DatasetExportService:
         name: str,
         train_ratio: float,
         labels: list[ExportLabelInput],
+        *, directory_rules=None, split_seed=0, preview_fingerprint=None,
     ) -> DatasetExport:
-        if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
+        view = self.projects.get_project(actor, project_id)
+        if not view.access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
+        is_image = view.project.project_type == "image"
+        if is_image and not view.access.allows("project.update"):
+            raise ProjectForbidden("project edit permission required")
+        if not is_image and (directory_rules is not None or preview_fingerprint is not None or split_seed != 0):
+            raise InvalidDatasetExport("视频导出不接受目录规则")
         clean_name = name.strip()
         if not 1 <= len(clean_name) <= 128 or not safe_export_name(clean_name):
             raise InvalidDatasetExport("dataset name must contain 1-128 usable characters")
@@ -98,45 +107,56 @@ class DatasetExportService:
                 )
             )
             label_snapshot = self._validate_labels(labels, stored_labels)
-            videos = list(
-                database.execute(
-                    select(Video, SamplingPlan)
-                    .join(SamplingPlan, SamplingPlan.video_id == Video.id)
-                    .where(
-                        Video.project_id == project_id,
-                        Video.enabled.is_(True),
-                        Video.status == "ready",
-                        SamplingPlan.extracted_frames > 0,
+            if is_image:
+                image_project_write_barrier(database, project_id)
+                source_snapshot = freeze_images(database, self.workspace, project_id, label_snapshot,
+                                                directory_rules, train_ratio, split_seed)
+                if source_snapshot["fingerprint"] != preview_fingerprint:
+                    raise DatasetExportConflict("数据或规则已变化，请重新预览")
+                if not source_snapshot["samples"]:
+                    raise DatasetExportConflict("没有可导出的启用图片")
+            else:
+                videos = list(
+                    database.execute(
+                        select(Video, SamplingPlan)
+                        .join(SamplingPlan, SamplingPlan.video_id == Video.id)
+                        .where(
+                            Video.project_id == project_id,
+                            Video.enabled.is_(True),
+                            Video.status == "ready",
+                            SamplingPlan.extracted_frames > 0,
+                        )
+                        .order_by(Video.id)
                     )
-                    .order_by(Video.id)
                 )
-            )
-            video_ids = [video.id for video, _plan in videos]
-            counts = dict(
-                database.execute(
-                    select(Frame.video_id, func.count(Frame.id))
-                    .join(SamplingPlan, SamplingPlan.video_id == Frame.video_id)
-                    .where(
-                        Frame.video_id.in_(video_ids),
-                        Frame.enabled.is_(True),
-                        Frame.generation == SamplingPlan.generation,
-                    )
-                    .group_by(Frame.video_id)
-                ).all()
-            ) if video_ids else {}
-            source_videos = [
-                {
-                    "video_id": video.id,
-                    "video_version": video.version,
-                    "sampling_generation": plan.generation,
-                    "frame_revision": plan.frame_revision,
-                    "enabled_frames": counts.get(video.id, 0),
-                }
-                for video, plan in videos
-                if counts.get(video.id, 0) > 0
-            ]
-            if not source_videos:
-                raise DatasetExportConflict("project has no enabled sampled frames to export")
+                video_ids = [video.id for video, _plan in videos]
+                counts = dict(
+                    database.execute(
+                        select(Frame.video_id, func.count(Frame.id))
+                        .join(SamplingPlan, SamplingPlan.video_id == Frame.video_id)
+                        .where(
+                            Frame.video_id.in_(video_ids),
+                            Frame.enabled.is_(True),
+                            Frame.generation == SamplingPlan.generation,
+                        )
+                        .group_by(Frame.video_id)
+                    ).all()
+                ) if video_ids else {}
+                source_videos = [
+                    {
+                        "video_id": video.id,
+                        "video_version": video.version,
+                        "sampling_generation": plan.generation,
+                        "frame_revision": plan.frame_revision,
+                        "enabled_frames": counts.get(video.id, 0),
+                    }
+                    for video, plan in videos
+                    if counts.get(video.id, 0) > 0
+                ]
+                if not source_videos:
+                    raise DatasetExportConflict("project has no enabled sampled frames to export")
+
+                source_snapshot = {"videos": source_videos}
 
             record = DatasetExport(
                 id=export_id,
@@ -147,7 +167,7 @@ class DatasetExportService:
                 status="queued",
                 train_ratio=train_ratio,
                 label_snapshot=json.dumps(label_snapshot, ensure_ascii=False),
-                source_snapshot=json.dumps({"videos": source_videos}),
+                source_snapshot=json.dumps(source_snapshot, ensure_ascii=False),
                 created_at=now,
             )
             task = Task(
@@ -173,6 +193,16 @@ class DatasetExportService:
                     "project already has an active dataset export"
                 ) from exc
             return record
+
+    def preview(self, actor, project_id, train_ratio, labels, directory_rules, split_seed=0):
+        view = self.projects.get_project(actor, project_id)
+        if view.project.project_type != "image":
+            raise InvalidDatasetExport("目录划分预览仅适用于图像项目")
+        with self._session_factory() as database:
+            stored = list(database.scalars(select(ProjectLabel).where(ProjectLabel.project_id == project_id)))
+            snapshot = self._validate_labels(labels, stored)
+            return preview_response(freeze_images(database, self.workspace, project_id, snapshot,
+                                                  directory_rules, train_ratio, split_seed))
 
     def list_exports(
         self,
@@ -228,6 +258,7 @@ class DatasetExportService:
         if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         with self._session_factory() as database:
+            database.connection().exec_driver_sql("BEGIN IMMEDIATE")
             record = database.scalar(
                 select(DatasetExport).where(
                     DatasetExport.id == export_id,
@@ -242,6 +273,8 @@ class DatasetExportService:
                     "active dataset export must be canceled before deletion"
                 )
 
+            if references := reference_count(database, [export_id]):
+                raise DatasetExportConflict(f"快照仍被 {references} 个训练配置或历史输入引用，不能删除")
             source = None
             destination = None
             if record.storage_path:

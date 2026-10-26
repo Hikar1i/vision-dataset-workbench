@@ -27,6 +27,7 @@ let timer: ReturnType<typeof setInterval> | undefined
 const lastViewedKey = 'vdm.tasks-last-viewed-at'
 
 const typeLabels = {
+  import_images: '图片导入',
   copy_video: '视频导入',
   download_video: '远程下载',
   extract_frames: '采样抽帧',

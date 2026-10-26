@@ -6,9 +6,10 @@ import { expect, it, vi } from 'vitest'
 import { getProject } from '../api/projects'
 import ProjectLayout from './ProjectLayout.vue'
 
-vi.mock('../api/projects', () => ({
+vi.mock('../api/projects', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../api/projects')>(),
   getProject: vi.fn().mockResolvedValue({
-    id: 'project-1',
+    id: 'project-1', project_type: 'video',
     name: 'Smoke Dataset',
     access: {
       role: 'owner', source: 'owner',

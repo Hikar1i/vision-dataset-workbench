@@ -10,9 +10,9 @@
  * 操作按钮送进这个头部，不再自建头部。
  */
 import { ref, watch } from 'vue'
-import { RouterView, useRoute } from 'vue-router'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 
-import { getProject, type Project } from '../api/projects'
+import { getProject, projectDataPath, type Project } from '../api/projects'
 import { accessLabel } from '../api/access'
 import PageHeader from '../components/PageHeader.vue'
 import { provideProjectHeaderHost } from '../ui/projectHeaderHost'
@@ -20,25 +20,32 @@ import { provideProjectHeaderHost } from '../ui/projectHeaderHost'
 provideProjectHeaderHost()
 
 const route = useRoute()
+const router = useRouter()
 const emit = defineEmits<{ 'project-loaded': [project: Project] }>()
 const project = ref<Project>()
 const loading = ref(false)
 const error = ref('')
+let loadVersion = 0
 
 function setProject(value: Project) {
   project.value = value
   emit('project-loaded', value)
+  const wrong = value.project_type === 'image' ? 'project-videos' : 'project-images'
+  if (route.matched.some(record => record.name === wrong)) void router.replace(projectDataPath(value))
 }
 
 async function load() {
+  const current = ++loadVersion
+  project.value = undefined
   loading.value = true
   error.value = ''
   try {
-    setProject(await getProject(String(route.params.id)))
+    const value = await getProject(String(route.params.id))
+    if (current === loadVersion) setProject(value)
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '项目加载失败'
+    if (current === loadVersion) error.value = reason instanceof Error ? reason.message : '项目加载失败'
   } finally {
-    loading.value = false
+    if (current === loadVersion) loading.value = false
   }
 }
 
@@ -57,7 +64,7 @@ watch(() => route.params.id, load, { immediate: true })
       back-label="返回数据集项目"
     >
       <template #eyebrow>
-        <span class="project-role">{{ accessLabel(project.access) }}</span>
+        <span class="project-role">{{ project.project_type === 'image' ? '图像' : '视频' }} · {{ accessLabel(project.access) }}</span>
       </template>
       <template #meta>
         <!-- 子页把当前页的统计送到这里 -->
@@ -68,7 +75,7 @@ watch(() => route.params.id, load, { immediate: true })
         <span id="project-page-actions" class="project-slot" />
       </template>
       <template #tabs>
-        <RouterLink data-test="project-tab-videos" :to="`/projects/${project.id}/videos`">
+        <RouterLink data-test="project-tab-videos" :to="projectDataPath(project)">
           原始数据
         </RouterLink>
         <RouterLink data-test="project-tab-labels" :to="`/projects/${project.id}/labels`">

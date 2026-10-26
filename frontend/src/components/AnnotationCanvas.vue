@@ -3,6 +3,7 @@ import Konva from 'konva'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import type { FrameAnnotation } from '../api/annotations'
+import VButton from '../ui/VButton.vue'
 import {
   clampBox,
   fitImage as calculateFit,
@@ -24,6 +25,7 @@ const props = defineProps<{
   labels: CanvasLabel[]
   selectedId: string | null
   mode: CanvasMode
+  coordinateMode?: 'pixel' | 'continuous'
   readonly?: boolean
   crosshair?: boolean
   dragToDraw?: boolean
@@ -46,6 +48,8 @@ const stageRef = ref<NodeRef<Konva.Stage> | null>(null)
 const transformerRef = ref<NodeRef<Konva.Transformer> | null>(null)
 const stageSize = ref({ width: 1, height: 1 })
 const image = ref<HTMLImageElement | null>(null)
+const imageFailed = ref(false)
+let imageRequest = 0
 const zoom = ref(1)
 const pan = ref<Point>({ x: 0, y: 0 })
 const pointer = ref<Point | null>(null)
@@ -122,8 +126,12 @@ function annotationTitle(item: FrameAnnotation) {
 }
 
 function loadImage() {
+  const request = ++imageRequest
+  image.value = null; imageFailed.value = false
+  resetDrawing(); panStart.value = null
   const next = new Image()
-  next.onload = () => { image.value = next }
+  next.onload = () => { if (request === imageRequest) image.value = next }
+  next.onerror = () => { if (request === imageRequest) imageFailed.value = true }
   next.src = props.imageUrl
 }
 
@@ -168,12 +176,14 @@ function finishDrawing(anchor?: Point | null) {
     },
     props.imageWidth,
     props.imageHeight,
+    props.coordinateMode,
   )
   resetDrawing()
   if (bounds) emit('request-category', bounds, anchor ?? pointer.value ?? { x: 24, y: 24 })
 }
 
 function handlePointerDown(event: Konva.KonvaEventObject<MouseEvent>) {
+  if (!image.value) return
   if (event.evt.button !== 0) return
   const point = stagePoint(event)
   if (!point) return
@@ -196,6 +206,7 @@ function handlePointerDown(event: Konva.KonvaEventObject<MouseEvent>) {
 }
 
 function handlePointerMove(event: Konva.KonvaEventObject<MouseEvent>) {
+  if (!image.value) return
   const point = stagePoint(event)
   pointer.value = point
   if (!point) return
@@ -210,6 +221,7 @@ function handlePointerMove(event: Konva.KonvaEventObject<MouseEvent>) {
 }
 
 function handlePointerUp(event: Konva.KonvaEventObject<MouseEvent>) {
+  if (!image.value) return
   panStart.value = null
   if (props.dragToDraw) finishDrawing(stagePoint(event))
 }
@@ -241,15 +253,17 @@ function openContextMenu(event: Konva.KonvaEventObject<MouseEvent>, id: string) 
 }
 
 function replaceBox(id: string, bounds: BoxBounds) {
-  const next = clampBox(bounds, props.imageWidth, props.imageHeight)
+  if (props.readonly || !image.value) return
+  const next = clampBox(bounds, props.imageWidth, props.imageHeight, props.coordinateMode)
   if (!next) return
   emit(
     'change',
-    props.annotations.map((item) => (item.id === id ? { ...item, ...next } : { ...item })),
+    props.annotations.map((item) => (item.id === id ? { ...item, ...next, source: 'manual', confidence: null } : { ...item })),
   )
 }
 
 function handleDragEnd(event: Konva.KonvaEventObject<DragEvent>, item: FrameAnnotation) {
+  if (props.readonly || !image.value) return
   const node = event.target
   replaceBox(item.id, {
     x_min: node.x(),
@@ -260,10 +274,11 @@ function handleDragEnd(event: Konva.KonvaEventObject<DragEvent>, item: FrameAnno
 }
 
 function handleTransformEnd(event: Konva.KonvaEventObject<Event>, item: FrameAnnotation) {
-  if (props.readonly) return
+  if (props.readonly || !image.value) return
   const node = event.target
-  const width = Math.max(2, node.width() * node.scaleX())
-  const height = Math.max(2, node.height() * node.scaleY())
+  const minimum = props.coordinateMode === 'continuous' ? 0 : 2
+  const width = Math.max(minimum, node.width() * node.scaleX())
+  const height = Math.max(minimum, node.height() * node.scaleY())
   node.scaleX(1)
   node.scaleY(1)
   replaceBox(item.id, {
@@ -278,7 +293,7 @@ function syncTransformer() {
   void nextTick(() => {
     const transformer = transformerRef.value?.getNode()
     const stage = stageRef.value?.getNode()
-    const selected = !props.readonly && props.mode === 'select' && props.selectedId
+    const selected = image.value && !props.readonly && props.mode === 'select' && props.selectedId
       ? stage?.findOne(`.annotation-${props.selectedId}`)
       : null
     transformer?.nodes(selected ? [selected] : [])
@@ -321,6 +336,7 @@ function emitViewport() {
 watch(() => props.imageUrl, loadImage, { immediate: true })
 watch(() => [props.mode, props.imageUrl, props.dragToDraw], resetDrawing)
 watch(() => [
+  image.value,
   props.selectedId,
   props.mode,
   props.annotations,
@@ -342,7 +358,7 @@ onMounted(() => {
   observer = new ResizeObserver(updateStageSize)
   if (container.value) observer.observe(container.value)
 })
-onBeforeUnmount(() => observer?.disconnect())
+onBeforeUnmount(() => {imageRequest++; observer?.disconnect()})
 
 defineExpose({ cancelDrawing, resetFrameView, zoomBy, resetView, zoomPercent })
 </script>
@@ -355,6 +371,10 @@ defineExpose({ cancelDrawing, resetFrameView, zoomBy, resetView, zoomPercent })
     :style="{ cursor }"
     @contextmenu.prevent
   >
+    <div v-if="!image" class="canvas-image-state" role="status">
+      <template v-if="imageFailed"><span>图片加载失败，请重试或切换图片。</span><VButton @click="loadImage">重试加载图片</VButton></template>
+      <span v-else>正在加载图片…</span>
+    </div>
     <v-stage
       ref="stageRef"
       :config="stageSize"
@@ -386,8 +406,8 @@ defineExpose({ cancelDrawing, resetFrameView, zoomBy, resetView, zoomPercent })
                 ),
                 strokeWidth: item.id === selectedId ? 3 : 2,
                 strokeScaleEnabled: false,
-                listening: mode !== 'draw',
-                draggable: mode === 'select' && !readonly,
+                listening: Boolean(image) && mode !== 'draw',
+                draggable: Boolean(image) && mode === 'select' && !readonly,
               }"
               @mousedown="selectAnnotation($event, item.id)"
               @contextmenu="openContextMenu($event, item.id)"
@@ -445,7 +465,7 @@ defineExpose({ cancelDrawing, resetFrameView, zoomBy, resetView, zoomPercent })
             }"
           />
           <v-transformer
-            v-if="!readonly && mode === 'select'"
+            v-if="image && !readonly && mode === 'select'"
             ref="transformerRef"
             :config="{
               rotateEnabled: false,
@@ -464,7 +484,7 @@ defineExpose({ cancelDrawing, resetFrameView, zoomBy, resetView, zoomPercent })
               anchorStroke: focusPanel,
               anchorFill: focusAccent,
               boundBoxFunc: (oldBox: unknown, newBox: { width: number; height: number }) =>
-                Math.abs(newBox.width) < 2 || Math.abs(newBox.height) < 2 ? oldBox : newBox,
+                Math.abs(newBox.width) < (coordinateMode === 'continuous' ? Number.EPSILON : 2) || Math.abs(newBox.height) < (coordinateMode === 'continuous' ? Number.EPSILON : 2) ? oldBox : newBox,
             }"
           />
         </v-group>
@@ -494,6 +514,8 @@ defineExpose({ cancelDrawing, resetFrameView, zoomBy, resetView, zoomPercent })
 </template>
 
 <style scoped>
+.canvas-image-state{position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;gap:12px;background:var(--vdw-focus-canvas);color:var(--vdw-focus-ink)}
+
 .annotation-canvas {
   position: relative;
   width: 100%;

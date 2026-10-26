@@ -20,6 +20,7 @@ const project = {
   name: '缺陷视频',
   description: '产线 A',
   creator_id: 'creator-id',
+  project_type: 'video' as const,
   creator_username: 'creator',
   categories: [],
   access: access('owner'),

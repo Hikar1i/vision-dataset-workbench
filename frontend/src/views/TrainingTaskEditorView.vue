@@ -30,6 +30,8 @@ import DatasetSelectionSummary from "../components/DatasetSelectionSummary.vue";
 import CoreHyperparameterFields from "../components/CoreHyperparameterFields.vue";
 import GpuSequenceEditor from "../components/GpuSequenceEditor.vue";
 import TrainingModelEditor from "../components/TrainingModelEditor.vue";
+import ExportDatasetDialog from "../components/ExportDatasetDialog.vue";
+import { getDatasetExport, type DatasetExport } from "../api/datasetExports";
 import MultiDatasetMappingDialog from "../components/MultiDatasetMappingDialog.vue";
 import TrainingHyperparameterDialog from "../components/TrainingHyperparameterDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
@@ -59,6 +61,7 @@ const devices = ref<GpuDevice[]>([]);
 const trainingAvailable = ref(false);
 const capabilityReason = ref("");
 const resources = ref<TrainingResources>({
+  image_projects: [],
   datasets: [],
   templates: [],
   base_models: [],
@@ -89,6 +92,90 @@ const form = reactive<TrainingTaskDraft>({
   default_base_model_id: null,
   models: [],
 });
+type SnapshotTarget = {model: TrainingModelDraft | null; revision: number; mode: string}
+const chooseImageProjectOpen = ref(false)
+const snapshotExportOpen = ref(false)
+const snapshotProjectId = ref('')
+const snapshotContext = ref('')
+let requestedModel: TrainingModelDraft | null = null
+let snapshotTarget: SnapshotTarget | null = null
+let defaultSelectionRevision = 0
+const modelSelectionRevisions = new WeakMap<TrainingModelDraft, number>()
+const modelSelections = new WeakMap<TrainingModelDraft, string>()
+let previousDefaultSelection = ''
+let snapshotPoll: ReturnType<typeof setInterval> | undefined
+let snapshotPolling = false
+let editorAlive = true
+const pendingSnapshots: Array<{projectId: string; exportId: string; taskId: string | null; target: SnapshotTarget}> = []
+const mappingCandidate = ref<MultiDatasetConfig | null>(null)
+let mappingSnapshotTarget: SnapshotTarget | null = null
+function selectionKey(model: TrainingModelDraft | null) {
+  return JSON.stringify(model ? [model.dataset_mode,model.dataset_export_id,model.multi_dataset_config]
+    : [form.default_dataset_mode,form.default_dataset_export_id,form.default_multi_dataset_config])
+}
+watch(() => [selectionKey(null), ...form.models.map(m=>selectionKey(m))], () => {
+  const key=selectionKey(null)
+  if(key!==previousDefaultSelection) {defaultSelectionRevision++;previousDefaultSelection=key}
+  for(const model of form.models) {
+    const key=selectionKey(model)
+    if(modelSelections.get(model)!==key) {modelSelectionRevisions.set(model,(modelSelectionRevisions.get(model)??0)+1);modelSelections.set(model,key)}
+  }
+}, {flush:'sync', immediate:true})
+function targetValid(target: SnapshotTarget) {
+  return editorAlive && (target.model ? form.models.includes(target.model) && (modelSelectionRevisions.get(target.model)??0)===target.revision
+    : defaultSelectionRevision===target.revision)
+}
+function chooseSnapshotProject(model: TrainingModelDraft | null = null) {
+  requestedModel=model
+  const name=model ? `模型“${model.name || '未命名模型'}”` : '任务默认数据集'
+  const mode=model?.dataset_mode ?? form.default_dataset_mode
+  snapshotContext.value=mode==='inherit' ? `${name}：快照就绪后退出继承，改为单数据集使用新快照；任务默认不变。`
+    : mode==='multi' ? `${name}：快照就绪后，确认类别映射再添加到多数据集。` : `${name}：快照就绪后替换当前选择的数据集。`
+  chooseImageProjectOpen.value=true
+}
+function openSnapshotExport(projectId: string) {
+  snapshotProjectId.value=projectId
+  snapshotTarget={model:requestedModel,revision:requestedModel ? modelSelectionRevisions.get(requestedModel)??0 : defaultSelectionRevision,
+    mode:requestedModel?.dataset_mode ?? form.default_dataset_mode}
+  chooseImageProjectOpen.value=false;snapshotExportOpen.value=true
+}
+function trackSnapshot(value: DatasetExport) {
+  if(!snapshotTarget)return
+  pendingSnapshots.push({projectId:value.project_id,exportId:value.id,taskId:value.task_id,target:snapshotTarget})
+  notify.info('快照正在导出。完成后将回填发起位置；期间改选数据集会取消自动回填。')
+  if(!snapshotPoll)snapshotPoll=setInterval(pollSnapshots,1500)
+}
+async function pollSnapshots() {
+  if(snapshotPolling || !editorAlive)return
+  snapshotPolling=true
+  try {
+    for(const pending of [...pendingSnapshots]) {
+      let value
+      try {value=await getDatasetExport(pending.projectId,pending.exportId)} catch {continue}
+      if(!editorAlive)return
+      if(!['ready','failed','canceled'].includes(value.status))continue
+      pendingSnapshots.splice(pendingSnapshots.indexOf(pending),1)
+      if(value.status!=='ready') {if(value.status==='failed')notify.error(value.error || '快照导出失败，原数据集选择已保留。');continue}
+      const refreshed = await refreshResources()
+      if(!editorAlive)return
+      if(!refreshed || !targetValid(pending.target) || !resources.value.datasets.some(d=>d.id===value.id)) {
+        notify.info(`快照“${value.name}”已创建，请到来源项目的数据集管理页查看或手动选择。`);continue
+      }
+      const target=pending.target,model=target.model
+      if(target.mode==='multi') {
+        if(mappingOpen.value) {notify.info(`快照“${value.name}”已创建，请完成当前映射后手动添加。`);continue}
+        const config=model?.multi_dataset_config ?? form.default_multi_dataset_config
+        mappingCandidate.value={version:1,dataset_export_ids:[...new Set([...(config?.dataset_export_ids ?? []),value.id])],
+          target_classes:config?.target_classes ?? value.labels.filter(l=>l.enabled).map(l=>l.name)}
+        mappingSnapshotTarget=target;mappingModel.value=model;mappingOpen.value=true
+      } else if(model) {model.dataset_mode='single';model.dataset_export_id=value.id;model.multi_dataset_config=null}
+      else {form.default_dataset_mode='single';form.default_dataset_export_id=value.id;form.default_multi_dataset_config=null}
+    }
+  } finally {
+    snapshotPolling=false
+    if(!pendingSnapshots.length && snapshotPoll) {clearInterval(snapshotPoll);snapshotPoll=undefined}
+  }
+}
 function row(index: number): TrainingModelDraft {
   return {
     name: `模型 ${index}`,
@@ -141,6 +228,7 @@ watch(
 );
 watch(mappingOpen, (open) => {
   if (open) return;
+  mappingCandidate.value=null;mappingSnapshotTarget=null;
   if (mappingModel.value?.dataset_mode === "multi" && !mappingModel.value.multi_dataset_config)
     mappingModel.value.dataset_mode = "single";
   if (!mappingModel.value && form.default_dataset_mode === "multi" && !form.default_multi_dataset_config)
@@ -276,6 +364,7 @@ function initialMapping(datasetId: string | null): MultiDatasetConfig | null {
     : null;
 }
 const activeMappingConfig = computed(() => {
+  if(mappingCandidate.value)return mappingCandidate.value
   if (!mappingModel.value)
     return form.default_multi_dataset_config ?? initialMapping(form.default_dataset_export_id);
   return mappingModel.value.multi_dataset_config
@@ -283,14 +372,18 @@ const activeMappingConfig = computed(() => {
     ?? initialMapping(mappingModel.value.dataset_export_id ?? form.default_dataset_export_id);
 });
 function openTaskMapping() {
+  mappingCandidate.value=null;mappingSnapshotTarget=null
   mappingModel.value = null;
   mappingOpen.value = true;
 }
 function openModelMapping(model: TrainingModelDraft) {
+  mappingCandidate.value=null;mappingSnapshotTarget=null
   mappingModel.value = model;
   mappingOpen.value = true;
 }
 function saveMapping(config: MultiDatasetConfig) {
+  if(mappingSnapshotTarget && !targetValid(mappingSnapshotTarget)) {notify.warning('原数据集选择已变化，请重新配置映射。');return}
+  mappingCandidate.value=null;mappingSnapshotTarget=null
   if (mappingModel.value) {
     mappingModel.value.dataset_mode = "multi";
     mappingModel.value.multi_dataset_config = config;
@@ -526,7 +619,7 @@ async function deriveHyperparameters(value: HyperparameterConfig) {
 }
 
 async function refreshResources() {
-  if (loading.value) return;
+  if (loading.value) return false;
   try {
     const next = await getTrainingResources();
     const previous = new Map(resources.value.templates.map((item) => [item.id, item]));
@@ -546,8 +639,10 @@ async function refreshResources() {
         messages.set(model, `模板已更新至 v${after.version}，已保留 ${hyperparameterOverrideCount(modelOverrides(model))} 项覆盖。`);
     }
     modelHyperMessages.value = messages;
+    return true;
   } catch (reason) {
     notify.error(reason instanceof Error ? reason.message : "超参模板刷新失败");
+    return false;
   }
 }
 async function checkCode() {
@@ -618,7 +713,7 @@ onMounted(async () => {
   await load();
   window.addEventListener("focus", refreshResources);
 });
-onUnmounted(() => window.removeEventListener("focus", refreshResources));
+onUnmounted(() => {editorAlive=false;if(snapshotPoll)clearInterval(snapshotPoll);pendingSnapshots.length=0;window.removeEventListener("focus", refreshResources)});
 </script>
 <template>
   <main v-loading="loading" class="content-page training-editor-page">
@@ -684,6 +779,7 @@ onUnmounted(() => window.removeEventListener("focus", refreshResources));
           <div class="resource-row">
             <div><b>默认数据集</b><span>继承模型共用；单数据集与多数据集配置互相保留</span></div>
             <div class="dataset-default-control">
+              <VButton size="sm" :disabled="!(resources.image_projects ?? []).some(p=>p.can_export)" @click="chooseSnapshotProject()">从图像项目创建快照</VButton>
               <el-segmented v-model="form.default_dataset_mode" :options="[{ label: '单数据集', value: 'single' }, { label: '多数据集', value: 'multi' }]" />
               <el-cascader v-if="form.default_dataset_mode === 'single'" v-model="form.default_dataset_export_id" :options="datasetOptions" :props="cascaderProps" filterable clearable placeholder="未选择任何数据集" />
               <DatasetSelectionSummary
@@ -791,6 +887,7 @@ onUnmounted(() => window.removeEventListener("focus", refreshResources));
           :task-code="form.code"
           :defaults="form"
           :hyper-messages="modelHyperMessages"
+          @create-snapshot="chooseSnapshotProject"
           @configure-mapping="openModelMapping"
           @edit-hyperparameters="openHyperparameters"
           @change-template="changeModelTemplate"
@@ -804,6 +901,11 @@ onUnmounted(() => window.removeEventListener("focus", refreshResources));
         />
       </section>
     </div>
+    <el-dialog v-model="chooseImageProjectOpen" append-to-body title="从图像项目创建数据集快照" width="640px">
+      <p data-test="snapshot-target-context">{{ snapshotContext }}</p><p>选择项目后设置目录划分并导出快照。取消导出会保留当前训练数据集选择。</p>
+      <div v-for="project in resources.image_projects ?? []" :key="project.id" class="snapshot-project-row"><span>{{ project.name }} · {{ project.total_images }} 张图片</span><VButton :disabled="!project.can_export" :title="project.can_export ? '设置划分并创建快照' : '缺少导出权限'" @click="openSnapshotExport(project.id)">选择当前状态</VButton></div>
+    </el-dialog>
+    <ExportDatasetDialog v-if="snapshotProjectId" v-model="snapshotExportOpen" :project-id="snapshotProjectId" :context="snapshotContext" @submitted="trackSnapshot"/>
     <MultiDatasetMappingDialog v-model="mappingOpen" :config="activeMappingConfig" :datasets="resources.datasets" :title="mappingModel ? `${mappingModel.name || '训练模型'} · 多数据集映射` : '任务默认 · 多数据集映射'" @save="saveMapping" />
     <TrainingHyperparameterDialog
       v-model="hyperOpen"
@@ -872,6 +974,7 @@ onUnmounted(() => window.removeEventListener("focus", refreshResources));
   justify-content: space-between;
   align-items: center;
 }
+.snapshot-project-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--vdw-line)}
 .resource-rows { display: grid; }
 .resource-row { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 18px; align-items: start; padding: 16px 0; border-bottom: 1px solid var(--vdw-line); }
 .resource-row:first-child { padding-top: 0; }

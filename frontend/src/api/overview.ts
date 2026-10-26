@@ -3,6 +3,10 @@ import { json } from './auth'
 export type Overview = {
   projects: number
   videos: number
+  images: number
+  directories: number
+  video_projects: number
+  image_projects: number
   model_projects: number
   training_tasks: number
   running_tasks: { own: number; global: number }

@@ -86,6 +86,7 @@ onMounted(load)
         <div data-test="overview-stats" class="overview-metrics">
           <VMetric label="数据集项目" :value="data.projects" to="/projects" reticle />
           <VMetric label="视频资源" :value="data.videos" to="/projects" />
+          <VMetric label="图片资源" :value="data.images" to="/projects" />
           <VMetric label="模型项目" :value="data.model_projects" to="/model-projects" />
           <VMetric label="训练任务" :value="data.training_tasks" to="/training-tasks">
             <VTag v-if="data.running_tasks.global" tone="run">

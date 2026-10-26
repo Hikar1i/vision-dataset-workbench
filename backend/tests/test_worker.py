@@ -163,6 +163,7 @@ def test_task_heartbeat_does_not_touch_parent_but_terminal_failure_does(tmp_path
         project.updated_at = old
         version = project.version
         task.status = "running"
+        task.lease_owner = worker.worker_id
         session.commit()
 
     worker._heartbeat("activity-task", 50)

@@ -27,6 +27,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   change: [TrainingModelDraft[]];
   configureMapping: [TrainingModelDraft];
+  createSnapshot: [TrainingModelDraft];
   editHyperparameters: [TrainingModelDraft];
   changeTemplate: [TrainingModelDraft, string | null];
 }>();
@@ -155,8 +156,8 @@ function datasetSummary(row: TrainingModelDraft) {
     const selected = props.resources.datasets.filter((item) =>
       config?.dataset_export_ids.includes(item.id),
     );
-    const images = selected.reduce((sum, item) => sum + item.total_frames, 0);
-    return `${selected.length} 个数据集 · ${config?.target_classes.length ?? 0} 个目标类别 · ${images.toLocaleString()} 张图像`;
+    const images = selected.reduce((sum, item) => sum + (item.total_samples ?? item.total_frames), 0);
+    return `${selected.length} 个数据集 · ${config?.target_classes.length ?? 0} 个目标类别 · ${images.toLocaleString()} 个样本`;
   }
   return props.resources.datasets.find(({ id }) => id === ids.datasetId)?.name || "未选数据集";
 }
@@ -201,6 +202,8 @@ function setDatasetMode(row: TrainingModelDraft, mode: TrainingModelDraft["datas
           <el-form-item label="模型描述"><el-input v-model="row.description" type="textarea" :rows="2" maxlength="2000" /></el-form-item>
           <section class="dataset-resource" :class="{ 'is-error': missing(row, 'dataset') }">
             <header><div><strong>训练数据集 <span class="required-mark">*</span><span class="required-note">启动必填</span></strong><small>{{ datasetSummary(row) }}</small></div></header>
+            <VButton size="sm" :disabled="!(resources.image_projects ?? []).some(p=>p.can_export)" @click="emit('createSnapshot',row)">为{{ row.name || '当前模型' }}创建图像快照</VButton>
+            <p class="field-note">{{ row.dataset_mode === 'inherit' ? '快照就绪后，此模型将退出继承并使用新快照，任务默认不变。' : row.dataset_mode === 'multi' ? '快照就绪后，确认类别映射再添加到此模型的多数据集。' : '快照就绪后，将替换此模型当前选择的数据集。' }}</p>
             <el-segmented :model-value="row.dataset_mode" :options="[{ label: '继承任务默认', value: 'inherit' }, { label: '单数据集', value: 'single' }, { label: '多数据集', value: 'multi' }]" @change="setDatasetMode(row, $event as TrainingModelDraft['dataset_mode'])" />
             <template v-if="row.dataset_mode === 'inherit'">
               <DatasetSelectionSummary

@@ -2,6 +2,8 @@ from dataclasses import replace
 
 from fastapi import FastAPI
 
+from .api.images import router as images_router
+from .services.images import ImageService
 from .api.annotations import router as annotations_router
 from .api.auto_annotations import router as auto_annotations_router
 from .api.dataset_exports import router as dataset_exports_router
@@ -90,6 +92,11 @@ def create_app(
     app.state.label_service = (
         LabelService(auth_service.engine, app.state.project_service)
         if auth_service is not None and app.state.project_service is not None
+        else None
+    )
+    app.state.image_service = (
+        ImageService(auth_service.engine, resolved_settings, workspace, app.state.project_service)
+        if auth_service is not None and workspace is not None and app.state.project_service is not None
         else None
     )
     app.state.annotation_service = (
@@ -217,6 +224,7 @@ def create_app(
     app.include_router(users_router)
     app.include_router(projects_router)
     app.include_router(labels_router)
+    app.include_router(images_router)
     app.include_router(annotations_router)
     app.include_router(auto_annotations_router)
     app.include_router(dataset_exports_router)

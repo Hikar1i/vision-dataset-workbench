@@ -21,7 +21,8 @@ vi.mock('../api/auth', () => ({
   }),
   logout: vi.fn(),
 }))
-vi.mock('../api/projects', () => ({
+vi.mock('../api/projects', async original => ({
+  ...await original<typeof import('../api/projects')>(),
   listProjects: vi.fn(),
 }))
 vi.mock('../api/capabilities', () => ({

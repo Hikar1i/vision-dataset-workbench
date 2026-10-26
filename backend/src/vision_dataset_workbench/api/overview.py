@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import User, Video
+from ..models import ImageAsset, ImageDirectory, User, Video
 from .auth import current_user
 
 router = APIRouter(prefix="/api/v1/overview", tags=["overview"])
@@ -24,6 +24,14 @@ def overview(request: Request, user: Annotated[User, Depends(current_user)]) -> 
         running = [task for task in training_tasks if task.status == "running"]
         return {
             "projects": project_count,
+            "video_projects": sum(item.project.project_type == "video" for item in projects),
+            "image_projects": sum(item.project.project_type == "image" for item in projects),
+            "images": db.scalar(select(func.count()).select_from(ImageAsset).join(
+                ImageDirectory, ImageDirectory.id == ImageAsset.directory_id
+            ).where(ImageDirectory.project_id.in_(project_ids))) or 0,
+            "directories": db.scalar(select(func.count()).select_from(ImageDirectory).where(
+                ImageDirectory.project_id.in_(project_ids)
+            )) or 0,
             "videos": db.scalar(
                 select(func.count()).select_from(Video).where(Video.project_id.in_(project_ids))
             ) or 0,

@@ -7,6 +7,10 @@ from pydantic import BaseModel, Field
 from ..services.auth import build_auth_service
 from ..services.annotations import AnnotationService
 from ..services.auto_annotations import AutoAnnotationService
+from ..services.images import ImageService
+from ..services.dataset_exports import DatasetExportService
+from ..services.hyperparameters import HyperparameterTemplateService
+from ..services.training import TrainingService
 from ..services.labels import LabelService
 from ..services.media import MediaService
 from ..services.models import ModelService
@@ -122,6 +126,12 @@ def initialize(
         request.app.state.settings,
         workspace,
     )
+    request.app.state.image_service = ImageService(
+        request.app.state.auth_service.engine,
+        request.app.state.settings,
+        workspace,
+        request.app.state.project_service,
+    )
     request.app.state.label_service = LabelService(
         request.app.state.auth_service.engine,
         request.app.state.project_service,
@@ -135,6 +145,15 @@ def initialize(
         request.app.state.settings,
         workspace,
         request.app.state.project_service,
+    )
+    request.app.state.dataset_export_service = DatasetExportService(
+        request.app.state.auth_service.engine, workspace, request.app.state.project_service,
+    )
+    request.app.state.hyperparameter_template_service = HyperparameterTemplateService(
+        request.app.state.auth_service.engine, request.app.state.model_service,
+    )
+    request.app.state.training_service = TrainingService(
+        request.app.state.auth_service.engine, workspace, request.app.state.model_service,
     )
     request.app.state.xanylabeling_settings_service = XAnyLabelingSettingsService(
         request.app.state.auth_service.engine,

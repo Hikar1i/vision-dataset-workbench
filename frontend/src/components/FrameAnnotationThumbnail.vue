@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import { formatFrameTimestamp } from './framePresentation'
 
 type PreviewAnnotation = {
@@ -10,22 +11,26 @@ type PreviewAnnotation = {
   y_max: number
 }
 
-defineProps<{
+const props = defineProps<{
   imageUrl: string
   imageWidth: number
   imageHeight: number
   annotations: PreviewAnnotation[]
   labelColors: Record<string, string>
-  sequence: number
-  timeOffset: number
+  sequence?: number
+  timeOffset?: number
   current?: boolean
   disabled?: boolean
 }>()
+const emit = defineEmits<{'load-error': []}>()
+const failed = ref(false)
+watch(() => props.imageUrl, () => {failed.value=false})
 </script>
 
 <template>
   <div class="frame-thumbnail" :class="{ current, disabled }">
-    <img loading="lazy" :src="imageUrl" alt="" />
+    <img loading="lazy" :src="imageUrl" alt="" @error="failed=true;emit('load-error')" />
+    <span v-if="failed" class="load-error" role="status">图片加载失败</span>
     <svg
       v-if="annotations.length && imageWidth > 0 && imageHeight > 0"
       class="annotation-preview"
@@ -38,14 +43,14 @@ defineProps<{
         :key="item.id"
         :x="item.x_min"
         :y="item.y_min"
-        :width="Math.max(1, item.x_max - item.x_min)"
-        :height="Math.max(1, item.y_max - item.y_min)"
+        :width="item.x_max - item.x_min"
+        :height="item.y_max - item.y_min"
         :stroke="labelColors[item.label_id] ?? 'var(--vdw-warn)'"
         vector-effect="non-scaling-stroke"
       />
     </svg>
-    <span class="timestamp">{{ formatFrameTimestamp(timeOffset) }}</span>
-    <span class="sequence">#{{ sequence }}</span>
+    <span v-if="timeOffset !== undefined" class="timestamp">{{ formatFrameTimestamp(timeOffset) }}</span>
+    <span v-if="sequence !== undefined" class="sequence">#{{ sequence }}</span>
     <span class="frame-status" :class="disabled ? 'is-disabled' : 'is-enabled'">{{ disabled ? '已停用' : '已启用' }}</span>
   </div>
 </template>
@@ -67,6 +72,7 @@ defineProps<{
   height: 100%;
 }
 
+.load-error{position:absolute;inset:0;display:grid;place-content:center;color:var(--vdw-focus-ink);background:var(--vdw-focus-canvas)}
 .frame-thumbnail img { object-fit: contain; }
 .annotation-preview { pointer-events: none; }
 .annotation-preview rect { fill: transparent; stroke-width: 1.25px; }

@@ -9,9 +9,16 @@ import AutoAnnotationCategorySelect from '../components/AutoAnnotationCategorySe
 
 const mocks = vi.hoisted(() => ({
   routeLeaveGuard: vi.fn(),
+  routeUpdateGuard: vi.fn(),
+  route: { params: { id: 'project-id', videoId: 'video-id', imageId: undefined as string | undefined }, query: {} as Record<string, string> },
   routerBack: vi.fn(),
   routerReplace: vi.fn(),
   getProject: vi.fn(),
+  getImage: vi.fn(),
+  getImageAnnotations: vi.fn(),
+  imageNeighbors: vi.fn(),
+  replaceImageAnnotations: vi.fn(),
+  listTasks: vi.fn(),
   listVideos: vi.fn(),
   listLabels: vi.fn(),
   createLabel: vi.fn(),
@@ -45,7 +52,8 @@ vi.mock('element-plus', async (importOriginal) => ({
 
 vi.mock('vue-router', () => ({
   onBeforeRouteLeave: mocks.routeLeaveGuard,
-  useRoute: () => ({ params: { id: 'project-id', videoId: 'video-id' } }),
+  onBeforeRouteUpdate: mocks.routeUpdateGuard,
+  useRoute: () => mocks.route,
   useRouter: () => ({ back: mocks.routerBack, replace: mocks.routerReplace }),
 }))
 vi.mock('../api/projects', () => ({ getProject: mocks.getProject }))
@@ -55,7 +63,13 @@ vi.mock('../api/labels', () => ({
   listLabels: mocks.listLabels,
   createLabel: mocks.createLabel,
 }))
+vi.mock('../api/images', async original => ({
+  ...await original<typeof import('../api/images')>(),
+  getImage: mocks.getImage, getImageAnnotations: mocks.getImageAnnotations,
+  imageNeighbors: mocks.imageNeighbors, replaceImageAnnotations: mocks.replaceImageAnnotations,
+}))
 vi.mock('../api/media', () => ({
+  listTasks: mocks.listTasks,
   listVideos: mocks.listVideos,
   listFrames: mocks.listFrames,
   setFramesEnabled: mocks.setFramesEnabled,
@@ -78,7 +92,7 @@ vi.mock('../api/models', () => ({
 }))
 
 const CanvasStub = defineComponent({
-  props: ['dragToDraw', 'dense'],
+  props: ['dragToDraw', 'dense', 'annotations', 'coordinateMode'],
   emits: ['change', 'request-category', 'view-change', 'context'],
   setup(_props, { expose }) {
     expose({
@@ -178,7 +192,10 @@ beforeEach(() => {
   document.body.innerHTML = '<div id="focus-header-tools"></div>'
   window.history.replaceState({ annotationFromVideoList: true }, '')
   localStorage.clear()
-  for (const value of Object.values(mocks)) value.mockReset()
+  for (const value of Object.values(mocks)) if (vi.isMockFunction(value)) value.mockReset()
+  mocks.route.params.imageId = undefined
+  mocks.route.query = {}
+  mocks.listTasks.mockResolvedValue({items: []})
   mocks.canvasCancelDrawing.mockReturnValue(false)
   mocks.confirmBatch.mockResolvedValue('confirm')
   mocks.getProject.mockResolvedValue(project)
@@ -1219,5 +1236,67 @@ describe('AnnotationWorkbenchView', () => {
     expect(wrapper.get('[data-test="run-batch-auto"]').attributes('disabled')).toBeDefined()
     expect(mocks.createBatchAutoAnnotation).not.toHaveBeenCalled()
     wrapper.unmount()
+  })
+})
+
+describe('image annotation context', () => {
+  const imported = { id: 'imported', label_id: 'label-id', x_min: 10.1, y_min: 20.2, x_max: 10.4, y_max: 20.6, source: 'import', confidence: null }
+  async function openImage() {
+    mocks.route.params.imageId = 'image-a'
+    mocks.route.query = { directory_id: 'test', annotation_status: 'pending', enabled: 'true', search: 'helmet' }
+    mocks.getImage.mockResolvedValue({ id: 'image-a', directory_id: 'test', file_name: 'a.jpg', source_relative_path: 'test/a.jpg', width: 640, height: 480, enabled: true, version: 2, annotation_revision: 3, annotation_status: 'labeled', annotations: [imported], file_size: 1024, materialization: 'copy' })
+    mocks.getImageAnnotations.mockResolvedValue({ image_id: 'image-a', annotation_revision: 3, annotation_status: 'labeled', items: [imported] })
+    mocks.imageNeighbors.mockResolvedValue({ previous_id: null, next_id: 'image-b' })
+    mocks.replaceImageAnnotations.mockImplementation((_project, image_id, revision, items) => Promise.resolve({ image_id, annotation_revision: revision + 1, annotation_status: 'labeled', items }))
+    const w = mount(AnnotationWorkbenchView, { attachTo: document.body, global: { stubs: { AnnotationCanvas: CanvasStub, ElSelect: true, ElOption: true, ElInputNumber: true, ElSwitch: true, ElDialog: true, ElIcon: true } } })
+    await flushPromises(); return w
+  }
+
+  it('loads image dimensions and filtered neighbors without reading video frames', async () => {
+    const w = await openImage()
+    expect(mocks.getImage).toHaveBeenCalledWith('project-id', 'image-a')
+    expect(mocks.listVideos).not.toHaveBeenCalled()
+    expect(mocks.listFrames).not.toHaveBeenCalled()
+    expect(mocks.imageNeighbors).toHaveBeenCalledWith('project-id', 'image-a', expect.objectContaining({ directory_id: 'test', annotation_status: 'pending', enabled: true, search: 'helmet' }))
+    expect(w.getComponent(CanvasStub).props('coordinateMode')).toBe('continuous')
+    expect(w.get('.minimap-svg').attributes('viewBox')).toBe('0 0 640 480')
+    await w.get('[data-test="expand-all-objects"]').trigger('click')
+    expect(w.text()).toContain('导入')
+    expect(w.find('.filmstrip').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('saves float bounds and preserves the source of an untouched imported box', async () => {
+    const w = await openImage()
+    const manual = { ...imported, id: 'manual', x_min: 30.25, x_max: 30.55, source: 'manual' }
+    w.getComponent(CanvasStub).vm.$emit('change', [imported, manual]); await w.vm.$nextTick()
+    document.querySelector<HTMLElement>('[data-test="close-annotation"]')?.click(); await flushPromises()
+    expect(mocks.replaceImageAnnotations).toHaveBeenCalledWith('project-id', 'image-a', 3, [imported, manual])
+    expect(mocks.replaceFrameAnnotations).not.toHaveBeenCalled()
+    expect(mocks.routerReplace).toHaveBeenCalledWith('/projects/project-id/images')
+    w.unmount()
+  })
+
+  it('saves an empty image without an extra confirmation or a video API request', async () => {
+    const w = await openImage()
+    w.getComponent(CanvasStub).vm.$emit('change', []); await w.vm.$nextTick()
+    document.querySelector<HTMLElement>('[data-test="close-annotation"]')?.click(); await flushPromises()
+    expect(mocks.confirmBatch).not.toHaveBeenCalled()
+    expect(mocks.replaceImageAnnotations).toHaveBeenCalledWith('project-id', 'image-a', 3, [])
+    expect(mocks.replaceFrameAnnotations).not.toHaveBeenCalled()
+    expect(mocks.routerReplace).toHaveBeenCalledWith('/projects/project-id/images')
+    w.unmount()
+  })
+
+  it('blocks neighbor navigation after an annotation save conflict', async () => {
+    const w = await openImage()
+    w.getComponent(CanvasStub).vm.$emit('change', [{ ...imported, x_max: 10.5 }]); await w.vm.$nextTick()
+    const errorNotice = vi.spyOn(ElNotification, 'error')
+    mocks.replaceImageAnnotations.mockRejectedValueOnce(new Error('修订冲突'))
+    await w.get('[data-test="next-frame"]').trigger('click'); await flushPromises()
+    expect(mocks.getImage).toHaveBeenCalledTimes(1)
+    expect(mocks.routerReplace).not.toHaveBeenCalled()
+    expect(errorNotice).toHaveBeenCalledWith(expect.objectContaining({ message: '修订冲突' }))
+    w.unmount()
   })
 })

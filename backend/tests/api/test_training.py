@@ -20,6 +20,7 @@ from vision_dataset_workbench.models import (
     Project,
     TrainingModel,
     TrainingRun,
+    TrainingTask,
     User,
 )
 from vision_dataset_workbench.security.passwords import hash_password
@@ -55,6 +56,8 @@ def setup_app(tmp_path, monkeypatch):
     (dataset_dir / "val" / "labels").mkdir(parents=True)
     (dataset_dir / "train" / "images" / "frame.jpg").write_bytes(b"image")
     (dataset_dir / "train" / "labels" / "frame.txt").write_text("0 0.5 0.5 0.2 0.2\n")
+    (dataset_dir / "val" / "images" / "frame.jpg").write_bytes(b"validation image")
+    (dataset_dir / "val" / "labels" / "frame.txt").write_text("0 0.5 0.5 0.2 0.2\n")
     model_path = workspace / "models" / "base.pt"
     model_path.parent.mkdir(parents=True)
     model_path.write_bytes(b"fake-base")
@@ -97,11 +100,12 @@ def setup_app(tmp_path, monkeypatch):
                 name="Fire v1",
                 status="ready",
                 train_ratio=0.8,
-                total_frames=1,
+                total_frames=2,
                 train_frames=1,
+                val_frames=1,
                 storage_path="exports/dataset",
                 manifest=(
-                    '{"total_frames":1,"train_frames":1,"val_frames":0,'
+                    '{"total_frames":2,"train_frames":1,"val_frames":1,'
                     '"labels":[{"name":"fire","mapping":0,"enabled":true}]}'
                 ),
             )
@@ -174,6 +178,19 @@ def test_admin_training_access_distinguishes_owner_from_global_access(tmp_path, 
     assert global_access["source"] == "system_admin"
     assert admin_task["access"]["role"] == "owner"
     assert admin_task["access"]["source"] == "owner"
+
+
+def test_create_training_task_rejects_invalid_code_without_persisting_draft(tmp_path, monkeypatch):
+    app, client, _ = setup_app(tmp_path, monkeypatch)
+    response = client.post(
+        "/api/v1/training-tasks", headers=ORIGIN,
+        json={"code": "image_train", "name": "images", "models": [{"name": "one"}]},
+    )
+    assert response.status_code == 422, response.text
+    assert "task code" in response.json()["detail"]
+    with Session(app.state.auth_service.engine) as db:
+        assert list(db.scalars(select(TrainingTask))) == []
+        assert list(db.scalars(select(TrainingModel))) == []
 
 
 def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypatch):
@@ -322,9 +339,13 @@ def test_resources_code_availability_and_multi_dataset_draft_round_trip(tmp_path
         "name": "Fire v1",
         "project_id": "project-id",
         "project_name": "Fire dataset",
-        "total_frames": 1,
+        "project_type": "video",
+        "total_frames": 2,
         "train_frames": 1,
-        "val_frames": 0,
+        "val_frames": 1,
+        "total_samples": 2,
+        "train_samples": 1,
+        "val_samples": 1,
         "labels": [{"index": 0, "name": "fire"}],
     }
     assert (
@@ -552,8 +573,8 @@ def test_multi_dataset_start_prepares_before_queue_and_reuses_same_task_hash(tmp
         {
             "config_hash": prepared.name,
             "dataset_count": 1,
-            "images": 1,
-            "annotations": 1,
+            "images": 2,
+            "annotations": 2,
             "ignored_annotations": 0,
             "negative_images": 0,
         }

@@ -1,6 +1,6 @@
 import json
 import zipfile
-from typing import Annotated, NoReturn
+from typing import Annotated, Literal, NoReturn
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -14,9 +14,9 @@ from ..services.dataset_exports import (
     DatasetExportNotFound,
     DatasetExportService,
     ExportLabelInput,
-    InvalidDatasetExport,
 )
-from ..services.projects import ProjectForbidden, ProjectNotFound
+from ..services.projects import ProjectConflict, ProjectForbidden, ProjectNotFound
+from ..services.images import ImageConflict
 from .auth import current_user, require_same_origin
 from .projects import _utc_text
 
@@ -33,10 +33,20 @@ class ExportLabelRequest(BaseModel):
     enabled: bool
 
 
+class DirectoryRule(BaseModel):
+    directory_id: str
+    included: bool = True
+    mode: Literal["train", "val", "ratio"] = "ratio"
+    train_ratio: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+
+
 class CreateDatasetExportRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    train_ratio: float = Field(ge=0, le=1)
+    train_ratio: float = Field(ge=0, le=1, allow_inf_nan=False)
     labels: list[ExportLabelRequest] = Field(min_length=1, max_length=10000)
+    directory_rules: list[DirectoryRule] | None = None
+    split_seed: int = Field(default=0, ge=0, le=2147483647)
+    preview_fingerprint: str | None = None
 
 
 class ExportLabelResponse(BaseModel):
@@ -48,6 +58,10 @@ class ExportLabelResponse(BaseModel):
 
 class DatasetExportResponse(BaseModel):
     id: str
+    project_type: Literal["video", "image"]
+    total_samples: int
+    train_samples: int
+    val_samples: int
     project_id: str
     task_id: str | None
     name: str
@@ -91,17 +105,20 @@ def _raise_http_error(exc: ValueError) -> NoReturn:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if isinstance(exc, ProjectForbidden):
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    if isinstance(exc, DatasetExportConflict):
+    if isinstance(exc, (DatasetExportConflict, ProjectConflict, ImageConflict)):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _response(record: DatasetExport) -> DatasetExportResponse:
     manifest = json.loads(record.manifest) if record.manifest else None
-    train_videos = len(manifest.get("train_video_ids", [])) if manifest else None
-    val_videos = len(manifest.get("val_video_ids", [])) if manifest else None
+    project_type = json.loads(record.source_snapshot).get("project_type", "video")
+    train_videos = len(manifest.get("train_video_ids", [])) if manifest and project_type == "video" else None
+    val_videos = len(manifest.get("val_video_ids", [])) if manifest and project_type == "video" else None
     return DatasetExportResponse(
         id=record.id,
+        project_type=project_type,
+        total_samples=record.total_frames, train_samples=record.train_frames, val_samples=record.val_frames,
         project_id=record.project_id,
         task_id=record.task_id,
         name=record.name,
@@ -111,7 +128,7 @@ def _response(record: DatasetExport) -> DatasetExportResponse:
         total_frames=record.total_frames,
         train_frames=record.train_frames,
         val_frames=record.val_frames,
-        total_videos=(train_videos + val_videos) if manifest else None,
+        total_videos=(train_videos + val_videos) if train_videos is not None and val_videos is not None else None,
         train_videos=train_videos,
         val_videos=val_videos,
         labels=[ExportLabelResponse(**item) for item in json.loads(record.label_snapshot)],
@@ -137,10 +154,25 @@ def create_dataset_export(
             payload.name,
             payload.train_ratio,
             [ExportLabelInput(**item.model_dump()) for item in payload.labels],
+            directory_rules=[r.model_dump() for r in payload.directory_rules] if payload.directory_rules is not None else None,
+            split_seed=payload.split_seed, preview_fingerprint=payload.preview_fingerprint,
         )
-    except (ProjectNotFound, ProjectForbidden, DatasetExportConflict, InvalidDatasetExport) as exc:
+    except ValueError as exc:
         _raise_http_error(exc)
     return _response(record)
+
+
+@router.post("/preview")
+def preview_export(project_id: str, payload: CreateDatasetExportRequest, request: Request,
+                   user: Annotated[User, Depends(current_user)]):
+    require_same_origin(request)
+    try:
+        return dataset_export_service(request).preview(user, project_id, payload.train_ratio,
+            [ExportLabelInput(**item.model_dump()) for item in payload.labels],
+            [r.model_dump() for r in payload.directory_rules] if payload.directory_rules is not None else None,
+            payload.split_seed)
+    except ValueError as exc:
+        _raise_http_error(exc)
 
 
 @router.get("", response_model=DatasetExportPageResponse)
@@ -235,5 +267,6 @@ def delete_dataset_export(
         ProjectForbidden,
         DatasetExportNotFound,
         DatasetExportConflict,
+        ProjectConflict,
     ) as exc:
         _raise_http_error(exc)

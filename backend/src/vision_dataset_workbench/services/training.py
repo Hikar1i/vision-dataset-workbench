@@ -29,6 +29,7 @@ from ..models import (
 from ..training.actions import model_actions, task_actions
 from ..training.dataset_preparation import (
     normalize_multi_dataset_config,
+    dataset_stats, require_training_samples,
     snapshot_hash,
     source_classes,
 )
@@ -203,6 +204,8 @@ class TrainingService:
             export = db.get(DatasetExport, export_id)
             if export is None or export.deleted_at is not None:
                 raise TrainingNotFound("training dataset not found")
+            if export.status != "ready" or not export.storage_path:
+                raise InvalidTraining("training dataset snapshot is not ready")
             try:
                 access = self.models.projects.get_project(actor, export.project_id).access
             except ProjectNotFound as exc:
@@ -484,10 +487,14 @@ class TrainingService:
         default_multi_json = _config_json(default_multi_dataset_config)
         if default_dataset_mode == "multi" and default_multi_json is None:
             raise InvalidTraining("task multi-dataset config is required")
+        try:
+            code = validate_task_code(code)
+        except ValueError as exc:
+            raise InvalidTraining(str(exc)) from exc
         now = _now()
         task = TrainingTask(
             id=str(uuid4()),
-            code=validate_task_code(code),
+            code=code,
             name=_clean(name, 128, True),
             description=_clean(description, 2000),
             status="draft",
@@ -549,6 +556,7 @@ class TrainingService:
         if mode == "single_device_serial" and len({row.gpu_index for row in rows}) != 1:
             raise InvalidTraining("single_device_serial must use one GPU")
         with self._session_factory() as db:
+            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
             try:
                 self._require_input_access(actor, db, task, rows)
                 if task.default_multi_dataset_config:
@@ -624,8 +632,9 @@ class TrainingService:
             raise InvalidTraining("single_device_serial requires at least two models")
         now = _now()
         with self._session_factory() as db:
+            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
             task = db.get(TrainingTask, task_id)
-            if task is None or task.version != version:
+            if task is None or task.version != version or task.status != "draft":
                 raise TrainingConflict("training task version conflict")
             for row in db.scalars(
                 select(TrainingModel).where(TrainingModel.training_task_id == task_id)
@@ -832,8 +841,10 @@ class TrainingService:
             raise TrainingConflict("training task has already started")
         now = _now()
         with self._session_factory() as db:
+            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
             task = db.get(TrainingTask, task_id)
-            assert task is not None
+            if task is None or task.status != "draft":
+                raise TrainingConflict("training task has already started")
             models = list(
                 db.scalars(
                     select(TrainingModel)
@@ -855,6 +866,15 @@ class TrainingService:
                 base = db.get(InferenceModel, base_id) if base_id else None
                 try:
                     dataset_snapshot = self._effective_dataset_snapshot(db, task, row, index)
+                    if dataset_snapshot.get("kind") == "single":
+                        root = (self.workspace / dataset_snapshot["storage_path"]).resolve()
+                        if not root.is_relative_to(self.workspace.resolve()):
+                            raise InvalidTraining("训练数据目录不在受管工作区")
+                        try:
+                            allowed = {cid for cid, _ in source_classes(dataset_snapshot["manifest"])}
+                            require_training_samples(dataset_stats(root, allowed, dataset_snapshot["manifest"]))
+                        except (ValueError, OSError) as exc:
+                            raise InvalidTraining(str(exc)) from exc
                 except InvalidTraining as exc:
                     issues.append(str(exc))
                     dataset_snapshot = None

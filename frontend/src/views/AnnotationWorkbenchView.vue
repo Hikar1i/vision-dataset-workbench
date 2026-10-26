@@ -25,13 +25,13 @@ import {
   ZoomOut,
 } from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import {
   getFrameAnnotations,
   replaceFrameAnnotations,
   type FrameAnnotation,
-  type FrameAnnotationSet,
+
 } from '../api/annotations'
 import { getCurrentUser, type CurrentUser } from '../api/auth'
 import { can } from '../api/access'
@@ -61,6 +61,8 @@ import {
   type XAnyLabelingSetting,
 } from '../api/models'
 import { listLLMConfigs, type LLMConfig } from '../api/llm'
+import { getImage, getImageAnnotations, replaceImageAnnotations, imageFileUrl, imageNeighbors, runImageAutoAnnotation, createImageAutoAnnotation, setImagesEnabled, type ImageAsset, type ImageFilters } from '../api/images'
+import { listTasks } from '../api/media'
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
 import AutoAnnotationCategorySelect from '../components/AutoAnnotationCategorySelect.vue'
@@ -94,6 +96,17 @@ const route = useRoute()
 const router = useRouter()
 const projectId = String(route.params.id)
 const videoId = String(route.params.videoId)
+const isImage = Boolean(route.params.imageId)
+const currentImage = ref<ImageAsset | null>(null)
+const neighbors = ref<{previous_id: string | null; next_id: string | null}>({previous_id:null,next_id:null})
+const imageFilters: ImageFilters = {
+  directory_id: typeof route.query.directory_id === 'string' ? route.query.directory_id : undefined,
+  search: typeof route.query.search === 'string' ? route.query.search : undefined,
+  annotation_status: route.query.annotation_status === 'pending' || route.query.annotation_status === 'labeled' ? route.query.annotation_status : undefined,
+  enabled: route.query.enabled === 'true' ? true : route.query.enabled === 'false' ? false : undefined,
+  label_id: typeof route.query.label_id === 'string' ? route.query.label_id : undefined,
+}
+const backPath = `/projects/${projectId}/${isImage ? 'images' : 'videos'}`
 const openedFromVideoList = window.history.state?.annotationFromVideoList === true
 const storedPreference = loadAnnotationPreference(projectId)
 const canvasRef = ref<CanvasApi | null>(null)
@@ -133,7 +146,7 @@ const layerMenu = ref<{ annotationId: string; x: number; y: number } | null>(nul
 const layerMenuRef = ref<HTMLElement | null>(null)
 const overwrite = ref(false)
 const gridOpen = ref(false)
-const filmstripVisible = ref(true)
+const filmstripVisible = ref(!isImage)
 const shortcutsOpen = ref(false)
 const statsOpen = ref(false)
 const imageInfoExpanded = ref(true)
@@ -160,24 +173,28 @@ const autoCategories = ref<string[]>(['__all__'])
 const categoryQuery = ref('')
 const confidence = ref(0.25)
 const iou = ref(0.45)
-const cache = new Map<string, FrameAnnotationSet>()
+const cache = new Map<string, {annotation_revision: number; items: FrameAnnotation[]}>()
 let history = createAnnotationHistory([])
 let spaceHeld = false
 let modeBeforeSpace: CanvasMode = 'select'
 let taskTimer: ReturnType<typeof setInterval> | undefined
 let frameStateSave: Promise<boolean> | null = null
 
-const currentFrame = computed(() => frames.value[currentIndex.value] ?? null)
+const currentFrame = computed(() => isImage ? currentImage.value : frames.value[currentIndex.value] ?? null)
+const imageWidth = computed(() => currentImage.value?.width ?? video.value?.width ?? 0)
+const imageHeight = computed(() => currentImage.value?.height ?? video.value?.height ?? 0)
 const imageUrl = computed(() =>
   currentFrame.value
-    ? frameImageUrl(projectId, videoId, currentFrame.value.id)
+    ? (isImage ? imageFileUrl(projectId, currentFrame.value.id) : frameImageUrl(projectId, videoId, currentFrame.value.id))
     : '',
 )
 const frameFileName = computed(() => {
-  if (!currentFrame.value || !video.value) return ''
+  if (isImage) return currentImage.value?.file_name ?? ''
+  const frame = frames.value[currentIndex.value]
+  if (!frame || !video.value) return ''
   return formatFrameFileName(
     video.value.short_code,
-    currentFrame.value.sequence,
+    frame.sequence,
     sampling.value?.output_format ?? 'jpg',
   )
 })
@@ -211,8 +228,8 @@ const remoteSourceLabel = computed(() => xanylabelingSetting.value?.available ==
     ? 'X-anylabeling-server（不可用）'
     : 'X-anylabeling-server')
 const batchActive = computed(() =>
-  activeAutoTask.value?.type === 'auto_annotate'
-  && ['queued', 'running'].includes(activeAutoTask.value.status),
+  Boolean(activeAutoTask.value) && (isImage || activeAutoTask.value?.type === 'auto_annotate')
+  && ['queued', 'running'].includes(activeAutoTask.value?.status ?? ''),
 )
 const autoUnavailableReason = computed(() => {
   if (selectedSource.value === 'xanylabeling') {
@@ -484,13 +501,16 @@ async function saveCurrent(context?: SaveContext) {
   saveContext.value = context ?? null
   saveText.value = '保存中…'
   try {
-    const saved = await replaceFrameAnnotations(projectId, videoId, {
+    const saved = isImage
+      ? await replaceImageAnnotations(projectId, frame.id, annotationRevision.value, clone(annotations.value))
+      : await replaceFrameAnnotations(projectId, videoId, {
       frame_id: frame.id,
       annotation_revision: annotationRevision.value,
       items: clone(annotations.value),
     })
     annotations.value = clone(saved.items)
     frame.annotations = clone(saved.items)
+    if (currentImage.value) currentImage.value = await getImage(projectId, currentImage.value.id)
     annotationRevision.value = saved.annotation_revision
     cache.set(frame.id, { ...saved, items: clone(saved.items) })
     dirty.value = false
@@ -614,9 +634,8 @@ async function runSingleAutoAnnotation() {
   if (!frame || !config || batchActive.value) return
   inferenceRunning.value = true
   try {
-    const result = await runFrameAutoAnnotation(
-      projectId, videoId, frame.id, config,
-    )
+    const result = isImage ? await runImageAutoAnnotation(projectId, frame.id, config)
+      : await runFrameAutoAnnotation(projectId, videoId, frame.id, config)
     if (result.created_labels.length) {
       labels.value = [...labels.value, ...result.created_labels]
         .sort((left, right) => left.sort_order - right.sort_order)
@@ -636,7 +655,7 @@ async function runSingleAutoAnnotation() {
 
 async function runBatchAutoAnnotation() {
   const config = autoConfig()
-  if (video.value && !video.value.enabled) {
+  if (!isImage && video.value && !video.value.enabled) {
     notify.warning('该视频已停用，请先在视频资料库启用后再运行批量自动标注。')
     return
   }
@@ -644,7 +663,7 @@ async function runBatchAutoAnnotation() {
   const categoryText = config.categories.length ? config.categories.join(', ') : '本项目全类别'
   try {
     await ElMessageBox.confirm(
-      `将使用「${selectedModelName.value}」处理 ${enabledFrameCount.value} 个启用采样帧；类别：${categoryText}；${overwrite.value ? '覆盖已有标注' : '保留已有标注并追加结果'}。`,
+      `将使用「${selectedModelName.value}」处理 ${isImage ? '当前图片' : `${enabledFrameCount.value} 个启用采样帧`}；类别：${categoryText}；${overwrite.value ? '覆盖已有标注' : '保留已有标注并追加结果'}。`,
       '确认批量自动标注',
       {
         confirmButtonText: '确认运行',
@@ -660,9 +679,9 @@ async function runBatchAutoAnnotation() {
   if (!await saveCurrent('batch')) return
   inferenceRunning.value = true
   try {
-    activeAutoTask.value = await createBatchAutoAnnotation(
-      projectId, videoId, config, overwrite.value,
-    )
+    activeAutoTask.value = isImage && currentImage.value
+      ? await createImageAutoAnnotation(projectId, [currentImage.value.id], config, overwrite.value)
+      : await createBatchAutoAnnotation(projectId, videoId, config, overwrite.value)
     notify.success('批量自动标注任务已创建。')
   } catch (reason) {
     notify.error(reason instanceof Error ? reason.message : '批量自动标注任务创建失败')
@@ -672,6 +691,15 @@ async function runBatchAutoAnnotation() {
 }
 
 async function refreshAutoTask() {
+  if (isImage) {
+    try {
+      const tasks = await listTasks(projectId)
+      const wasActive = batchActive.value
+      activeAutoTask.value = tasks.items.find(t => ['queued','running'].includes(t.status) && ['auto_annotate','import_images','export_dataset'].includes(t.type)) ?? null
+      if (wasActive && !batchActive.value && currentImage.value) {labels.value=await listLabels(projectId);await loadImage(currentImage.value.id)}
+    } catch { /* Task center shows polling failures. */ }
+    return
+  }
   if (!video.value) return
   if (!batchActive.value && !inferenceModels.value.some((model) => model.status === 'copying')) return
   try {
@@ -699,6 +727,19 @@ async function refreshAutoTask() {
   } catch {
     // The task center remains the authoritative error surface for polling failures.
   }
+}
+
+async function loadImage(imageId: string) {
+  loadingFrame.value = true
+  try {
+    const [image, value, adjacent] = await Promise.all([getImage(projectId,imageId),getImageAnnotations(projectId,imageId),imageNeighbors(projectId,imageId,imageFilters)])
+    currentImage.value=image;neighbors.value=adjacent
+    annotations.value=clone(value.items);annotationRevision.value=value.annotation_revision
+    history=createAnnotationHistory(value.items);dirty.value=false;saveText.value='已同步'
+    selectedId.value=null;hiddenLabelIds.value=[];hiddenAnnotationIds.value=[];pendingBounds.value=null;categoryAnchor.value=null;layerMenu.value=null
+    resetNewLabel();canvasRef.value?.resetFrameView(zoomLocked.value)
+  } catch(reason) {notify.error(reason instanceof Error ? reason.message : '图片加载失败');throw reason}
+  finally {loadingFrame.value=false}
 }
 
 async function loadFrame(index: number) {
@@ -739,6 +780,17 @@ async function loadFrame(index: number) {
 }
 
 async function switchFrame(index: number) {
+  if (isImage) {
+    if(saving.value || loadingFrame.value) return
+    const imageId = index < currentIndex.value ? neighbors.value.previous_id : neighbors.value.next_id
+    if(imageId && await saveCurrent('switch')) {
+      try {
+        await loadImage(imageId)
+        await router.replace({name:'image-annotation',params:{id:projectId,imageId},query:route.query})
+      } catch {}
+    }
+    return
+  }
   if (index === currentIndex.value || saving.value || loadingFrame.value) return
   if (!await saveCurrent('switch')) return
   await loadFrame(index)
@@ -746,8 +798,9 @@ async function switchFrame(index: number) {
 
 async function closeWorkbench() {
   if (!await saveBeforeLeave()) return
-  if (openedFromVideoList) router.back()
-  else await router.replace(`/projects/${projectId}/videos`)
+  if (isImage) await router.replace(backPath)
+  else if (openedFromVideoList) router.back()
+  else await router.replace(backPath)
 }
 
 async function saveBeforeLeave() {
@@ -756,12 +809,27 @@ async function saveBeforeLeave() {
 }
 
 onBeforeRouteLeave(saveBeforeLeave)
+onBeforeRouteUpdate(async to => {
+  if (!isImage || to.params.id !== projectId || !to.params.imageId || to.params.imageId === currentImage.value?.id) return true
+  if (!await saveCurrent('switch')) return false
+  try {await loadImage(String(to.params.imageId));return true} catch {return false}
+})
 
 function toggleFrameEnabled(value: boolean | string | number): Promise<boolean> {
   if (frameStateSave) return frameStateSave
   const frame = currentFrame.value
   const frameSampling = sampling.value
-  if (!frame || !frameSampling) return Promise.resolve(false)
+  if (!frame || (!isImage && !frameSampling)) return Promise.resolve(false)
+  if (isImage && currentImage.value) {
+    const image = currentImage.value
+    frameStateSaving.value=true
+    const pending = setImagesEnabled(projectId,[{image_id:image.id,version:image.version,enabled:Boolean(value)}])
+      .then(result => {image.enabled=Boolean(value);image.version=result[0]?.version ?? image.version;return true})
+      .catch(reason => {notify.error(reason instanceof Error ? reason.message : '图片状态保存失败');return false})
+      .finally(() => {frameStateSaving.value=false;frameStateSave=null})
+    frameStateSave=pending;return pending
+  }
+  if (!frameSampling) return Promise.resolve(false)
   const enabled = Boolean(value)
   frameStateSaving.value = true
   const pending = (async () => {
@@ -911,7 +979,7 @@ async function load() {
   try {
     const [project, videos, projectLabels, projects, remoteSetting, detectedCapabilities, user] = await Promise.all([
       getProject(projectId),
-      listVideos(projectId, 1, 999),
+      isImage ? Promise.resolve({items: [] as Video[]}) : listVideos(projectId, 1, 999),
       listLabels(projectId),
       listModelProjects(),
       getXAnyLabelingSetting(),
@@ -920,19 +988,19 @@ async function load() {
     ])
     if (!can(project.access, 'task.execute')) {
       notify.warning('只读成员不能进入在线标注。')
-      await router.replace(`/projects/${projectId}/videos`)
+      await router.replace(backPath)
       return
     }
     video.value = videos.items.find((item) => item.id === videoId) ?? null
-    if (!video.value) throw new Error('视频不存在或不可访问')
+    if (!isImage && !video.value) throw new Error('视频不存在或不可访问')
     labels.value = projectLabels
     const usableModelProjects = projects.filter((item) => can(item.access, 'artifact.consume'))
     modelProjects.value = usableModelProjects
     xanylabelingSetting.value = remoteSetting
     capabilities.value = detectedCapabilities
     currentUser.value = user
-    activeAutoTask.value = video.value.latest_task?.type === 'auto_annotate'
-      ? video.value.latest_task
+    activeAutoTask.value = video.value?.latest_task?.type === 'auto_annotate'
+      ? video.value?.latest_task
       : null
     const firstProject = usableModelProjects[0]
     if (firstProject) {
@@ -957,6 +1025,7 @@ async function load() {
       reuse: reuseLabel.value,
       labelId: lastUsedLabelId.value,
     })
+    if(isImage) {await loadImage(String(route.params.imageId)); await refreshAutoTask(); return}
     await loadAllFrames()
     if (!frames.value.length) throw new Error('该视频尚无采样帧')
     await loadFrame(0)
@@ -990,12 +1059,12 @@ watch(reuseLabel, (reuse) => {
   <Teleport defer to="#focus-header-tools">
     <div class="annotation-focus-tools">
       <div class="focus-title">
-        <strong :title="video?.title">{{ video?.title || '在线标注' }}</strong>
-        <span data-test="frame-counter">{{ frames.length ? currentIndex + 1 : 0 }} / {{ frames.length }}</span>
+        <strong :title="currentImage?.file_name ?? video?.title">{{ currentImage?.file_name ?? video?.title ?? '在线标注' }}</strong>
+        <span v-if="!isImage" data-test="frame-counter">{{ frames.length ? currentIndex + 1 : 0 }} / {{ frames.length }}</span>
       </div>
       <div class="focus-actions">
         <span class="save-state" :data-state="dirty || frameStateSaving ? 'dirty' : 'saved'">{{ batchActive ? `自动标注 ${activeAutoTask?.progress ?? 0}%` : frameStateSaving ? '保存帧状态…' : saveText }}</span>
-        <button data-test="stats-action" class="primary-action" type="button" @click="statsOpen = true">标注统计</button>
+        <button v-if="!isImage" data-test="stats-action" class="primary-action" type="button" @click="statsOpen = true">标注统计</button>
         <button type="button" data-test="close-annotation" title="保存并关闭" :disabled="saving" @click="closeWorkbench">关闭</button>
       </div>
     </div>
@@ -1078,11 +1147,11 @@ watch(reuseLabel, (reuse) => {
         <label>IoU <el-input-number v-model="iou" controls-position="right" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
         <label>标签覆盖 <el-switch v-model="overwrite" data-test="overwrite-switch" :disabled="batchActive || inferenceRunning || !autoModel" /></label>
         <button data-test="run-single-auto" class="primary-action" type="button" :disabled="batchActive || inferenceRunning || !autoModel" @click="runSingleAutoAnnotation">单张运行</button>
-        <button data-test="run-batch-auto" class="primary-action" type="button" :disabled="batchActive || inferenceRunning || !autoModel || video?.enabled === false" @click="runBatchAutoAnnotation">批量运行</button>
+        <button data-test="run-batch-auto" class="primary-action" type="button" :disabled="batchActive || inferenceRunning || !autoModel || video?.enabled === false" @click="runBatchAutoAnnotation">{{ isImage ? '后台标注当前图' : '批量运行' }}</button>
         <span v-if="autoUnavailableReason" class="auto-warning" :title="autoUnavailableReason">{{ autoUnavailableText }}</span>
       </div>
       <div class="frame-controls">
-        <label>启用帧 <el-switch :model-value="currentFrame?.enabled ?? false" data-test="frame-enabled-switch" :disabled="!currentFrame || batchActive || frameStateSaving" @change="toggleFrameEnabled" /></label>
+        <label>{{ isImage ? '启用图片' : '启用帧' }} <el-switch :model-value="currentFrame?.enabled ?? false" data-test="frame-enabled-switch" :disabled="!currentFrame || batchActive || frameStateSaving" @change="toggleFrameEnabled" /></label>
       </div>
     </section>
 
@@ -1090,10 +1159,10 @@ watch(reuseLabel, (reuse) => {
       <button data-test="pan-tool" :class="{ active: mode === 'pan' }" type="button" title="拖拽（按住 Space）" :aria-pressed="mode === 'pan'" @click="mode = mode === 'pan' ? 'select' : 'pan'">
         <el-icon><Rank /></el-icon>
       </button>
-      <button data-test="previous-frame" type="button" title="上一张（A）" :disabled="currentIndex === 0" @click="switchFrame(currentIndex - 1)">
+      <button data-test="previous-frame" type="button" title="上一张（A）" :disabled="isImage ? !neighbors.previous_id : currentIndex === 0" @click="switchFrame(currentIndex - 1)">
         <el-icon><Back /></el-icon>
       </button>
-      <button data-test="next-frame" type="button" title="下一张（D）" :disabled="currentIndex >= frames.length - 1" @click="switchFrame(currentIndex + 1)">
+      <button data-test="next-frame" type="button" title="下一张（D）" :disabled="isImage ? !neighbors.next_id : currentIndex >= frames.length - 1" @click="switchFrame(currentIndex + 1)">
         <el-icon><Right /></el-icon>
       </button>
       <button :class="{ active: mode === 'draw' }" type="button" title="新建矩形框（R）" :aria-pressed="mode === 'draw'" :disabled="batchActive" @click="mode = 'draw'">
@@ -1144,11 +1213,12 @@ watch(reuseLabel, (reuse) => {
 
     <section ref="canvasPanelRef" class="canvas-panel">
       <AnnotationCanvas
-        v-if="video && currentFrame"
+        v-if="currentFrame"
         ref="canvasRef"
         :image-url="imageUrl"
-        :image-width="video.width"
-        :image-height="video.height"
+        :image-width="imageWidth"
+        :image-height="imageHeight"
+        :coordinate-mode="isImage ? 'continuous' : 'pixel'"
         :annotations="annotations"
         :labels="labels"
         :selected-id="selectedId"
@@ -1175,7 +1245,7 @@ watch(reuseLabel, (reuse) => {
         <header>
           <strong>图像信息</strong>
           <div class="info-heading-actions">
-            <span>#{{ currentFrame?.sequence ?? 0 }}</span>
+            <span v-if="!isImage">#{{ frames[currentIndex]?.sequence ?? 0 }}</span>
             <button data-test="image-info-toggle" type="button" aria-controls="image-info-details" :aria-expanded="imageInfoExpanded" :title="imageInfoExpanded ? '收起图像信息' : '展开图像信息'" @click="imageInfoExpanded = !imageInfoExpanded">
               <el-icon><ArrowUpBold v-if="imageInfoExpanded" /><ArrowDownBold v-else /></el-icon>
             </button>
@@ -1183,7 +1253,7 @@ watch(reuseLabel, (reuse) => {
         </header>
         <Transition name="info-expand"><dl v-if="imageInfoExpanded" id="image-info-details">
           <dt>文件名</dt><dd :title="frameFileName">{{ frameFileName }}</dd>
-          <dt>尺寸</dt><dd>{{ video?.width ?? 0 }} × {{ video?.height ?? 0 }}</dd>
+          <dt>尺寸</dt><dd>{{ imageWidth }} × {{ imageHeight }}</dd>
           <dt>大小</dt><dd>{{ ((currentFrame?.file_size ?? 0) / 1024).toFixed(1) }} KB</dd>
         </dl></Transition>
       </section>
@@ -1225,7 +1295,7 @@ watch(reuseLabel, (reuse) => {
             >
               <button type="button" class="box-select" @click="selectedId = item.id; mode = 'select'">
                 <span>#{{ annotationOrder.get(item.id) }}</span>
-                <code>{{ item.x_min }},{{ item.y_min }} → {{ item.x_max }},{{ item.y_max }}</code>
+                <code>{{ isImage ? item.x_min.toFixed(2) : item.x_min }},{{ isImage ? item.y_min.toFixed(2) : item.y_min }} → {{ isImage ? item.x_max.toFixed(2) : item.x_max }},{{ isImage ? item.y_max.toFixed(2) : item.y_max }} · {{ item.source === 'import' ? '导入' : item.source === 'model' ? '模型' : '手工' }}</code>
               </button>
               <button type="button" :title="hiddenAnnotationIds.includes(item.id) ? '显示标注框' : '隐藏标注框'" @click="toggleAnnotationHidden(item.id)">
                 <el-icon><View v-if="hiddenAnnotationIds.includes(item.id)" /><Hide v-else /></el-icon>
@@ -1241,14 +1311,14 @@ watch(reuseLabel, (reuse) => {
         <header><strong>缩略图</strong><span>{{ canvasRef?.zoomPercent ?? 100 }}%</span></header>
         <div class="minimap-image">
           <svg
-            v-if="currentFrame && video"
+            v-if="currentFrame"
             class="minimap-svg"
-            :viewBox="`0 0 ${video.width} ${video.height}`"
+            :viewBox="`0 0 ${imageWidth} ${imageHeight}`"
             preserveAspectRatio="xMidYMid meet"
             role="img"
             aria-label="当前采样帧缩略图"
           >
-            <image :href="imageUrl" :width="video.width" :height="video.height" />
+            <image :href="imageUrl" :width="imageWidth" :height="imageHeight" />
             <rect
               v-if="viewport"
               class="viewport-box"
@@ -1263,7 +1333,7 @@ watch(reuseLabel, (reuse) => {
       </section>
     </aside>
 
-    <section v-if="filmstripVisible" class="filmstrip">
+    <section v-if="!isImage && filmstripVisible" class="filmstrip">
       <div class="filmstrip-scroll">
         <button
           v-for="(frame, index) in frames"
@@ -1293,7 +1363,7 @@ watch(reuseLabel, (reuse) => {
       </div>
     </section>
 
-    <button v-else class="restore-filmstrip" type="button" title="显示采样帧序列" @click="filmstripVisible = true">
+    <button v-else-if="!isImage" class="restore-filmstrip" type="button" title="显示采样帧序列" @click="filmstripVisible = true">
       <el-icon><ArrowUpBold /></el-icon><span>采样帧</span>
     </button>
 

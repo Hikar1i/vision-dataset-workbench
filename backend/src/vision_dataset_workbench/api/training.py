@@ -6,9 +6,10 @@ from typing import Annotated, Literal, NoReturn
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..models import (
+    ImageAsset, ImageDirectory, ImageImport,
     DatasetExport,
     HyperparameterTemplate,
     InferenceModel,
@@ -383,13 +384,28 @@ def training_resources(
         models = [
             row for row in models if _can_consume_model_project(svc, user, row[1])
         ]
+        image_projects = []
+        counts = dict(db.execute(select(ImageDirectory.project_id, func.count(ImageAsset.id))
+            .select_from(ImageDirectory).join(ImageAsset, ImageAsset.directory_id == ImageDirectory.id)
+            .join(ImageImport, ImageImport.id == ImageDirectory.import_id).where(ImageImport.status == "ready")
+            .group_by(ImageDirectory.project_id)).all())
+        for project in db.scalars(select(Project).where(Project.project_type == "image").order_by(Project.updated_at.desc())):
+            if not _can_consume_dataset(svc, user, project.id):
+                continue
+            access = svc.models.projects.get_project(user, project.id).access
+            image_projects.append({"id": project.id, "name": project.name,
+                "can_export": access.allows("project.update") and access.allows("task.execute"),
+                "total_images": counts.get(project.id, 0)})
         return {
+            "image_projects": image_projects,
             "datasets": [
                 {
                     "id": item.id,
                     "name": item.name,
                     "project_id": project_id,
                     "project_name": project_name,
+                    "project_type": json.loads(item.source_snapshot).get("project_type", "video"),
+                    "total_samples": item.total_frames, "train_samples": item.train_frames, "val_samples": item.val_frames,
                     "total_frames": item.total_frames,
                     "train_frames": item.train_frames,
                     "val_frames": item.val_frames,

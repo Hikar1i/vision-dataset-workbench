@@ -15,6 +15,7 @@ from sqlalchemy.orm import aliased, sessionmaker
 from ..config import RuntimeSettings
 from ..media import RemotePreview, normalize_remote_url, preview_remote
 from ..models import (
+    ImageImport,
     DatasetExport,
     EvaluationDataset,
     ModelArtifact,
@@ -142,6 +143,8 @@ class MediaService:
         return path
 
     def preview_local(self, actor: User, project_id: str, relative: str) -> list[LocalPreview]:
+        if self._projects.get_project(actor, project_id).project.project_type != "video":
+            raise MediaConflict("视频功能仅适用于视频数据集项目")
         self._require_editor(actor, project_id)
         source = self._source_path(relative)
         candidates = [source] if source.is_file() else list(source.iterdir())
@@ -164,10 +167,14 @@ class MediaService:
         ]
 
     def preview_remote(self, actor: User, project_id: str, url: str) -> list[RemotePreview]:
+        if self._projects.get_project(actor, project_id).project.project_type != "video":
+            raise MediaConflict("视频功能仅适用于视频数据集项目")
         self._require_editor(actor, project_id)
         return self._previewer(normalize_remote_url(url), self.settings)
 
     def import_local(self, actor: User, project_id: str, paths: Sequence[str]) -> ImportBatch:
+        if self._projects.get_project(actor, project_id).project.project_type != "video":
+            raise MediaConflict("视频功能仅适用于视频数据集项目")
         self._require_editor(actor, project_id)
         accepted: list[AcceptedImport] = []
         skipped: list[ImportNotice] = []
@@ -203,6 +210,8 @@ class MediaService:
         project_id: str,
         items: Sequence[tuple[str, str]],
     ) -> ImportBatch:
+        if self._projects.get_project(actor, project_id).project.project_type != "video":
+            raise MediaConflict("视频功能仅适用于视频数据集项目")
         self._require_editor(actor, project_id)
         accepted: list[AcceptedImport] = []
         skipped: list[ImportNotice] = []
@@ -296,6 +305,8 @@ class MediaService:
     def list_videos(
         self, actor: User, project_id: str, *, page: int, page_size: int
     ) -> tuple[list[Video], int]:
+        if self._projects.get_project(actor, project_id).project.project_type != "video":
+            raise MediaConflict("视频功能仅适用于视频数据集项目")
         self._project_access(actor, project_id)
         with self._session_factory() as database:
             where = Video.project_id == project_id
@@ -318,6 +329,8 @@ class MediaService:
         enabled: bool,
         version: int,
     ) -> Video:
+        if self._projects.get_project(actor, project_id).project.project_type != "video":
+            raise MediaConflict("视频功能仅适用于视频数据集项目")
         self._require_editor(actor, project_id)
         with self._session_factory() as database:
             video = database.get(Video, video_id)
@@ -338,6 +351,8 @@ class MediaService:
     def delete_videos(
         self, actor: User, project_id: str, video_ids: Sequence[str]
     ) -> DeleteBatch:
+        if self._projects.get_project(actor, project_id).project.project_type != "video":
+            raise MediaConflict("视频功能仅适用于视频数据集项目")
         self._require_editor(actor, project_id)
         deleted: list[str] = []
         skipped: list[DeleteNotice] = []
@@ -660,6 +675,8 @@ class MediaService:
         *,
         thumbnail: bool = False,
     ) -> tuple[Video, Path]:
+        if self._projects.get_project(actor, project_id).project.project_type != "video":
+            raise MediaConflict("视频功能仅适用于视频数据集项目")
         self._project_access(actor, project_id)
         with self._session_factory() as database:
             video = database.get(Video, video_id)
@@ -690,6 +707,10 @@ class MediaService:
             if task.status == "queued":
                 task.status = "canceled"
                 task.finished_at = now
+                if task.type == "import_images":
+                    batch = database.scalar(select(ImageImport).where(ImageImport.task_id == task.id))
+                    if batch is not None:
+                        batch.status, batch.error, batch.completed_at, batch.updated_at = "canceled", "图片导入已取消", now, now
                 if task.type == "export_dataset":
                     record = database.scalar(
                         select(DatasetExport).where(DatasetExport.task_id == task.id)

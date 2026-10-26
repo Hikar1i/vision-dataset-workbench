@@ -1,3 +1,4 @@
+import { toRaw } from 'vue'
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 
@@ -23,8 +24,9 @@ const model = (): TrainingModelDraft => ({
 });
 
 const resources: TrainingResources = {
+  image_projects: [],
   datasets: [
-    { id: "d1", name: "车辆集", project_id: "p", project_name: "项目", total_frames: 120, train_frames: 100, val_frames: 20, labels: [{ index: 0, name: "car" }] },
+    { id: "d1", name: "车辆集", project_id: "p", project_name: "项目", project_type: 'video', total_samples: 120, total_frames: 120, train_samples: 100, train_frames: 100, val_samples: 20, val_frames: 20, labels: [{ index: 0, name: "car" }] },
   ],
   templates: [
     {
@@ -108,7 +110,7 @@ describe("TrainingModelEditor", () => {
       default_multi_dataset_config: { version: 1, dataset_export_ids: ["d1"], target_classes: ["car"] },
     });
 
-    expect(wrapper.text()).toContain("1 个数据集 · 1 个目标类别 · 120 张图像");
+    expect(wrapper.text()).toContain("1 个数据集 · 1 个目标类别 · 120 个样本");
     expect(wrapper.find('[data-test="configure-mapping"]').exists()).toBe(false);
   });
 
@@ -137,7 +139,7 @@ describe("TrainingModelEditor", () => {
     const wrapper = mountEditor(row);
 
     expect(wrapper.get('[data-test="dataset-cascader"]').text()).toBe("未选择任何数据集");
-    expect(wrapper.text()).toContain("120 张图像 · 1 个类别");
+    expect(wrapper.text()).toContain("120 帧 · 1 个类别");
     expect(wrapper.text()).toContain("0 : car");
     expect(wrapper.find('[data-test="configure-mapping"]').exists()).toBe(false);
   });
@@ -170,3 +172,14 @@ describe("TrainingModelEditor", () => {
     expect(wrapper.text()).toContain("启动必填");
   });
 });
+
+it('names the initiating model and explains that a ready snapshot exits inheritance', async () => {
+  const row = model()
+  const wrapper = mountEditor(row)
+  await wrapper.setProps({ resources: { ...resources, image_projects: [{ id: 'image-project', name: '图片集', total_images: 10, can_export: true }] } })
+  const button = wrapper.findAll('button').find(b => b.text() === '为检测模型创建图像快照')!
+  expect(wrapper.text()).toContain('快照就绪后，此模型将退出继承并使用新快照，任务默认不变。')
+  await button.trigger('click')
+  expect(toRaw(wrapper.emitted('createSnapshot')?.[0]?.[0] as TrainingModelDraft)).toBe(row)
+  expect(row.dataset_mode).toBe('inherit')
+})

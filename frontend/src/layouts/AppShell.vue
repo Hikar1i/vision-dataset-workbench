@@ -19,7 +19,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 
 import { getCurrentUser, logout, type CurrentUser } from "../api/auth";
 import { getCapabilities } from "../api/capabilities";
-import { listProjects, type Project } from "../api/projects";
+import { listProjects, projectDataPath, type Project } from "../api/projects";
 import { listModelProjects, type ModelProject } from "../api/models";
 import { listTrainingTasks, type TrainingTask } from "../api/training";
 import TaskCenterDrawer from "../components/TaskCenterDrawer.vue";
@@ -76,7 +76,7 @@ const breadcrumbs = computed(() => {
   )
     items.push({
       label: activeProject.value.name,
-      to: `/projects/${route.params.id}/videos`,
+      to: projectDataPath(activeProject.value),
     });
   const page = String(route.meta.page ?? "");
   if (page && page !== section) items.push({ label: page });
@@ -278,7 +278,7 @@ onUnmounted(() => {
               v-for="project in shortcuts"
               :key="project.id"
               data-test="recent-project"
-              :to="`/projects/${project.id}/videos`"
+              :to="projectDataPath(project)"
               >{{ project.name }}</RouterLink
             >
           </div>

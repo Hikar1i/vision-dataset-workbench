@@ -16,6 +16,7 @@ import {
 } from '../api/models'
 import { listLLMConfigs, type LLMConfig } from '../api/llm'
 import { listLabels, type ProjectLabel } from '../api/labels'
+import { createImageAutoAnnotation, type ImageAsset } from '../api/images'
 import type { Video } from '../api/media'
 import VButton from '../ui/VButton.vue'
 import AutoAnnotationCategorySelect from './AutoAnnotationCategorySelect.vue'
@@ -27,7 +28,8 @@ type ModelSourceValue = 'xanylabeling' | 'online' | `project:${string}`
 const props = defineProps<{
   modelValue: boolean
   projectId: string
-  videos: Video[]
+  videos?: Video[]
+  images?: ImageAsset[]
   scope: 'unannotated' | 'all'
 }>()
 const emit = defineEmits<{
@@ -54,9 +56,11 @@ const loading = ref(false)
 const error = ref('')
 const categoryError = ref('')
 
-const annotatedCount = computed(() => props.videos.filter((video) => video.has_annotations).length)
-const unannotatedCount = computed(() => props.videos.length - annotatedCount.value)
-const valid = computed(() => Boolean(modelId.value) && props.videos.length > 0)
+const annotatedCount = computed(() => props.images ? props.images.filter(i => i.annotation_status === 'labeled').length : (props.videos ?? []).filter((video) => video.has_annotations).length)
+const noun = computed(() => props.images ? '图片' : '视频')
+const unit = computed(() => props.images ? '张' : '个')
+const unannotatedCount = computed(() => (props.images ?? props.videos ?? []).length - annotatedCount.value)
+const valid = computed(() => Boolean(modelId.value) && (props.images ?? props.videos ?? []).length > 0)
 const settingsDisabled = computed(() => props.scope === 'all' && !riskConfirmed.value)
 
 const selectedProjectId = computed(() => source.value.startsWith('project:')
@@ -184,9 +188,16 @@ async function submit() {
   }
   loading.value = true
   try {
+    if (props.images) {
+      await createImageAutoAnnotation(props.projectId, props.images.map(i => i.id), config,
+        props.scope === 'all' ? overwrite.value : false, props.scope)
+      notify.success('图片自动标注任务已创建。')
+      emit('submitted', props.images.map(i => i.id)); emit('update:modelValue', false)
+      return
+    }
     const result = await createProjectBatchAutoAnnotation(
       props.projectId,
-      props.videos.map((video) => video.id),
+      (props.videos ?? []).map((video) => video.id),
       config,
       props.scope,
       props.scope === 'all' ? overwrite.value : false,
@@ -213,19 +224,19 @@ async function submit() {
     <div class="batch-annotation-form">
       <el-alert
         v-if="scope === 'all'"
-        title="将处理包含已有标注的视频"
-        :description="`本次将处理全部 ${videos.length} 个视频，其中 ${annotatedCount} 个已有标注。`"
+        :title="`将处理包含已有标注的${noun}`"
+        :description="`本次将处理全部 ${(images ?? videos ?? []).length} ${unit}${noun}，其中 ${annotatedCount} ${unit}已有标注。`"
         type="error"
         show-icon
         :closable="false"
       />
-      <p v-else>将处理 {{ unannotatedCount }} 个未标注视频。</p>
+      <p v-else>将处理 {{ unannotatedCount }} {{ unit }}未标注{{ noun }}。</p>
       <div v-if="scope === 'all'" class="risk-confirmation">
-        <span>确认要对已标注的视频执行自动标注操作</span>
+        <span>确认要对已标注的{{ noun }}执行自动标注操作</span>
         <el-switch
           v-model="riskConfirmed"
           data-test="annotation-risk-confirm"
-          aria-label="确认对已有标注的视频执行自动标注"
+          :aria-label="`确认对已有标注的${noun}执行自动标注`"
         />
       </div>
       <el-form label-position="top">
@@ -285,7 +296,7 @@ async function submit() {
           <el-form-item label="置信度"><el-input-number v-model="confidence" :disabled="settingsDisabled" :min="0" :max="1" :step="0.05" /></el-form-item>
           <el-form-item label="IoU"><el-input-number v-model="iou" :disabled="settingsDisabled" :min="0" :max="1" :step="0.05" /></el-form-item>
         </div>
-        <el-checkbox v-model="overwrite" data-test="annotation-overwrite" :disabled="scope === 'unannotated' || settingsDisabled">覆盖已有模型标注</el-checkbox>
+        <el-checkbox v-model="overwrite" data-test="annotation-overwrite" :disabled="scope === 'unannotated' || settingsDisabled">覆盖已有全部标注</el-checkbox>
       </el-form>
       <p v-if="error" class="form-error">{{ error }}</p>
     </div>
@@ -296,7 +307,7 @@ async function submit() {
         data-test="annotation-create-task"
         :loading="loading"
         :disabled="!valid || settingsDisabled"
-        :title="settingsDisabled ? '请先确认已标注视频处理风险' : !valid ? '请选择模型和待处理视频' : '创建批量自动标注任务'"
+        :title="settingsDisabled ? `请先确认已标注${noun}处理风险` : !valid ? `请选择模型和待处理${noun}` : '创建批量自动标注任务'"
         @click="submit"
       >创建任务</VButton>
     </template>

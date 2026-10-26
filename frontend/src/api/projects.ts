@@ -5,6 +5,7 @@ export type { ProjectRole } from './access'
 
 export type Project = {
   id: string
+  project_type: 'video' | 'image'
   name: string
   description: string
   creator_id: string
@@ -39,11 +40,11 @@ export const listProjects = (page = 1, pageSize = 50) =>
     })}`,
   )
 
-export const createProject = (name: string, description: string) =>
+export const createProject = (name: string, description: string, project_type: 'video' | 'image' = 'video') =>
   json<Project>('/api/v1/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description }),
+    body: JSON.stringify({ name, description, project_type }),
   })
 
 export const getProject = (id: string) => json<Project>(`/api/v1/projects/${id}`)
@@ -86,3 +87,5 @@ export const changeMemberRole = (
 
 export const removeMember = (id: string, userId: string) =>
   json<void>(`/api/v1/projects/${id}/members/${userId}`, { method: 'DELETE' })
+
+export const projectDataPath = (project: Pick<Project, 'id' | 'project_type'>) => `/projects/${project.id}/${project.project_type === 'image' ? 'images' : 'videos'}`

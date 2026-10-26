@@ -11,6 +11,10 @@ export type DatasetExportLabel = {
 
 export type DatasetExport = {
   id: string
+  project_type: 'video' | 'image'
+  total_samples: number
+  train_samples: number
+  val_samples: number
   project_id: string
   task_id: string | null
   name: string
@@ -45,6 +49,17 @@ export type DatasetExportVideoStats = {
 
 export type DatasetExportManifest = {
   version: number
+  project_type?: 'video' | 'image'
+  directory_stats?: ImageDirectoryStats[]
+  excluded?: Record<string, number>
+  filtered_annotations?: number
+  positive_samples?: SplitSampleCounts
+  negative_samples?: SplitSampleCounts
+  target_positive_samples?: SplitSampleCounts
+  target_negative_samples?: SplitSampleCounts
+  positive_deviation?: number
+  negative_deviation?: number
+  stratification_warnings?: ImageStratificationWarning[]
   export_id: string
   name: string
   expected_train_ratio: number
@@ -57,10 +72,16 @@ export type DatasetExportManifest = {
   train_videos?: number
   val_videos?: number
   labels: DatasetExportLabel[]
-  train_video_ids: string[]
-  val_video_ids: string[]
-  disabled_video_ids: string[]
-  video_stats: DatasetExportVideoStats[]
+  total_samples?: number
+  train_samples?: number
+  val_samples?: number
+  class_counts?: Record<'train' | 'val', Record<string, number>>
+  directory_rules?: DirectoryRule[]
+  split_seed?: number
+  train_video_ids?: string[]
+  val_video_ids?: string[]
+  disabled_video_ids?: string[]
+  video_stats?: DatasetExportVideoStats[]
 }
 
 export type DatasetExportDetail = DatasetExport & {
@@ -79,7 +100,7 @@ const path = (projectId: string) => `/api/v1/projects/${projectId}/dataset-expor
 
 export const createDatasetExport = (
   projectId: string,
-  payload: { name: string; train_ratio: number; labels: DatasetExportLabel[] },
+  payload: DatasetExportRequest,
 ) => json<DatasetExport>(path(projectId), {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -102,3 +123,32 @@ export const datasetExportDownloadUrl = (projectId: string, exportId: string) =>
 
 export const deleteDatasetExport = (projectId: string, exportId: string) =>
   json<void>(`${path(projectId)}/${exportId}`, { method: 'DELETE' })
+
+export type DirectoryRule = {directory_id: string; included: boolean; mode: 'ratio' | 'train' | 'val'; train_ratio: number | null}
+export type ImageStratificationWarning = {directory_id: string; kind: 'positive' | 'negative'; reason: 'insufficient_samples' | 'fixed_roles' | 'exact_content_groups'}
+export type SplitSampleCounts = {train: number; val: number}
+export type ImageDirectoryStats = {
+  directory_id: string; name: string; source_relative_path: string
+  total_images: number; effective_images: number; train_images: number; val_images: number
+  target_train_images: number; deviation: number; deviation_reason: string | null
+  positive_images: number; negative_images: number
+  train_positive_images: number; val_positive_images: number
+  train_negative_images: number; val_negative_images: number
+  target_train_positive_images: number; target_val_positive_images: number
+  target_train_negative_images: number; target_val_negative_images: number
+  positive_deviation: number; negative_deviation: number
+  positive_deviation_reason: ImageStratificationWarning['reason'] | null
+  negative_deviation_reason: ImageStratificationWarning['reason'] | null
+  excluded: Record<string, number>; rule: DirectoryRule
+}
+export type DatasetExportRequest = {name: string; train_ratio: number; labels: DatasetExportLabel[]; directory_rules?: DirectoryRule[]; split_seed?: number; preview_fingerprint?: string}
+export type ImageExportPreview = {
+  fingerprint: string; directory_stats: ImageDirectoryStats[]; excluded: Record<string, number>
+  total_samples: number; train_samples: number; val_samples: number; actual_train_ratio: number
+  filtered_annotations: number; single_training_hint: string
+  positive_samples: SplitSampleCounts; negative_samples: SplitSampleCounts
+  target_positive_samples: SplitSampleCounts; target_negative_samples: SplitSampleCounts
+  positive_deviation: number; negative_deviation: number
+  stratification_warnings: ImageStratificationWarning[]
+}
+export const previewDatasetExport = (projectId: string, payload: DatasetExportRequest) => json<ImageExportPreview>(`${path(projectId)}/preview`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})

@@ -2,6 +2,8 @@
 
 ## 最近迁移
 
+`0029_image_datasets` 新增 projects.project_type（video/image，旧行及默认请求为 video）、图片四表及 import_images 任务约束。项目类型创建后不可修改。降级在存在图片项目、导入记录或 import_images 历史任务时拒绝执行，避免丢弃数据。2026-10-11 已在空库及含历史视频/整数框/活动任务/快照的 0028 临时数据库上演练，旧行、外键和 999 条视频上限触发器保留；部署升级仍需工作区备份与副本演练。
+
 迁移 `0028_resource_activity_timestamps` 不改变 schema，按可追溯子资源的最后持久化时间向后修正数据集项目、模型项目、超参数模板和训练任务的存量 `updated_at`，且不会让时间倒退。迁移 `0027_official_model_project` 创建或接管“YOLO11目标检测官方模型”，并删除早期“临时模型项目”及其仅用于测试的关联数据和受管目录；若临时项目已被训练、评估或模板等业务记录引用，迁移会中止并保留可诊断状态。`0026_access_control_refactor` 将账号状态收口为 active/disabled，增加首次改密标记和唯一系统管理员约束，建立模型项目成员关系和模板项目归属，并为既有训练任务补建关联模型项目。
 
 状态：工作区 SQLite、账号/会话、项目/成员、项目标签、视频、任务、采样方案、帧、矩形标注、模型项目、超参数模板、训练任务/模型/运行/指标、用户远程配置、推理模型、数据集导出及模型操作迁移已实现。
@@ -20,7 +22,7 @@
 
 ## 当前 schema
 
-Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015` 至 `0025` 增加模型管理、超参数模板、训练、多数据集准备、用户大模型配置和模型操作；`0026_access_control_refactor` 重构账号与项目权限；`0027_official_model_project` 以官方只读项目替代临时模型项目；`0028_resource_activity_timestamps` 回填资源活动时间。项目子资源触碰只更新父项目 `updated_at`，不更新父项目 `version`。当前 `users` 表为：
+Alembic `0001_initial` 至 `0014_model_projects` 建立账号、项目、媒体、采样、标注、导出、模型和远程配置基础；`0015` 至 `0025` 增加模型管理、超参数模板、训练、多数据集准备、用户大模型配置和模型操作；`0026_access_control_refactor` 重构账号与项目权限；`0027_official_model_project` 以官方只读项目替代临时模型项目；`0028_resource_activity_timestamps` 回填资源活动时间；`0029_image_datasets` 引入图像项目与四表。项目子资源触碰只更新父项目 `updated_at`，不更新父项目 `version`。当前 `users` 表为：
 
 | 字段 | 约束/含义 |
 | --- | --- |
@@ -53,6 +55,7 @@ SQLite 不保留时区偏移，当前认证表按 naive UTC 持久化，API 输�
 | --- | --- |
 | `id` | UUID 字符串主键，同时作为受管项目目录名 |
 | `name` | 1–128 字符；允许不同项目重名 |
+| `project_type` | video/image，NOT NULL、CHECK、默认 video；创建后不可变 |
 | `description` | 最长 2000 字符 |
 | `creator_id` | 创建者外键，删除受限；该用户是永久 owner |
 | `version` | 从 1 开始的乐观并发版本 |
@@ -81,6 +84,21 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | `version` / 时间字段 | 乐观并发版本和创建、更新时间 |
 
 内部标注关联标签 UUID，不持久化 YOLO 数字类别编号。已被任意矩形标注引用的标签受外键限制，删除接口返回 409；未使用标签仍可删除并自动压缩后续映射顺序。
+
+### 图片表
+
+| 表 | 当前约束与职责 |
+| --- | --- |
+| `image_imports` | 项目、提交人、唯一可空 task；format=images/yolo_detect，queued/running/ready/failed/canceled；来源相对路径、预检指纹、类别映射 JSON 与时间/错误；不保存 TXT |
+| `image_directories` | 所属项目/批次、可读名、来源相对路径、顺序；项目内名称唯一、批次内路径唯一；无 train/val/test 字段 |
+| `images` | 目录、原名/来源路径、受管图/缩略图相对路径、SHA-256、正尺寸、字节数和实际物化方式；enabled、pending/labeled、revision/version≥1、最后自动操作 ID；目录内来源路径唯一 |
+| `image_annotations` | 图片级联、标签 RESTRICT；Float 矩形、import/manual/model、可空置信度及稳定顺序；非负左上角、正面积、置信度范围 CHECK；尺寸边界由服务校验 |
+
+只展示 ready 批次。空 TXT 对应 labeled＋零框；缺 TXT、纯图片及自动零检测结果为 pending。该字段仅描述标注进度，导出正负样本按保留类别的实际框数判断，pending 零框同样是负样本。没有单独“确认无目标”状态转换。导入图片位于 `projects/<id>/images/<import id>/`，缩略图在其 thumbnails 子目录；UUID 文件身份不作为目录显示名。删除停用图片会归档图片、缩略图、目录及框元数据并移除资产行；已有 DatasetExport 不改变。本轮自动识别/忽略标注及目录分层调整无需新增schema迁移。
+
+图片导入/导出发布把文件移动与数据库提交结合，并保留失败补偿；图片标注与标签写入先持有项目写屏障并检查活动数据任务。训练保存/启动与快照/项目删除先领取 SQLite 写锁，阻止并发建立失效引用。被单/多配置或历史冻结输入引用的快照和项目返回409；引用记录无法解析时拒绝删除。归档元数据包括四表，删除前显式移除图片框到标签的 RESTRICT 边。
+
+DatasetExport 保留 `total/train/val_frames` 列，图片也用它存样本数；API 增加 samples 别名。图片清单 version=2，旧清单缺 project_type 按 video 读取；不迁移原 FrameAnnotation 整数列。
 
 `videos` 表保存受管原始视频：
 

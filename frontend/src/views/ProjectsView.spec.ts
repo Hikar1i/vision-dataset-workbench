@@ -74,7 +74,7 @@ describe('ProjectsView', () => {
       name: '缺陷视频',
       description: '产线 A',
       creator_id: 'admin-id',
-      creator_username: 'admin',
+      project_type: 'video', creator_username: 'admin',
       access: ownerAccess,
       version: 1,
       created_at: '2026-07-23T00:00:00Z',
@@ -123,7 +123,7 @@ describe('ProjectsView', () => {
                       name: '项目一',
                       description: '',
                       creator_id: 'other-id',
-                      creator_username: 'other',
+                      project_type: 'video', creator_username: 'other',
                       categories: ['helmet', 'person', 'fire'],
                       access: adminAccess,
                       version: 1,
@@ -176,12 +176,12 @@ describe('ProjectsView', () => {
     const items = [
       {
         id: 'owner-project', name: '可删除项目', description: '', creator_id: 'admin-id',
-        creator_username: 'admin', access: ownerAccess, version: 1,
+        project_type: 'video', creator_username: 'admin', access: ownerAccess, version: 1,
         created_at: '2026-07-23T00:00:00Z', updated_at: '2026-07-23T00:00:00Z',
       },
       {
         id: 'viewer-project', name: '只读项目', description: '', creator_id: 'other-id',
-        creator_username: 'other', access: viewerAccess, version: 1,
+        project_type: 'video', creator_username: 'other', access: viewerAccess, version: 1,
         created_at: '2026-07-23T00:00:00Z', updated_at: '2026-07-23T00:00:00Z',
       },
     ]
@@ -217,7 +217,7 @@ describe('ProjectsView', () => {
       json: async () => ({
         items: [{
           id: 'project-id', name: '项目', description: '', creator_id: 'admin-id',
-          creator_username: 'admin', access: ownerAccess, version: 1,
+          project_type: 'video', creator_username: 'admin', access: ownerAccess, version: 1,
           created_at: '2026-07-23T00:00:00Z', updated_at: '2026-07-23T00:00:00Z',
         }],
         page: 1, page_size: 50, total: 1,

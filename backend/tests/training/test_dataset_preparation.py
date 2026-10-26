@@ -82,7 +82,7 @@ def test_materialize_hardlinks_images_preserves_splits_and_empty_negative_labels
         workspace,
         "export-a",
         "train",
-        ["0 0.1 0.2 0.3 0.4\n1 0.5 0.6 0.7 0.8\n", "1 0.1 0.2 0.3 0.4\n"],
+        ["0 0.2 0.2 0.3 0.4\n1 0.5 0.6 0.7 0.7\n", "1 0.2 0.2 0.3 0.4\n"],
     )
     _source(workspace, "export-b", "val", ["0 0.2 0.3 0.4 0.5\n"])
     snapshot = {
@@ -108,7 +108,7 @@ def test_materialize_hardlinks_images_preserves_splits_and_empty_negative_labels
     linked = target / "train/images/export-a_frame-0.jpg"
     assert os.stat(linked).st_ino == os.stat(source_a / "train/images/frame-0.jpg").st_ino
     assert (target / "train/labels/export-a_frame-0.txt").read_text() == (
-        "1 0.1 0.2 0.3 0.4\n"
+        "1 0.2 0.2 0.3 0.4\n"
     )
     assert (target / "train/labels/export-a_frame-1.txt").read_text() == ""
     assert (target / "val/images/export-b_frame-0.jpg").is_file()
@@ -117,6 +117,10 @@ def test_materialize_hardlinks_images_preserves_splits_and_empty_negative_labels
         "annotations": 2,
         "ignored_annotations": 2,
         "negative_images": 1,
+        "train_images": 2,
+        "val_images": 1,
+        "train_annotations": 1,
+        "val_annotations": 1,
     }
     assert json.loads((target / "manifest.json").read_text())["stats"] == stats
     assert (target / "READY").is_file()

@@ -13,6 +13,7 @@ import ProjectsView from "./views/ProjectsView.vue";
 import ProjectSettingsView from "./views/ProjectSettingsView.vue";
 import ProjectLabelsView from "./views/ProjectLabelsView.vue";
 import ProjectDatasetsView from "./views/ProjectDatasetsView.vue";
+import ProjectImagesView from "./views/ProjectImagesView.vue";
 import ProjectVideosView from "./views/ProjectVideosView.vue";
 import SetupView from "./views/SetupView.vue";
 
@@ -160,6 +161,13 @@ export function createAppRouter() {
                     ],
                   },
                 ],
+              },
+              {
+                path: "images", name: "project-images", component: ProjectImagesView,
+                meta: { section: "数据集项目", page: "原始数据" },
+                children: [{path: ":imageId/annotation", component: FocusLayout,
+                  children: [{path: "", name: "image-annotation", component: AnnotationWorkbenchView,
+                    meta: {section: "数据集项目", page: "在线标注"}}]}],
               },
               {
                 path: "labels",

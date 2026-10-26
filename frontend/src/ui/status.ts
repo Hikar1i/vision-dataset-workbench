@@ -112,3 +112,7 @@ export const TONE_COLOR: Record<Tone, string> = {
   danger: 'var(--vdw-danger)',
   idle: 'var(--vdw-line-2)',
 }
+
+export function imageAnnotationStatus(status: string) {
+  return status === 'labeled' ? {tone: 'ok' as Tone, label: '已标注'} : {tone: 'warn' as Tone, label: '待标注'}
+}

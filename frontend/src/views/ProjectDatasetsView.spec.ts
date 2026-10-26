@@ -91,6 +91,7 @@ function mountView(role: ProjectRole) {
     props: {
       project: {
         id: 'project-id', name: 'project', description: '', creator_id: 'owner-id',
+  project_type: 'video' as const,
         creator_username: 'owner', categories: [], access: access(role), version: 1,
         created_at: '2026-07-30T00:00:00Z', updated_at: '2026-07-30T00:00:00Z',
       },

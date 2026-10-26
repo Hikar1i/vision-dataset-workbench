@@ -1,10 +1,12 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { FrameAnnotation } from '../api/annotations'
 import AnnotationCanvas from './AnnotationCanvas.vue'
 
+const transformerNodes = vi.fn()
+const stageFindOne = vi.fn()
 const VRectStub = defineComponent({
   props: ['config'],
   emits: ['mousedown', 'mouseenter', 'mouseleave', 'dragend', 'transformend', 'contextmenu'],
@@ -19,7 +21,7 @@ const VStageStub = defineComponent({
   props: ['config'],
   emits: ['mousedown', 'mousemove', 'mouseup', 'mouseleave', 'wheel'],
   setup(_props, { expose }) {
-    expose({ getNode: () => ({ findOne: () => null }) })
+    expose({ getNode: () => ({ findOne: stageFindOne }) })
   },
   template: '<div class="stage-stub"><slot /></div>',
 })
@@ -32,7 +34,7 @@ const VTransformerStub = defineComponent({
   setup(_props, { expose }) {
     expose({
       getNode: () => ({
-        nodes: () => undefined,
+        nodes: transformerNodes,
         getLayer: () => ({ batchDraw: () => undefined }),
       }),
     })
@@ -43,7 +45,7 @@ const stubs = {
   'v-stage': VStageStub,
   'v-layer': SlotStub,
   'v-group': VGroupStub,
-  'v-image': true,
+  'v-image': defineComponent({ name: 'VImage', props: ['config'], template: '<div class="image-stub"/>' }),
   'v-rect': VRectStub,
   'v-text': VTextStub,
   'v-transformer': VTransformerStub,
@@ -72,7 +74,15 @@ const annotations: FrameAnnotation[] = [
   },
 ]
 
-beforeAll(() => {
+beforeEach(() => {
+  transformerNodes.mockClear(); stageFindOne.mockReset().mockReturnValue(null)
+  vi.stubGlobal('Image', class {
+    constructor() {
+      const img = document.createElement('img')
+      Object.defineProperty(img, 'src', { set: () => img.dispatchEvent(new Event('load')) })
+      return img
+    }
+  })
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -124,6 +134,7 @@ describe('AnnotationCanvas', () => {
     expect(wrapper.findComponent(VTransformerStub).exists()).toBe(false)
 
     boxes[0]!.vm.$emit('transformend', { target: {} })
+    boxes[0]!.vm.$emit('dragend', { target: {} })
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted('change')).toBeUndefined()
   })
@@ -421,4 +432,97 @@ describe('AnnotationCanvas', () => {
     expect(boxes.every((item) => item.props('config').draggable === false)).toBe(true)
     expect(wrapper.findComponent(VTransformerStub).exists()).toBe(false)
   })
+})
+
+it.each(['continuous', 'pixel'] as const)('resizes a small box using %s coordinate rules', async coordinateMode => {
+  const imported: FrameAnnotation = { id: 'tiny', label_id: 'helmet', x_min: 10.1, y_min: 20.2, x_max: 10.4, y_max: 20.6, source: 'import', confidence: null }
+  const wrapper = mount(AnnotationCanvas, { props: { imageUrl: '/tiny.jpg', imageWidth: 640, imageHeight: 480, annotations: [imported], labels: [], selectedId: 'tiny', mode: 'select', coordinateMode }, global: { stubs } })
+  const box = wrapper.findAllComponents(VRectStub).find(item => item.props('config').name === 'annotation-tiny')!
+  const scaleX = vi.fn().mockReturnValue(1), scaleY = vi.fn().mockReturnValue(1)
+  box.vm.$emit('transformend', { target: { x: () => 10.1, y: () => 20.2, width: () => 0.3, height: () => 0.4, scaleX, scaleY } })
+  await wrapper.vm.$nextTick()
+  const changed = wrapper.emitted('change')?.[0]?.[0] as FrameAnnotation[]
+  expect(changed).toHaveLength(1)
+  expect(changed[0]).toMatchObject(coordinateMode === 'continuous'
+    ? { x_min: 10.1, y_min: 20.2, x_max: expect.closeTo(10.4), y_max: expect.closeTo(20.6), source: 'manual', confidence: null }
+    : { x_min: 10, y_min: 20, x_max: 12, y_max: 22 })
+  expect(scaleX).toHaveBeenCalledWith(1); expect(scaleY).toHaveBeenCalledWith(1)
+  wrapper.unmount()
+})
+
+it('moves imported subpixel boxes without rounding or changing untouched sources', async () => {
+  const imported: FrameAnnotation = { ...annotations[0]!, source: 'import', x_min: 10.1, y_min: 20.2, x_max: 10.4, y_max: 20.6 }
+  const wrapper = mount(AnnotationCanvas, { props: { imageUrl: '/tiny.jpg', imageWidth: 640, imageHeight: 480, annotations: [imported, annotations[1]!], labels: [], selectedId: imported.id, mode: 'select', coordinateMode: 'continuous' }, global: { stubs } })
+  const box = wrapper.findAllComponents(VRectStub).find(item => item.props('config').name === `annotation-${imported.id}`)!
+  box.vm.$emit('dragend', { target: { x: () => 30.25, y: () => 40.5 } })
+  const changed = wrapper.emitted('change')?.[0]?.[0] as FrameAnnotation[]
+  expect(changed[0]?.x_min).toBe(30.25)
+  expect(changed[0]!.x_max - changed[0]!.x_min).toBeCloseTo(0.3)
+  expect(changed[0]?.source).toBe('manual')
+  expect(changed[1]).toEqual(annotations[1])
+  wrapper.unmount()
+})
+
+afterEach(() => { vi.unstubAllGlobals() })
+
+it('clears the previous image, ignores stale callbacks and exposes a failed-load retry', async () => {
+  const requests: HTMLImageElement[] = []
+  vi.stubGlobal('Image', class { constructor() { const img = document.createElement('img'); requests.push(img); return img } })
+  const wrapper = mount(AnnotationCanvas, { props: { imageUrl: '/a.jpg', imageWidth: 640, imageHeight: 480, annotations: [], labels: [], selectedId: null, mode: 'select' }, global: { stubs } })
+  requests[0]!.dispatchEvent(new Event('load')); await wrapper.vm.$nextTick()
+  expect(wrapper.getComponent({ name: 'VImage' }).props('config').image).toBe(requests[0])
+  await wrapper.setProps({ imageUrl: '/b.jpg' })
+  expect(wrapper.getComponent({ name: 'VImage' }).props('config').image).toBeNull()
+  expect(wrapper.text()).toContain('正在加载图片')
+  await wrapper.setProps({ imageUrl: '/c.jpg' })
+  requests[1]!.dispatchEvent(new Event('load')); requests[1]!.dispatchEvent(new Event('error')); await wrapper.vm.$nextTick()
+  expect(wrapper.getComponent({ name: 'VImage' }).props('config').image).toBeNull()
+  expect(wrapper.text()).not.toContain('图片加载失败')
+  requests[2]!.dispatchEvent(new Event('error')); await wrapper.vm.$nextTick()
+  expect(wrapper.text()).toContain('图片加载失败')
+  await wrapper.get('.canvas-image-state button').trigger('click')
+  expect(requests[3]!.src).toContain('/c.jpg')
+  requests[3]!.dispatchEvent(new Event('load')); await wrapper.vm.$nextTick()
+  expect(wrapper.getComponent({ name: 'VImage' }).props('config').image).toBe(requests[3])
+  expect(wrapper.find('.canvas-image-state').exists()).toBe(false)
+  wrapper.unmount()
+})
+
+it.each(['pixel', 'continuous'] as const)('blocks drawing and geometry changes until %s image loading succeeds', async coordinateMode => {
+  const requests: HTMLImageElement[] = []
+  vi.stubGlobal('Image', class { constructor() { const img = document.createElement('img'); requests.push(img); return img } })
+  const wrapper = mount(AnnotationCanvas, { props: { imageUrl: '/missing.jpg', imageWidth: 640, imageHeight: 480, annotations, labels: [], selectedId: 'helmet-box', mode: 'draw', dragToDraw: true, coordinateMode }, global: { stubs } })
+  const stage = wrapper.getComponent(VStageStub)
+  let point = { x: 0.2, y: 0.3 }
+  const event = { target: { getStage: () => ({ getPointerPosition: () => point }) }, evt: { button: 0 } }
+  const gesture = () => { stage.vm.$emit('mousedown', event); point = { x: 0.8, y: 0.7 }; stage.vm.$emit('mousemove', event); stage.vm.$emit('mouseup', event) }
+  gesture()
+  expect(wrapper.emitted('request-category')).toBeUndefined()
+  requests[0]!.dispatchEvent(new Event('error')); await wrapper.setProps({ mode: 'select' })
+  const box = wrapper.findAllComponents(VRectStub).find(item => item.props('config').name === 'annotation-helmet-box')!
+  expect(box.props('config').draggable).toBe(false)
+  expect(wrapper.findComponent(VTransformerStub).exists()).toBe(false)
+  box.vm.$emit('dragend', { target: {} }); box.vm.$emit('transformend', { target: {} })
+  expect(wrapper.emitted('change')).toBeUndefined()
+  await wrapper.get('.canvas-image-state button').trigger('click')
+  requests[1]!.dispatchEvent(new Event('load')); await wrapper.setProps({ mode: 'draw' })
+  point = { x: 0.2, y: 0.3 }; gesture()
+  expect(wrapper.emitted('request-category')).toHaveLength(1)
+  await wrapper.setProps({ mode: 'select' })
+  expect(wrapper.findComponent(VTransformerStub).exists()).toBe(true)
+  wrapper.unmount()
+})
+
+it('rebinds the selected transformer when retry loads the image without changing selection', async () => {
+  const requests: HTMLImageElement[] = []
+  vi.stubGlobal('Image', class { constructor() { const img = document.createElement('img'); requests.push(img); return img } })
+  const node = { name: 'selected-box' }
+  stageFindOne.mockReturnValue(node)
+  const wrapper = mount(AnnotationCanvas, { props: { imageUrl: '/a.jpg', imageWidth: 640, imageHeight: 480, annotations, labels: [], selectedId: 'helmet-box', mode: 'select' }, global: { stubs } })
+  requests[0]!.dispatchEvent(new Event('error')); await wrapper.vm.$nextTick()
+  await wrapper.get('.canvas-image-state button').trigger('click')
+  requests[1]!.dispatchEvent(new Event('load')); await flushPromises()
+  expect(stageFindOne).toHaveBeenCalledWith('.annotation-helmet-box')
+  expect(transformerNodes).toHaveBeenLastCalledWith([node])
+  wrapper.unmount()
 })

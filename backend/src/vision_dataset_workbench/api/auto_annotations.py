@@ -113,6 +113,7 @@ def run_frame_auto_annotation(
         SamplingNotFound,
         InvalidLabel,
         AutoAnnotationUnavailable,
+        AutoAnnotationConflict,
     ) as exc:
         _raise_auto_error(exc)
     return AutoAnnotationResponse(

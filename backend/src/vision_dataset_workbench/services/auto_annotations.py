@@ -1,4 +1,5 @@
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime, timezone
@@ -13,6 +14,7 @@ from ..capabilities import SystemCapabilities
 from ..config import RuntimeSettings
 from ..inference import Detection, InferenceRunner, InferenceUnavailable
 from ..models import Frame, ProjectLabel, Task, User, Video
+from .images import ImageService
 from .annotations import AnnotationInput
 from .labels import (
     LabelConflict,
@@ -21,7 +23,7 @@ from .labels import (
     normalize_label_name,
 )
 from .models import ModelService
-from .projects import ProjectForbidden, ProjectService, touch_project
+from .projects import ProjectForbidden, ProjectService, image_project_write_barrier, touch_project
 from .sampling import SamplingService
 from .xanylabeling_settings import XAnyLabelingSettingsService
 from .llm_configs import LLMConfigService
@@ -40,8 +42,20 @@ class AutoAnnotationConflict(ValueError):
 
 
 @dataclass(frozen=True)
+class ImageAnnotationInput:
+    id: str
+    label_id: str
+    x_min: float
+    y_min: float
+    x_max: float
+    y_max: float
+    source: str = "model"
+    confidence: float | None = None
+
+
+@dataclass(frozen=True)
 class DraftAnnotation:
-    annotation: AnnotationInput
+    annotation: AnnotationInput | ImageAnnotationInput
     label_name: str
 
 
@@ -89,6 +103,7 @@ class AutoAnnotationService:
         self.runner = runner or InferenceRunner(
             GpuLeaseService(engine, devices=capabilities.gpu.devices)
         )
+        self.images = ImageService(engine, settings, workspace, projects)
         self.sampling = SamplingService(engine, settings, workspace)
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
@@ -105,6 +120,8 @@ class AutoAnnotationService:
         source: str = "local",
         remote_task_id: str | None = None,
     ) -> AutoAnnotationResult:
+        if self.projects.get_project(actor, project_id).project.project_type != "video":
+            raise AutoAnnotationConflict("视频标注仅适用于视频项目")
         if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         frame, image_path = self.sampling.ready_frame_file(
@@ -167,6 +184,8 @@ class AutoAnnotationService:
         source: str = "local",
         remote_task_id: str | None = None,
     ) -> Task:
+        if self.projects.get_project(actor, project_id).project.project_type != "video":
+            raise AutoAnnotationConflict("视频标注仅适用于视频项目")
         if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         selection = AutoAnnotationModel(source, model_id, remote_task_id)
@@ -243,6 +262,8 @@ class AutoAnnotationService:
         source: str = "local",
         remote_task_id: str | None = None,
     ) -> AutoAnnotationBatchResult:
+        if self.projects.get_project(actor, project_id).project.project_type != "video":
+            raise AutoAnnotationConflict("视频标注仅适用于视频项目")
         if not self.projects.get_project(actor, project_id).access.allows("task.execute"):
             raise ProjectForbidden("project edit permission required")
         if scope not in {"unannotated", "all"}:
@@ -331,6 +352,66 @@ class AutoAnnotationService:
             database.commit()
             database.expunge(task)
             return AutoAnnotationBatchResult(task, accepted, rejected)
+
+    def run_image(self, actor, project_id, image_id, model_id, categories, confidence, iou,
+                  source="local", remote_task_id=None):
+        self.images.access(actor, project_id, write=True, execute=True)
+        image, _ = self.images.get(actor, project_id, image_id)
+        with self._session_factory() as db:
+            image_project_write_barrier(db, project_id)
+        prompts = list(dict.fromkeys(normalize_label_name(c) for c in categories))
+        detections = self._predict(actor, AutoAnnotationModel(source, model_id, remote_task_id),
+                                   self.images.managed_file(project_id, image), prompts, confidence, iou)
+        valid = [(d, normalize_label_name(d.label), self.image_bounds(d, image.width, image.height)) for d in detections]
+        valid = [(d, n, b) for d, n, b in valid if b is not None]
+        labels, created = self._ensure_labels(actor, project_id, [d for d, _, _ in valid])
+        return AutoAnnotationResult([
+            DraftAnnotation(ImageAnnotationInput(id=str(uuid4()), label_id=labels[n].id, **b,
+                source="model", confidence=self.image_confidence(d)), n) for d, n, b in valid], created)
+
+    def create_image_batch(self, actor, project_id, image_ids, model_id, categories, confidence, iou,
+                           overwrite=False, scope="all", source="local", remote_task_id=None):
+        self.images.access(actor, project_id, write=True, execute=True)
+        self._validate_model(actor, AutoAnnotationModel(source, model_id, remote_task_id))
+        if len(set(image_ids)) != len(image_ids) or scope not in {"all", "unannotated"}:
+            raise ValueError("图片选择或范围无效")
+        prompts = list(dict.fromkeys(normalize_label_name(c) for c in categories))
+        at = datetime.now(timezone.utc).replace(tzinfo=None)
+        with self._session_factory() as db:
+            image_project_write_barrier(db, project_id)
+            targets = []
+            for image_id in image_ids:
+                image = self.images.context(db, project_id, image_id)
+                if image.enabled and (scope == "all" or image.annotation_status == "pending"):
+                    targets.append({"id": image.id, "revision": image.annotation_revision, "version": image.version})
+            if not targets:
+                raise AutoAnnotationConflict("所选图片中没有可处理的图片")
+            task = Task(id=str(uuid4()), project_id=project_id, submitted_by_id=actor.id, type="auto_annotate",
+                        payload=json.dumps({"scope_type": "image", "images": targets, "source": source,
+                            "model_id": model_id, "remote_task_id": remote_task_id, "categories": prompts,
+                            "confidence": confidence, "iou": iou, "overwrite": overwrite}),
+                        created_at=at, updated_at=at)
+            db.add(task)
+            touch_project(db, project_id, at=at)
+            db.commit()
+            return task
+
+    @staticmethod
+    def image_confidence(detection):
+        value = detection.confidence
+        if value is not None and not math.isfinite(value):
+            raise ValueError("推理置信度必须是有限数值")
+        return max(0.0, min(1.0, value)) if value is not None else None
+
+    @staticmethod
+    def image_bounds(detection, width, height):
+        values = [detection.x_min, detection.y_min, detection.x_max, detection.y_max]
+        if not all(math.isfinite(v) for v in values):
+            raise ValueError("推理坐标必须是有限数值")
+        left, top, right, bottom = [max(0.0, min(size, v)) for size, v in zip((width, height, width, height), values)]
+        if right <= left or bottom <= top:
+            return None
+        return dict(x_min=left, y_min=top, x_max=right, y_max=bottom)
 
     def _predict(
         self,

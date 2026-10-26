@@ -61,14 +61,17 @@ export function clampBox(
   box: BoxBounds,
   imageWidth: number,
   imageHeight: number,
+  coordinateMode: 'pixel' | 'continuous' = 'pixel',
 ): BoxBounds | null {
+  if (![box.x_min, box.y_min, box.x_max, box.y_max].every(Number.isFinite)) return null
+  const coordinate = (value: number) => coordinateMode === 'pixel' ? Math.round(value) : value
   const clamped = {
-    x_min: Math.round(Math.max(0, Math.min(imageWidth, box.x_min))),
-    y_min: Math.round(Math.max(0, Math.min(imageHeight, box.y_min))),
-    x_max: Math.round(Math.max(0, Math.min(imageWidth, box.x_max))),
-    y_max: Math.round(Math.max(0, Math.min(imageHeight, box.y_max))),
+    x_min: coordinate(Math.max(0, Math.min(imageWidth, box.x_min))),
+    y_min: coordinate(Math.max(0, Math.min(imageHeight, box.y_min))),
+    x_max: coordinate(Math.max(0, Math.min(imageWidth, box.x_max))),
+    y_max: coordinate(Math.max(0, Math.min(imageHeight, box.y_max))),
   }
-  return clamped.x_max - clamped.x_min >= 2 && clamped.y_max - clamped.y_min >= 2
+  return (coordinateMode === 'continuous' ? clamped.x_max > clamped.x_min && clamped.y_max > clamped.y_min : clamped.x_max - clamped.x_min >= 2 && clamped.y_max - clamped.y_min >= 2)
     ? clamped
     : null
 }

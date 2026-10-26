@@ -169,14 +169,11 @@ def test_resource_activity_migration_advances_stale_parent_timestamps(
             )
         )
         session.flush()
-        session.add(
-            Project(
-                id="activity-project",
-                name="activity-project",
-                creator_id="activity-owner",
-                created_at=old,
-                updated_at=old,
-            )
+        # This fixture targets 0027, before the ORM's project_type column exists.
+        session.connection().exec_driver_sql(
+            "INSERT INTO projects (id, name, description, creator_id, version, created_at, updated_at) "
+            "VALUES (?, ?, '', ?, 1, ?, ?)",
+            ("activity-project", "activity-project", "activity-owner", old, old),
         )
         session.add(
             ModelProject(

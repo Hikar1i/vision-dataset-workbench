@@ -10,6 +10,9 @@ afterEach(() => {
 
 it('loads project scope and submits an independently ordered label snapshot', async () => {
   const fetchMock = vi.fn().mockImplementation((path: string, init?: RequestInit) => {
+    if (path.endsWith('/projects/project-id')) {
+      return Promise.resolve({ ok:true, json:async()=>({id:'project-id',project_type:'video'}) })
+    }
     if (path.endsWith('/labels')) {
       return Promise.resolve({
         ok: true,

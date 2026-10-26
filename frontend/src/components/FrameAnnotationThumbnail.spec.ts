@@ -38,3 +38,15 @@ describe('FrameAnnotationThumbnail', () => {
     expect(formatFrameTimestamp(59.9996)).toBe('1:00.000')
   })
 })
+
+it('renders image floats without video sequence or time and reports a broken thumbnail', async () => {
+  const wrapper = mount(FrameAnnotationThumbnail, { props: { imageUrl: '/tiny.jpg', imageWidth: 640, imageHeight: 480, annotations: [{ id: 'tiny', label_id: 'helmet', x_min: 10.1, y_min: 20.2, x_max: 10.4, y_max: 20.6 }], labelColors: {} } })
+  expect(wrapper.find('.timestamp').exists()).toBe(false)
+  expect(wrapper.find('.sequence').exists()).toBe(false)
+  expect(wrapper.get('rect').attributes('x')).toBe('10.1')
+  expect(Number(wrapper.get('rect').attributes('width'))).toBeCloseTo(0.3)
+  await wrapper.get('img').trigger('error')
+  expect(wrapper.text()).toContain('图片加载失败')
+  expect(wrapper.emitted('load-error')).toHaveLength(1)
+  wrapper.unmount()
+})

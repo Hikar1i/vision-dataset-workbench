@@ -12,13 +12,13 @@ import {
 
 const datasets: TrainingResources["datasets"] = [
   {
-    id: "a", name: "A", project_id: "p", project_name: "P", total_frames: 2,
-    train_frames: 1, val_frames: 1,
+    id: "a", name: "A", project_id: "p", project_name: "P", project_type: 'video', total_samples: 2, total_frames: 2,
+    train_samples: 1, train_frames: 1, val_samples: 1, val_frames: 1,
     labels: [{ index: 0, name: " car " }, { index: 1, name: "Person" }],
   },
   {
-    id: "b", name: "B", project_id: "p", project_name: "P", total_frames: 3,
-    train_frames: 2, val_frames: 1,
+    id: "b", name: "B", project_id: "p", project_name: "P", project_type: 'video', total_samples: 3, total_frames: 3,
+    train_samples: 2, train_frames: 2, val_samples: 1, val_frames: 1,
     labels: [{ index: 2, name: "car" }, { index: 4, name: "plane" }],
   },
 ];

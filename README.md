@@ -1,6 +1,6 @@
 # Vision Dataset Workbench
 
-面向视觉数据集生产流程的多人工作台。项目以遗留单机工具为业务参考，已重构视频导入、采样、筛帧、权限、在线矩形标注和 YOLO Detect 训练主链路，并支持本地 YOLO、外部 X-AnyLabeling-Server 及用户配置的在线视觉大模型自动标注。
+面向视觉数据集生产流程的多人工作台。项目以遗留单机工具为业务参考，支持 video/image 两类数据集项目、视频采样筛帧、图片/YOLO Detect 目录导入、权限、在线矩形标注和 YOLO Detect 训练主链路，并支持本地 YOLO、外部 X-AnyLabeling-Server 及用户配置的在线视觉大模型自动标注。
 
 ## 当前状态
 
@@ -45,6 +45,14 @@
 - 启动时检测 NVIDIA GPU、PyTorch CUDA 和 Ultralytics；缺少 GPU 或依赖时保持启动并提示本地 YOLO 功能降级。
 - uv 可选 `gpu` 依赖组仅包含 PyTorch、torchvision 和 Ultralytics；X-AnyLabeling-Server 和在线视觉大模型均通过 HTTP 解耦，不引入 Agent 或本地大模型框架。
 - Python 3.12/FastAPI 与 Vue 3/TypeScript/Vite 项目骨架。
+
+图像数据集项目：
+
+- 新建项目选择图像类型；纯图片与 YOLO Detect 自动识别并导入同一类型项目，可开启“不使用目录内的标注和类别”只读图像。`train/valid/test` 仅保留为来源目录，导入不指定训练角色。
+- 目录侧栏＋分页图片网格，支持预览、筛选启停草稿、共享标注工作台和自动标注；停用图片可归档删除。TXT 解析为数据库浮点矩形框，不保留或回写外部标注文件。
+- 导出时各目录可全部训练、全部验证、按统一或单独比例划分；正负样本分别按比例划分，完全相同图片不跨两侧；冲突时可确认一键停用重复图像。无框图片（含待标注）会作为负样本，未完成标注的含目标图片应先标注或停用/排除。训练编辑页可显式创建快照，ready 后回填原发起位置。
+- 图片物化依次使用 reflink、hardlink、copy；完成后删除源文件不影响受管路径，hardlink 仍共享原地写入。被训练配置或历史输入引用的快照/项目拒绝删除。
+- 新迁移为 `0029_image_datasets`，历史项目默认 video。隔离迁移、API/Worker 与组件回归已执行通过；升级前需备份并在副本演练；2026-10-26 图片相关页面经主实施者及独立 reviewer 的实际 Chrome 双分辨率复查，状态为 `UI/UX REVIEW PASSED`。
 
 下一阶段：
 

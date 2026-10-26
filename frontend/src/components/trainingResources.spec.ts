@@ -1,3 +1,4 @@
+import type { TrainingResources } from '../api/training';
 import { describe, expect, it } from "vitest";
 import {
   applyHyperparameterOverrides,
@@ -31,9 +32,10 @@ const defaults = {
   default_extra_parameters_override: null,
   default_base_model_id: "base-default",
 };
-const readinessResources = {
+const readinessResources: TrainingResources = {
+  image_projects: [],
   datasets: [
-    { id: "dataset-default", name: "D", project_id: "p", project_name: "P", total_frames: 1, train_frames: 1, val_frames: 0, labels: [] },
+    { id: "dataset-default", name: "D", project_id: "p", project_name: "P", project_type: 'video', total_samples: 1, total_frames: 1, train_samples: 1, train_frames: 1, val_samples: 0, val_frames: 0, labels: [] },
   ],
   templates: [
     { id: "template-default", name: "T", description: "", epochs: 100, batch_mode: "auto" as const, batch_value: null, image_size: 640, extra_parameters: {}, effective_parameters: {}, version: 1, updated_at: "2026-08-20T00:00:00Z", can_edit: false },
@@ -96,6 +98,7 @@ describe("training resources", () => {
     expect(groupedOptions([{ id: "d", name: "Export", project_id: "p", project_name: "Project" }]))
       .toEqual([{ value: "p", label: "Project", children: [{ value: "d", label: "Export" }] }]);
     const preview = artifactPreview(row, defaults, {
+      image_projects: [],
       datasets: [],
       templates: [{ id: "template-default", name: "T", description: "", epochs: 100, batch_mode: "fraction", batch_value: .8, image_size: 640, extra_parameters: {}, effective_parameters: {}, version: 1, updated_at: "2026-01-01T00:00:00Z", can_edit: false }],
       base_models: [{ id: "base-row", name: "YOLO", model_code: "YOLO11n.pt", project_id: "p", project_name: "P" }],

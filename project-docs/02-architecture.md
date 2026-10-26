@@ -4,7 +4,7 @@
 
 ## 当前仓库状态
 
-当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、二十八版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、带标签的模型项目管理、可编辑超参数预设、本地/远程模型推理、数据集导出、GPU 实时遥测和独立 Worker 训练调度器。
+当前仓库已有 Vue/FastAPI 初始化链路、账号与项目权限、二十九版 SQLite 迁移、安全路径组件、媒体、帧、项目标签、矩形标注、带标签的模型项目管理、可编辑超参数预设、本地/远程模型推理、数据集导出、GPU 实时遥测和独立 Worker 训练调度器。
 
 - 遗留架构：已经从 `dataset-manager-1` 代码验证的现状，仅作为重构输入。
 - 当前基础：已经实现并验证的初始化链路。
@@ -87,6 +87,15 @@ API 请求负责校验、权限和应用服务编排。视频导入、抽帧、�
 在线图片推理在请求内完成，视频在线推理通过持久 `infer_video` 任务执行；两者都使用统一 GPU 租约。每个用户和模型只有一个未保存会话，页面关闭不会取消任务，显式 keepalive 将 24 小时过期时间向后延长；只有终态未保存会话会被后台清理。模型项目管理员可将成功结果转为无过期时间的项目共享结果。
 
 在线评估将上传 ZIP 校验为不可变测试集快照：目录结构、路径、解压规模、图片解码和 YOLO 标签均在 Worker 中验证，同项目用规范化内容 SHA-256 去重。评估启动时冻结模型、格式与测试集哈希；类别集合相同但顺序不同时在任务目录重映射标签，图片优先硬链接。评估固定 `conf=0.001`、`iou=0.70`、`batch=1`、`max_det=300`，持久化总体/分类别指标、混淆矩阵与 PR 曲线。
+
+## 图像数据集项目
+
+- `Project.project_type` 为 video/image。图片目录与 YOLO Detect 自动识别为导入格式，显式忽略标注时仅扫描图片；复用项目权限、标签、任务及 DatasetExport；视频仍使用原 Frame/整数标注。
+- `ImageService` 管理批次、目录、资产、浮点标注及筛选邻居。解析器负责解码、来源路径、五列标签、类别映射和预检指纹；Worker 在 staging 物化图片/缩略图后一次发布所有行，不复制源 TXT。
+- 项目内图片导入、批量标注、导出任务与图片/标签写入互斥，服务端 SQLite 写屏障兜底。整图标注与启停分别校验修订和版本；批量推理冻结目标版本并记录操作 ID，租约恢复不重复追加。
+- `freeze_images` 共用预览与提交的目录规则/重复组划分。图片 manifest v2 冻结来源、版本、输出名称、实际分配及类别计数，产物仅包含平铺 train/val；按导出保留类别区分正负样本并分层分配；无框图片（含pending）参与负样本。相同内容的标注或固定角色冲突阻止导出，确认去重只停用多余启用图片。
+- 页面采用单根容器兼容项目页签过渡，目录侧栏＋分页网格；图片筛选工作台复用缩略图/预览与启停差异/模板/范围选择工具，保存前保留本地草稿。训练快捷导出复用原弹窗和异步快照，用户改选/离页后不抢占输入；训练仍消费 ready DatasetExport，多输入沿用现有准备流程。
+- 图片删除只接受停用且版本匹配的资产，图片/缩略图/元数据移入 `.deleted/projects/<id>/images/<image id>/`，数据库失败恢复文件；已有快照独立保留。删除引用扫描包含默认/模型单多配置及冻结历史输入；项目归档含四张图片表。隔离迁移与业务回归已通过；2026-10-26 调整经实际 Chrome 双分辨率独立 UI 验收通过。
 
 ## 遗留架构基线
 
@@ -198,8 +207,8 @@ SQLite             Persistent Worker
 - 所有模式共用用户、权限和数据；唯一系统管理员始终对全部项目拥有隐式全权限，不写入成员表。
 - 所有受管理数据位于 `<parent>/.vision-dataset-workbench/`。
 - 所有认证用户可浏览启动用户 `~`，导入后复制到工作区；API 不暴露绝对路径。
-- Worker 与 API 读取同一 SQLite 和工作区。复制、下载、抽帧和批量自动标注各自全局并发 2，模型入库和数据集导出各自全局并发 1；同类型每用户并发 1。每个 FFmpeg 抽帧进程限制 2 个线程，当前只部署一个调度 Worker。
-- 项目媒体位于 `projects/<project UUID>/videos/<video short code>.<ext>`，缩略图位于 `projects/<project UUID>/thumbnails/<video short code>_thumbnail.jpg`，采样帧位于 `projects/<project UUID>/frames/<video short code>/<video short code>_frame_000001.<jpg|png>`；执行中输出位于顶层 `tmp/<task UUID>/`，验证后原子发布。短码在项目内唯一，帧文件可按原名平铺复制；每视频子目录仍是重采样原子替换边界。
+- Worker 与 API 读取同一 SQLite 和工作区。复制、下载、抽帧和批量自动标注各自全局并发 2，模型入库、图片导入和数据集导出各自全局并发 1；同类型每用户并发 1。每个 FFmpeg 抽帧进程限制 2 个线程，当前只部署一个调度 Worker。
+- 项目媒体位于 `projects/<project UUID>/videos/<video short code>.<ext>`，缩略图位于 `projects/<project UUID>/thumbnails/<video short code>_thumbnail.jpg`，采样帧位于 `projects/<project UUID>/frames/<video short code>/<video short code>_frame_000001.<jpg|png>`；执行中输出位于顶层 `tmp/<task UUID>_<attempt UUID>/`，验证后原子发布。短码在项目内唯一，帧文件可按原名平铺复制；每视频子目录仍是重采样原子替换边界。
 - 数据集导出位于 `projects/<project UUID>/exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；图像通过硬链接引用当前帧文件，类别和源数据快照、YOLO 标签、配置及统计清单随产物保存。下载按请求流式生成 ZIP，不在工作区保留额外压缩包。
 - 训练子进程在 `<workspace>/cache/ultralytics/` 运行；Ultralytics 的 AMP 辅助权重等运行缓存不会写入源码目录。单数据集运行生成绝对路径 `dataset.yaml`；多数据集准备在工作区缓存中硬链接图片、改写 YOLO 标签并原子发布 `data.yaml`，避免修改原导出或依赖子进程当前目录。
 - Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
@@ -225,7 +234,7 @@ models/<model UUID>/                # 已实现：受管 `.pt` YOLO 模型文件
 
 ## 延期架构
 
-- 图片数据集能力在视频重构后实现，不直接移植遗留分支路由。
+- 图片增强同源识别及跨多个既有快照的去重尚未实现。
 - 在线标注已实现手动矩形框、本地 Ultralytics YOLO、X-AnyLabeling-Server 和在线视觉大模型自动标注；远程返回只接纳轴对齐矩形。
 - 批量自动标注由 Worker 按任务启动时的启用 Frame 集合处理，不依赖外部 AnnotationBatch 目录。
 - 不预建任意模型或训练脚本插件框架。

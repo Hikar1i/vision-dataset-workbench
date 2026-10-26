@@ -13,6 +13,7 @@ import {
   type DatasetExportDetail,
 } from '../api/datasetExports'
 import { can } from '../api/access'
+import ExportDatasetDialog from '../components/ExportDatasetDialog.vue'
 import type { Project } from '../api/projects'
 import { copyText } from '../ui/clipboard'
 import { formatDateTime } from '../ui/dateTime'
@@ -129,6 +130,7 @@ onMounted(() => {
 onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTask))
 
 const headerHost = useProjectHeaderHost()
+const exportOpen = ref(false)
 </script>
 
 <template>
@@ -137,6 +139,7 @@ const headerHost = useProjectHeaderHost()
       <span data-test="page-stat">{{ total }} 个导出产物</span>
     </Teleport>
 
+    <div class="dataset-actions"><VButton variant="primary" :disabled="!canEdit" @click="exportOpen=true"><template #icon><el-icon><Download/></el-icon></template>导出数据集快照</VButton></div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <section v-loading="loading" class="datasets-table">
       <el-table
@@ -209,12 +212,12 @@ const headerHost = useProjectHeaderHost()
                 <small>验证</small>
               </div>
               <div class="sample-distribution__row">
-                <strong>帧</strong>
+                <strong>{{ row.project_type === 'image' ? '图片' : '帧' }}</strong>
                 <b>{{ row.total_frames }}</b>
                 <b>{{ row.train_frames }}</b>
                 <b>{{ row.val_frames }}</b>
               </div>
-              <div class="sample-distribution__row">
+              <div v-if="row.project_type !== 'image'" class="sample-distribution__row">
                 <strong>视频</strong>
                 <b>{{ row.total_videos }}</b>
                 <b>{{ row.train_videos }}</b>
@@ -296,14 +299,14 @@ const headerHost = useProjectHeaderHost()
               <el-descriptions-item label="绝对路径" :span="2">{{ detail.absolute_path || '—' }}</el-descriptions-item>
               <el-descriptions-item label="期望比例">{{ ratio(detail.train_ratio) }}</el-descriptions-item>
               <el-descriptions-item label="实际比例">{{ ratio(detail.actual_train_ratio) }}</el-descriptions-item>
-              <el-descriptions-item label="样本帧">
+              <el-descriptions-item :label="detail.project_type === 'image' ? '样本图片' : '样本帧'">
                 <div class="frame-summary" data-test="detail-frame-summary">
                   <span><small>总计</small><b>{{ detail.total_frames }}</b></span>
                   <span><small>训练</small><b>{{ detail.train_frames }}</b></span>
                   <span><small>验证</small><b>{{ detail.val_frames }}</b></span>
                 </div>
               </el-descriptions-item>
-              <el-descriptions-item label="样本视频">
+              <el-descriptions-item v-if="detail.project_type !== 'image'" label="样本视频">
                 <div class="frame-summary" data-test="detail-video-summary">
                   <span><small>总计</small><b>{{ detail.total_videos ?? '—' }}</b></span>
                   <span><small>训练</small><b>{{ detail.train_videos ?? '—' }}</b></span>
@@ -325,7 +328,12 @@ const headerHost = useProjectHeaderHost()
             </el-table>
           </section>
 
-          <section v-if="detail.manifest" class="detail-panel">
+          <section v-if="detail.project_type === 'image' && detail.manifest" class="detail-panel">
+            <h2>目录划分与有效样本</h2>
+            <el-table :data="detail.manifest.directory_stats" border><el-table-column prop="name" label="来源目录"/><el-table-column prop="total_images" label="原始图片"/><el-table-column prop="effective_images" label="有效图片"/><el-table-column prop="train_images" label="训练"/><el-table-column prop="val_images" label="验证"/><el-table-column prop="target_train_images" label="训练目标"/><el-table-column prop="deviation" label="实际偏差"/></el-table>
+            <p>排除统计：{{ detail.manifest.excluded }}；过滤类别框 {{ detail.manifest.filtered_annotations ?? 0 }} 个。划分规则见下方 manifest。</p>
+          </section>
+          <section v-if="detail.manifest && detail.project_type !== 'image'" class="detail-panel">
             <h2>视频统计</h2>
             <el-table :data="detail.manifest.video_stats" size="small" border max-height="520">
               <el-table-column prop="video_short_code" label="视频 ID" width="120" />
@@ -370,10 +378,12 @@ const headerHost = useProjectHeaderHost()
         </div>
       </div>
     </el-dialog>
+    <ExportDatasetDialog v-model="exportOpen" :project-id="project.id" @submitted="() => load()"/>
   </main>
 </template>
 
 <style scoped>
+.dataset-actions{display:flex;padding-bottom:14px}
 .datasets-view { min-height: 100%; padding: 14px; background: var(--vdw-app); }
 .datasets-view :deep(.page-header) { margin: -20px -20px 20px; }
 .datasets-table { min-height: 260px; background: white; border: 1px solid var(--vdw-line); }

@@ -11,9 +11,9 @@ const datasets: TrainingResources["datasets"] = [
     name: "车辆与航空器数据集",
     project_id: "project-a",
     project_name: "综合目标项目",
-    total_frames: 320,
-    train_frames: 280,
-    val_frames: 40,
+    project_type: 'video', total_samples: 320, total_frames: 320,
+    train_samples: 280, train_frames: 280,
+    val_samples: 40, val_frames: 40,
     labels: [
       { index: 5, name: "smoke" },
       { index: 0, name: "car" },
@@ -25,9 +25,9 @@ const datasets: TrainingResources["datasets"] = [
     name: "消防数据集",
     project_id: "project-b",
     project_name: "火灾检测项目",
-    total_frames: 200,
-    train_frames: 160,
-    val_frames: 40,
+    project_type: 'video', total_samples: 200, total_frames: 200,
+    train_samples: 160, train_frames: 160,
+    val_samples: 40, val_frames: 40,
     labels: [{ index: 0, name: "fire" }],
   },
 ];
@@ -65,7 +65,7 @@ describe("DatasetSelectionSummary", () => {
   it("renders single-dataset totals and classes in source-index order", () => {
     const wrapper = mountSummary({ mode: "single", datasetId: "dataset-a" });
 
-    expect(wrapper.text()).toContain("320 张图像 · 3 个类别");
+    expect(wrapper.text()).toContain("320 帧 · 3 个类别");
     expect(wrapper.findAll(".class-chip").map((item) => item.text())).toEqual([
       "0 : car",
       "1 : plane",
@@ -96,7 +96,7 @@ describe("DatasetSelectionSummary", () => {
     resizeCallback([], {} as ResizeObserver);
     await nextTick();
 
-    expect(wrapper.text()).toContain("2 个数据集 · 520 张图像");
+    expect(wrapper.text()).toContain("2 个数据集 · 520 个样本");
     expect(wrapper.text()).toContain("3 个目标类别");
     const datasetToggle = wrapper.get('[aria-label="展开全部数据集"]');
     const classToggle = wrapper.get('[aria-label="展开全部类别"]');

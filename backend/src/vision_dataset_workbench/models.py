@@ -80,10 +80,14 @@ class AuthSession(Base):
 
 class Project(Base):
     __tablename__ = "projects"
+    __table_args__ = (
+        CheckConstraint("project_type IN ('video','image')", name="ck_projects_type"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     name: Mapped[str] = mapped_column(String(128))
     description: Mapped[str] = mapped_column(Text, default="")
+    project_type: Mapped[str] = mapped_column(String(16), default="video", server_default="video")
     creator_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(
@@ -141,6 +145,105 @@ class ProjectLabel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class ImageImport(Base):
+    __tablename__ = "image_imports"
+    __table_args__ = (
+        CheckConstraint("format IN ('images','yolo_detect')", name="ck_image_imports_format"),
+        CheckConstraint(
+            "status IN ('queued','running','ready','failed','canceled')",
+            name="ck_image_imports_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    created_by_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    format: Mapped[str] = mapped_column(String(16))
+    root_name: Mapped[str] = mapped_column(String(512))
+    source_path: Mapped[str] = mapped_column(Text)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    class_mapping: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ImageDirectory(Base):
+    __tablename__ = "image_directories"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_image_directories_name"),
+        UniqueConstraint("import_id", "source_relative_path", name="uq_image_directories_source"),
+        CheckConstraint("sort_order >= 0", name="ck_image_directories_order"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    import_id: Mapped[str] = mapped_column(ForeignKey("image_imports.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(512))
+    source_relative_path: Mapped[str] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ImageAsset(Base):
+    __tablename__ = "images"
+    __table_args__ = (
+        UniqueConstraint("directory_id", "source_relative_path", name="uq_images_source"),
+        CheckConstraint("width > 0 AND height > 0 AND file_size >= 0", name="ck_images_dimensions"),
+        CheckConstraint("annotation_status IN ('pending','labeled')", name="ck_images_annotation_status"),
+        CheckConstraint("annotation_revision >= 1 AND version >= 1", name="ck_images_revisions"),
+        CheckConstraint("materialization IN ('reflink','hardlink','copy')", name="ck_images_materialization"),
+        Index("ix_images_directory_order", "directory_id", "source_relative_path", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    directory_id: Mapped[str] = mapped_column(ForeignKey("image_directories.id", ondelete="CASCADE"))
+    source_relative_path: Mapped[str] = mapped_column(Text)
+    file_name: Mapped[str] = mapped_column(String(512))
+    file_path: Mapped[str] = mapped_column(Text)
+    thumbnail_path: Mapped[str] = mapped_column(Text)
+    content_sha256: Mapped[str] = mapped_column(String(64), index=True)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    file_size: Mapped[int] = mapped_column(Integer)
+    materialization: Mapped[str] = mapped_column(String(16))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    annotation_status: Mapped[str] = mapped_column(String(16), default="pending")
+    annotation_revision: Mapped[int] = mapped_column(Integer, default=1)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    last_auto_operation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ImageAnnotation(Base):
+    __tablename__ = "image_annotations"
+    __table_args__ = (
+        CheckConstraint("x_min >= 0 AND y_min >= 0 AND x_max > x_min AND y_max > y_min", name="ck_image_annotations_bounds"),
+        CheckConstraint("source IN ('import','manual','model')", name="ck_image_annotations_source"),
+        CheckConstraint("confidence IS NULL OR (confidence >= 0 AND confidence <= 1)", name="ck_image_annotations_confidence"),
+        CheckConstraint("sort_order >= 0", name="ck_image_annotations_order"),
+        Index("ix_image_annotations_order", "image_id", "sort_order", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    image_id: Mapped[str] = mapped_column(ForeignKey("images.id", ondelete="CASCADE"))
+    label_id: Mapped[str] = mapped_column(ForeignKey("labels.id", ondelete="RESTRICT"), index=True)
+    x_min: Mapped[float] = mapped_column(Float)
+    y_min: Mapped[float] = mapped_column(Float)
+    x_max: Mapped[float] = mapped_column(Float)
+    y_max: Mapped[float] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(16))
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class Video(Base):
@@ -1013,7 +1116,7 @@ class Task(Base):
         CheckConstraint(
             "type IN ('copy_video', 'download_video', 'extract_frames', "
             "'import_model', 'auto_annotate', 'export_dataset', 'convert_model', "
-            "'infer_video', 'import_evaluation_dataset', 'evaluate_model')",
+            "'infer_video', 'import_evaluation_dataset', 'evaluate_model', 'import_images')",
             name="ck_tasks_type",
         ),
         CheckConstraint(
@@ -1021,7 +1124,7 @@ class Task(Base):
             "'import_evaluation_dataset','evaluate_model') "
             "AND model_project_id IS NOT NULL AND project_id IS NULL) OR "
             "(type IN ('copy_video','download_video','extract_frames','auto_annotate',"
-            "'export_dataset') AND project_id IS NOT NULL AND model_project_id IS NULL)",
+            "'export_dataset','import_images') AND project_id IS NOT NULL AND model_project_id IS NULL)",
             name="ck_tasks_resource",
         ),
         CheckConstraint(

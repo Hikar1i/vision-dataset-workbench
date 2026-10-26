@@ -7,7 +7,7 @@ export type FrameAnnotation = {
   y_min: number
   x_max: number
   y_max: number
-  source: 'manual' | 'model'
+  source: 'manual' | 'model' | 'import'
   confidence: number | null
 }
 

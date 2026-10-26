@@ -11,7 +11,7 @@ from ..services.labels import (
     LabelNotFound,
     LabelService,
 )
-from ..services.projects import ProjectForbidden, ProjectNotFound
+from ..services.projects import ProjectConflict, ProjectForbidden, ProjectNotFound
 from .auth import current_user, require_same_origin
 from .projects import _utc_text
 
@@ -74,7 +74,7 @@ def _raise_http_error(exc: ValueError) -> NoReturn:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if isinstance(exc, ProjectForbidden):
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    if isinstance(exc, LabelConflict):
+    if isinstance(exc, (LabelConflict, ProjectConflict)):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     raise HTTPException(status_code=422, detail=str(exc)) from exc
 

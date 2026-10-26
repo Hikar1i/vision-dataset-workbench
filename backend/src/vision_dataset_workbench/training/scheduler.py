@@ -272,9 +272,13 @@ class TrainingScheduler:
                     raise RuntimeError("prepared dataset is incomplete")
                 snapshot["storage_path"] = storage_path
                 snapshot["prepared_storage_path"] = storage_path
+                from .dataset_preparation import dataset_stats, require_training_samples
+                stats = dataset_stats(self.workspace / storage_path)
+                require_training_samples(stats)
                 snapshot["stats"] = json.loads(
                     (self.workspace / storage_path / "manifest.json").read_text(encoding="utf-8")
                 )["stats"]
+                snapshot["stats"].update(stats)
                 model.dataset_snapshot = json.dumps(snapshot, ensure_ascii=False)
         from ..services.training import TrainingService
 

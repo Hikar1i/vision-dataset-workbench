@@ -24,6 +24,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
+from .image_import_task import ImageImportCanceled, execute_image_import
 from .config import RuntimeSettings
 from .database import make_engine
 from .dataset_export_task import DatasetExportTaskCanceled, execute_dataset_export
@@ -46,6 +47,7 @@ from .model_evaluation_task import (
     execute_model_evaluation,
 )
 from .models import (
+    ImageImport, ImageAsset,
     DatasetExport,
     EvaluationDataset,
     Frame,
@@ -63,7 +65,9 @@ from .sampling import SamplingEstimate, ffmpeg_select, source_frame_index
 from .services.labels import automatic_label_color, normalize_label_name
 from .services.gpu_leases import GpuLeaseService
 from .services.models import touch_model_project
-from .services.projects import touch_project
+from .services.projects import image_project_write_barrier, touch_project
+from .services.images import ImageService
+from .services.auto_annotations import AutoAnnotationService
 from .services.xanylabeling_settings import XAnyLabelingSettingsService
 from .security.credentials import resolve_credential_key
 from .services.llm_configs import LLMConfigService
@@ -76,6 +80,7 @@ from .training.scheduler import TrainingScheduler
 from .xanylabeling import XAnyLabelingUnavailable
 
 LIMITS = {
+    "import_images": 1,
     "copy_video": 2,
     "download_video": 2,
     "extract_frames": 2,
@@ -196,6 +201,9 @@ class TaskWorker:
                 )
             ).all()
             for task in expired:
+                if task.cancel_requested:
+                    self._mark_canceled(database, task, now)
+                    continue
                 task.status = "queued"
                 task.lease_owner = None
                 task.lease_expires_at = None
@@ -229,7 +237,8 @@ class TaskWorker:
             return claimed
 
     def execute_task(self, task_id: str) -> None:
-        task_temp = self.workspace / "tmp" / task_id
+        # Expired workers must not remove a replacement attempt's staging files.
+        task_temp = self.workspace / "tmp" / f"{task_id}_{uuid4()}"
         self._remove_task_temp(task_temp)
         task_temp.mkdir(parents=True)
         try:
@@ -240,7 +249,10 @@ class TaskWorker:
                 task_type = task.type
             if self._cancel_requested(task_id):
                 raise TaskCanceled("task canceled")
-            if task_type == "copy_video":
+            if task_type == "import_images":
+                execute_image_import(self._session_factory, self.settings, self.workspace, task_id, task_temp,
+                                     self._now, self._heartbeat, self._cancel_requested)
+            elif task_type == "copy_video":
                 self._execute_copy(task_id, task_temp)
             elif task_type == "download_video":
                 self._execute_download(task_id, task_temp)
@@ -309,6 +321,7 @@ class TaskWorker:
         except (ModelConversionDeferred, ModelInferenceDeferred, ModelEvaluationDeferred):
             self._requeue(task_id)
         except (
+            ImageImportCanceled,
             TaskCanceled,
             DatasetExportTaskCanceled,
             ModelInferenceCanceled,
@@ -475,23 +488,15 @@ class TaskWorker:
             if task is None or task.status != "running":
                 raise MediaToolError("active auto annotation task not found")
             payload = json.loads(task.payload)
+            if payload.get("scope_type") == "image":
+                database.close()
+                return self._execute_image_auto_annotate(task_id, payload)
+            source = str(payload.get("source") or "local")
             video_ids = [str(item) for item in payload.get("video_ids", [])]
             if not video_ids and task.video_id is not None:
                 video_ids = [task.video_id]
             if not video_ids:
                 raise MediaToolError("auto annotation task has no videos")
-            source = str(payload.get("source") or "local")
-            model = (
-                database.get(InferenceModel, str(payload.get("model_id") or ""))
-                if source == "local"
-                else None
-            )
-            if source == "local" and (
-                model is None or model.status != "ready" or not model.storage_path
-            ):
-                raise MediaToolError("auto annotation resources not ready")
-            if source not in {"local", "xanylabeling", "online"}:
-                raise MediaToolError("unsupported auto annotation source")
             video_frames: list[tuple[Video, list[Frame]]] = []
             for video_id in video_ids:
                 item = database.get(Video, video_id)
@@ -508,38 +513,8 @@ class TaskWorker:
                 for frame in frames:
                     database.expunge(frame)
                 video_frames.append((item, frames))
-            if model is not None:
-                database.expunge(model)
             submitted_by_id = task.submitted_by_id
-        model_path = self._managed_model_path(model) if model is not None else None
-        remote_client = None
-        remote_option = None
-        if source == "xanylabeling":
-            try:
-                remote_client = self._remote_settings.client_for(submitted_by_id)
-                remote_option = next(
-                    (
-                        item
-                        for item in remote_client.list_models()
-                        if item.model_id == payload.get("model_id")
-                        and item.task_id == payload.get("remote_task_id")
-                    ),
-                    None,
-                )
-                self._remote_settings.mark_availability(submitted_by_id, True)
-            except ValueError as exc:
-                self._remote_settings.mark_availability(submitted_by_id, False)
-                raise MediaToolError(str(exc)) from exc
-            if remote_option is None:
-                raise MediaToolError("remote model is no longer available")
-        llm_connection = None
-        if source == "online":
-            try:
-                llm_connection = self._llm_configs.connection(
-                    submitted_by_id, str(payload.get("model_id") or "")
-                )
-            except (ValueError, LLMAnnotationError) as exc:
-                raise MediaToolError(str(exc)) from exc
+        predict = self._auto_predictor(payload, submitted_by_id)
         total_frames = sum(len(frames) for _, frames in video_frames)
         if total_frames == 0:
             raise MediaToolError("videos have no enabled sampled frames")
@@ -554,30 +529,7 @@ class TaskWorker:
                     if self._cancel_requested(task_id):
                         raise TaskCanceled("task canceled")
                     image_path = self._managed_frame_path(video, frame)
-                    if source == "local":
-                        detections = self._inference_runner.predict(
-                            model,
-                            model_path,
-                            image_path,
-                            list(payload.get("categories") or []),
-                            float(payload.get("confidence", 0.25)),
-                            float(payload.get("iou", 0.45)),
-                        )
-                    elif source == "xanylabeling":
-                        detections = remote_client.predict(
-                            remote_option,
-                            image_path,
-                            list(payload.get("categories") or []),
-                            float(payload.get("confidence", 0.25)),
-                            float(payload.get("iou", 0.45)),
-                        )
-                    else:
-                        detections = predict_llm(
-                            llm_connection,
-                            image_path,
-                            list(payload.get("categories") or []),
-                            float(payload.get("confidence", 0.25)),
-                        )
+                    detections = predict(image_path)
                     count = self._store_auto_detections(
                         video,
                         frame.id,
@@ -641,6 +593,130 @@ class TaskWorker:
             if task.project_id is not None:
                 touch_project(database, task.project_id, at=now)
             database.commit()
+
+    def _auto_predictor(self, payload, submitted_by_id):
+        with self._session_factory() as database:
+            source = str(payload.get("source") or "local")
+            model = (
+                database.get(InferenceModel, str(payload.get("model_id") or ""))
+                if source == "local"
+                else None
+            )
+            if source == "local" and (
+                model is None or model.status != "ready" or not model.storage_path
+            ):
+                raise MediaToolError("auto annotation resources not ready")
+            if source not in {"local", "xanylabeling", "online"}:
+                raise MediaToolError("unsupported auto annotation source")
+            if model is not None:
+                database.expunge(model)
+        model_path = self._managed_model_path(model) if model is not None else None
+        remote_client = None
+        remote_option = None
+        if source == "xanylabeling":
+            try:
+                remote_client = self._remote_settings.client_for(submitted_by_id)
+                remote_option = next(
+                    (
+                        item
+                        for item in remote_client.list_models()
+                        if item.model_id == payload.get("model_id")
+                        and item.task_id == payload.get("remote_task_id")
+                    ),
+                    None,
+                )
+                self._remote_settings.mark_availability(submitted_by_id, True)
+            except ValueError as exc:
+                self._remote_settings.mark_availability(submitted_by_id, False)
+                raise MediaToolError(str(exc)) from exc
+            if remote_option is None:
+                raise MediaToolError("remote model is no longer available")
+        llm_connection = None
+        if source == "online":
+            try:
+                llm_connection = self._llm_configs.connection(
+                    submitted_by_id, str(payload.get("model_id") or "")
+                )
+            except (ValueError, LLMAnnotationError) as exc:
+                raise MediaToolError(str(exc)) from exc
+        def predict(image_path):
+            categories = list(payload.get("categories") or [])
+            confidence = float(payload.get("confidence", 0.25))
+            iou = float(payload.get("iou", 0.45))
+            if source == "local":
+                return self._inference_runner.predict(model, model_path, image_path, categories, confidence, iou)
+            if source == "xanylabeling":
+                return remote_client.predict(remote_option, image_path, categories, confidence, iou)
+            return predict_llm(llm_connection, image_path, categories, confidence)
+        return predict
+
+    def _execute_image_auto_annotate(self, task_id, payload):
+        with self._session_factory() as db:
+            task = db.get(Task, task_id)
+            project_id, actor_id, owner = task.project_id, task.submitted_by_id, task.lease_owner
+        predict = self._auto_predictor(payload, actor_id)
+        targets = payload["images"]
+        completed = 0
+        for target in targets:
+            if self._cancel_requested(task_id):
+                raise TaskCanceled("task canceled")
+            with self._session_factory() as db:
+                image = ImageService.context(db, project_id, target["id"])
+                if image.last_auto_operation_id == task_id:
+                    completed += 1
+                    continue
+                if image.annotation_revision != target["revision"] or image.version != target["version"]:
+                    raise MediaToolError("图片标注或版本已变化")
+            path = self.workspace / image.file_path
+            root = self.workspace / "projects" / project_id / "images"
+            if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()) or not path.is_file():
+                raise MediaToolError("受管图片不存在")
+            detections = predict(path)
+            valid = [(d, normalize_label_name(d.label), AutoAnnotationService.image_bounds(d, image.width, image.height))
+                     for d in detections]
+            valid = [(d, name, bounds) for d, name, bounds in valid if bounds is not None]
+            at = self._now()
+            with self._session_factory() as db:
+                image_project_write_barrier(db, project_id, task_id)
+                task = db.get(Task, task_id)
+                image = ImageService.context(db, project_id, target["id"])
+                if task.status != "running" or task.cancel_requested or task.lease_owner != owner:
+                    raise TaskCanceled("图片标注任务状态或租约已变化")
+                if image.last_auto_operation_id == task_id:
+                    continue
+                if image.annotation_revision != target["revision"] or image.version != target["version"]:
+                    raise MediaToolError("图片标注或版本已变化")
+                labels = {label.name_normalized: label for label in db.scalars(select(ProjectLabel).where(ProjectLabel.project_id == project_id))}
+                order = max((label.sort_order for label in labels.values()), default=-1)
+                for name in sorted({n for _, n, _ in valid} - labels.keys()):
+                    order += 1
+                    label = ProjectLabel(id=str(uuid4()), project_id=project_id, name=name, name_normalized=name,
+                        description_zh="", color=automatic_label_color(name), enabled=True, version=1,
+                        sort_order=order, created_at=at, updated_at=at)
+                    labels[name] = label
+                    db.add(label)
+                db.flush()
+                items = [] if payload.get("overwrite") else [
+                    {k: getattr(a, k) for k in ("id", "label_id", "x_min", "y_min", "x_max", "y_max", "source", "confidence")}
+                    for a in ImageService.annotations(db, [image.id])]
+                items.extend(dict(id=str(uuid4()), label_id=labels[name].id, **bounds, source="model",
+                                  confidence=AutoAnnotationService.image_confidence(d)) for d, name, bounds in valid)
+                ImageService.validate_annotations(db, project_id, image, items)
+                ImageService.store_annotations(db, image, items, status="labeled" if items else "pending", operation_id=task_id)
+                touch_project(db, project_id, at=at)
+                db.commit()
+            completed += 1
+            self._heartbeat(task_id, int(completed * 100 / len(targets)))
+        with self._session_factory() as db:
+            task = db.get(Task, task_id)
+            if task.status != "running" or task.lease_owner != owner or task.cancel_requested:
+                raise TaskCanceled("图片标注任务状态已变化")
+            task.status, task.progress = "succeeded", 100
+            self._image_auto_result(db, task)
+            task.finished_at, task.updated_at = self._now(), self._now()
+            task.lease_owner, task.lease_expires_at = None, None
+            touch_project(db, project_id)
+            db.commit()
 
     def _managed_model_path(self, model: InferenceModel) -> Path:
         try:
@@ -1164,7 +1240,7 @@ class TaskWorker:
     def _heartbeat(self, task_id: str, progress: int | None) -> None:
         with self._session_factory() as database:
             task = database.get(Task, task_id)
-            if task is None or task.status != "running":
+            if task is None or task.status != "running" or task.lease_owner != self.worker_id:
                 return
             now = self._now()
             if progress is not None:
@@ -1176,7 +1252,7 @@ class TaskWorker:
     def _cancel_requested(self, task_id: str) -> bool:
         with self._session_factory() as database:
             task = database.get(Task, task_id)
-            return task is None or task.cancel_requested or task.status != "running"
+            return task is None or task.cancel_requested or task.status != "running" or task.lease_owner != self.worker_id
 
     def _finish_duplicate(self, task_id: str, reason: str) -> None:
         now = self._now()
@@ -1203,20 +1279,25 @@ class TaskWorker:
         now = self._now()
         with self._session_factory() as database:
             task = database.get(Task, task_id)
-            if task is None:
+            if task is None or task.status != "running" or task.lease_owner != self.worker_id:
                 return
-            task.status = "canceled"
-            task.finished_at = now
-            task.updated_at = now
-            task.lease_owner = None
-            task.lease_expires_at = None
-            self._fail_imported_model(database, task, "model import canceled")
-            self._finish_dataset_export(database, task, "canceled", "dataset export canceled")
-            self._finish_model_artifact(database, task, "failed", "model conversion canceled")
-            self._finish_model_inference(database, task, "canceled", "inference canceled")
-            self._finish_evaluation_resource(database, task, "canceled", "evaluation canceled")
-            self._touch_terminal_parent(database, task, now)
+            self._mark_canceled(database, task, now)
             database.commit()
+
+    def _mark_canceled(self, database, task, now):
+        task.status = "canceled"
+        task.finished_at = now
+        task.updated_at = now
+        task.lease_owner = None
+        task.lease_expires_at = None
+        self._finish_image_import(database, task, "canceled", "图片导入已取消")
+        self._image_auto_result(database, task)
+        self._fail_imported_model(database, task, "model import canceled")
+        self._finish_dataset_export(database, task, "canceled", "dataset export canceled")
+        self._finish_model_artifact(database, task, "failed", "model conversion canceled")
+        self._finish_model_inference(database, task, "canceled", "inference canceled")
+        self._finish_evaluation_resource(database, task, "canceled", "evaluation canceled")
+        self._touch_terminal_parent(database, task, now)
 
     def _safe_error(self, exc: Exception) -> str:
         value = str(exc).replace(str(self.settings.home), "~")
@@ -1227,7 +1308,7 @@ class TaskWorker:
         now = self._now()
         with self._session_factory() as database:
             task = database.get(Task, task_id)
-            if task is None:
+            if task is None or task.status != "running" or task.lease_owner != self.worker_id:
                 return
             task.status = "failed"
             task.error = self._safe_error(exc) or "task failed"
@@ -1235,6 +1316,8 @@ class TaskWorker:
             task.updated_at = now
             task.lease_owner = None
             task.lease_expires_at = None
+            self._finish_image_import(database, task, "failed", task.error)
+            self._image_auto_result(database, task)
             self._fail_imported_model(database, task, task.error)
             self._finish_dataset_export(database, task, "failed", task.error)
             self._finish_model_artifact(database, task, "failed", task.error)
@@ -1273,6 +1356,28 @@ class TaskWorker:
                     evaluation.status = "queued"
                     evaluation.started_at = None
             database.commit()
+
+    @staticmethod
+    def _image_auto_result(database, task):
+        if task.type != "auto_annotate":
+            return
+        payload = json.loads(task.payload)
+        if payload.get("scope_type") != "image":
+            return
+        ids = [item["id"] for item in payload["images"]]
+        processed = database.scalar(select(func.count()).select_from(ImageAsset).where(
+            ImageAsset.id.in_(ids), ImageAsset.last_auto_operation_id == task.id)) or 0
+        failed = int(task.status == "failed" and processed < len(ids))
+        task.result = json.dumps({"images": processed, "total_images": len(ids),
+            "processed_images": processed, "failed_images": failed,
+            "unprocessed_images": len(ids)-processed-failed})
+
+    @staticmethod
+    def _finish_image_import(database, task, status, error):
+        if task.type == "import_images":
+            batch = database.scalar(select(ImageImport).where(ImageImport.task_id == task.id))
+            if batch is not None and batch.status != "ready":
+                batch.status, batch.error, batch.updated_at, batch.completed_at = status, error, task.updated_at, task.updated_at
 
     @staticmethod
     def _fail_imported_model(database, task: Task, error: str) -> None:

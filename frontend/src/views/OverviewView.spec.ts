@@ -11,6 +11,7 @@ vi.mock('../api/overview', () => ({ getOverview }))
 const overview = {
   projects: 1,
   videos: 2,
+  video_projects: 1, image_projects: 0, images: 0, directories: 0,
   model_projects: 3,
   training_tasks: 4,
   running_tasks: { own: 0, global: 1 },

@@ -30,7 +30,7 @@ const classes = computed(() => props.mode === "single"
   : (props.config?.target_classes ?? []).map((name, index) => ({ index, name })),
 );
 const totalImages = computed(() => selectedDatasets.value.reduce(
-  (sum, item) => sum + item.total_frames,
+  (sum, item) => sum + (item.total_samples ?? item.total_frames),
   0,
 ));
 
@@ -91,7 +91,7 @@ onBeforeUnmount(() => observer?.disconnect());
 
 <template>
   <div v-if="mode === 'single' && singleDataset" class="dataset-selection-summary single-summary">
-    <strong>{{ singleDataset.total_frames.toLocaleString() }} 张图像 · {{ classes.length }} 个类别</strong>
+    <strong>{{ (singleDataset.total_samples ?? singleDataset.total_frames).toLocaleString() }} {{ singleDataset.project_type === 'image' ? '张图片' : '帧' }} · {{ classes.length }} 个类别</strong>
     <div class="chip-row">
       <div
         :id="classListId"
@@ -126,7 +126,7 @@ onBeforeUnmount(() => observer?.disconnect());
     :class="{ invalid: !config }"
   >
     <header>
-      <strong>{{ selectedDatasets.length }} 个数据集 · {{ totalImages.toLocaleString() }} 张图像</strong>
+      <strong>{{ selectedDatasets.length }} 个数据集 · {{ totalImages.toLocaleString() }} 个样本</strong>
       <VButton
         v-if="allowConfigure"
         size="sm"

@@ -33,6 +33,7 @@ const project = {
   name: '安全装备',
   description: '',
   creator_id: 'creator-id',
+  project_type: 'video' as const,
   creator_username: 'creator',
   categories: [],
   access: access('owner'),

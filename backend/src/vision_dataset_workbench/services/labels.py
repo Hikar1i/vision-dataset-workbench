@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from ..models import ProjectLabel, User
-from .projects import ProjectForbidden, ProjectService, touch_project
+from .projects import ProjectForbidden, ProjectService, image_project_write_barrier, touch_project
 
 
 class LabelNotFound(ValueError):
@@ -109,6 +109,7 @@ class LabelService:
         clean_color = _label_color(color)
         now = _utc_now()
         with self._session_factory() as database:
+            image_project_write_barrier(database, project_id)
             last_order = database.scalar(
                 select(func.max(ProjectLabel.sort_order)).where(
                     ProjectLabel.project_id == project_id
@@ -162,6 +163,7 @@ class LabelService:
         values.update(updated_at=now, version=ProjectLabel.version + 1)
 
         with self._session_factory() as database:
+            image_project_write_barrier(database, project_id)
             current = database.scalar(
                 select(ProjectLabel).where(
                     ProjectLabel.id == label_id,
@@ -195,6 +197,7 @@ class LabelService:
     ) -> list[ProjectLabel]:
         self._require_write(actor, project_id)
         with self._session_factory() as database:
+            image_project_write_barrier(database, project_id)
             labels = list(
                 database.scalars(
                     select(ProjectLabel).where(ProjectLabel.project_id == project_id)
@@ -217,6 +220,7 @@ class LabelService:
     def delete_label(self, actor: User, project_id: str, label_id: str) -> None:
         self._require_write(actor, project_id)
         with self._session_factory() as database:
+            image_project_write_barrier(database, project_id)
             label = database.scalar(
                 select(ProjectLabel).where(
                     ProjectLabel.id == label_id,

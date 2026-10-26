@@ -7,7 +7,7 @@ import { useRouter } from 'vue-router'
 
 import { ApiError } from '../api/auth'
 import { accessLabel, can } from '../api/access'
-import { createProject, deleteProject, listProjects, type Project } from '../api/projects'
+import { createProject, deleteProject, listProjects, projectDataPath, type Project } from '../api/projects'
 import PageHeader from '../components/PageHeader.vue'
 import VButton from '../ui/VButton.vue'
 import VCellName from '../ui/VCellName.vue'
@@ -31,6 +31,7 @@ const loading = ref(false)
 const showCreate = ref(false)
 const name = ref('')
 const description = ref('')
+const projectType = ref<'video' | 'image'>('video')
 const creating = ref(false)
 const deleting = ref('')
 const error = ref('')
@@ -60,8 +61,8 @@ async function create() {
   creating.value = true
   error.value = ''
   try {
-    const project = await createProject(name.value, description.value)
-    await router.push(`/projects/${project.id}/videos`)
+    const project = await createProject(name.value, description.value, projectType.value)
+    await router.push(projectDataPath(project))
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '项目创建失败'
   } finally {
@@ -92,7 +93,7 @@ async function remove(project: Project) {
   } catch (reason) {
     notify.error(
       reason instanceof ApiError && reason.status === 409
-        ? '项目仍有排队中或运行中任务，请先处理任务。'
+        ? reason.message
         : reason instanceof Error ? reason.message : '项目删除失败',
     )
   } finally {
@@ -121,8 +122,9 @@ onMounted(() => load())
 
       <Transition name="vdw-expand">
         <div v-if="showCreate">
-          <VPanel title="创建视频项目">
+          <VPanel title="创建数据集项目">
             <form class="create-form" @submit.prevent="create">
+              <VField label="项目类型" required><el-radio-group v-model="projectType"><el-radio-button value="video">视频数据集</el-radio-button><el-radio-button value="image">图像数据集</el-radio-button></el-radio-group></VField>
               <VField label="项目名称" required>
                 <template #default="{ id }">
                   <el-input
@@ -169,7 +171,7 @@ onMounted(() => load())
             :columns="COLUMNS"
             :recent="isRecentRow(RECENT_SCOPE, project.id)"
           >
-            <VCellName :name="project.name" :sub="project.description || '暂无描述'">
+            <VCellName :name="project.name" :sub="`${project.project_type === 'image' ? '图像数据集' : '视频数据集'} · ${project.description || '暂无描述'}`">
               <template #badge>
                 <VChip variant="id">{{ project.id.slice(0, 6).toUpperCase() }}</VChip>
               </template>
@@ -196,7 +198,7 @@ onMounted(() => load())
                 variant="default"
                 size="sm"
                 :data-test="`open-${project.id}`"
-                @click="router.push(`/projects/${project.id}/videos`)"
+                @click="router.push(projectDataPath(project))"
               ><template #icon><el-icon><Right /></el-icon></template>打开</VButton>
               <VButton
                 v-if="can(project.access, 'project.delete')"

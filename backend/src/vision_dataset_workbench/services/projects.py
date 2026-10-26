@@ -8,13 +8,14 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import RuntimeSettings
 from ..models import (
+    ImageAsset, ImageAnnotation, ImageDirectory, ImageImport,
     DatasetExport,
     Frame,
     FrameAnnotation,
@@ -26,6 +27,7 @@ from ..models import (
     User,
     Video,
 )
+from .dataset_references import reference_count
 from .auth import normalize_username
 from .authorization import (
     AccessContext,
@@ -36,6 +38,8 @@ from .authorization import (
 )
 
 MemberRole = Literal["editor", "viewer"]
+
+
 
 
 class ProjectNotFound(ValueError):
@@ -84,6 +88,25 @@ def touch_project(
     )
 
 
+def image_project_write_barrier(
+    database: Session, project_id: str, own_task_id: str | None = None
+) -> None:
+    project = database.get(Project, project_id)
+    if project is None or project.project_type != "image":
+        return
+    # Acquire SQLite's write lock before checking and mutating; never hold it during I/O.
+    database.execute(update(Project).where(Project.id == project_id).values(version=Project.version))
+    statement = select(Task.id).where(
+        Task.project_id == project_id,
+        Task.type.in_(("import_images", "auto_annotate", "export_dataset")),
+        Task.status.in_(("queued", "running")),
+    )
+    if own_task_id is not None:
+        statement = statement.where(Task.id != own_task_id)
+    if database.scalar(statement) is not None:
+        raise ProjectConflict("图片项目正在导入、自动标注或导出，请等待任务完成")
+
+
 def _project_text(name: str, description: str) -> tuple[str, str]:
     clean_name = name.strip()
     clean_description = description.strip()
@@ -123,7 +146,11 @@ class ProjectService:
         self._now = now
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
-    def create_project(self, actor: User, name: str, description: str) -> ProjectView:
+    def create_project(
+        self, actor: User, name: str, description: str, *, project_type: str = "video"
+    ) -> ProjectView:
+        if project_type not in {"video", "image"}:
+            raise ValueError("project type must be video or image")
         name, description = _project_text(name, description)
         project_id = str(uuid4())
         directory = self.workspace / "projects" / project_id
@@ -133,6 +160,7 @@ class ProjectService:
             id=project_id,
             name=name,
             description=description,
+            project_type=project_type,
             creator_id=actor.id,
             version=1,
             created_at=now,
@@ -246,6 +274,7 @@ class ProjectService:
         destination = self.workspace / ".deleted" / "projects" / project_id / "project"
         metadata = source / "project_metadata.json"
         with self._session_factory() as database:
+            database.connection().exec_driver_sql("BEGIN IMMEDIATE")
             project = self._require_permission(
                 database, actor, project_id, "project.delete"
             )
@@ -258,6 +287,9 @@ class ProjectService:
                 )
             ):
                 raise ProjectConflict("project has active tasks")
+            exports = database.scalars(select(DatasetExport.id).where(DatasetExport.project_id == project_id)).all()
+            if references := reference_count(database, exports):
+                raise ProjectConflict(f"项目快照仍被 {references} 个训练配置或历史输入引用，不能删除")
             if not source.is_dir():
                 raise ProjectConflict("project directory is unavailable")
             if destination.exists():
@@ -272,6 +304,9 @@ class ProjectService:
             try:
                 os.replace(source, destination)
                 moved = True
+                # Remove image-label RESTRICT edges before cascading project labels.
+                image_ids = select(ImageAsset.id).join(ImageDirectory).where(ImageDirectory.project_id == project_id)
+                database.execute(delete(ImageAnnotation).where(ImageAnnotation.image_id.in_(image_ids)))
                 database.delete(project)
                 database.commit()
             except Exception:
@@ -339,6 +374,11 @@ class ProjectService:
             .where(DatasetExport.project_id == project.id)
             .order_by(DatasetExport.created_at, DatasetExport.id)
         ).all()
+        image_imports = database.scalars(select(ImageImport).where(ImageImport.project_id == project.id)).all()
+        image_directories = database.scalars(select(ImageDirectory).where(ImageDirectory.project_id == project.id)).all()
+        images = database.scalars(select(ImageAsset).join(ImageDirectory).where(ImageDirectory.project_id == project.id)).all()
+        image_annotations = database.scalars(select(ImageAnnotation).join(ImageAsset).join(ImageDirectory)
+                                            .where(ImageDirectory.project_id == project.id)).all()
         project_record = _record(project)
         project_record["creator_username"] = creator_username
         return {
@@ -356,6 +396,10 @@ class ProjectService:
             "annotations": [_record(item) for item in annotations],
             "tasks": [_record(item) for item in tasks],
             "dataset_exports": [_record(item) for item in exports],
+            "image_imports": [_record(item) for item in image_imports],
+            "image_directories": [_record(item) for item in image_directories],
+            "images": [_record(item) for item in images],
+            "image_annotations": [_record(item) for item in image_annotations],
         }
 
     @staticmethod

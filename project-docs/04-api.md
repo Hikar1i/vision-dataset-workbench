@@ -1,5 +1,32 @@
 # API
 
+## 图像项目接口
+
+项目创建增加 `project_type=video|image`，省略默认 video；所有项目响应含类型，PATCH 不接受改类型。视频入口拒绝 image 项目。下列路径均位于 `/api/v1/projects/{id}`，沿用认证、同源写入及项目权限；异常按404/403/409/422区分，模型不可用返回503。
+
+| 方法 / 路径 | 契约 |
+| --- | --- |
+| POST `/image-imports/preview` | root_path 相对服务 home、ignore_annotations=false 默认自动识别；true 仅读图像；可选旧 format=images/yolo_detect/auto 保持兼容；返回已识别 format、 fingerprint、目录/类别、图/框/忽略附件计数、warnings/errors；只读来源 |
+| POST `/image-imports` | 加 fingerprint、class_mapping、confirm_warnings；类别明确映射至本项目标签或规范新名称；202 `{import_id,task}` |
+| GET `/image-directories` | ready 目录、可读名称/来源、批次、总/启用/标注计数、尺寸范围 |
+| GET `/images` | page、page_size=50/100/200、directory_id/search/annotation_status/enabled/label_id；稳定排序分页，items/total/page/page_size |
+| GET `/images/{image_id}`、`/file`、`/thumbnail` | 本项目资产元数据或受管媒体；不返回外部 TXT、原始绝对路径 |
+| GET `/images/{image_id}/neighbors` | 同列表筛选、排序下 previous_id/next_id，无须全量 ID |
+| GET / PUT `/images/{image_id}/annotations` | image_id、annotation_revision、annotation_status、items；PUT 校验修订和浮点原图边界，空列表可直接保存；无 confirm_empty 字段 |
+| POST `/images/enabled` | changes=[image_id,version,enabled]，支持筛选全范围一次提交（不受分页200项限制），原子校验全部项并返回新版本；任一版本冲突全部回滚 |
+| POST `/images/enabled-by-annotations` | items=[image_id,version]，按当前是否有框原子启停；返回 `{changes:[id,version,enabled]}` |
+| GET `/images/duplicates` | 项目内当前启用图的同hash分组；fingerprint/group_count/duplicate_count/groups(keeper/duplicates)，稳定保留首张 |
+| POST `/images/duplicates/disable` | `{fingerprint}`，重新核对后停用重复组其余启用图；返回 disabled_count/group_count；不删标注、不启用已停用图 |
+| POST `/images/delete` | items=[image_id,version]，只允许停用资产，原子归档文件和元数据后删除行；返回 `{deleted:[id]}`；版本/写锁冲突409 |
+| POST `/images/{image_id}/auto-annotations` | 复用来源/模型/类别/confidence/iou 参数；候选框与新增标签，候选保存仍用 PUT |
+| POST `/images/auto-annotations` | image_ids≤200、scope=all/unannotated、overwrite 与推理参数；202 普通 auto_annotate Task，payload.scope_type=image |
+
+导入严格接受五列 Detect 标签和 JPEG/PNG/WEBP/BMP 单页图像；拒绝方向旋转、坏图、非有限坐标、越界类别、来源逃逸和符号链接。TXT 标注直接入库，不留档/回写；空 TXT 为已标注零框，缺 TXT 为待标注；均可作为导出负样本，已移除 confirm-negative 接口。多个同名末级目录按相对路径将分隔符替换为 `_`，名称碰撞加可读数字后缀，不用 hash 名。
+
+`POST /dataset-exports/preview` 共用导出请求、只计算图片划分。图片创建请求在原 name/train_ratio/labels 上增加 `directory_rules=[{directory_id,included,mode:train|val|ratio,train_ratio:null|0..1}]`、split_seed 和 preview_fingerprint；规则恰好覆盖 ready 目录，null 继承统一比例，固定角色禁止附带比例。源状态变化使提交409；视频旧请求保持，拒绝图片专用规则。预览含每目录有效/实际/目标数、偏差、排除与类别过滤统计。启用且可用无框图片（含pending）参与负样本；按保留类别分别对正负样本设置目录训练/验证目标。全局 positive_samples/negative_samples/target_positive_samples/target_negative_samples 均为 {train,val}，目录含相应正负计数/目标/偏差；stratification_warnings 标明不足、固定角色或不可拆重复组限制，不伪造样本。图片 manifest v2 不含虚构视频统计；响应新增 project_type、total/train/val_samples，同时保留原 frames 字段。
+
+`GET /training/resources` 新增可消费 image_projects（id/name/can_export/total_images）及快照类型/样本计数，单侧快照仍列出。训练输入字段仍只接受 ready 快照；快捷创建本身不改选，ready 后才回填。最终单/多输入均要求 train、val 非空且训练集中有目标框。快照/项目删除检查单、多及冻结历史引用，存在引用返回409且不暴露其他项目名称。
+
 ## 2026-08 新增接口
 
 - 项目批量自动标注：POST /api/v1/projects/{id}/auto-annotations/batch。

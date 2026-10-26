@@ -131,7 +131,10 @@ class SamplingService:
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
 
     def _project_access(self, actor: User, project_id: str):
-        return self._projects.get_project(actor, project_id).access
+        view = self._projects.get_project(actor, project_id)
+        if view.project.project_type != "video":
+            raise SamplingConflict("采样功能仅适用于视频数据集项目")
+        return view.access
 
     def _require_editor(self, actor: User, project_id: str) -> None:
         if not self._project_access(actor, project_id).allows("task.execute"):
