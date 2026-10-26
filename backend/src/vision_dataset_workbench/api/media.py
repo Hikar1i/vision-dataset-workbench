@@ -240,6 +240,8 @@ def _video_response(
 
 def _task_response(task: Task) -> TaskResponse:
     result = json.loads(task.result) if task.result else None
+    if task.type == "import_images" and isinstance(result, dict):
+        result.pop("image_ids", None)  # Recovery IDs need not travel with every task poll.
     return TaskResponse(
         id=task.id,
         project_id=task.project_id,

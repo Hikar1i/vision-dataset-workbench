@@ -92,6 +92,8 @@ class ImageScan:
     errors: list[dict]
     fingerprint: str
     ignored_files: int
+    import_counts: dict | None = None
+    project_state_fingerprint: str | None = None
 
     def preview(self) -> dict:
         return {
@@ -103,11 +105,69 @@ class ImageScan:
                 {"source_id": key, "name": value} for key, value in sorted(self.classes.items())
             ],
             "total_images": len(self.images),
+            **(self.import_counts or {}),
             "ignored_files": self.ignored_files,
             "annotation_count": sum(len(item["annotations"]) for item in self.images),
             "warnings": self.warnings,
             "errors": self.errors,
         }
+
+    def plan_import(self, home, state):
+        """Keep first content only; source metadata stays relative to its original batch root."""
+        hashes = {row[1] for row in state["images"]}
+        seen = set()
+        reusable = {}
+        for row in state["directories"]:
+            directory_id, name, source, root, status = row
+            if status == "ready":
+                reusable.setdefault((Path(root) / source).as_posix(), (directory_id, name, root))
+        groups = {g["source_relative_path"]: g for g in self.directories}
+        for group in groups.values():
+            group.update(new_images=0, existing_images=0, duplicate_images=0)
+            absolute_source = (
+                (self.root / group["source_relative_path"]).relative_to(home).as_posix()
+            )
+            if absolute_source in reusable:
+                directory_id, name, root = reusable[absolute_source]
+                group.update(id=directory_id, name=name, source_root=root)
+        new_images = []
+        paths = {(row[2], row[3]) for row in state["images"]}
+        for record in self.images:
+            group = groups[record["directory"]]
+            digest = record["sha256"]
+            if digest in hashes:
+                group["existing_images"] += 1
+            elif digest in seen:
+                group["duplicate_images"] += 1
+            else:
+                seen.add(digest)
+                if "id" in group:
+                    record["stored_path"] = (
+                        (self.root / record["path"])
+                        .relative_to(home / group["source_root"])
+                        .as_posix()
+                    )
+                    if (group["id"], record["stored_path"]) in paths:
+                        self.errors.append(
+                            {
+                                "path": record["path"],
+                                "message": "同一来源路径已有不同内容，请重命名源图片后导入；已有图片不会覆盖",
+                            }
+                        )
+                group["new_images"] += 1
+                new_images.append(record)
+        self.import_counts = {
+            "total_images": len(self.images),
+            "new_images": len(new_images),
+            "existing_images": sum(g["existing_images"] for g in groups.values()),
+            "duplicate_images": sum(g["duplicate_images"] for g in groups.values()),
+        }
+        self.project_state_fingerprint = fingerprint(state)
+        self.fingerprint = fingerprint({"source": self.fingerprint, "project": state})
+        self.images = new_images
+        used_classes = {a["source_id"] for i in new_images for a in i["annotations"]}
+        self.classes = {key: name for key, name in self.classes.items() if key in used_classes}
+        return self
 
 
 def _inside(root: Path, path: Path) -> Path:

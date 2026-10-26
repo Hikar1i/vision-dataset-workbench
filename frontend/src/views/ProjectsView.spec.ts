@@ -143,6 +143,8 @@ describe('ProjectsView', () => {
 
     // 短标识统一为 6 位大写，与模型项目、训练任务一致
     expect(wrapper.text()).toContain('123456')
+    expect(wrapper.get('[data-test="project-type-12345678-project"]').text()).toBe('视频')
+    expect(wrapper.text()).not.toContain('视频数据集 ·')
     expect(wrapper.get('[data-test="project-categories-12345678-project"]').classes())
       .toContain('vdw-chip-stack')
     expect(wrapper.get('[data-test="project-categories-12345678-project"]').text())
@@ -150,7 +152,7 @@ describe('ProjectsView', () => {
     expect(wrapper.text()).toContain('管理员')
     expect(wrapper.text()).not.toContain('系统管理员访问')
     expect(wrapper.findAll('[role="columnheader"]').map((cell) => cell.text()))
-      .toEqual(['项目', '类别', '权限', '所有者', '创建时间', '更新时间', '操作'])
+      .toEqual(['项目', '数据集类型', '类别', '权限', '所有者', '创建时间', '更新时间', '操作'])
     expect(wrapper.findAll('time').map((cell) => cell.attributes('datetime')))
       .toEqual(['2026-07-23T00:00:00Z', '2026-07-24T01:02:03Z'])
     await wrapper.get('.row-actions').trigger('click')

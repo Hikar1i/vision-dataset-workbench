@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { json } from './auth'
 import {
-  deleteImages, disableDuplicateImages, importImages, previewImageDuplicates,
+  imageQuery, deleteImages, disableDuplicateImages, importImages, previewImageDuplicates,
   previewImageImport, replaceImageAnnotations, setImagesEnabledByAnnotations,
 } from './images'
 
@@ -47,4 +47,10 @@ it('reads duplicates without a write and submits only the confirmed fingerprint'
   expect(json).toHaveBeenLastCalledWith(`${base}/images/duplicates`)
   await disableDuplicateImages('project', 'confirmed')
   expectRequest('/images/duplicates/disable', 'POST', { fingerprint: 'confirmed' })
+})
+
+it('serializes multiple directories as repeated query keys and keeps single-directory compatibility',()=>{
+  expect(imageQuery({directory_id:['train','valid'],enabled:false}).toString()).toBe('directory_id=train&directory_id=valid&enabled=false')
+  expect(imageQuery({directory_id:'train'}).getAll('directory_id')).toEqual(['train'])
+  expect(imageQuery({directory_id:[]}).has('directory_id')).toBe(false)
 })

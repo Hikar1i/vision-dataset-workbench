@@ -11,13 +11,14 @@ export type ImageAsset = {
   annotation_status: 'pending' | 'labeled'; annotation_revision: number; version: number
   annotations: FrameAnnotation[]; created_at: string; updated_at: string
 }
-export type ImageFilters = { directory_id?: string; search?: string; annotation_status?: 'pending' | 'labeled'; enabled?: boolean; label_id?: string }
-export type ImagePage = { items: ImageAsset[]; total: number; page: number; page_size: number }
+export type ImageFilters = { directory_id?: string | string[]; search?: string; annotation_status?: 'pending' | 'labeled'; enabled?: boolean; label_id?: string }
+export type ImagePage = { items: ImageAsset[]; total: number; page: number; page_size: number; summary?: { enabled_images: number; labeled_images: number } }
 export type ImageAnnotationSet = { image_id: string; annotation_revision: number; annotation_status: 'pending' | 'labeled'; items: FrameAnnotation[] }
 export type ImageImportFormat = 'images' | 'yolo_detect'
 export type ImageImportPreview = {
+  new_images?: number; existing_images?: number; duplicate_images?: number
   format: ImageImportFormat; root_name: string; fingerprint: string; ignored_files: number; total_images: number; annotation_count: number
-  directories: Array<{name: string; source_relative_path: string; total_images: number; labeled_images: number; annotation_count: number}>
+  directories: Array<{new_images?:number; existing_images?:number; duplicate_images?:number; name: string; source_relative_path: string; total_images: number; labeled_images: number; annotation_count: number}>
   source_classes: Array<{ source_id: number; name: string }>
   warnings: Array<{code: string; path: string; message: string}>; errors: Array<{path: string; message: string}>
 }
@@ -26,7 +27,10 @@ const path = (projectId: string) => `/api/v1/projects/${projectId}`
 const post = <T>(url: string, payload: unknown) => json<T>(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) })
 export function imageQuery(filters: ImageFilters) {
   const query = new URLSearchParams()
-  for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') query.set(key, String(value))
+  for (const [key, value] of Object.entries(filters)) {
+    if (Array.isArray(value)) value.forEach(item => query.append(key, item))
+    else if (value !== undefined && value !== '') query.set(key, String(value))
+  }
   return query
 }
 export const listImageDirectories = (projectId: string) => json<ImageDirectory[]>(`${path(projectId)}/image-directories`)

@@ -50,3 +50,11 @@ it('renders image floats without video sequence or time and reports a broken thu
   expect(wrapper.emitted('load-error')).toHaveLength(1)
   wrapper.unmount()
 })
+
+it('uses the shared media identity badge for image ids without video metadata',()=>{
+  const wrapper=mount(FrameAnnotationThumbnail,{props:{imageId:'abcd1234-uuid',imageUrl:'/image.jpg',imageWidth:640,imageHeight:480,annotations:[],labelColors:{}}})
+  expect(wrapper.get('.vdw-media-id').text()).toBe('ABCD1234')
+  expect(wrapper.get('.vdw-media-id').attributes('title')).toBe('abcd1234-uuid')
+  expect(wrapper.find('.sequence').exists()).toBe(false)
+  wrapper.unmount()
+})

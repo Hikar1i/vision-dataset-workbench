@@ -7,9 +7,9 @@ from collections import Counter
 from PIL import Image
 from sqlalchemy import select, func
 
-from .image_import import scan_images, file_digest, _inside
+from .image_import import scan_images, file_digest, fingerprint, _inside
 from .models import ImageAsset, ImageAnnotation, ImageDirectory, ImageImport, ProjectLabel, Task
-from .services.images import validate_class_mapping
+from .services.images import import_project_state, validate_class_mapping
 from .services.labels import automatic_label_color
 from .services.projects import image_project_write_barrier, touch_project
 from .storage.materialize import materialize_immutable_file
@@ -25,21 +25,39 @@ def execute_image_import(
 ):
     with session_factory() as db:
         task = db.get(Task, task_id)
-        batch = db.get(ImageImport, json.loads(task.payload)["import_id"])
+        payload = json.loads(task.payload)
+        batch = db.get(ImageImport, payload["import_id"])
         if batch is None:
             raise ValueError("图片导入批次不存在")
         owner = task.lease_owner
         if batch.status == "ready":
+            result = json.loads(task.result) if task.result else {}
+            ids = result.get("image_ids")
+            # Old batches did not record IDs; published files still identify their exact batch.
+            prefix = (workspace / "projects" / batch.project_id / "images" / batch.id).relative_to(
+                workspace
+            ).as_posix() + "/"
             assets = list(
                 db.scalars(
                     select(ImageAsset)
                     .join(ImageDirectory)
-                    .where(ImageDirectory.import_id == batch.id)
+                    .where(
+                        ImageDirectory.project_id == batch.project_id,
+                        ImageAsset.id.in_(ids)
+                        if ids is not None
+                        else ImageAsset.file_path.startswith(prefix, autoescape=True),
+                    )
                 )
             )
-            if not assets:
+            if (
+                not assets
+                or (ids is not None and len(assets) != len(ids))
+                or (result.get("images") is not None and len(assets) != result["images"])
+            ):
                 raise ValueError("已发布导入批次没有图片")
             for asset in assets:
+                if not asset.file_path.startswith(prefix):
+                    raise ValueError("已发布导入批次图片不匹配")
                 original, thumbnail = workspace / asset.file_path, workspace / asset.thumbnail_path
                 if (
                     not original.is_file()
@@ -52,16 +70,16 @@ def execute_image_import(
                         raise ValueError("已发布图片尺寸变化")
                 with Image.open(thumbnail) as image:
                     image.verify()
-            task.status, task.progress, task.finished_at = "succeeded", 100, now()
+            image_project_write_barrier(db, batch.project_id, task_id)
+            db.refresh(task)
+            if task.status != "running" or task.cancel_requested or task.lease_owner != owner:
+                raise ImageImportCanceled("图片导入租约或状态已变化")
+            task.status, task.progress, task.error, task.finished_at = "succeeded", 100, None, now()
             task.lease_owner, task.lease_expires_at = None, None
             db.commit()
             return
         batch.status, batch.updated_at = "running", now()
-        used_names = set(
-            db.scalars(
-                select(ImageDirectory.name).where(ImageDirectory.project_id == batch.project_id)
-            )
-        )
+        state = import_project_state(db, batch.project_id)
         db.commit()
 
     def pulse(index, total):
@@ -74,12 +92,17 @@ def execute_image_import(
     scan = scan_images(
         paths.resolve_existing(batch.source_path),
         batch.format,
-        used_names=used_names,
+        used_names={row[1] for row in state["directories"]},
         workspace=workspace,
         heartbeat=pulse,
     )
-    if scan.errors or scan.fingerprint != batch.fingerprint:
+    source_fingerprint = scan.fingerprint
+    scan.plan_import(paths.home, state)
+    expected = scan.fingerprint if "import_state_fingerprint" in payload else source_fingerprint
+    if scan.errors or expected != batch.fingerprint:
         raise ValueError("来源已变化或含错误，请重新预检并导入")
+    if not scan.images:
+        raise ValueError("没有可新增的图片，请重新预检")
     staging = task_temp / "images"
     staging.mkdir()
     thumbnails = staging / "thumbnails"
@@ -112,7 +135,14 @@ def execute_image_import(
             stored = db.get(ImageImport, batch.id)
             if task.status != "running" or task.cancel_requested or task.lease_owner != owner:
                 raise ImageImportCanceled("图片导入租约或状态已变化")
+            if (
+                fingerprint(import_project_state(db, batch.project_id))
+                != scan.project_state_fingerprint
+            ):
+                raise ValueError("项目图片或目录已变化，请重新预检并导入")
             mappings = json.loads(batch.class_mapping)
+            if "import_state_fingerprint" not in payload:
+                mappings = [m for m in mappings if m["source_id"] in scan.classes]
             validate_class_mapping(db, batch.project_id, scan.classes, mappings)
             labels = {}
             last_order = db.scalar(
@@ -151,6 +181,11 @@ def execute_image_import(
                 )
             )
             for index, group in enumerate(scan.directories):
+                if not group["new_images"]:
+                    continue
+                if "id" in group:
+                    directories[group["source_relative_path"]] = group["id"]
+                    continue
                 directory = ImageDirectory(
                     id=str(uuid4()),
                     project_id=batch.project_id,
@@ -168,7 +203,7 @@ def execute_image_import(
                     ImageAsset(
                         id=image_id,
                         directory_id=directories[record["directory"]],
-                        source_relative_path=record["path"],
+                        source_relative_path=record.get("stored_path", record["path"]),
                         file_name=(scan.root / record["path"]).name,
                         file_path=(destination / name).relative_to(workspace).as_posix(),
                         thumbnail_path=(destination / "thumbnails" / f"{image_id}.jpg")
@@ -220,6 +255,12 @@ def execute_image_import(
                 {
                     "import_id": batch.id,
                     "images": len(assets),
+                    "image_ids": [a[0] for a in assets],
+                    **{
+                        key: value
+                        for key, value in scan.import_counts.items()
+                        if key != "total_images"
+                    },
                     "materializations": dict(Counter(a[2] for a in assets)),
                 }
             )

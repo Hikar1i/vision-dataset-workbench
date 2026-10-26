@@ -5,7 +5,7 @@ import { Aim, Delete, Download, Filter, Search, Upload } from '@element-plus/ico
 import { ElMessageBox } from 'element-plus'
 import { can } from '../api/access'
 import type { Project } from '../api/projects'
-import { deleteImages, listImageDirectories, listImages, imageThumbnailUrl, setImagesEnabled, setImagesEnabledByAnnotations, type ImageAsset, type ImageDirectory, type ImageFilters } from '../api/images'
+import { deleteImages, getImage, imageNeighbors, listImageDirectories, listImages, imageThumbnailUrl, setImagesEnabled, setImagesEnabledByAnnotations, type ImageAsset, type ImageDirectory, type ImageFilters } from '../api/images'
 import { listTasks, type ProjectTask } from '../api/media'
 import { listLabels, type ProjectLabel } from '../api/labels'
 import ImportImagesDialog from '../components/ImportImagesDialog.vue'
@@ -23,22 +23,56 @@ const props = defineProps<{project: Project}>()
 const route = useRoute(), router = useRouter()
 const headerHost = useProjectHeaderHost()
 const directories = ref<ImageDirectory[]>([]), images = ref<ImageAsset[]>([]), labels = ref<ProjectLabel[]>([])
-const selected = ref<string[]>([]), directoryId = ref(''), search = ref('')
+const selected = ref<string[]>([]), directoryIds = ref<string[]>([]), search = ref('')
 const annotationStatus = ref<'' | 'pending' | 'labeled'>(''), enabledFilter = ref('all'), labelId = ref('')
 const page = ref(1), pageSize = ref<50 | 100 | 200>(50), total = ref(0)
 const loading = ref(false), writing = ref(false), error = ref(''), showBoxes = ref(true), tileSize = ref(200)
 const importOpen = ref(false), exportOpen = ref(false), batchOpen = ref(false), previewOpen = ref(false)
 const screeningOpen = ref(false)
-const previewImage = ref<ImageAsset | null>(null), activeTasks = ref<ProjectTask[]>([])
+const previewImage = ref<ImageAsset | null>(null), previewBusy = ref(false)
+const adjacent = ref<{previous_id: string | null; next_id: string | null}>({previous_id:null,next_id:null})
+const summary = ref<{enabled_images:number; labeled_images:number} | null>(null)
+let previewGeneration = 0
+const activeTasks = ref<ProjectTask[]>([])
 const writeAllowed = computed(() => can(props.project.access, 'project.update'))
 const taskAllowed = computed(() => writeAllowed.value && can(props.project.access, 'task.execute'))
 const locked = computed(() => activeTasks.value.length > 0)
 const selectedImages = computed(() => images.value.filter(i => selected.value.includes(i.id)))
 const selectedStoppedImages = computed(() => selectedImages.value.filter(image => !image.enabled))
 const colors = computed(() => Object.fromEntries(labels.value.map(l => [l.id, l.color])))
-const filters = computed<ImageFilters>(() => ({directory_id: directoryId.value || undefined, search: search.value || undefined,
+const labelNames = computed(()=>Object.fromEntries(labels.value.map(label=>[label.id,label.name])))
+const filters = computed<ImageFilters>(() => ({directory_id: directoryIds.value.length ? directoryIds.value : undefined, search: search.value || undefined,
   annotation_status: annotationStatus.value || undefined, enabled: enabledFilter.value === 'all' ? undefined : enabledFilter.value === 'enabled', label_id: labelId.value || undefined}))
 const totals = computed(() => directories.value.reduce((s, d) => ({images: s.images+d.total_images, labeled: s.labeled+d.labeled_images}), {images: 0, labeled: 0}))
+const selectionStats = computed(() => selected.value.length
+  ? {enabled_images:selectedImages.value.filter(image=>image.enabled).length, labeled_images:selectedImages.value.filter(image=>image.annotation_status==='labeled').length}
+  : summary.value)
+function updateDirectories(values: string[]) {
+  const addedAll = values.includes('__all__') && directoryIds.value.length > 0
+  directoryIds.value = addedAll ? [] : values.filter(value=>value!=='__all__')
+}
+async function openPreview(image: ImageAsset) {
+  const current=++previewGeneration
+  previewImage.value=image; previewOpen.value=true; previewBusy.value=true
+  adjacent.value={previous_id:null,next_id:null}
+  try {
+    const result=await imageNeighbors(props.project.id,image.id,filters.value)
+    if(current===previewGeneration) adjacent.value=result
+  } catch(reason) {if(current===previewGeneration)notify.error(reason instanceof Error ? reason.message : '相邻图片加载失败')}
+  finally {if(current===previewGeneration)previewBusy.value=false}
+}
+async function movePreview(offset: number) {
+  const id=offset<0 ? adjacent.value.previous_id : adjacent.value.next_id
+  if(!id || previewBusy.value) return
+  const current=++previewGeneration; previewBusy.value=true
+  try {
+    const [image,neighbors]=await Promise.all([getImage(props.project.id,id),imageNeighbors(props.project.id,id,filters.value)])
+    if(current!==previewGeneration || !previewOpen.value)return
+    previewImage.value=image; adjacent.value=neighbors
+  } catch(reason) {notify.error(reason instanceof Error ? reason.message : '图片加载失败')}
+  finally {if(current===previewGeneration)previewBusy.value=false}
+}
+watch(previewOpen, open=>{if(!open){previewGeneration++;previewBusy.value=false}})
 let alive = true
 let requestId = 0, anchor = -1, timer: ReturnType<typeof setTimeout> | undefined, poll: ReturnType<typeof setInterval> | undefined
 async function load() {
@@ -47,7 +81,7 @@ async function load() {
   try {
     const [result, groups, projectLabels, tasks] = await Promise.all([listImages(props.project.id, filters.value, page.value, pageSize.value), listImageDirectories(props.project.id), listLabels(props.project.id), listTasks(props.project.id)])
     if (!alive || request !== requestId) return
-    images.value = result.items; total.value = result.total; directories.value = groups; labels.value = projectLabels
+    images.value = result.items; total.value = result.total; summary.value=result.summary ?? null; directories.value = groups; labels.value = projectLabels
     activeTasks.value = tasks.items.filter(t => ['queued','running'].includes(t.status) && ['import_images','auto_annotate','export_dataset'].includes(t.type))
     selected.value = selected.value.filter(id => images.value.some(i => i.id === id)); anchor = -1
   } catch (reason) {if (request === requestId) error.value = reason instanceof Error ? reason.message : '图片加载失败，请刷新重试'}
@@ -63,11 +97,17 @@ function select(index: number, shift: boolean) {
 }
 function annotate(image: ImageAsset) {
   previewOpen.value = false
-  void router.push({path: `/projects/${props.project.id}/images/${image.id}/annotation`, query: Object.fromEntries(Object.entries(filters.value).filter(([,v]) => v !== undefined).map(([k,v]) => [k,String(v)])), state: {annotationFromImageList: true}})
+  void router.push({path: `/projects/${props.project.id}/images/${image.id}/annotation`, query: Object.fromEntries(Object.entries(filters.value).filter(([,v]) => v !== undefined).map(([k,v]) => [k,Array.isArray(v) ? v : String(v)])), state: {annotationFromImageList: true}})
 }
 async function changeEnabled(items: ImageAsset[], enabled: boolean) {
   writing.value = true
-  try {await setImagesEnabled(props.project.id, items.map(i => ({image_id: i.id, version: i.version, enabled}))); previewOpen.value = false; await load()}
+  try {
+    const result=await setImagesEnabled(props.project.id, items.map(i => ({image_id: i.id, version: i.version, enabled})))
+    const changed=result.find(item=>item.id===previewImage.value?.id)
+    if (changed && previewImage.value) previewImage.value={...previewImage.value,...changed}
+    await load()
+    if (previewOpen.value && previewImage.value) adjacent.value=await imageNeighbors(props.project.id,previewImage.value.id,filters.value)
+  }
   catch (reason) {notify.error(reason instanceof Error ? reason.message : '图片状态保存失败')}
   finally {writing.value = false}
 }
@@ -110,11 +150,11 @@ function clearFilteredSelection() {
   if (selected.value.length) notify.info('筛选已变化，已清空当前页选择。')
   selected.value=[]; anchor=-1; page.value=1
 }
-watch([directoryId, annotationStatus, enabledFilter, labelId, pageSize], () => {clearFilteredSelection(); void load()})
+watch([directoryIds, annotationStatus, enabledFilter, labelId, pageSize], () => {clearFilteredSelection(); void load()})
 watch(search, () => {requestId++; clearFilteredSelection(); if(timer)clearTimeout(timer); timer=setTimeout(load,250)})
 watch(() => route.name, name => {if(name === 'project-images') void load()})
 function clearFilters() {
-  directoryId.value=''; search.value=''; annotationStatus.value=''; enabledFilter.value='all'; labelId.value=''
+  directoryIds.value=[]; search.value=''; annotationStatus.value=''; enabledFilter.value='all'; labelId.value=''
 }
 const hasFilters = computed(() => Object.values(filters.value).some(value => value !== undefined))
 async function pollTasks() {
@@ -139,21 +179,21 @@ onUnmounted(() => {alive=false;requestId++; if(timer)clearTimeout(timer); if(pol
   <Teleport defer to="#project-page-meta" :disabled="!headerHost"><span>{{ directories.length }} 个目录 · {{ totals.images }} 张图片 · {{ totals.labeled }} 张已标注</span></Teleport>
   <div class="content-body image-body">
     <section class="image-action-lane" data-test="image-action-lane">
-      <div class="image-primary-actions">
-        <VButton :disabled="!images.length || loading" @click="openAnnotation"><template #icon><el-icon><Aim /></el-icon></template>标注</VButton>
-        <VButton :disabled="!directories.length || loading" @click="screeningOpen=true"><template #icon><el-icon><Filter /></el-icon></template>筛选</VButton>
+      <div class="image-selection-summary">
+        <el-checkbox aria-label="当前页全选" :model-value="images.length>0 && selected.length===images.length" :indeterminate="selected.length>0 && selected.length<images.length" @change="(value: boolean) => selected=value ? images.map(i=>i.id) : []">当前页全选</el-checkbox>
+        <span class="image-counts" aria-live="polite"><template v-if="selected.length">选中 <b>{{ selected.length }}</b> · </template>启用 <b>{{ selectionStats?.enabled_images ?? '—' }}</b> · 已标注 <b>{{ selectionStats?.labeled_images ?? '—' }}</b></span>
       </div>
       <div class="image-toolbar-actions" data-test="image-toolbar-actions">
-        <el-checkbox aria-label="当前页全选" :model-value="images.length>0 && selected.length===images.length" :indeterminate="selected.length>0 && selected.length<images.length" @change="(value: boolean) => selected=value ? images.map(i=>i.id) : []">当前页全选</el-checkbox>
-        <el-input v-model="search" class="image-search" :prefix-icon="Search" clearable placeholder="搜索文件名" aria-label="搜索文件名" />
         <template v-if="selected.length">
-          <VButton variant="danger" :disabled="!writeAllowed || locked || writing || !selectedStoppedImages.length" :title="selectedStoppedImages.length ? '仅删除选中的停用图像' : '请先停用图像再删除'" @click="deleteSelected(selectedImages)">删除 {{ selectedStoppedImages.length }} 个图像</VButton>
-          <VButton :disabled="!writeAllowed || locked || writing" @click="enableByAnnotations">按标注启停</VButton>
+          <VButton :disabled="!writeAllowed || locked || writing" @click="changeEnabled(selectedImages,true)">启用</VButton>
+          <VButton :disabled="!writeAllowed || locked || writing" @click="changeEnabled(selectedImages,false)">停用</VButton>
           <VButton :disabled="!taskAllowed || locked || writing" @click="batchOpen=true">批量自动标注</VButton>
-          <VButton :disabled="!writeAllowed || locked || writing" @click="changeEnabled(selectedImages,false)">批量停用</VButton>
-          <VButton :disabled="!writeAllowed || locked || writing" @click="changeEnabled(selectedImages,true)">批量启用</VButton>
+          <VButton :disabled="!writeAllowed || locked || writing" @click="enableByAnnotations">按标注启停</VButton>
+          <VButton variant="danger" :disabled="!writeAllowed || locked || writing || !selectedStoppedImages.length" :title="selectedStoppedImages.length ? '仅删除选中的停用图像' : '请先停用图像再删除'" @click="deleteSelected(selectedImages)">删除 {{ selectedStoppedImages.length }} 个图像</VButton>
         </template>
         <template v-else>
+          <VButton :disabled="!images.length || loading" @click="openAnnotation"><template #icon><el-icon><Aim /></el-icon></template>标注</VButton>
+          <VButton :disabled="!directories.length || loading" @click="screeningOpen=true"><template #icon><el-icon><Filter /></el-icon></template>筛选</VButton>
           <VButton :disabled="!taskAllowed || locked || writing" @click="exportOpen=true"><template #icon><el-icon><Download /></el-icon></template>导出数据集</VButton>
           <VButton variant="primary" :disabled="!taskAllowed || locked || writing" @click="importOpen=true"><template #icon><el-icon><Upload /></el-icon></template>导入图像目录</VButton>
         </template>
@@ -162,23 +202,22 @@ onUnmounted(() => {alive=false;requestId++; if(timer)clearTimeout(timer); if(pol
     <el-alert v-if="locked" title="图片数据任务正在处理，暂时不能修改图片、标签或创建新的数据任务。可在任务中心查看或取消。" type="info" :closable="false" />
     <div v-if="error" class="image-error"><el-alert :title="error" type="error" :closable="false" /><VButton :loading="loading" @click="load">重试加载</VButton></div>
     <div class="image-workspace">
-      <aside class="directory-list" aria-label="图片目录">
-        <button :class="{active:!directoryId}" @click="directoryId=''">全部目录 <span>{{ totals.images }}</span></button>
-        <div v-for="directory in directories" :key="directory.id"><button :class="{active:directoryId===directory.id}" :title="directory.source_relative_path" @click="directoryId=directory.id"><span class="directory-name" :title="directory.name">{{ directory.name }}</span><span class="directory-count">{{ directory.total_images }}</span></button>
-          <details><summary>来源与状态</summary><p>{{ directory.source_relative_path }}</p><p>启用 {{ directory.enabled_images }} · 已标注 {{ directory.labeled_images }}</p><p>宽 {{ directory.min_width }}–{{ directory.max_width }}，高 {{ directory.min_height }}–{{ directory.max_height }} px</p></details>
-        </div>
-      </aside>
       <section class="images-main" v-loading="loading">
         <div class="image-filters">
+          <el-select :model-value="directoryIds.length ? directoryIds : ['__all__']" multiple collapse-tags collapse-tags-tooltip class="directory-filter" aria-label="目录" @update:model-value="updateDirectories">
+            <el-option value="__all__" :label="`全部目录 (${totals.images})`"/>
+            <el-option v-for="directory in directories" :key="directory.id" :value="directory.id" :label="`${directory.name} (${directory.total_images})`"><span class="directory-option-name" :title="directory.name">{{ directory.name }}</span><span class="directory-option-count">{{ directory.total_images }}</span></el-option>
+          </el-select>
           <el-select v-model="annotationStatus" class="status-filter" placeholder="全部标注" aria-label="标注状态"><el-option value="" label="全部标注"/><el-option value="pending" label="待标注"/><el-option value="labeled" label="已标注"/></el-select>
           <el-select v-model="enabledFilter" class="status-filter" aria-label="启用状态"><el-option value="all" label="全部启停"/><el-option value="enabled" label="已启用"/><el-option value="disabled" label="已停用"/></el-select>
           <el-select v-model="labelId" clearable placeholder="全部类别" aria-label="筛选类别"><el-option v-for="label in labels" :key="label.id" :value="label.id" :label="label.name"/></el-select>
+          <el-input v-model="search" class="image-search" :prefix-icon="Search" clearable placeholder="搜索文件名" aria-label="搜索文件名" />
           <label class="annotation-switch">缩略图标注<el-switch v-model="showBoxes" aria-label="缩略图标注" /></label>
           <label>缩略图 <el-slider v-model="tileSize" :min="160" :max="320" :step="20" aria-label="缩略图大小"/></label>
         </div>
         <div class="image-grid" :style="{'--tile-size': `${tileSize}px`}">
           <article v-for="(image,index) in images" :key="image.id" class="image-card" :class="{selected:selected.includes(image.id)}">
-            <button class="image-open" :aria-label="`预览 ${image.file_name}`" @click="previewImage=image;previewOpen=true"><FrameAnnotationThumbnail :image-url="imageThumbnailUrl(project.id,image.id)" :image-width="image.width" :image-height="image.height" :annotations="showBoxes ? image.annotations : []" :label-colors="colors" :disabled="!image.enabled"/></button>
+            <button class="image-open" :aria-label="`预览 ${image.file_name}`" @click="openPreview(image)"><FrameAnnotationThumbnail :image-id="image.id" :image-url="imageThumbnailUrl(project.id,image.id)" :image-width="image.width" :image-height="image.height" :annotations="showBoxes ? image.annotations : []" :label-colors="colors" :disabled="!image.enabled"/></button>
             <div class="image-caption"><input type="checkbox" :checked="selected.includes(image.id)" :aria-label="`选择 ${image.file_name}`" @click="select(index,$event.shiftKey)"/><strong :title="image.file_name">{{ image.file_name }}</strong><VButton size="sm" variant="quiet" :disabled="!writeAllowed || locked || writing" :aria-label="`${image.enabled ? '停用' : '启用'} ${image.file_name}`" @click="changeEnabled([image],!image.enabled)">{{ image.enabled ? '停用' : '启用' }}</VButton></div>
             <footer><VTag :tone="imageAnnotationStatus(image.annotation_status).tone">{{ imageAnnotationStatus(image.annotation_status).label }}</VTag><span>{{ new Set(image.annotations.map(a=>a.label_id)).size }} 类 · {{ image.annotations.length }} 目标</span></footer>
             <div class="image-source"><small :title="directories.find(d=>d.id===image.directory_id)?.name">{{ directories.find(d=>d.id===image.directory_id)?.name }}</small><VButton size="sm" variant="danger" icon-only :label="`删除图像 ${image.file_name}`" :title="image.enabled ? '请先停用图像再删除' : '删除图像'" :disabled="image.enabled || !writeAllowed || locked || writing" @click="deleteSelected([image])"><template #icon><el-icon><Delete /></el-icon></template></VButton></div>
@@ -192,29 +231,25 @@ onUnmounted(() => {alive=false;requestId++; if(timer)clearTimeout(timer); if(pol
   <ImportImagesDialog v-model="importOpen" :project-id="project.id" @submitted="load"/>
   <ExportDatasetDialog v-model="exportOpen" :project-id="project.id" @submitted="load" @source-updated="load"/>
   <BatchAnnotationDialog v-model="batchOpen" :project-id="project.id" :images="selectedImages" scope="all" @submitted="load"/>
-  <ImagePreviewDialog v-model="previewOpen" :project-id="project.id" :image="previewImage" :directory-name="directories.find(d=>d.id===previewImage?.directory_id)?.name ?? ''" :label-colors="colors" :can-edit="taskAllowed" :locked="locked" @annotate="annotate" @enabled="(image,value)=>changeEnabled([image],value)"/>
-  <ImageScreeningDialog v-model="screeningOpen" :project-id="project.id" :project-name="project.name" :filters="filters" :directories="directories" :can-edit="writeAllowed" :locked="locked" :label-colors="colors" @updated="load"/>
+  <ImagePreviewDialog v-model="previewOpen" :project-id="project.id" :image="previewImage" :directory-name="directories.find(d=>d.id===previewImage?.directory_id)?.name ?? ''" :label-colors="colors" :label-names="labelNames" :can-edit="writeAllowed" :locked="locked || writing" :navigating="previewBusy" :previous-disabled="!adjacent.previous_id" :next-disabled="!adjacent.next_id" @navigate="movePreview" @annotate="annotate" @enabled="(image,value)=>changeEnabled([image],value)"/>
+  <ImageScreeningDialog v-model="screeningOpen" :project-id="project.id" :project-name="project.name" :filters="filters" :directories="directories" :can-edit="writeAllowed" :locked="locked" :label-colors="colors" :label-names="labelNames" @updated="load"/>
   <RouterView/>
   </main>
 </template>
 <style scoped>
 .image-body{display:grid;gap:14px}
 .image-action-lane{display:flex;align-items:center;gap:13px;min-height:52px;padding:0 9px;border-bottom:1px solid var(--vdw-line)}
-.image-primary-actions,.image-toolbar-actions{display:flex;align-items:center;gap:8px}
-.image-toolbar-actions{margin-left:auto;min-width:0}.image-search{width:240px}
-.image-toolbar-actions .el-checkbox{white-space:nowrap}.image-error{display:flex;align-items:center;gap:12px}
+.image-selection-summary,.image-toolbar-actions{display:flex;align-items:center;gap:12px;white-space:nowrap}
+.image-toolbar-actions{margin-left:auto;min-width:0;gap:8px}.image-search{width:240px;flex:none}
+.image-counts{color:var(--vdw-ink-2);font-size:14px}.image-counts b{display:inline-block;min-width:5ch;text-align:right;font:500 14px var(--vdw-mono);font-variant-numeric:tabular-nums}
+.image-error{display:flex;align-items:center;gap:12px}
 .image-filters{display:flex;align-items:center;gap:12px}
-.image-workspace{display:grid;grid-template-columns:220px minmax(0,1fr);border:1px solid var(--vdw-line);background:var(--vdw-surface)}
-.directory-list{padding:12px;background:var(--vdw-surface-2);border-right:1px solid var(--vdw-line)}
-.directory-list button{display:flex;justify-content:space-between;gap:8px;width:100%;padding:12px;color:var(--vdw-ink);text-align:left;overflow-wrap:anywhere;border:1px solid transparent;background:transparent;cursor:pointer}
-.directory-list button:hover,.directory-list button.active{background:var(--vdw-accent-soft);border-color:var(--vdw-accent);color:var(--vdw-accent)}
-.directory-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.directory-count{flex:none;white-space:nowrap}
-details{padding:0 12px 10px;font-size:13px;color:var(--vdw-ink-2);overflow-wrap:anywhere}
-summary{cursor:pointer}
+.image-workspace{border:1px solid var(--vdw-line);background:var(--vdw-surface)}
 .images-main{min-width:0;padding:16px;display:grid;gap:16px}
-.image-filters .el-select{width:145px}.image-filters .status-filter{width:120px}
-.image-filters>label{display:flex;gap:12px;align-items:center;white-space:nowrap}.image-filters>label:last-child{margin-left:auto}
+.image-filters .el-select{width:145px;flex:none}.image-filters .directory-filter{width:300px}.image-filters .status-filter{width:120px}
+.image-filters>label{display:flex;gap:8px;align-items:center;white-space:nowrap;font-size:14px}.image-filters .annotation-switch{margin-left:auto}
 .image-filters .el-slider{width:110px}
+.directory-option-name{display:inline-block;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}.directory-option-count{float:right;margin-left:16px;color:var(--vdw-ink-2);font-family:var(--vdw-mono)}
 .image-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--tile-size),1fr));gap:12px;align-content:start}
 .image-card{min-width:0;overflow:hidden;border:1px solid var(--vdw-line);border-radius:7px;background:var(--vdw-surface-3)}
 .image-card.selected,.image-card:hover{border-color:var(--vdw-accent)}

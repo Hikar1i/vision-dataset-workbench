@@ -37,7 +37,7 @@ const deleting = ref('')
 const error = ref('')
 const valid = computed(() => name.value.trim().length > 0 && name.value.trim().length <= 128)
 
-const COLUMNS = 'minmax(220px, 1.4fr) minmax(160px, 1fr) 84px minmax(110px, 0.7fr) 106px 106px 150px'
+const COLUMNS = 'minmax(220px, 1.4fr) 96px minmax(160px, 1fr) 84px 100px 106px 106px 150px'
 const RECENT_SCOPE = 'projects'
 
 async function load(nextPage = page.value) {
@@ -163,7 +163,7 @@ onMounted(() => load())
       <VPanel v-loading="loading" flush>
         <VTable
           :columns="COLUMNS"
-          :headers="['项目', '类别', '权限', '所有者', '创建时间', '更新时间', '操作']"
+          :headers="['项目', '数据集类型', '类别', '权限', '所有者', '创建时间', '更新时间', '操作']"
         >
           <VRow
             v-for="project in projects"
@@ -171,11 +171,12 @@ onMounted(() => load())
             :columns="COLUMNS"
             :recent="isRecentRow(RECENT_SCOPE, project.id)"
           >
-            <VCellName :name="project.name" :sub="`${project.project_type === 'image' ? '图像数据集' : '视频数据集'} · ${project.description || '暂无描述'}`">
+            <VCellName :name="project.name" :sub="project.description || '暂无描述'">
               <template #badge>
                 <VChip variant="id">{{ project.id.slice(0, 6).toUpperCase() }}</VChip>
               </template>
             </VCellName>
+            <span class="cell-muted" :data-test="`project-type-${project.id}`">{{ project.project_type === 'image' ? '图像' : '视频' }}</span>
             <div
               :data-test="`project-categories-${project.id}`"
               class="vdw-chip-stack"
@@ -187,7 +188,7 @@ onMounted(() => load())
             <VTag :tone="project.access.role === 'owner' || project.access.source === 'system_admin' ? 'run' : 'idle'">
               {{ accessLabel(project.access) }}
             </VTag>
-            <span class="cell-muted">{{ project.creator_username }}</span>
+            <span class="cell-muted project-owner" :title="project.creator_username">{{ project.creator_username }}</span>
             <VDateTime :value="project.created_at" />
             <VDateTime :value="project.updated_at" />
             <div
@@ -259,6 +260,8 @@ onMounted(() => load())
   grid-column: 1 / -1;
   justify-content: flex-end;
 }
+
+.project-owner{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .cell-muted,
 time {

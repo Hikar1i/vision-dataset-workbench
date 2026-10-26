@@ -124,3 +124,13 @@ it('clears an older valid preview when a new YOLO inspection fails without falli
   expect(previewImageImport).toHaveBeenCalledTimes(2)
   expect(importImages).not.toHaveBeenCalled()
 })
+
+it('shows skipped content counts and refuses an all-duplicate import', async()=>{
+  vi.mocked(previewImageImport).mockResolvedValue(preview({new_images:0,existing_images:2,duplicate_images:1,source_classes:[],annotation_count:0}))
+  const w=await open()
+  await button(w,'预检当前目录').trigger('click');await flushPromises()
+  expect(w.text()).toContain('扫描 3 张图片 · 新增 0 张 · 已存在 2 张 · 批内重复 1 张')
+  expect(w.text()).toContain('没有可新增的图片')
+  expect(button(w,'创建导入任务').props('disabled')).toBe(true)
+  expect(importImages).not.toHaveBeenCalled()
+})

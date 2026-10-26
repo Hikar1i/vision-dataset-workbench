@@ -6,10 +6,10 @@
 
 | 方法 / 路径 | 契约 |
 | --- | --- |
-| POST `/image-imports/preview` | root_path 相对服务 home、ignore_annotations=false 默认自动识别；true 仅读图像；可选旧 format=images/yolo_detect/auto 保持兼容；返回已识别 format、 fingerprint、目录/类别、图/框/忽略附件计数、warnings/errors；只读来源 |
-| POST `/image-imports` | 加 fingerprint、class_mapping、confirm_warnings；类别明确映射至本项目标签或规范新名称；202 `{import_id,task}` |
+| POST `/image-imports/preview` | root_path 相对服务 home、ignore_annotations=false 默认自动识别；true 仅读图像；可选旧 format=images/yolo_detect/auto 保持兼容；返回已识别 format、 fingerprint、目录/类别、图/框/忽略附件计数、new_images/existing_images/duplicate_images（含目录级）、warnings/errors；只读来源 |
+| POST `/image-imports` | 加 fingerprint、class_mapping、confirm_warnings；类别明确映射至本项目标签或规范新名称；202 `{import_id,task}`；只导入新增内容，new_images=0时422且不建任务；任务结果返回新增/跳过统计，内部恢复用image_ids不随任务轮询返回 |
 | GET `/image-directories` | ready 目录、可读名称/来源、批次、总/启用/标注计数、尺寸范围 |
-| GET `/images` | page、page_size=50/100/200、directory_id/search/annotation_status/enabled/label_id；稳定排序分页，items/total/page/page_size |
+| GET `/images` | page、page_size=50/100/200、directory_id/search/annotation_status/enabled/label_id；directory_id可重复以表示多个目录（OR，省略为全部）；稳定排序分页，items/total/page/page_size及summary={enabled_images,labeled_images}，summary按全部过滤范围聚合，不限当前页 |
 | GET `/images/{image_id}`、`/file`、`/thumbnail` | 本项目资产元数据或受管媒体；不返回外部 TXT、原始绝对路径 |
 | GET `/images/{image_id}/neighbors` | 同列表筛选、排序下 previous_id/next_id，无须全量 ID |
 | GET / PUT `/images/{image_id}/annotations` | image_id、annotation_revision、annotation_status、items；PUT 校验修订和浮点原图边界，空列表可直接保存；无 confirm_empty 字段 |
@@ -21,7 +21,7 @@
 | POST `/images/{image_id}/auto-annotations` | 复用来源/模型/类别/confidence/iou 参数；候选框与新增标签，候选保存仍用 PUT |
 | POST `/images/auto-annotations` | image_ids≤200、scope=all/unannotated、overwrite 与推理参数；202 普通 auto_annotate Task，payload.scope_type=image |
 
-导入严格接受五列 Detect 标签和 JPEG/PNG/WEBP/BMP 单页图像；拒绝方向旋转、坏图、非有限坐标、越界类别、来源逃逸和符号链接。TXT 标注直接入库，不留档/回写；空 TXT 为已标注零框，缺 TXT 为待标注；均可作为导出负样本，已移除 confirm-negative 接口。多个同名末级目录按相对路径将分隔符替换为 `_`，名称碰撞加可读数字后缀，不用 hash 名。
+导入严格接受五列 Detect 标签和 JPEG/PNG/WEBP/BMP 单页图像；拒绝方向旋转、坏图、非有限坐标、越界类别、来源逃逸和符号链接。项目内SHA-256相同的已有图片（含停用）和批内重复跳过，只为新增图片涉及的类别建立映射入库，已有标注/启停不覆盖；源目录新增图片可重导并复用原目录，同一来源路径替换内容需改名再导入。预检指纹含项目状态；原有图片/目录集合变化时409。TXT 标注直接入库，不留档/回写；空 TXT 为已标注零框，缺 TXT 为待标注；均可作为导出负样本，已移除 confirm-negative 接口。多个同名末级目录按相对路径将分隔符替换为 `_`，名称碰撞加可读数字后缀，不用 hash 名。
 
 `POST /dataset-exports/preview` 共用导出请求、只计算图片划分。图片创建请求在原 name/train_ratio/labels 上增加 `directory_rules=[{directory_id,included,mode:train|val|ratio,train_ratio:null|0..1}]`、split_seed 和 preview_fingerprint；规则恰好覆盖 ready 目录，null 继承统一比例，固定角色禁止附带比例。源状态变化使提交409；视频旧请求保持，拒绝图片专用规则。预览含每目录有效/实际/目标数、偏差、排除与类别过滤统计。启用且可用无框图片（含pending）参与负样本；按保留类别分别对正负样本设置目录训练/验证目标。全局 positive_samples/negative_samples/target_positive_samples/target_negative_samples 均为 {train,val}，目录含相应正负计数/目标/偏差；stratification_warnings 标明不足、固定角色或不可拆重复组限制，不伪造样本。图片 manifest v2 不含虚构视频统计；响应新增 project_type、total/train/val_samples，同时保留原 frames 字段。
 

@@ -199,6 +199,26 @@ def imported(env, root=None, format="yolo_detect"):
     return batch, env.images.list_images(env.users["owner"], PROJECT)[0]
 
 
+def historical_imported(env, root):
+    """Seed legacy duplicates without weakening the current import deduplication contract."""
+    originals = {path: path.read_bytes() for path in sorted(root.rglob("*.png"))}
+    for index, path in enumerate(originals):
+        picture(path, 1000 + index)
+    batch, images = imported(env, root, "images")
+    with Session(env.engine) as db:
+        for path, content in originals.items():
+            path.write_bytes(content)
+        for image in images:
+            content = originals[root / image.source_relative_path]
+            target = env.workspace / image.file_path
+            target.write_bytes(content)
+            stored = db.get(ImageAsset, image.id)
+            stored.content_sha256 = file_digest(target)
+            stored.file_size = len(content)
+        db.commit()
+    return batch, env.images.list_images(env.users["owner"], PROJECT)[0]
+
+
 def rules_for(env, modes=None):
     return [
         {
@@ -524,7 +544,7 @@ def test_duplicates_stay_together_and_pin_conflicts(env):
     (root / "b").mkdir()
     shutil.copyfile(first, root / "b/two.png")
     shutil.copyfile(first, root / "a/again.png")
-    _, images = imported(env, root, "images")
+    _, images = historical_imported(env, root)
     rules = rules_for(env)
     record, preview = ready_export(env, rules, ratio=0.5)
     manifest = json.loads(record.manifest)
@@ -1573,7 +1593,7 @@ def duplicate_fixture(env):
     (root / "b").mkdir()
     for relative in ("a/a.png", "b/b.png", "b/disabled.png"):
         shutil.copyfile(first, root / relative)
-    _, images = imported(env, root, "images")
+    _, images = historical_imported(env, root)
     disabled = next(i for i in images if i.file_name == "disabled.png")
     env.images.change_enabled(
         env.users["owner"], PROJECT, [{"image_id": disabled.id, "version": 1, "enabled": False}]
@@ -2112,7 +2132,7 @@ def test_pinned_hash_group_overrides_ratio_and_reports_stratum_deviation(env):
     (root / "ratio").mkdir()
     shutil.copyfile(first, root / "ratio/duplicate.png")
     picture(root / "ratio/unique.png", 42)
-    _, images = imported(env, root, "images")
+    _, images = historical_imported(env, root)
     # Annotation status alone is irrelevant to an empty exported label file.
     env.images.replace(env.users["owner"], PROJECT, images[0].id, 1, [])
     rules = rules_for(env, {"fixed": "train"})
@@ -2156,7 +2176,7 @@ def test_unsplittable_small_strata_report_limits(env, count, ratio, reason):
     first = picture(root / "0.png")
     for n in range(1, count):
         shutil.copyfile(first, root / f"{n}.png")
-    imported(env, root, "images")
+    historical_imported(env, root)
     preview = env.exports.preview(env.users["owner"], PROJECT, ratio, labels(), rules_for(env))
     stat = preview["directory_stats"][0]
     assert stat["negative_images"] == count
@@ -2220,7 +2240,7 @@ def test_independent_hash_groups_reach_attainable_stratified_target(env):
         first = picture(root / f"{index}-0.png", index)
         for n in range(1, count):
             shutil.copyfile(first, root / f"{index}-{n}.png")
-    imported(env, root, "images")
+    historical_imported(env, root)
     for seed in range(12):
         preview = env.exports.preview(
             env.users["owner"], PROJECT, 0.5, labels(), rules_for(env), seed
@@ -2319,3 +2339,466 @@ def test_screening_saves_over_200_changes_atomically_and_rolls_back_stale_tail(e
             )
         )
         assert all(not image.enabled and image.version == 2 for image in rows)
+
+
+def test_import_deduplicates_batch_before_mapping_and_creates_no_empty_directory(env):
+    root = env.home / "dedup"
+    first = picture(root / "train/images/a.png")
+    (root / "train/labels").mkdir(parents=True)
+    (root / "train/labels/a.txt").write_text("0 0.5 0.5 0.2 0.2")
+    (root / "val/images").mkdir(parents=True)
+    (root / "val/labels").mkdir(parents=True)
+    shutil.copyfile(first, root / "val/images/b.png")
+    (root / "val/labels/b.txt").write_text("1 0.5 0.5 0.4 0.4")
+    (root / "data.yaml").write_text(
+        yaml.safe_dump(
+            {"train": "train/images", "val": "val/images", "names": ["object", "unused"]}
+        )
+    )
+    preview = env.images.preview(env.users["owner"], PROJECT, "dedup")
+    assert {
+        k: preview[k] for k in ("total_images", "new_images", "existing_images", "duplicate_images")
+    } == {"total_images": 2, "new_images": 1, "existing_images": 0, "duplicate_images": 1}
+    assert preview["source_classes"] == [{"source_id": 0, "name": "object"}]
+    batch, task = submit_import(env, root, None)
+    result = json.loads(run_task(env, task.id))
+    assert result["images"] == result["new_images"] == result["duplicate_images"] == 1
+    assert len(result["image_ids"]) == 1
+    directories = env.images.directories(env.users["owner"], PROJECT)
+    assert len(directories) == 1 and directories[0]["name"] == "train_images"
+    with Session(env.engine) as db:
+        assert db.scalar(select(func.count(ImageAsset.id))) == 1
+        assert db.scalar(select(func.count(ImageAnnotation.id))) == 1
+        assert (
+            db.scalar(select(func.count(ProjectLabel.id)).where(ProjectLabel.project_id == PROJECT))
+            == 1
+        )
+        assert db.get(ImageImport, batch.id).status == "ready"
+
+
+def test_incremental_import_reuses_directories_preserves_annotations_and_disabled_images(env):
+    root = yolo_fixture(env.home / "source")
+    _, images = imported(env, root)
+    train = next(i for i in images if i.file_name == "train.png")
+    env.images.change_enabled(
+        env.users["owner"], PROJECT, [{"image_id": train.id, "version": 1, "enabled": False}]
+    )
+    before = env.images.get(env.users["owner"], PROJECT, train.id)
+    old_directories = env.images.directories(env.users["owner"], PROJECT)
+    (root / "train/labels/train.txt").write_text("0 0.4 0.4 0.1 0.1")
+    # All duplicates creates neither a task, a batch nor an unused new class.
+    preview = env.images.preview(env.users["owner"], PROJECT, "source")
+    assert preview["new_images"] == 0 and preview["existing_images"] == 3
+    assert preview["source_classes"] == []
+    with pytest.raises(ValueError, match="没有可新增"):
+        env.images.create_import(
+            env.users["owner"],
+            PROJECT,
+            "source",
+            None,
+            preview["fingerprint"],
+            [{"source_id": 0, "new_label_name": "unused"}],
+            True,
+        )
+    picture(root / "train/images/added.png", 83)
+    (root / "train/labels/added.txt").write_text("0 0.5 0.5 0.3 0.3")
+    picture(root / "val/images/added.png", 84)
+    (root / "val/labels/added.txt").write_text("")
+    preview = env.images.preview(env.users["owner"], PROJECT, "source")
+    assert (preview["total_images"], preview["new_images"], preview["existing_images"]) == (5, 2, 3)
+    batch, task = submit_import(env, root, None)
+    result = json.loads(run_task(env, task.id))
+    assert result["images"] == 2
+    assert {d["id"] for d in env.images.directories(env.users["owner"], PROJECT)} == {
+        d["id"] for d in old_directories
+    }
+    with Session(env.engine) as db:
+        assert db.scalar(select(func.count(ImageImport.id))) == 2
+        assert db.scalar(select(func.count(Task.id))) == 2
+        assert db.scalar(select(func.count(ImageAsset.id))) == 5
+        assert (
+            db.scalar(
+                select(func.count(ImageDirectory.id)).where(ImageDirectory.import_id == batch.id)
+            )
+            == 0
+        )
+    after = env.images.get(env.users["owner"], PROJECT, train.id)
+    assert (after[0].enabled, after[0].version, after[0].annotation_revision) == (False, 2, 1)
+    assert [(a.id, a.x_min, a.x_max) for a in before[1]] == [
+        (a.id, a.x_min, a.x_max) for a in after[1]
+    ]
+
+
+@pytest.mark.parametrize("child_first", [False, True])
+def test_incremental_import_matches_full_home_source_directory_across_root_choices(
+    env, child_first
+):
+    root = env.home / "sources/a"
+    child = root / "train/images"
+    picture(child / "first.png", 10)
+    _, images = imported(env, child if child_first else root, "images")
+    directory_id = images[0].directory_id
+    picture(child / "second.png", 11)
+    _, task = submit_import(env, root if child_first else child, "images")
+    run_task(env, task.id)
+    items, _, total, _ = env.images.list_images(env.users["owner"], PROJECT)
+    assert total == 2 and {i.directory_id for i in items} == {directory_id}
+    added = next(i for i in items if i.file_name == "second.png")
+    assert added.source_relative_path == (
+        "second.png" if child_first else "train/images/second.png"
+    )
+    # Same relative directory under another root must not be merged.
+    other = env.home / "sources/b"
+    picture(other / "train/images/third.png", 12)
+    _, task = submit_import(env, other, "images")
+    run_task(env, task.id)
+    assert len(env.images.directories(env.users["owner"], PROJECT)) == 2
+
+
+def test_same_content_other_root_skips_and_deleted_asset_can_be_imported_again(env):
+    root = env.home / "first"
+    first = picture(root / "one.png")
+    _, [image] = imported(env, root, "images")
+    target = env.home / "second"
+    target.mkdir()
+    shutil.copyfile(first, target / "different-name.png")
+    preview = env.images.preview(env.users["owner"], PROJECT, "second")
+    assert preview["existing_images"] == 1 and preview["new_images"] == 0
+    env.images.change_enabled(
+        env.users["owner"], PROJECT, [{"image_id": image.id, "version": 1, "enabled": False}]
+    )
+    env.images.delete(env.users["owner"], PROJECT, [{"image_id": image.id, "version": 2}])
+    _, task = submit_import(env, root, "images")
+    run_task(env, task.id)
+    new = env.images.list_images(env.users["owner"], PROJECT)[0]
+    assert len(new) == 1 and new[0].id != image.id
+
+
+def test_changed_bytes_at_existing_source_path_requires_rename_without_overwriting(env):
+    root = env.home / "source"
+    path = picture(root / "one.png")
+    _, [image] = imported(env, root, "images")
+    old_hash = image.content_sha256
+    # Replace the source inode so hardlink fallback cannot modify the managed original.
+    path.unlink()
+    picture(path, 99)
+    preview = env.images.preview(env.users["owner"], PROJECT, "source")
+    assert "已有不同内容" in preview["errors"][0]["message"]
+    with pytest.raises(ValueError, match="来源存在错误"):
+        env.images.create_import(
+            env.users["owner"], PROJECT, "source", None, preview["fingerprint"], [], True
+        )
+    assert env.images.get(env.users["owner"], PROJECT, image.id)[0].content_sha256 == old_hash
+
+
+@pytest.mark.parametrize("phase", ["preview", "create_lock", "worker_scan", "worker_publish"])
+def test_import_project_asset_set_cas_rejects_changes_atomically(env, monkeypatch, phase):
+    _, images = imported(env)
+    root = env.home / "increment"
+    picture(root / "added.png", 72)
+    preview = env.images.preview(env.users["owner"], PROJECT, "increment")
+
+    def mutate():
+        with Session(env.engine) as db:
+            db.get(ImageAsset, images[0].id).content_sha256 = "a" * 64
+            db.commit()
+
+    if phase == "preview":
+        mutate()
+    elif phase == "create_lock":
+        original = env.images._scan
+
+        def changed(*args, **kwargs):
+            result = original(*args, **kwargs)
+            mutate()
+            return result
+
+        monkeypatch.setattr(env.images, "_scan", changed)
+    if phase in {"preview", "create_lock"}:
+        with pytest.raises(ImageConflict, match="已变化"):
+            env.images.create_import(
+                env.users["owner"], PROJECT, "increment", "images", preview["fingerprint"], [], True
+            )
+    else:
+        batch, task = submit_import(env, root, "images")
+        if phase == "worker_scan":
+            mutate()
+        else:
+            original = env.worker._heartbeat
+
+            def changed(task_id, progress):
+                original(task_id, progress)
+                if progress >= 95:
+                    mutate()
+
+            monkeypatch.setattr(env.worker, "_heartbeat", changed)
+        run_task(env, task.id, "failed")
+        assert not (env.workspace / "projects" / PROJECT / "images" / batch.id).exists()
+    with Session(env.engine) as db:
+        assert db.scalar(select(func.count(ImageAsset.id))) == 3
+        assert db.scalar(select(func.count(ImageDirectory.id))) == 3
+        assert db.scalar(select(func.count(Task.id))) == (
+            1 if phase in {"preview", "create_lock"} else 2
+        )
+
+
+@pytest.mark.parametrize(
+    "legacy_result,missing_new_file", [(False, False), (True, False), (False, True), (True, True)]
+)
+def test_incremental_ready_retry_checks_exact_batch_assets_without_directory_import_id(
+    env, legacy_result, missing_new_file
+):
+    root = env.home / "source"
+    picture(root / "old.png", 10)
+    imported(env, root, "images")
+    picture(root / "new.png", 11)
+    batch, task = submit_import(env, root, "images")
+    result = json.loads(run_task(env, task.id))
+    shutil.rmtree(root)
+    with Session(env.engine) as db:
+        assert (
+            db.scalar(
+                select(func.count(ImageDirectory.id)).where(ImageDirectory.import_id == batch.id)
+            )
+            == 0
+        )
+        added = db.get(ImageAsset, result["image_ids"][0])
+        if missing_new_file:
+            (env.workspace / added.file_path).unlink()
+        old = db.get(Task, task.id)
+        if legacy_result:
+            result.pop("image_ids")
+            old.result = json.dumps(result)
+        old.status, old.lease_owner = "running", "dead-worker"
+        old.lease_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            minutes=5
+        )
+        db.commit()
+    run_task(env, task.id, "failed" if missing_new_file else "succeeded")
+    with Session(env.engine) as db:
+        assert db.scalar(select(func.count(ImageAsset.id))) == 2
+        assert db.scalar(select(func.count(ImageDirectory.id))) == 1
+        assert db.get(ImageImport, batch.id).status == "ready"
+
+
+def test_list_images_multiple_directory_filters_and_summary_cover_full_filtered_range(env):
+    root = env.home / "many"
+    for index in range(76):
+        picture(root / ("a" if index < 65 else "b") / f"match-{index:02}.png", index, size=(8, 8))
+    imported(env, root, "images")
+    with Session(env.engine) as db:
+        for index, image in enumerate(
+            db.scalars(select(ImageAsset).order_by(ImageAsset.file_name))
+        ):
+            image.enabled = index % 2 == 0
+            image.annotation_status = "labeled" if index % 3 == 0 else "pending"
+        db.commit()
+    directories = env.images.directories(env.users["owner"], PROJECT)
+    first_id, second_id = [d["id"] for d in directories]
+    client = client_for(env)
+    url = f"/api/v1/projects/{PROJECT}/images"
+    response = client.get(url, params=[("directory_id", first_id), ("directory_id", second_id)])
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert len(payload["items"]) == 50 and payload["total"] == 76
+    assert payload["summary"] == {"enabled_images": 38, "labeled_images": 26}
+    response = client.get(
+        url,
+        params={
+            "directory_id": first_id,
+            "enabled": "true",
+            "annotation_status": "labeled",
+            "search": "match",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 11
+    assert response.json()["summary"] == {"enabled_images": 11, "labeled_images": 11}
+    none = client.get(url, params={"directory_id": "missing"}).json()
+    assert none["total"] == 0 and none["summary"] == {"enabled_images": 0, "labeled_images": 0}
+    # Service-level legacy string callers and filtered neighbors retain the same ordering.
+    items, _, total, summary = env.images.list_images(
+        env.users["owner"], PROJECT, directory_id=first_id
+    )
+    assert total == 65 and summary == {"enabled_images": 33, "labeled_images": 22}
+    neighbors = client.get(
+        f"{url}/{items[0].id}/neighbors",
+        params=[("directory_id", first_id), ("directory_id", second_id)],
+    ).json()
+    assert neighbors["previous_id"] is None and neighbors["next_id"] == items[1].id
+
+
+@pytest.mark.parametrize("operation", ["cancel", "publish_failure", "lease_lost", "commit"])
+def test_incremental_import_failure_does_not_change_reused_directory_or_labels(
+    env, monkeypatch, operation
+):
+    root = yolo_fixture(env.home / "source")
+    _, images = imported(env, root)
+    before_directories = env.images.directories(env.users["owner"], PROJECT)
+    picture(root / "train/images/added.png", 91)
+    (root / "train/labels/added.txt").write_text("0 0.5 0.5 0.2 0.2")
+    batch, task = submit_import(
+        env, root, mappings=[{"source_id": 0, "new_label_name": "must_rollback"}]
+    )
+    if operation == "publish_failure":
+        import vision_dataset_workbench.image_import_task as implementation
+
+        def fail(*args):
+            raise OSError("publication failed")
+
+        monkeypatch.setattr(implementation.os, "replace", fail)
+    elif operation == "commit":
+        from sqlalchemy import event
+
+        def fail_commit(db):
+            if db.get(ImageImport, batch.id).status == "ready":
+                raise ValueError("publication commit failed")
+
+        event.listen(env.worker._session_factory, "before_commit", fail_commit)
+    else:
+        original = env.worker._heartbeat
+
+        def interrupt(task_id, progress):
+            original(task_id, progress)
+            if progress >= 95:
+                with Session(env.engine) as db:
+                    stored = db.get(Task, task_id)
+                    if operation == "cancel":
+                        stored.cancel_requested = True
+                    else:
+                        stored.lease_owner = "replacement-worker"
+                    db.commit()
+
+        monkeypatch.setattr(env.worker, "_heartbeat", interrupt)
+    try:
+        run_task(
+            env, task.id, {"cancel": "canceled", "lease_lost": "running"}.get(operation, "failed")
+        )
+    finally:
+        if operation == "commit":
+            event.remove(env.worker._session_factory, "before_commit", fail_commit)
+    assert env.images.directories(env.users["owner"], PROJECT) == before_directories
+    with Session(env.engine) as db:
+        assert set(db.scalars(select(ImageAsset.id))) == {i.id for i in images}
+        assert db.scalar(select(func.count(ImageAnnotation.id))) == 1
+        assert (
+            db.scalar(select(func.count(ProjectLabel.id)).where(ProjectLabel.project_id == PROJECT))
+            == 1
+        )
+    assert not (env.workspace / "projects" / PROJECT / "images" / batch.id).exists()
+    assert not list((env.workspace / "tmp").iterdir())
+
+
+def test_hash_deduplication_is_project_scoped(env):
+    root = env.home / "shared-source"
+    picture(root / "one.png")
+    preview = env.images.preview(env.users["owner"], "other-project", "shared-source")
+    _, task = env.images.create_import(
+        env.users["owner"], "other-project", "shared-source", None, preview["fingerprint"], [], True
+    )
+    run_task(env, task.id)
+    _, [image] = imported(env, root, "images")
+    assert image.content_sha256 == file_digest(root / "one.png")
+    with Session(env.engine) as db:
+        assert db.scalar(select(func.count(ImageAsset.id))) == 2
+
+
+@pytest.mark.parametrize("incremental", [False, True])
+def test_queued_legacy_import_without_project_fingerprint_still_recovers(env, incremental):
+    root = yolo_fixture(env.home / "source")
+    if incremental:
+        imported(env, root)
+        picture(root / "train/images/added.png", 91)
+    used_names = {d["name"] for d in env.images.directories(env.users["owner"], PROJECT)}
+    batch, task = submit_import(env, root)
+    with Session(env.engine) as db:
+        db.get(Task, task.id).payload = json.dumps({"import_id": batch.id})
+        stored = db.get(ImageImport, batch.id)
+        stored.fingerprint = scan_images(root, "yolo_detect", used_names=used_names).fingerprint
+        if incremental:
+            stored.class_mapping = json.dumps([{"source_id": 0, "new_label_name": "legacy-unused"}])
+        db.commit()
+    run_task(env, task.id)
+    assert env.images.list_images(env.users["owner"], PROJECT)[2] == (4 if incremental else 3)
+    with Session(env.engine) as db:
+        assert db.scalar(select(func.count(ImageDirectory.id))) == 3
+        assert (
+            db.scalar(select(func.count(ProjectLabel.id)).where(ProjectLabel.project_id == PROJECT))
+            == 1
+        )
+
+
+def test_all_duplicate_create_api_returns_error_without_creating_a_task(env):
+    imported(env)
+    client = client_for(env)
+    url = f"/api/v1/projects/{PROJECT}/image-imports"
+    preview = client.post(url + "/preview", headers=ORIGIN, json={"root_path": "source"}).json()
+    assert preview["new_images"] == 0 and preview["existing_images"] == 3
+    response = client.post(
+        url,
+        headers=ORIGIN,
+        json={
+            "root_path": "source",
+            "fingerprint": preview["fingerprint"],
+            "confirm_warnings": True,
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "没有可新增" in response.json()["detail"]
+    with Session(env.engine) as db:
+        assert db.scalar(select(func.count(Task.id))) == 1
+        assert db.scalar(select(func.count(ImageImport.id))) == 1
+
+
+def test_incremental_unpublished_expired_lease_recovers_into_reused_directory(env):
+    root = env.home / "source"
+    picture(root / "old.png", 10)
+    _, [old_image] = imported(env, root, "images")
+    picture(root / "new.png", 11)
+    batch, task = submit_import(env, root, "images")
+    destination = env.workspace / "projects" / PROJECT / "images" / batch.id
+    destination.mkdir()
+    (destination / "uncommitted.txt").write_text("orphaned staging")
+    with Session(env.engine) as db:
+        stored = db.get(Task, task.id)
+        stored.status, stored.lease_owner = "running", "dead-worker"
+        stored.lease_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            minutes=5
+        )
+        db.get(ImageImport, batch.id).status = "running"
+        db.commit()
+    result = json.loads(run_task(env, task.id))
+    assert result["images"] == 1
+    assert not (destination / "uncommitted.txt").exists()
+    items, _, total, _ = env.images.list_images(env.users["owner"], PROJECT)
+    assert total == 2 and {i.directory_id for i in items} == {old_image.directory_id}
+    assert not list((env.workspace / "tmp").iterdir())
+
+
+def test_list_summary_respects_label_and_enabled_filters(env):
+    _, images = imported(env)
+    positive = next(i for i in images if i.file_name == "train.png")
+    env.images.change_enabled(
+        env.users["owner"], PROJECT, [{"image_id": positive.id, "version": 1, "enabled": False}]
+    )
+    client = client_for(env)
+    response = client.get(
+        f"/api/v1/projects/{PROJECT}/images", params={"label_id": LABEL, "enabled": "false"}
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["summary"] == {"enabled_images": 0, "labeled_images": 1}
+
+
+def test_import_task_api_omits_internal_recovery_ids_but_keeps_summary(env):
+    root = yolo_fixture(env.home / "source")
+    _, task = submit_import(env, root)
+    result = json.loads(run_task(env, task.id))
+    assert result["image_ids"]
+    response = client_for(env).get(f"/api/v1/projects/{PROJECT}/tasks")
+    assert response.status_code == 200
+    returned = next(item for item in response.json()["items"] if item["id"] == task.id)
+    assert "image_ids" not in returned["result"]
+    assert returned["result"]["images"] == result["images"]
+    with Session(env.engine) as db:
+        assert json.loads(db.get(Task, task.id).result)["image_ids"] == result["image_ids"]

@@ -308,3 +308,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 视频短码与图片ID使用同一缩略图身份标记。 */
+.vdw-media-id {
+  position: absolute;
+  z-index: 1;
+  right: 2px;
+  bottom: 2px;
+  padding: 1px 2px;
+  color: #c9fff0;
+  font: 13px var(--vdw-mono);
+  background: rgb(13 23 32 / 72%);
+}

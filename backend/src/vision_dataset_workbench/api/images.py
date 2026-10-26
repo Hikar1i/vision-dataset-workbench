@@ -140,7 +140,7 @@ class DuplicateRequest(BaseModel):
 
 
 def image_filters(
-    directory_id: str | None = None,
+    directory_id: list[str] | None = Query(default=None),
     search: str | None = Query(default=None, max_length=512),
     annotation_status: Literal["pending", "labeled"] | None = None,
     enabled: bool | None = None,
@@ -215,12 +215,13 @@ def images(
     try:
         if page_size not in {50, 100, 200}:
             raise ValueError("page_size 必须为 50、100 或 200")
-        items, annotations, total = image_service(request).list_images(
+        items, annotations, total, summary = image_service(request).list_images(
             user, project_id, page=page, page_size=page_size, **filters
         )
         return {
             "items": [image_response(i, annotations) for i in items],
             "total": total,
+            "summary": summary,
             "page": page,
             "page_size": page_size,
         }

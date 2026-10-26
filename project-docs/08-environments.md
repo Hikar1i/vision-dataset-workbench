@@ -172,3 +172,5 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 ## 外部工具验证
 
 视频导入和抽帧要求 `ffmpeg`、`ffprobe` 可执行；yt-dlp 是后端锁定的 Python 依赖。当前真实链路已验证三者可完成媒体探测、缩略图、本地物化、HTTP 下载、JPG/PNG 抽帧和重采样替换。本地视频物化依次尝试 reflink、hardlink 和分块 copy，并在任务结果记录实际方式；删除外部源路径不影响已落地文件，但 hardlink 回退仍共享 inode，外部程序原地改写源文件会同时改变工作区副本。需要写隔离时应确保文件系统支持 reflink，或接受 copy 回退。抽帧使用兼容较旧 FFmpeg 的 `-vsync vfr`；启动时的显式能力/版本检查仍待实现。运行时版本必须与容器和 CI 基线一致；不得重现遗留项目中 README、pyproject 和 Docker 分别声明不同 Python 版本的情况。
+
+图像目录重复导入会按项目内SHA-256跳过现有图片（含停用），预检显示新增/已存在/批内重复；源目录补图后重导只新增并复用原目录。不从来源同步删除或标注修改，同一来源路径替换图像内容需改名后导入。归档删除的资产可以重新导入。升级后需重启API与Worker加载导入逻辑，重新预检后提交，历史重复不会自动停用。

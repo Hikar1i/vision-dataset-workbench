@@ -17,6 +17,7 @@ const props = defineProps<{
   imageHeight: number
   annotations: PreviewAnnotation[]
   labelColors: Record<string, string>
+  imageId?: string
   sequence?: number
   timeOffset?: number
   current?: boolean
@@ -50,6 +51,7 @@ watch(() => props.imageUrl, () => {failed.value=false})
       />
     </svg>
     <span v-if="timeOffset !== undefined" class="timestamp">{{ formatFrameTimestamp(timeOffset) }}</span>
+    <code v-if="imageId" class="vdw-media-id" :title="imageId">{{ imageId.slice(0, 8).toUpperCase() }}</code>
     <span v-if="sequence !== undefined" class="sequence">#{{ sequence }}</span>
     <span class="frame-status" :class="disabled ? 'is-disabled' : 'is-enabled'">{{ disabled ? '已停用' : '已启用' }}</span>
   </div>

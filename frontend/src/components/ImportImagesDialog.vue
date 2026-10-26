@@ -17,7 +17,7 @@ const busy = ref(false)
 const error = ref('')
 let generation = 0
 let labelGeneration = 0
-const canSubmit = computed(() => preview.value && !preview.value.errors.length && (!preview.value.warnings.length || confirmed.value) && !busy.value)
+const canSubmit = computed(() => preview.value && (preview.value.new_images ?? preview.value.total_images)>0 && !preview.value.errors.length && (!preview.value.warnings.length || confirmed.value) && !busy.value)
 watch([root, ignoreAnnotations], () => {generation++; preview.value = null; mappings.value = []; confirmed.value = false; error.value = ''})
 watch([() => props.modelValue, () => props.projectId], async ([open]) => {
   generation++
@@ -61,18 +61,19 @@ async function submit() {
 }
 </script>
 <template>
-  <el-dialog append-to-body :model-value="modelValue" title="导入图像目录" width="920px" @update:model-value="emit('update:modelValue', $event)">
+  <el-dialog append-to-body top="6vh" :model-value="modelValue" title="导入图像目录" width="min(1040px, calc(100vw - 32px))" @update:model-value="emit('update:modelValue', $event)">
     <div class="import-form">
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <p>自动识别图像目录或 YOLO 目标检测数据集；目录内的标注或配置有误时，请修复后重新预检。</p>
       <label><el-switch v-model="ignoreAnnotations" :disabled="busy" aria-label="不使用目录内的标注和类别" />不使用目录内的标注和类别</label>
-      <p data-test="image-import-negative-hint">开启后仅导入图像。无目标框的图片（包括尚未标注图片）导出为负样本；含目标但尚未标注时，请先补标注，或停用图片 / 排除目录。</p>
       <ServerFilePicker v-if="modelValue" v-model="root" mode="directory" />
       <VButton :loading="busy" @click="inspect">预检当前目录</VButton>
       <template v-if="preview">
         <p data-test="resolved-import-format">识别格式：{{ preview.format === 'yolo_detect' ? 'YOLO 目标检测数据集' : '无标注图像目录' }}</p>
-        <p>{{ preview.root_name }} · {{ preview.total_images }} 张图片 · {{ preview.annotation_count }} 个矩形框 · 忽略 {{ preview.ignored_files }} 个附加文件</p>
-        <el-table :data="preview.directories" max-height="220"><el-table-column prop="name" label="导入目录名" /><el-table-column prop="source_relative_path" label="来源目录" /><el-table-column prop="total_images" label="图片" width="90" /><el-table-column prop="labeled_images" label="已标注" width="90" /></el-table>
+        <p>{{ preview.root_name }} · 扫描 {{ preview.total_images }} 张图片 · 新增 {{ preview.new_images ?? preview.total_images }} 张 · 已存在 {{ preview.existing_images ?? 0 }} 张 · 批内重复 {{ preview.duplicate_images ?? 0 }} 张</p>
+        <p>新增图片含 {{ preview.annotation_count }} 个矩形框 · 忽略 {{ preview.ignored_files }} 个附加文件。同内容图片自动跳过，保留系统内已有标注和启停状态；再次导入只补充新图片。</p>
+        <el-alert v-if="preview.new_images===0" title="没有可新增的图片，所有图片内容均已存在或在本批次内重复。" type="info" :closable="false" />
+        <el-table :data="preview.directories" max-height="220"><el-table-column prop="name" label="导入目录名" /><el-table-column prop="source_relative_path" label="来源目录" /><el-table-column prop="total_images" label="扫描" width="70" /><el-table-column prop="new_images" label="新增" width="70" /><el-table-column prop="existing_images" label="已存在" width="80" /><el-table-column prop="duplicate_images" label="批内重复" width="90" /></el-table>
         <div v-for="mapping in mappings" :key="mapping.source_id" class="mapping-row">
           <span :title="mapping.sourceName">来源类别 {{ mapping.source_id }}：{{ mapping.sourceName }}</span>
           <el-select v-model="mapping.target" aria-label="映射至项目标签"><el-option value="__new__" label="新建项目标签" /><el-option v-for="label in labels" :key="label.id" :value="label.id" :label="label.name" /></el-select>
@@ -89,5 +90,5 @@ async function submit() {
   </el-dialog>
 </template>
 <style scoped>
-.import-form {display:grid;gap:14px;max-height:calc(80vh - 150px);overflow-y:auto}.import-form>label {display:flex;align-items:center;gap:20px}.mapping-row{display:grid;grid-template-columns:130px 240px 1fr;gap:12px;align-items:center}.mapping-row>span{min-width:0;overflow-wrap:anywhere}.issues{max-height:170px;overflow:auto;padding:12px;background:var(--vdw-surface-2);font-size:13px}.issues p{margin:4px 0}
+.import-form {display:grid;gap:14px;max-height:calc(90vh - 150px);overflow-y:auto}.import-form>label {display:flex;align-items:center;gap:20px}.mapping-row{display:grid;grid-template-columns:130px 240px 1fr;gap:12px;align-items:center}.mapping-row>span{min-width:0;overflow-wrap:anywhere}.issues{max-height:170px;overflow:auto;padding:12px;background:var(--vdw-surface-2);font-size:13px}.issues p{margin:4px 0}
 </style>

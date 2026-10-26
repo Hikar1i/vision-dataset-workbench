@@ -94,7 +94,7 @@ owner 由 `projects.creator_id` 推导，不创建成员行，因此不能通过
 | `images` | 目录、原名/来源路径、受管图/缩略图相对路径、SHA-256、正尺寸、字节数和实际物化方式；enabled、pending/labeled、revision/version≥1、最后自动操作 ID；目录内来源路径唯一 |
 | `image_annotations` | 图片级联、标签 RESTRICT；Float 矩形、import/manual/model、可空置信度及稳定顺序；非负左上角、正面积、置信度范围 CHECK；尺寸边界由服务校验 |
 
-只展示 ready 批次。空 TXT 对应 labeled＋零框；缺 TXT、纯图片及自动零检测结果为 pending。该字段仅描述标注进度，导出正负样本按保留类别的实际框数判断，pending 零框同样是负样本。没有单独“确认无目标”状态转换。导入图片位于 `projects/<id>/images/<import id>/`，缩略图在其 thumbnails 子目录；UUID 文件身份不作为目录显示名。删除停用图片会归档图片、缩略图、目录及框元数据并移除资产行；已有 DatasetExport 不改变。本轮自动识别/忽略标注及目录分层调整无需新增schema迁移。
+目录所属批次ready后展示图片。增量导入按来源完整home相对目录路径复用目录，`ImageDirectory.import_id`仍指首次创建目录的批次；图片文件路径可归属于后续导入批次，Task.result.image_ids记录当批新增资产，ready恢复按该集合校验（旧结果按批次存储路径回退）。SHA-256去重由持有项目写屏障的服务实现，未增加唯一索引或迁移，历史重复保留供显式清理。空 TXT 对应 labeled＋零框；缺 TXT、纯图片及自动零检测结果为 pending。该字段仅描述标注进度，导出正负样本按保留类别的实际框数判断，pending 零框同样是负样本。没有单独“确认无目标”状态转换。导入图片位于 `projects/<id>/images/<import id>/`，缩略图在其 thumbnails 子目录；UUID 文件身份不作为目录显示名。删除停用图片会归档图片、缩略图、目录及框元数据并移除资产行；已有 DatasetExport 不改变。本轮自动识别/忽略标注及目录分层调整无需新增schema迁移。
 
 图片导入/导出发布把文件移动与数据库提交结合，并保留失败补偿；图片标注与标签写入先持有项目写屏障并检查活动数据任务。训练保存/启动与快照/项目删除先领取 SQLite 写锁，阻止并发建立失效引用。被单/多配置或历史冻结输入引用的快照和项目返回409；引用记录无法解析时拒绝删除。归档元数据包括四表，删除前显式移除图片框到标签的 RESTRICT 边。
 

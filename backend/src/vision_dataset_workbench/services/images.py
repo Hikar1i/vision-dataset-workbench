@@ -10,7 +10,7 @@ import json
 from sqlalchemy import Integer, delete, func, select, tuple_
 from sqlalchemy.orm import sessionmaker
 
-from ..image_import import fingerprint, scan_images, _inside
+from ..image_import import fingerprint as import_fingerprint, scan_images, _inside
 from ..models import ImageAnnotation, ImageAsset, ImageDirectory, ImageImport, ProjectLabel, Task
 from ..storage.paths import HomePathResolver
 from .labels import normalize_label_name
@@ -53,6 +53,40 @@ def validate_class_mapping(database, project_id, classes, mappings):
             mapping["new_label_name"] = name
 
 
+def import_project_state(db, project_id):
+    return {
+        "images": [
+            tuple(row)
+            for row in db.execute(
+                select(
+                    ImageAsset.id,
+                    ImageAsset.content_sha256,
+                    ImageAsset.directory_id,
+                    ImageAsset.source_relative_path,
+                )
+                .join(ImageDirectory)
+                .where(ImageDirectory.project_id == project_id)
+                .order_by(ImageAsset.id)
+            )
+        ],
+        "directories": [
+            tuple(row)
+            for row in db.execute(
+                select(
+                    ImageDirectory.id,
+                    ImageDirectory.name,
+                    ImageDirectory.source_relative_path,
+                    ImageImport.source_path,
+                    ImageImport.status,
+                )
+                .join(ImageImport)
+                .where(ImageDirectory.project_id == project_id)
+                .order_by(ImageDirectory.sort_order, ImageDirectory.id)
+            )
+        ],
+    }
+
+
 class ImageService:
     def __init__(self, engine, settings, workspace, projects):
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
@@ -72,18 +106,14 @@ class ImageService:
     def _scan(self, project_id, root_path, format=None, ignore_annotations=False):
         _inside(self.paths.home, self.paths.home / root_path)
         with self._session_factory() as db:
-            used = set(
-                db.scalars(
-                    select(ImageDirectory.name).where(ImageDirectory.project_id == project_id)
-                )
-            )
+            state = import_project_state(db, project_id)
         return scan_images(
             self.paths.resolve_existing(root_path),
             format,
             ignore_annotations=ignore_annotations,
-            used_names=used,
+            used_names={row[1] for row in state["directories"]},
             workspace=self.workspace,
-        )
+        ).plan_import(self.paths.home, state)
 
     def preview(self, actor, project_id, root_path, format=None, ignore_annotations=False):
         self.access(actor, project_id)
@@ -106,18 +136,17 @@ class ImageService:
             raise ValueError("来源存在错误，请修复后重新预检")
         if scan.fingerprint != fingerprint:
             raise ImageConflict("来源或目录名称已变化，请重新预检")
+        if not scan.images:
+            raise ValueError("没有可新增的图片，所有图片内容均已存在或在本批次内重复")
         if scan.warnings and not confirm_warnings:
             raise ValueError("请确认预检警告")
         at = now_utc()
         with self._session_factory() as db:
             image_project_write_barrier(db, project_id)
-            current_names = set(
-                db.scalars(
-                    select(ImageDirectory.name).where(ImageDirectory.project_id == project_id)
-                )
-            )
-            if any(d["name"] in current_names for d in scan.directories):
-                raise ImageConflict("目录已变化，请重新预检")
+            if scan.project_state_fingerprint != import_fingerprint(
+                import_project_state(db, project_id)
+            ):
+                raise ImageConflict("项目图片或目录已变化，请重新预检")
             validate_class_mapping(db, project_id, scan.classes, mappings)
             import_id, task_id = str(uuid4()), str(uuid4())
             task = Task(
@@ -127,7 +156,12 @@ class ImageService:
                 type="import_images",
                 status="queued",
                 progress=0,
-                payload=json.dumps({"import_id": import_id}),
+                payload=json.dumps(
+                    {
+                        "import_id": import_id,
+                        "import_state_fingerprint": scan.project_state_fingerprint,
+                    }
+                ),
                 created_at=at,
                 updated_at=at,
             )
@@ -169,7 +203,8 @@ class ImageService:
             .where(ImageDirectory.project_id == project_id, ImageImport.status == "ready")
         )
         if directory_id:
-            query = query.where(ImageAsset.directory_id == directory_id)
+            values = [directory_id] if isinstance(directory_id, str) else directory_id
+            query = query.where(ImageAsset.directory_id.in_(values))
         if search:
             query = query.where(ImageAsset.file_name.contains(search, autoescape=True))
         if annotation_status:
@@ -211,7 +246,14 @@ class ImageService:
         self.access(actor, project_id)
         with self._session_factory() as db:
             query = self.query(project_id, **filters)
-            total = db.scalar(select(func.count()).select_from(query.subquery()))
+            filtered = query.subquery()
+            total, enabled_count, labeled_count = db.execute(
+                select(
+                    func.count(),
+                    func.sum(filtered.c.enabled.cast(Integer)),
+                    func.sum((filtered.c.annotation_status == "labeled").cast(Integer)),
+                )
+            ).one()
             items = list(
                 db.scalars(
                     query.order_by(
@@ -225,7 +267,15 @@ class ImageService:
                 )
             )
             annotations = self.annotations(db, [i.id for i in items])
-            return items, annotations, total
+            return (
+                items,
+                annotations,
+                total,
+                {
+                    "enabled_images": enabled_count or 0,
+                    "labeled_images": labeled_count or 0,
+                },
+            )
 
     def get(self, actor, project_id, image_id):
         self.access(actor, project_id)
@@ -443,7 +493,7 @@ class ImageService:
             }
 
         return {
-            "fingerprint": fingerprint(
+            "fingerprint": import_fingerprint(
                 [
                     [
                         i.id,

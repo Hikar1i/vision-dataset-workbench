@@ -100,7 +100,7 @@ const isImage = Boolean(route.params.imageId)
 const currentImage = ref<ImageAsset | null>(null)
 const neighbors = ref<{previous_id: string | null; next_id: string | null}>({previous_id:null,next_id:null})
 const imageFilters: ImageFilters = {
-  directory_id: typeof route.query.directory_id === 'string' ? route.query.directory_id : undefined,
+  directory_id: Array.isArray(route.query.directory_id) ? route.query.directory_id.filter((value): value is string => typeof value === 'string') : typeof route.query.directory_id === 'string' ? route.query.directory_id : undefined,
   search: typeof route.query.search === 'string' ? route.query.search : undefined,
   annotation_status: route.query.annotation_status === 'pending' || route.query.annotation_status === 'labeled' ? route.query.annotation_status : undefined,
   enabled: route.query.enabled === 'true' ? true : route.query.enabled === 'false' ? false : undefined,

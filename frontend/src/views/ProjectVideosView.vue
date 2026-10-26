@@ -694,7 +694,7 @@ const headerHost = useProjectHeaderHost()
                     alt=""
                     @error="hideBrokenThumbnail"
                   />
-                  <code>{{ video.short_code }}</code>
+                  <code class="vdw-media-id">{{ video.short_code }}</code>
                 </div>
                 <div>
                   <strong :title="video.title">{{ video.title }}</strong>
@@ -1298,15 +1298,7 @@ const headerHost = useProjectHeaderHost()
   object-fit: cover;
 }
 
-.thumbnail code {
-  position: absolute;
-  right: 2px;
-  bottom: 2px;
-  padding: 1px 2px;
-  color: #c9fff0;
-  font: 13px var(--vdw-mono);
-  background: rgb(13 23 32 / 72%);
-}
+
 
 .media-identity strong,
 .media-identity p {

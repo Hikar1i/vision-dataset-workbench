@@ -10,7 +10,7 @@ import AutoAnnotationCategorySelect from '../components/AutoAnnotationCategorySe
 const mocks = vi.hoisted(() => ({
   routeLeaveGuard: vi.fn(),
   routeUpdateGuard: vi.fn(),
-  route: { params: { id: 'project-id', videoId: 'video-id', imageId: undefined as string | undefined }, query: {} as Record<string, string> },
+  route: { params: { id: 'project-id', videoId: 'video-id', imageId: undefined as string | undefined }, query: {} as Record<string, string | string[]> },
   routerBack: vi.fn(),
   routerReplace: vi.fn(),
   getProject: vi.fn(),
@@ -1241,9 +1241,9 @@ describe('AnnotationWorkbenchView', () => {
 
 describe('image annotation context', () => {
   const imported = { id: 'imported', label_id: 'label-id', x_min: 10.1, y_min: 20.2, x_max: 10.4, y_max: 20.6, source: 'import', confidence: null }
-  async function openImage() {
+  async function openImage(directory: string | string[] = 'test') {
     mocks.route.params.imageId = 'image-a'
-    mocks.route.query = { directory_id: 'test', annotation_status: 'pending', enabled: 'true', search: 'helmet' }
+    mocks.route.query = { directory_id: directory, annotation_status: 'pending', enabled: 'true', search: 'helmet' }
     mocks.getImage.mockResolvedValue({ id: 'image-a', directory_id: 'test', file_name: 'a.jpg', source_relative_path: 'test/a.jpg', width: 640, height: 480, enabled: true, version: 2, annotation_revision: 3, annotation_status: 'labeled', annotations: [imported], file_size: 1024, materialization: 'copy' })
     mocks.getImageAnnotations.mockResolvedValue({ image_id: 'image-a', annotation_revision: 3, annotation_status: 'labeled', items: [imported] })
     mocks.imageNeighbors.mockResolvedValue({ previous_id: null, next_id: 'image-b' })
@@ -1263,6 +1263,12 @@ describe('image annotation context', () => {
     await w.get('[data-test="expand-all-objects"]').trigger('click')
     expect(w.text()).toContain('导入')
     expect(w.find('.filmstrip').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('preserves multiple directory filters when loading image neighbors', async () => {
+    const w = await openImage(['train', 'valid'])
+    expect(mocks.imageNeighbors).toHaveBeenCalledWith('project-id', 'image-a', expect.objectContaining({ directory_id: ['train', 'valid'] }))
     w.unmount()
   })
 
