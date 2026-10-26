@@ -1,5 +1,6 @@
 import { ApiError, json } from './auth'
 import type { ProjectTask } from './media'
+import { uploadFilenameHeaders } from './uploadFilename'
 
 export type EvaluationDataset = {
   id: string
@@ -52,7 +53,7 @@ export const listModelEvaluations = (projectId: string) =>
 export async function uploadEvaluationDataset(projectId: string, name: string, file: File) {
   const response = await fetch(
     `/api/v1/model-projects/${projectId}/evaluation-datasets?${new URLSearchParams({ name })}`,
-    { method: 'POST', credentials: 'same-origin', headers: { 'X-Filename': file.name }, body: file },
+    { method: 'POST', credentials: 'same-origin', headers: uploadFilenameHeaders(file), body: file },
   )
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))

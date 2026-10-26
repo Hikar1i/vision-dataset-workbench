@@ -31,6 +31,7 @@ from ..services.training import (
 from ..training.telemetry import training_telemetry
 from ..training.events import terminal_snapshot
 from ..training.hyperparameters import effective_parameters
+from ..training.state import aggregate_progress
 from .auth import current_user, require_same_origin
 
 router = APIRouter(prefix="/api/v1", tags=["training"])
@@ -241,7 +242,7 @@ def task_response(
         "description": task.description,
         "status": task.status,
         "mode": task.mode,
-        "progress": task.progress,
+        "progress": aggregate_progress(models),
         "model_count": len(models),
         "default_dataset_export_id": task.default_dataset_export_id,
         "default_dataset_mode": task.default_dataset_mode,

@@ -137,6 +137,8 @@ def execute_model_evaluation(
             json.dumps(
                 {
                     "path": str(prepared),
+                    # Ultralytics requires both keys even though this task only calls val.
+                    "train": "images",
                     "val": "images",
                     "names": {index: name for index, name in enumerate(model_classes)},
                 },
@@ -149,6 +151,7 @@ def execute_model_evaluation(
             raise ModelEvaluationCanceled("evaluation canceled")
         results = runner.val(
             data=str(data_file),
+            split="val",
             conf=config["conf"],
             iou=config["iou"],
             batch=1,

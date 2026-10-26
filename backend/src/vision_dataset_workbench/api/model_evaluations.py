@@ -19,6 +19,7 @@ from ..services.model_evaluations import (
 )
 from .auth import current_user, require_same_origin
 from .media import TaskResponse, _task_response
+from .upload_filename import MAX_ENCODED_FILENAME_LENGTH, upload_filename
 
 router = APIRouter(prefix="/api/v1", tags=["model-evaluations"])
 
@@ -176,13 +177,17 @@ async def create_dataset(
     user: Annotated[User, Depends(current_user)],
     name: Annotated[str, Query(min_length=1, max_length=128)],
     x_filename: Annotated[str, Header(max_length=512)] = "dataset.zip",
+    x_filename_encoded: Annotated[
+        str | None, Header(max_length=MAX_ENCODED_FILENAME_LENGTH)
+    ] = None,
 ):
     require_same_origin(request)
     try:
         service(request).require_manage(user, project_id)
     except ModelEvaluationError as exc:
         _raise(exc)
-    if Path(x_filename).suffix.lower() != ".zip":
+    filename = upload_filename(x_filename, x_filename_encoded)
+    if Path(filename).suffix.lower() != ".zip":
         raise HTTPException(status_code=422, detail="只支持 ZIP 测试集")
     upload_root = service(request).workspace / "tmp" / "evaluation-api"
     upload_root.mkdir(parents=True, exist_ok=True)

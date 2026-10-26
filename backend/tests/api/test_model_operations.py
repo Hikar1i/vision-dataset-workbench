@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 from io import BytesIO
 import json
+from urllib.parse import quote
 import zipfile
+import pytest
 from PIL import Image
 from sqlalchemy.orm import Session
 
@@ -41,11 +43,14 @@ def capabilities():
 
 def client_for(app, username):
     client = TestClient(app)
-    assert client.post(
-        "/api/v1/auth/login",
-        headers=ORIGIN,
-        json={"username": username, "password": PASSWORD},
-    ).status_code == 200
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            headers=ORIGIN,
+            json={"username": username, "password": PASSWORD},
+        ).status_code
+        == 200
+    )
     return client
 
 
@@ -75,9 +80,7 @@ def setup_app(tmp_path):
         )
         database.commit()
     engine.dispose()
-    app = create_app(
-        RuntimeSettings(home=home, workspace=workspace), capabilities=capabilities()
-    )
+    app = create_app(RuntimeSettings(home=home, workspace=workspace), capabilities=capabilities())
     admin, viewer = client_for(app, "admin"), client_for(app, "viewer")
     project = admin.post(
         "/api/v1/model-projects",
@@ -146,9 +149,9 @@ def test_model_artifact_api_permissions_download_and_stale_state(tmp_path):
     downloaded = viewer.get(f"/api/v1/model-artifacts/{artifact_id}/download")
     assert downloaded.status_code == 200 and downloaded.content == b"onnx"
     assert 'filename="detector-onnx-' in downloaded.headers["content-disposition"]
-    assert viewer.delete(
-        f"/api/v1/model-artifacts/{artifact_id}", headers=ORIGIN
-    ).status_code == 403
+    assert (
+        viewer.delete(f"/api/v1/model-artifacts/{artifact_id}", headers=ORIGIN).status_code == 403
+    )
 
     with app.state.model_artifact_service._session_factory() as database:
         model = database.get(InferenceModel, "model-id")
@@ -156,12 +159,19 @@ def test_model_artifact_api_permissions_download_and_stale_state(tmp_path):
         database.commit()
     assert admin.get(url).json()[0]["status"] == "stale"
     assert admin.get(f"/api/v1/model-artifacts/{artifact_id}/download").status_code == 409
-    assert admin.delete(
-        f"/api/v1/model-artifacts/{artifact_id}", headers=ORIGIN
-    ).status_code == 204
+    assert admin.delete(f"/api/v1/model-artifacts/{artifact_id}", headers=ORIGIN).status_code == 204
 
 
-def test_image_inference_api_restores_downloads_and_saves_session(tmp_path):
+@pytest.mark.parametrize(
+    "filename_headers",
+    [
+        {"X-Filename": "sample.png"},
+        {"X-Filename": "%2F.png"},
+        {"X-Filename-Encoded": quote("图像 100% + #😀.png")},
+        {"X-Filename-Encoded": quote("图" * 200 + ".png")},
+    ],
+)
+def test_image_inference_api_restores_downloads_and_saves_session(tmp_path, filename_headers):
     app, admin, _viewer, _workspace = setup_app(tmp_path)
 
     class Runner:
@@ -173,7 +183,7 @@ def test_image_inference_api_restores_downloads_and_saves_session(tmp_path):
     Image.new("RGB", (24, 24), "white").save(image, format="PNG")
     created = admin.post(
         "/api/v1/models/model-id/inference?input_type=image&format=pt",
-        headers={**ORIGIN, "X-Filename": "sample.png"},
+        headers={**ORIGIN, **filename_headers},
         content=image.getvalue(),
     )
     assert created.status_code == 202, created.text
@@ -187,7 +197,11 @@ def test_image_inference_api_restores_downloads_and_saves_session(tmp_path):
     assert admin.get("/api/v1/models/model-id/inference/current").json() is None
 
 
-def test_evaluation_dataset_and_evaluation_api_permissions(tmp_path):
+@pytest.mark.parametrize(
+    "filename_headers",
+    [{"X-Filename": "set.zip"}, {"X-Filename-Encoded": quote("安全帽测试集 100%.ZIP")}],
+)
+def test_evaluation_dataset_and_evaluation_api_permissions(tmp_path, filename_headers):
     app, admin, viewer, workspace = setup_app(tmp_path)
     image = BytesIO()
     Image.new("RGB", (8, 8), "white").save(image, format="PNG")
@@ -198,7 +212,7 @@ def test_evaluation_dataset_and_evaluation_api_permissions(tmp_path):
         bundle.writestr("labels/sample.txt", "0 0.5 0.5 0.2 0.2\n")
     project_id = admin.get("/api/v1/model-projects").json()[0]["id"]
     url = f"/api/v1/model-projects/{project_id}/evaluation-datasets?name=Safety"
-    headers = {**ORIGIN, "X-Filename": "set.zip"}
+    headers = {**ORIGIN, **filename_headers}
     assert viewer.post(url, headers=headers, content=archive.getvalue()).status_code == 403
     created = admin.post(url, headers=headers, content=archive.getvalue())
     assert created.status_code == 202, created.text
@@ -221,3 +235,44 @@ def test_evaluation_dataset_and_evaluation_api_permissions(tmp_path):
     assert evaluation.status_code == 202, evaluation.text
     assert evaluation.json()["evaluation"]["config"]["conf"] == 0.001
     assert viewer.get(f"/api/v1/model-projects/{project_id}/evaluations").status_code == 200
+
+
+def test_chinese_video_upload_is_queued_without_running_inference(tmp_path):
+    app, admin, _viewer, workspace = setup_app(tmp_path)
+    created = admin.post(
+        "/api/v1/models/model-id/inference?input_type=video&format=pt",
+        headers={**ORIGIN, "X-Filename-Encoded": quote(r"C:\fakepath\中文视频 100%.mp4")},
+        content=b"isolated-video-placeholder",
+    )
+    assert created.status_code == 202, created.text
+    run = created.json()
+    assert run["status"] == "queued"
+    with app.state.model_inference_service._session_factory() as database:
+        task = database.get(Task, run["task_id"])
+        assert task.type == "infer_video" and task.status == "queued"
+    downloaded = admin.get(f"/api/v1/model-inference/{run['id']}/files/source")
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"isolated-video-placeholder"
+    assert list(workspace.rglob("source.mp4"))
+
+
+def test_upload_endpoints_reject_invalid_filename_headers_before_writing_files(tmp_path):
+    app, admin, _viewer, workspace = setup_app(tmp_path)
+    project_id = admin.get("/api/v1/model-projects").json()[0]["id"]
+    urls = [
+        "/api/v1/models/model-id/inference?input_type=image",
+        f"/api/v1/model-projects/{project_id}/evaluation-datasets?name=Invalid",
+    ]
+    for url in urls:
+        for encoded in ["%FF.png", "bad%", "bad%0D%0Aname.zip", "a" * 513, "%F0%9F%98%80" * 513]:
+            response = admin.post(
+                url,
+                headers={**ORIGIN, "X-Filename": "safe.zip", "X-Filename-Encoded": encoded},
+                content=b"must-not-be-written",
+            )
+            assert response.status_code == 422, response.text
+    assert not (workspace / "tmp/inference-uploads").exists()
+    assert not (workspace / "tmp/evaluation-api").exists()
+    with app.state.model_evaluation_service._session_factory() as database:
+        assert database.query(Task).count() == 0
+        assert database.query(EvaluationDataset).count() == 0

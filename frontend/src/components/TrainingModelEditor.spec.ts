@@ -1,4 +1,3 @@
-import { toRaw } from 'vue'
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 
@@ -173,13 +172,13 @@ describe("TrainingModelEditor", () => {
   });
 });
 
-it('names the initiating model and explains that a ready snapshot exits inheritance', async () => {
+it('requires existing datasets and offers no inline image export action', async () => {
   const row = model()
   const wrapper = mountEditor(row)
   await wrapper.setProps({ resources: { ...resources, image_projects: [{ id: 'image-project', name: '图片集', total_images: 10, can_export: true }] } })
-  const button = wrapper.findAll('button').find(b => b.text() === '为检测模型创建图像快照')!
-  expect(wrapper.text()).toContain('快照就绪后，此模型将退出继承并使用新快照，任务默认不变。')
-  await button.trigger('click')
-  expect(toRaw(wrapper.emitted('createSnapshot')?.[0]?.[0] as TrainingModelDraft)).toBe(row)
+  expect(wrapper.text()).not.toContain('创建图像快照')
+  expect(wrapper.text()).not.toContain('快照就绪后')
+  expect(wrapper.findAll('button').map(button=>button.text())).toContain('单数据集')
+  expect(wrapper.findAll('button').map(button=>button.text())).toContain('多数据集')
   expect(row.dataset_mode).toBe('inherit')
 })

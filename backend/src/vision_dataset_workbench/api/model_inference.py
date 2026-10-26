@@ -1,6 +1,5 @@
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Annotated, Literal, NoReturn
 from uuid import uuid4
 
@@ -19,6 +18,7 @@ from ..services.model_inference import (
     ModelInferenceService,
 )
 from .auth import current_user, require_same_origin
+from .upload_filename import MAX_ENCODED_FILENAME_LENGTH, upload_filename
 
 router = APIRouter(prefix="/api/v1", tags=["model-inference"])
 
@@ -126,9 +126,13 @@ async def create_inference(
     max_det: Annotated[int, Query(ge=1, le=3000)] = 300,
     stride: Annotated[int, Query(ge=1, le=120)] = 1,
     x_filename: Annotated[str, Header(max_length=512)] = "upload",
+    x_filename_encoded: Annotated[
+        str | None, Header(max_length=MAX_ENCODED_FILENAME_LENGTH)
+    ] = None,
     x_replace_inference: Annotated[bool, Header()] = False,
 ) -> ModelInferenceResponse:
     require_same_origin(request)
+    filename = upload_filename(x_filename, x_filename_encoded)
     limit = IMAGE_LIMIT if input_type == "image" else VIDEO_LIMIT
     upload_root = service(request).workspace / "tmp" / "inference-uploads"
     upload_root.mkdir(parents=True, exist_ok=True)
@@ -147,7 +151,7 @@ async def create_inference(
             input_type,
             format,
             target,
-            Path(x_filename).name,
+            filename,
             {
                 "confidence": confidence,
                 "iou": iou,

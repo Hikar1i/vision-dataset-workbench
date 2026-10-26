@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -90,13 +91,39 @@ def setup(tmp_path):
     return engine, workspace, ModelEvaluationService(engine, workspace, models=models), owner
 
 
-def test_evaluation_remaps_class_order_and_persists_metrics(tmp_path, monkeypatch):
+@pytest.mark.parametrize("validate_with_ultralytics", [False, True])
+def test_evaluation_remaps_class_order_and_persists_metrics(
+    tmp_path, monkeypatch, validate_with_ultralytics
+):
+    check_dataset = None
+    if validate_with_ultralytics:
+        config_dir = tmp_path / "yolo-config"
+        config_dir.mkdir()
+        monkeypatch.setenv("YOLO_CONFIG_DIR", str(config_dir))
+        data_utils = pytest.importorskip("ultralytics.data.utils")
+        # The dataset contract is real; font downloads are unrelated and must stay offline.
+        monkeypatch.setattr(data_utils, "check_font", lambda *_args: None)
+        check_dataset = data_utils.check_det_dataset
     engine, workspace, service, owner = setup(tmp_path)
+    source = workspace / "model-projects/project/evaluation-datasets/dataset"
+    Image.new("RGB", (8, 8), "black").save(source / "images/negative.png")
+    Image.new("RGB", (8, 8), "red").save(source / "images/car.png")
+    (source / "labels/negative.txt").write_text("")
+    (source / "labels/car.txt").write_text("1 0.5 0.5 0.3 0.3\n")
+    original_files = {path: path.read_bytes() for path in source.rglob("*") if path.is_file()}
+    with Session(engine) as database:
+        dataset = database.get(EvaluationDataset, "dataset")
+        dataset.image_count = 3
+        dataset.label_count = 2
+        dataset.negative_count = 1
+        database.commit()
     evaluation, task = service.create_evaluation(owner, "project", "model", "dataset", "pt")
     with Session(engine) as database:
         stored = database.get(Task, task.id)
         stored.status = "running"
         database.commit()
+
+    calls = []
 
     class FakeYolo:
         names = {0: "car", 1: "plane"}
@@ -105,6 +132,18 @@ def test_evaluation_remaps_class_order_and_persists_metrics(tmp_path, monkeypatc
             pass
 
         def val(self, **arguments):
+            calls.append(arguments)
+            config = json.loads(Path(arguments["data"]).read_text())
+            if check_dataset:
+                checked = check_dataset(arguments["data"], autodownload=False, split="val")
+                assert (
+                    checked["train"]
+                    == checked["val"]
+                    == str(Path(arguments["data"]).parent / "images")
+                )
+                assert checked["names"] == {0: "car", 1: "plane"}
+            assert config["train"] == config["val"] == "images"
+            assert arguments["split"] == "val"
             output = Path(arguments["project"]) / arguments["name"]
             output.mkdir()
             (output / "confusion_matrix.png").write_bytes(b"png")
@@ -117,7 +156,9 @@ def test_evaluation_remaps_class_order_and_persists_metrics(tmp_path, monkeypatc
     import vision_dataset_workbench.model_evaluation_task as executor
 
     monkeypatch.setattr(
-        executor.importlib, "import_module", lambda _name: SimpleNamespace(YOLO=FakeYolo)
+        executor,
+        "importlib",
+        SimpleNamespace(import_module=lambda _name: SimpleNamespace(YOLO=FakeYolo)),
     )
     temp = workspace / "tmp" / task.id
     temp.mkdir(parents=True)
@@ -131,10 +172,16 @@ def test_evaluation_remaps_class_order_and_persists_metrics(tmp_path, monkeypatc
         lambda _id: False,
         GpuLeaseService(engine, devices=(GpuDevice(0, "GPU", 1024, "GPU-a", "8.6"),)),
     )
+    assert len(calls) == 1
     assert (temp / "prepared" / "labels" / "sample.txt").read_text().startswith("1 ")
+    assert (temp / "prepared" / "labels" / "car.txt").read_text().startswith("0 ")
+    assert (temp / "prepared" / "labels" / "negative.txt").read_text() == ""
+    assert len(list((temp / "prepared" / "images").iterdir())) == 3
+    assert all(path.read_bytes() == content for path, content in original_files.items())
     with Session(engine) as database:
         stored = database.get(ModelEvaluation, evaluation.id)
         assert stored.status == "succeeded"
+        assert json.loads(stored.class_mapping) == {"0": 1, "1": 0}
         assert json.loads(stored.metrics)["map50_95"] == 0.6
         assert stored.confusion_matrix_path and stored.pr_curve_path
         database.add(

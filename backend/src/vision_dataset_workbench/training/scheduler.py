@@ -370,6 +370,7 @@ class TrainingScheduler:
             events = self.workspace / run.storage_path / "events.jsonl"
             if not events.is_file():
                 return
+            progress_changed = False
             with events.open("rb") as source:
                 source.seek(run.event_offset)
                 while line := source.readline():
@@ -413,6 +414,7 @@ class TrainingScheduler:
                         run.current_epoch = max(run.current_epoch, epoch)
                         run.progress = min(100, epoch / run.target_epochs * 100)
                         model.progress = run.progress
+                        progress_changed = True
                     elif kind == "artifact":
                         directory = Path(run.storage_path)
                         run.best_path = (
@@ -437,6 +439,8 @@ class TrainingScheduler:
                             self._finish_run(db, run, "succeeded", None)
                         except Exception as exc:
                             self._finish_run(db, run, "failed", str(exc))
+                if progress_changed and run.status in {"running", "canceling"}:
+                    self._refresh_task(db, model.training_task_id, _now())
                 db.commit()
 
     def _start_available(self) -> None:
@@ -611,7 +615,10 @@ class TrainingScheduler:
             cleanup_intermediate_checkpoints(self.workspace / run.storage_path)
         except Exception as exc:
             run.warning = f"checkpoint cleanup failed: {exc}"[:2000]
-        task = db.get(TrainingTask, model.training_task_id)
+        self._refresh_task(db, model.training_task_id, now)
+
+    def _refresh_task(self, db, task_id: str, now: datetime) -> None:
+        task = db.get(TrainingTask, task_id)
         assert task
         models = list(
             db.scalars(

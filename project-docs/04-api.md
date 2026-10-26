@@ -25,7 +25,7 @@
 
 `POST /dataset-exports/preview` 共用导出请求、只计算图片划分。图片创建请求在原 name/train_ratio/labels 上增加 `directory_rules=[{directory_id,included,mode:train|val|ratio,train_ratio:null|0..1}]`、split_seed 和 preview_fingerprint；规则恰好覆盖 ready 目录，null 继承统一比例，固定角色禁止附带比例。源状态变化使提交409；视频旧请求保持，拒绝图片专用规则。预览含每目录有效/实际/目标数、偏差、排除与类别过滤统计。启用且可用无框图片（含pending）参与负样本；按保留类别分别对正负样本设置目录训练/验证目标。全局 positive_samples/negative_samples/target_positive_samples/target_negative_samples 均为 {train,val}，目录含相应正负计数/目标/偏差；stratification_warnings 标明不足、固定角色或不可拆重复组限制，不伪造样本。图片 manifest v2 不含虚构视频统计；响应新增 project_type、total/train/val_samples，同时保留原 frames 字段。
 
-`GET /training/resources` 新增可消费 image_projects（id/name/can_export/total_images）及快照类型/样本计数，单侧快照仍列出。训练输入字段仍只接受 ready 快照；快捷创建本身不改选，ready 后才回填。最终单/多输入均要求 train、val 非空且训练集中有目标框。快照/项目删除检查单、多及冻结历史引用，存在引用返回409且不暴露其他项目名称。
+`GET /training/resources` 新增可消费 image_projects（id/name/can_export/total_images）及快照类型/样本计数，单侧快照仍列出。为兼容既有客户端保留 image_projects 字段；当前训练页面不使用它创建快照。训练输入字段只接受已有 ready 快照。最终单/多输入均要求 train、val 非空且训练集中有目标框。快照/项目删除检查单、多及冻结历史引用，存在引用返回409且不暴露其他项目名称。
 
 ## 2026-08 新增接口
 
@@ -161,6 +161,8 @@
 | `GET /api/v1/projects/{id}/dataset-exports/{export_id}/download` | 项目成员 | 流式下载 ready 产物 ZIP |
 | `DELETE /api/v1/projects/{id}/dataset-exports/{export_id}` | owner/editor + 同源 | 逻辑删除非活动导出，返回 204 |
 
+在线推理图片/视频与评估 ZIP 上传使用 `X-Filename-Encoded: encodeURIComponent(file.name)`，由服务端严格 UTF-8 百分号解码一次；优先于兼容旧客户端的 `X-Filename`（旧头不解码）。编码头必须为 ASCII、最长6144字符，解码后最多512字符；非法编码、控制字符或无效文件名返回422，路径仅取末级名称。请求体仍为原始文件字节，原有大小/扩展名/权限检查不变。
+
 目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接，并从列表隐藏当前工作区。`GET /filesystem` 的 `extensions` 可重复传入，当前只接受服务端白名单中的视频扩展名和 `pt`；不传扩展名时只返回目录。返回条目的 `type` 为小写真实类型：目录是 `dir`，文件是去掉点号的扩展名。`search` 是不区分大小写的当前目录文件名包含匹配，在分页前执行且不递归。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户、项目和任务列表最大页大小 200，视频列表最大页大小 999，帧列表保持自身接口约束。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
 
 认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误、状态或模式限制。普通账号由唯一系统管理员创建，创建/重置响应仅当次返回随机密码，数据库只保存 Argon2 哈希；首次改密前除 `/auth/me`、改密和退出外的业务请求返回 403 `password_change_required`。用户已通过初始密码建立会话，因此该次强制改密不重复要求当前密码；完成首次改密后的普通改密仍必须提交并校验当前密码。禁用账号立即撤销其会话；系统管理员不可禁用、重置或删除。
@@ -219,6 +221,8 @@ viewer 可查看、播放和下载授权范围内的原始视频、采样帧、�
 模型项目默认私有，创建者是永久 owner，可将有效普通账号授权为 editor/viewer；系统管理员自建项目仍以 owner 身份呈现，访问他人项目时无需成员授权即可管理。内置“YOLO11目标检测官方模型”对所有 active 普通账号提供隐式 viewer 权限，不接受成员授权，也不能作为普通账号的自动标注、转换、推理、评估或训练输入；管理员可编辑该项目并导入、编辑或删除其中的具体模型，但不能删除整个内置项目。training 项目只随训练草稿创建并继承关联模型项目的访问来源，不能手工创建。普通项目和模型删除从查询隐藏记录并归档受管文件；可见范围内的 ready 模型和已有产物允许下载。
 
 系统超参数模板全局可读且不可修改；用户模板归属指定模型项目，按项目权限可见，只有 `project.update` 可创建、派生、编辑或删除，viewer 不可将其用于训练。模板响应包含 `model_project_id`、`version/updated_at`；PATCH 的旧版本返回 409。RAW 接口只接受经严格校验的单文档顶层 mapping。
+
+训练列表/详情的 `progress` 为未删除模型进度的等权平均（保留两位小数）；模型进度按已完成 epoch / 目标 epoch 计算。Worker 每批 epoch 事件同事务更新聚合；API 读取时重新聚合，兼容尚未重启的旧 Worker。
 
 训练草稿的附加参数覆盖格式固定为 `{"version":1,"set":{...},"remove":[...]}`；核心参数使用独立可空字段。模型未选择显式模板时严格继承任务最终超参；选择显式模板时只叠加模型覆盖。启动接口读取模板最新版本并冻结最终参数快照，此后模板编辑不影响已提交、运行中或已完成任务。
 

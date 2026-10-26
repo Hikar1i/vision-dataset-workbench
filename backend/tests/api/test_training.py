@@ -1,4 +1,8 @@
 import time
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,12 +23,15 @@ from vision_dataset_workbench.models import (
     ModelProject,
     Project,
     TrainingModel,
+    TrainingMetric,
     TrainingRun,
     TrainingTask,
     User,
 )
 from vision_dataset_workbench.security.passwords import hash_password
 from vision_dataset_workbench.training.scheduler import TrainingScheduler
+from vision_dataset_workbench.training.events import EventWriter
+from vision_dataset_workbench.training.state import aggregate_progress
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct horse battery staple"
@@ -298,6 +305,149 @@ def test_custom_gpu_training_runs_publish_models_and_metrics(tmp_path, monkeypat
     )
     assert first_retry.status_code == 200
     assert second_retry.json()["id"] == first_retry.json()["id"]
+
+
+def start_progress_task(tmp_path, monkeypatch, gpu_indices):
+    app, client, workspace = setup_app(tmp_path, monkeypatch)
+    created = client.post(
+        "/api/v1/training-tasks",
+        headers=ORIGIN,
+        json={
+            "code": "progress-test",
+            "name": "Progress",
+            "mode": "custom_sequence" if len(gpu_indices) > 1 else "single_model",
+            "default_dataset_export_id": "export-id",
+            "default_template_id": "00000000-0000-0000-0000-000000000002",
+            "default_base_model_id": "base-model",
+            "models": [
+                {
+                    "name": f"model-{index}",
+                    "template_id": "00000000-0000-0000-0000-000000000002",
+                    "epochs_override": 20 if index == 0 else 10,
+                    "gpu_index": gpu,
+                    "queue_order": index + 1,
+                }
+                for index, gpu in enumerate(gpu_indices)
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    task_id = created.json()["id"]
+    assert client.post(
+        f"/api/v1/training-tasks/{task_id}/start", headers=ORIGIN
+    ).status_code == 200
+    monkeypatch.setattr("vision_dataset_workbench.training.scheduler.training_telemetry", lambda: {})
+    scheduler = TrainingScheduler(
+        app.state.auth_service.engine,
+        workspace,
+        worker_id="progress-worker",
+        popen=lambda *args, **kwargs: SimpleNamespace(pid=None),
+        fake=True,
+    )
+    scheduler.tick()
+    detail = client.get(f"/api/v1/training-tasks/{task_id}").json()
+    with Session(app.state.auth_service.engine) as db:
+        runs = [db.get(TrainingRun, model["runs"][0]["id"]) for model in detail["models"]]
+        writers = [
+            EventWriter(workspace / run.storage_path / "events.jsonl", run.id, run.run_token)
+            for run in runs
+        ]
+    return app, client, scheduler, task_id, runs, writers
+
+
+@pytest.mark.parametrize("gpu_indices", [[0], [0, 1], [0, 0]])
+def test_epoch_batch_updates_overall_progress_and_preserves_lifecycle(
+    tmp_path, monkeypatch, gpu_indices
+):
+    app, client, scheduler, task_id, runs, writers = start_progress_task(
+        tmp_path, monkeypatch, gpu_indices
+    )
+    aggregate = Mock(wraps=aggregate_progress)
+    monkeypatch.setattr("vision_dataset_workbench.training.scheduler.aggregate_progress", aggregate)
+    writers[0].write("epoch_end", epoch=1, metrics={})
+    writers[0].write("epoch_end", epoch=4, metrics={})
+    scheduler._consume_events(runs[0].id)
+    with Session(app.state.auth_service.engine) as db:
+        task = db.get(TrainingTask, task_id)
+        assert task.progress == 20 / len(runs)
+        assert task.status == "running" and task.finished_at is None
+        assert db.get(TrainingRun, runs[0].id).progress == 20
+        assert db.get(TrainingMetric, (runs[0].id, 4)) is not None
+    assert aggregate.call_count == 1
+    aggregate.reset_mock()
+    scheduler._consume_events(runs[0].id)
+    writers[0].write("warning", message="test warning")
+    scheduler._consume_events(runs[0].id)
+    assert aggregate.call_count == 0
+
+    if gpu_indices == [0, 0]:
+        canceled = client.post(f"/api/v1/training-tasks/{task_id}/cancel", headers=ORIGIN)
+        assert canceled.json()["status"] == "canceling"
+    writers[0].write("epoch_end", epoch=6, metrics={})
+    scheduler._consume_events(runs[0].id)
+    if gpu_indices == [0, 1]:
+        writers[1].write("epoch_end", epoch=3, metrics={})
+        scheduler._consume_events(runs[1].id)
+    expected = 15 if gpu_indices == [0, 0] else 30
+    with Session(app.state.auth_service.engine) as db:
+        task = db.get(TrainingTask, task_id)
+        assert task.progress == expected
+        assert task.status == ("canceling" if gpu_indices == [0, 0] else "running")
+        assert task.finished_at is None
+    assert client.get(f"/api/v1/training-tasks/{task_id}").json()["progress"] == expected
+
+    if gpu_indices == [0, 0]:
+        scheduler._monitor_active()
+        expected_status = "canceled"
+    else:
+        aggregate.reset_mock()
+        for run, writer in zip(runs, writers, strict=True):
+            writer.write("epoch_end", epoch=7 if run.id == runs[0].id else 4, metrics={})
+            writer.write("failed", error="synthetic failure")
+            scheduler._consume_events(run.id)
+        assert aggregate.call_count == len(runs)
+        expected = 35 if len(runs) == 1 else 37.5
+        expected_status = "failed"
+    with Session(app.state.auth_service.engine) as db:
+        task = db.get(TrainingTask, task_id)
+        assert task.progress == expected
+        assert task.status == expected_status and task.finished_at is not None
+
+
+def test_epoch_aggregation_failure_rolls_back_event_and_model_updates(tmp_path, monkeypatch):
+    app, _client, scheduler, task_id, runs, writers = start_progress_task(
+        tmp_path, monkeypatch, [0]
+    )
+    writers[0].write("epoch_end", epoch=5, metrics={})
+    monkeypatch.setattr(
+        "vision_dataset_workbench.training.scheduler.aggregate_progress",
+        Mock(side_effect=RuntimeError("synthetic aggregation failure")),
+    )
+    with pytest.raises(RuntimeError, match="synthetic aggregation failure"):
+        scheduler._consume_events(runs[0].id)
+    with Session(app.state.auth_service.engine) as db:
+        run = db.get(TrainingRun, runs[0].id)
+        assert run.progress == run.current_epoch == run.event_offset == run.last_sequence == 0
+        assert db.get(TrainingModel, run.training_model_id).progress == 0
+        assert db.get(TrainingTask, task_id).progress == 0
+        assert db.get(TrainingMetric, (run.id, 5)) is None
+
+
+def test_task_response_aggregates_legacy_worker_progress_without_database_writes(
+    tmp_path, monkeypatch
+):
+    app, client, _scheduler, task_id, runs, _writers = start_progress_task(
+        tmp_path, monkeypatch, [0, 1]
+    )
+    with Session(app.state.auth_service.engine) as db:
+        db.get(TrainingModel, runs[0].training_model_id).progress = 40
+        db.get(TrainingModel, runs[1].training_model_id).progress = 80
+        db.commit()
+    assert client.get(f"/api/v1/training-tasks/{task_id}").json()["progress"] == 60
+    listed = client.get("/api/v1/training-tasks").json()
+    assert next(item for item in listed if item["id"] == task_id)["progress"] == 60
+    with Session(app.state.auth_service.engine) as db:
+        assert db.get(TrainingTask, task_id).progress == 0
 
 
 def test_start_reports_resource_and_hyperparameter_errors_together(tmp_path, monkeypatch):

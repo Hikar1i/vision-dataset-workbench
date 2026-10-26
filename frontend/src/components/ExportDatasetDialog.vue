@@ -16,7 +16,7 @@ import { listLabels } from '../api/labels'
 import { listVideos } from '../api/media'
 import VButton from '../ui/VButton.vue'
 
-const props = defineProps<{ modelValue: boolean; projectId: string; context?: string }>()
+const props = defineProps<{ modelValue: boolean; projectId: string }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   submitted: [value: DatasetExport]
@@ -223,7 +223,6 @@ watch([() => props.modelValue, () => props.projectId], ([open]) => {
     @update:model-value="!submitting && !duplicateBusy && emit('update:modelValue', $event)"
   >
     <div v-loading="loading" class="export-form" :class="{ 'image-export-form': isImage }">
-      <el-alert v-if="context" :title="context" type="info" :closable="false"/>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
 
       <label class="field-row">

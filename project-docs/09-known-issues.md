@@ -130,3 +130,10 @@
 - 当前 SQLite 运行库不满足安全 WAL 版本条件时自动使用 rollback journal。
 
 后续关闭其他问题时应记录关联变更、验证测试、数据迁移或运维动作，并删除已经不再成立的临时限制。
+
+## 训练与模型能力修复（2026-10-26）
+
+- 总任务进度曾只在模型终态聚合，导致模型训练中总进度仍为0；现已在 epoch 事件同事务更新，API 同时按现有模型重算，兼容旧 Worker。真实运行任务只读复核已显示总体/单模型55.5%。
+- `chrome-extension://noofnfniimcnghnkonpdlhlaeaocidbi/content-scripts/content.js` 的 `notKey`/`Control` 错误来自 DeepTranslate；用户停用扩展后确认消失，复核未捕获同类错误。应用未添加异常屏蔽。
+- 中文上传文件名改用 ASCII 编码头，兼容旧头，推理图片/视频及评估ZIP共用严格解析。
+- 测试集评估准备 YAML 原先只有 val，触发 Ultralytics 必填 train 校验；现补齐 train/val 声明且只执行 val。后台修复需 Worker 重载；旧失败记录需重新创建评估。

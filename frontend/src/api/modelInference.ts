@@ -1,4 +1,5 @@
 import { ApiError, json } from './auth'
+import { uploadFilenameHeaders } from './uploadFilename'
 
 export type ModelInferenceRun = {
   id: string
@@ -43,7 +44,7 @@ export async function createInference(
   const response = await fetch(`/api/v1/models/${modelId}/inference?${query}`, {
     method: 'POST',
     credentials: 'same-origin',
-    headers: { 'X-Filename': file.name, 'X-Replace-Inference': String(replace) },
+    headers: { ...uploadFilenameHeaders(file), 'X-Replace-Inference': String(replace) },
     body: file,
   })
   if (!response.ok) {
