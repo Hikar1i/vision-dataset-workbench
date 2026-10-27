@@ -40,6 +40,7 @@ import { trainingStatus } from '../ui/status'
 
 const route = useRoute()
 const router = useRouter()
+const permissionsTab = computed(() => route.name === 'training-task-permissions')
 const recentModelScope = computed(
   () => `training-task:${String(route.params.id)}:models`,
 )
@@ -368,12 +369,34 @@ onBeforeUnmount(() => clearInterval(timer))
           </template>
         </el-dropdown>
       </template>
+      <template v-if="task" #tabs>
+        <RouterLink :to="`/training-tasks/${task.id}`">任务详情</RouterLink>
+        <RouterLink :to="`/training-tasks/${task.id}/permissions`">权限设置</RouterLink>
+      </template>
     </PageHeader>
 
     <div class="content-body detail-body">
       <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
 
       <template v-if="task">
+        <template v-if="permissionsTab">
+        <VPanel v-if="project" title="权限归属">
+          <dl class="permission-summary">
+            <div><dt>绑定模型项目</dt><dd><RouterLink :to="`/model-projects/${project.id}`">{{ project.name }}</RouterLink></dd></div>
+            <div><dt>项目编号</dt><dd><code>{{ project.id.slice(0, 6).toUpperCase() }}</code></dd></div>
+            <div><dt>当前权限</dt><dd>{{ accessLabel(project.access) }}</dd></div>
+          </dl>
+          <p class="permission-note">成员授权覆盖当前训练任务、训练模型、日志和产物。</p>
+        </VPanel>
+
+        <ModelProjectMembersPanel
+          v-if="project"
+          :project="project"
+          scope-description="成员授权作用于绑定的 training 模型项目，并覆盖当前训练任务、训练模型、日志和产物。"
+        />
+
+        </template>
+        <template v-else>
         <VPanel>
           <div class="run-hero">
             <div class="run-hero__state">
@@ -395,21 +418,6 @@ onBeforeUnmount(() => clearInterval(timer))
             </dl>
           </div>
         </VPanel>
-
-        <VPanel v-if="project" title="权限归属">
-          <dl class="permission-summary">
-            <div><dt>绑定模型项目</dt><dd><RouterLink :to="`/model-projects/${project.id}`">{{ project.name }}</RouterLink></dd></div>
-            <div><dt>项目编号</dt><dd><code>{{ project.id.slice(0, 6).toUpperCase() }}</code></dd></div>
-            <div><dt>当前权限</dt><dd>{{ accessLabel(project.access) }}</dd></div>
-          </dl>
-          <p class="permission-note">成员授权覆盖当前训练任务、训练模型、日志和产物。</p>
-        </VPanel>
-
-        <ModelProjectMembersPanel
-          v-if="project"
-          :project="project"
-          scope-description="成员授权作用于绑定的 training 模型项目，并覆盖当前训练任务、训练模型、日志和产物。"
-        />
 
         <VPanel title="超参数模板引用">
           <div v-if="templateReferences.length" class="template-references">
@@ -561,6 +569,7 @@ onBeforeUnmount(() => clearInterval(timer))
             </VRow>
           </VTable>
         </VPanel>
+        </template>
       </template>
     </div>
   </main>

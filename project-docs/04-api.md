@@ -20,6 +20,7 @@
 | POST `/images/delete` | items=[image_id,version]，只允许停用资产，原子归档文件和元数据后删除行；返回 `{deleted:[id]}`；版本/写锁冲突409 |
 | POST `/images/{image_id}/auto-annotations` | 复用来源/模型/类别/confidence/iou 参数；候选框与新增标签，候选保存仍用 PUT |
 | POST `/images/auto-annotations` | image_ids≤200、scope=all/unannotated、overwrite 与推理参数；202 普通 auto_annotate Task，payload.scope_type=image |
+| POST `/images/auto-annotations/filtered` | 同源及 task.execute；查询参数复用图片目录/文件名/标注状态/启停/类别筛选，body 为推理参数及 overwrite；服务端冻结匹配的启用图片，不受分页或显式ID接口200条限制 |
 
 导入严格接受五列 Detect 标签和 JPEG/PNG/WEBP/BMP 单页图像；拒绝方向旋转、坏图、非有限坐标、越界类别、来源逃逸和符号链接。项目内SHA-256相同的已有图片（含停用）和批内重复跳过，只为新增图片涉及的类别建立映射入库，已有标注/启停不覆盖；源目录新增图片可重导并复用原目录，同一来源路径替换内容需改名再导入。预检指纹含项目状态；原有图片/目录集合变化时409。TXT 标注直接入库，不留档/回写；空 TXT 为已标注零框，缺 TXT 为待标注；均可作为导出负样本，已移除 confirm-negative 接口。多个同名末级目录按相对路径将分隔符替换为 `_`，名称碰撞加可读数字后缀，不用 hash 名。
 

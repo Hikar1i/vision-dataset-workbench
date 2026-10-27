@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ModelProjectDetailView from './ModelProjectDetailView.vue'
 
 const mocks = vi.hoisted(() => ({
+  routeName: 'model-project-models',
   getProject: vi.fn(),
   listModels: vi.fn(),
   listTags: vi.fn(),
@@ -18,7 +19,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('vue-router', () => ({
   RouterLink: { props: ['to'], template: '<a><slot /></a>' },
-  useRoute: () => ({ params: { id: 'project-id' } }),
+  useRoute: () => ({ params: { id: 'project-id' }, name: mocks.routeName }),
   useRouter: () => ({ push: vi.fn() }),
 }))
 vi.mock('../api/models', () => ({
@@ -55,6 +56,7 @@ const source = readFileSync(resolve('src/views/ModelProjectDetailView.vue'), 'ut
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.routeName = 'model-project-models'
   mocks.getProject.mockResolvedValue(project)
   mocks.listModels.mockResolvedValue([])
   mocks.listTags.mockResolvedValue([])
@@ -77,6 +79,7 @@ describe('ModelProjectDetailView', () => {
   })
 
   it('adds, changes, and removes model project members while protecting the owner', async () => {
+    mocks.routeName = 'model-project-permissions'
     const wrapper = mount(ModelProjectDetailView, {
       global: { plugins: [ElementPlus], stubs: { RouterLink: true, ServerFilePicker: true } },
     })

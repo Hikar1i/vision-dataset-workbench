@@ -15,7 +15,7 @@ describe('annotation preferences', () => {
   })
 
   it('ignores malformed browser state', () => {
-    localStorage.setItem('vdm:annotation-preference:project-a', '{broken')
+    localStorage.setItem('vdw:annotation-preference:project-a', '{broken')
     expect(loadAnnotationPreference('project-a')).toEqual({ reuse: false, labelId: '' })
   })
 })

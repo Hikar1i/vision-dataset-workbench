@@ -77,7 +77,7 @@ describe('FramesDialog', () => {
   it('loads all metadata but renders the default page of 100 frames', async () => {
     const { wrapper, fetch } = mountDialog(true)
     await flushPromises()
-    expect(wrapper.get('[data-test="frames-brand"]').text()).toBe('VDM / FRAMES')
+    expect(wrapper.get('[data-test="frames-brand"]').text()).toBe('VDW / FRAMES')
     expect(fetch.mock.calls.some(([url]) => String(url).includes('include_annotations=true'))).toBe(true)
     expect(wrapper.findAll('[data-test="frame-card"]')).toHaveLength(100)
     expect(wrapper.get('[data-test="total-count"]').text()).toContain('205')

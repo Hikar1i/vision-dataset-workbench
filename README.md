@@ -378,3 +378,15 @@ uv run --no-sync python -m vision_dataset_workbench.admin reset-password --works
 - [系统架构](project-docs/02-architecture.md) · [数据库与迁移](project-docs/03-database.md) · [API](project-docs/04-api.md)。
 - [测试策略](project-docs/06-testing-strategy.md) · [代码规范](project-docs/05-code-style.md) · [UI/UX 设计系统](project-docs/10-ui-ux-design-system.md)。
 - [项目背景](project-docs/01-project-background.md) · [已知问题](project-docs/09-known-issues.md)。
+
+## Agent 辅助部署
+
+将完整项目交给目标机器上的 AI Agent，在项目目录中输入以下提示词即可：
+
+```text
+当前项目是 Vision Dataset Workbench（VDW）。请阅读并按照 deploy/agent-deployment.md 的流程，在当前机器完成 Docker 部署；检测环境后自动选择 CPU 或 NVIDIA GPU，完成管理员初始化、实际登录和运行验收，并交付访问地址、登录凭据及启停方式。已有实例请保留数据，遇到必须由我提供的信息或授权时再询问。
+```
+
+[Agent 部署流程](deploy/agent-deployment.md) 包含环境检测、CPU/GPU 选择、构建或离线加载、旧实例保护、初始化和验收步骤。完整步骤保存在文档中，用户无需复制长提示词。
+
+通过 Git 获取项目即可使用上述流程。需要交付精简源码包时，可选用 [源码打包附件](deploy/package_source.py)，具体用途、文件约束和离线镜像准备见流程文档附录；该附件不是目标机部署的前置依赖。

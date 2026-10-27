@@ -2802,3 +2802,54 @@ def test_import_task_api_omits_internal_recovery_ids_but_keeps_summary(env):
     assert returned["result"]["images"] == result["images"]
     with Session(env.engine) as db:
         assert json.loads(db.get(Task, task.id).result)["image_ids"] == result["image_ids"]
+
+
+def test_filtered_image_batch_freezes_enabled_matching_images_and_checks_access(env, monkeypatch):
+    root = env.home / "filtered-batch"
+    for index, name in enumerate(
+        [
+            "alpha/keep-a.png",
+            "alpha/keep-b.png",
+            "alpha/keep-disabled.png",
+            "alpha/other.png",
+            "beta/keep-c.png",
+        ]
+    ):
+        picture(root / name, index)
+    _, images = imported(env, root, "images")
+    directory = next(i.directory_id for i in images if i.file_name == "keep-a.png")
+    disabled = next(i for i in images if i.file_name == "keep-disabled.png")
+    with Session(env.engine) as db:
+        db.get(ImageAsset, disabled.id).enabled = False
+        db.commit()
+    client = client_for(env)
+    monkeypatch.setattr(
+        client.app.state.auto_annotation_service, "_validate_model", lambda *_: None
+    )
+    url = f"/api/v1/projects/{PROJECT}/images/auto-annotations/filtered"
+    config = {
+        "model_id": "fake",
+        "categories": ["object"],
+        "confidence": 0.25,
+        "iou": 0.7,
+        "overwrite": False,
+    }
+    assert client.post(url, json=config).status_code == 403
+    assert client_for(env, "viewer").post(url, headers=ORIGIN, json=config).status_code == 403
+    response = client.post(
+        url, params={"directory_id": directory, "search": "keep"}, headers=ORIGIN, json=config
+    )
+    assert response.status_code == 202, response.text
+    with Session(env.engine) as db:
+        payload = json.loads(db.get(Task, response.json()["id"]).payload)
+    assert {item["id"] for item in payload["images"]} == {
+        i.id
+        for i in images
+        if i.directory_id == directory and i.file_name in {"keep-a.png", "keep-b.png"}
+    }
+    assert payload["overwrite"] is False
+    legacy = f"/api/v1/projects/{PROJECT}/images/auto-annotations"
+    assert (
+        client.post(legacy, headers=ORIGIN, json={**config, "image_ids": ["x"] * 201}).status_code
+        == 422
+    )

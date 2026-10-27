@@ -169,10 +169,10 @@ async function pollTasks() {
   } catch { /* Keep the last known write lock until a successful refresh. */ }
 }
 onMounted(() => {
-  void load(); window.addEventListener('vdm:tasks-settled', load)
+  void load(); window.addEventListener('vdw:tasks-settled', load)
   poll=setInterval(pollTasks,5000)
 })
-onUnmounted(() => {alive=false;requestId++; if(timer)clearTimeout(timer); if(poll)clearInterval(poll); window.removeEventListener('vdm:tasks-settled', load)})
+onUnmounted(() => {alive=false;requestId++; if(timer)clearTimeout(timer); if(poll)clearInterval(poll); window.removeEventListener('vdw:tasks-settled', load)})
 </script>
 <template>
   <main class="image-project-page">

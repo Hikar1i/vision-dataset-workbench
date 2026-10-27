@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   routerReplace: vi.fn(),
   getProject: vi.fn(),
   getImage: vi.fn(),
+  listImages: vi.fn(),
+  createFilteredImageAutoAnnotation: vi.fn(),
   getImageAnnotations: vi.fn(),
   imageNeighbors: vi.fn(),
   replaceImageAnnotations: vi.fn(),
@@ -65,6 +67,7 @@ vi.mock('../api/labels', () => ({
 }))
 vi.mock('../api/images', async original => ({
   ...await original<typeof import('../api/images')>(),
+  listImages: mocks.listImages, createFilteredImageAutoAnnotation: mocks.createFilteredImageAutoAnnotation,
   getImage: mocks.getImage, getImageAnnotations: mocks.getImageAnnotations,
   imageNeighbors: mocks.imageNeighbors, replaceImageAnnotations: mocks.replaceImageAnnotations,
 }))
@@ -878,7 +881,7 @@ describe('AnnotationWorkbenchView', () => {
 
   it('reuses the remembered project label without opening the picker', async () => {
     localStorage.setItem(
-      'vdm:annotation-preference:project-id',
+      'vdw:annotation-preference:project-id',
       JSON.stringify({ reuse: true, labelId: 'label-id' }),
     )
     const wrapper = mount(AnnotationWorkbenchView, {
@@ -1263,6 +1266,19 @@ describe('image annotation context', () => {
     await w.get('[data-test="expand-all-objects"]').trigger('click')
     expect(w.text()).toContain('导入')
     expect(w.find('.filmstrip').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('submits every enabled image in the filtered scope instead of only the current image', async () => {
+    mocks.listInferenceModels.mockResolvedValue([{ id: 'model-id', name: 'Detector', status: 'ready' }])
+    mocks.listImages.mockResolvedValue({ items: [], total: 401, summary: { enabled_images: 401, labeled_images: 1 } })
+    mocks.createFilteredImageAutoAnnotation.mockResolvedValue({ id: 'batch-task', type: 'auto_annotate', status: 'queued' })
+    const w = await openImage(['train', 'valid'])
+    expect(w.get('[data-test="run-batch-auto"]').text()).toBe('批量标注')
+    await w.get('[data-test="run-batch-auto"]').trigger('click')
+    await flushPromises()
+    expect(mocks.confirmBatch).toHaveBeenCalledWith(expect.stringContaining('401 张启用图片'), '确认批量自动标注', expect.any(Object))
+    expect(mocks.createFilteredImageAutoAnnotation).toHaveBeenCalledWith('project-id', expect.objectContaining({ directory_id: ['train', 'valid'], search: 'helmet' }), expect.objectContaining({ model_id: 'model-id' }), false)
     w.unmount()
   })
 

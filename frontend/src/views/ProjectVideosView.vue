@@ -509,10 +509,10 @@ onBeforeRouteUpdate((to, from) => {
 
 onMounted(() => {
   void load()
-  window.addEventListener('vdm:tasks-settled', refreshAfterTask)
+  window.addEventListener('vdw:tasks-settled', refreshAfterTask)
 })
 onUnmounted(() => {
-  window.removeEventListener('vdm:tasks-settled', refreshAfterTask)
+  window.removeEventListener('vdw:tasks-settled', refreshAfterTask)
   clearEnabledByAnnotationTimer()
 })
 

@@ -436,3 +436,22 @@ def auto_batch(
         )
     except ValueError as exc:
         raise_image_error(exc)
+
+
+@router.post("/images/auto-annotations/filtered", status_code=202)
+def auto_filtered_batch(
+    project_id: str,
+    payload: RunBatchAutoAnnotationRequest,
+    request: Request,
+    user: Annotated[User, Depends(current_user)],
+    filters: Annotated[dict, Depends(image_filters)],
+):
+    require_same_origin(request)
+    try:
+        return _task_response(
+            auto_annotation_service(request).create_image_batch(
+                user, project_id, image_ids=None, filters=filters, **payload.model_dump()
+            )
+        )
+    except ValueError as exc:
+        raise_image_error(exc)

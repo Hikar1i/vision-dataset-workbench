@@ -63,6 +63,12 @@ export function createAppRouter() {
             meta: { section: "模型项目", page: "模型列表" },
           },
           {
+            path: "model-projects/:id/permissions",
+            name: "model-project-permissions",
+            component: () => import("./views/ModelProjectDetailView.vue"),
+            meta: { section: "模型项目", page: "权限设置" },
+          },
+          {
             path: "model-projects/:id/evaluations",
             name: "model-project-evaluations",
             component: () => import("./views/ModelProjectEvaluationView.vue"),
@@ -130,6 +136,12 @@ export function createAppRouter() {
             name: "training-task-detail",
             component: () => import("./views/TrainingTaskDetailView.vue"),
             meta: { section: "训练任务", page: "任务详情" },
+          },
+          {
+            path: "training-tasks/:id/permissions",
+            name: "training-task-permissions",
+            component: () => import("./views/TrainingTaskDetailView.vue"),
+            meta: { section: "训练任务", page: "权限设置" },
           },
           {
             path: "training-tasks/:id/models/:modelId",

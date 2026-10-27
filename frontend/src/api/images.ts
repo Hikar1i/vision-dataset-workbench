@@ -57,3 +57,5 @@ export const previewImageDuplicates = (projectId: string) => json<ImageDuplicate
 export const disableDuplicateImages = (projectId: string, fingerprint: string) => post<{disabled_count: number; group_count: number}>(`${path(projectId)}/images/duplicates/disable`, {fingerprint})
 export const runImageAutoAnnotation = (projectId: string, imageId: string, config: AutoAnnotationConfig) => post<AutoAnnotationResult>(`${path(projectId)}/images/${imageId}/auto-annotations`, config)
 export const createImageAutoAnnotation = (projectId: string, image_ids: string[], config: AutoAnnotationConfig, overwrite: boolean, scope: 'all' | 'unannotated' = 'all') => post<ProjectTask>(`${path(projectId)}/images/auto-annotations`, {...config, image_ids, overwrite, scope})
+
+export const createFilteredImageAutoAnnotation = (projectId: string, filters: ImageFilters, config: AutoAnnotationConfig, overwrite: boolean) => post<ProjectTask>(`${path(projectId)}/images/auto-annotations/filtered?${imageQuery(filters)}`, {...config, overwrite})

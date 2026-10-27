@@ -38,6 +38,7 @@ import VTag from '../ui/VTag.vue'
 
 const route = useRoute()
 const router = useRouter()
+const permissionsTab = computed(() => route.name === 'model-project-permissions')
 const projectId = computed(() => String(route.params.id))
 const recentModelScope = computed(() => `model-project:${projectId.value}:models`)
 const project = ref<ModelProject>()
@@ -215,12 +216,13 @@ watch(projectId, loadRouteProject, { immediate: true })
       <template #tabs>
         <RouterLink :to="`/model-projects/${projectId}/models`">模型列表</RouterLink>
         <RouterLink :to="`/model-projects/${projectId}/evaluations`">模型评估</RouterLink>
+        <RouterLink :to="`/model-projects/${projectId}/permissions`">权限设置</RouterLink>
       </template>
     </PageHeader>
 
     <div v-loading="loading" class="content-body detail-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-      <div v-if="project" class="model-list-toolbar">
+      <div v-if="project && !permissionsTab" class="model-list-toolbar">
         <el-alert
           :title="project.series_type === 'training'
             ? '训练项目由训练任务同步，不能手工导入或移动模型。'
@@ -243,7 +245,7 @@ watch(projectId, loadRouteProject, { immediate: true })
         show-icon
       />
 
-      <VPanel v-if="project" title="项目信息">
+      <VPanel v-if="project && !permissionsTab" title="项目信息">
         <dl class="fact-grid">
           <div v-for="item in summary" :key="item.key">
             <dt>{{ item.key }}</dt>
@@ -263,12 +265,12 @@ watch(projectId, loadRouteProject, { immediate: true })
       </VPanel>
 
       <ModelProjectMembersPanel
-        v-if="project"
+        v-if="project && permissionsTab"
         :project="project"
         scope-description="成员授权覆盖整个模型项目及其中模型、转换产物、推理和评估资源。"
       />
 
-      <VPanel flush>
+      <VPanel v-if="!permissionsTab" flush>
         <VTable
           :columns="COLUMNS"
           :headers="['模型', '状态', '文件', '指标摘要', '更新时间', '操作']"

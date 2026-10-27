@@ -12,6 +12,7 @@ import {
   type ModelProjectMember,
 } from '../api/models'
 import VButton from '../ui/VButton.vue'
+import VField from '../ui/VField.vue'
 import VPanel from '../ui/VPanel.vue'
 import VTag from '../ui/VTag.vue'
 import { userStatus } from '../ui/status'
@@ -108,20 +109,21 @@ watch(() => props.project.id, loadMembers, { immediate: true })
     />
     <template v-else>
       <form v-if="canManage" class="member-form" @submit.prevent="addMember">
-        <el-input
-          v-model="memberUsername"
-          data-test="model-member-username"
-          placeholder="现有用户名"
-        />
-        <el-select v-model="memberRole" aria-label="成员角色">
-          <el-option label="只读" value="viewer" />
-          <el-option label="编辑者" value="editor" />
-        </el-select>
+        <VField v-slot="{ id }" label="用户名">
+          <el-input :id="id" v-model="memberUsername" data-test="model-member-username" placeholder="现有用户名" />
+        </VField>
+        <VField v-slot="{ id }" label="成员角色">
+          <el-select :id="id" v-model="memberRole" aria-label="成员角色">
+            <el-option label="只读" value="viewer" />
+            <el-option label="编辑者" value="editor" />
+          </el-select>
+        </VField>
         <VButton
           type="submit"
           data-test="add-model-member"
           :loading="changingMember === 'new'"
           :disabled="!memberUsername.trim()"
+          :title="!memberUsername.trim() ? '请输入现有用户名' : '添加成员'"
         >添加成员</VButton>
       </form>
       <div class="member-list">
@@ -156,7 +158,7 @@ watch(() => props.project.id, loadMembers, { immediate: true })
 
 <style scoped>
 .scope-description { margin: 0 0 14px; color: var(--vdw-ink-2); font-size: 14px; }
-.member-form { display: grid; grid-template-columns: minmax(180px, 1fr) 130px auto; gap: 8px; margin-bottom: 14px; }
+.member-form { display: grid; align-items: end; grid-template-columns: minmax(180px, 1fr) 130px auto; gap: 8px; margin-bottom: 14px; }
 .member-list { display: grid; gap: 8px; }
 .member-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--vdw-line); }
 .member-actions { display: flex; justify-content: flex-end; gap: 4px; }

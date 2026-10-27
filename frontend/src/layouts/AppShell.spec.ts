@@ -139,7 +139,7 @@ describe('AppShell', () => {
   it('shows implemented navigation and at most five project shortcuts', async () => {
     const { wrapper } = await mountShell()
 
-    expect(wrapper.get('[data-test="brand"]').text()).toBe('VDM')
+    expect(wrapper.get('[data-test="brand"]').text()).toBe('VDW')
     expect(wrapper.get('[data-test="nav-projects"]').text()).toContain('数据集项目')
     expect(wrapper.findAll('[data-test="recent-project"]')).toHaveLength(5)
     expect(wrapper.findAll('[data-test="recent-project"]').map((item) => item.text()))
@@ -205,8 +205,8 @@ describe('AppShell', () => {
     expect(sidebarToggle.find('.el-icon').exists()).toBe(true)
     await wrapper.get('[data-test="project-group-toggle"]').trigger('click')
 
-    expect(localStorage.getItem('vdm.sidebar-collapsed')).toBe('true')
-    expect(localStorage.getItem('vdm.nav-projects-open')).toBe('false')
+    expect(localStorage.getItem('vdw.sidebar-collapsed')).toBe('true')
+    expect(localStorage.getItem('vdw.nav-projects-open')).toBe('false')
     expect(wrapper.get('[data-test="project-group-toggle"]').attributes('aria-expanded')).toBe('false')
   })
 
@@ -222,14 +222,14 @@ describe('AppShell', () => {
   it('uses fixed icon slots while the sidebar changes width', async () => {
     const { wrapper } = await mountShell()
 
-    expect(wrapper.get('[data-test="brand"] .app-sidebar-icon').text()).toBe('VDM')
+    expect(wrapper.get('[data-test="brand"] .app-sidebar-icon').text()).toBe('VDW')
     expect(wrapper.find('[data-test="nav-projects"] .app-sidebar-icon .el-icon').exists()).toBe(true)
     expect(wrapper.find('[data-test="nav-admin-users"] .app-sidebar-icon .el-icon').exists()).toBe(true)
 
     await wrapper.get('[data-test="sidebar-toggle"]').trigger('click')
 
     expect(wrapper.get('.app-shell').classes()).toContain('app-shell--collapsed')
-    expect(wrapper.get('[data-test="brand"] .app-sidebar-icon').text()).toBe('VDM')
+    expect(wrapper.get('[data-test="brand"] .app-sidebar-icon').text()).toBe('VDW')
   })
 
   it('renders real links for navigable breadcrumb levels', async () => {

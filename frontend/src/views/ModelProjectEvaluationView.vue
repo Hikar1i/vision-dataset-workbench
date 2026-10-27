@@ -188,6 +188,7 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
       <template #tabs>
         <RouterLink :to="`/model-projects/${projectId}/models`">模型列表</RouterLink>
         <RouterLink :to="{ path: `/model-projects/${projectId}/evaluations`, query: evaluationQuery }">模型评估</RouterLink>
+        <RouterLink :to="`/model-projects/${projectId}/permissions`">权限设置</RouterLink>
       </template>
     </PageHeader>
 

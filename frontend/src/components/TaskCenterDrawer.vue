@@ -24,7 +24,7 @@ const loaded = ref(false)
 const latestTerminalAt = ref<string | null>(null)
 const knownTerminalStates = new Set<string>()
 let timer: ReturnType<typeof setInterval> | undefined
-const lastViewedKey = 'vdm.tasks-last-viewed-at'
+const lastViewedKey = 'vdw.tasks-last-viewed-at'
 
 const typeLabels = {
   import_images: '图片导入',

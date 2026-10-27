@@ -571,7 +571,7 @@ onBeforeUnmount(() => {
     <template #header>
       <header class="focus-header">
         <div class="focus-title">
-          <span data-test="frames-brand">VDM / FRAMES</span>
+          <span data-test="frames-brand">VDW / FRAMES</span>
           <strong :title="title">{{ title }}</strong>
           <code>{{ frames.length ? `FRAME 1–${frames.length}` : 'FRAME —' }}</code>
         </div>

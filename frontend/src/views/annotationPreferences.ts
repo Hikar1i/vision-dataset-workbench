@@ -1,7 +1,7 @@
 export type AnnotationPreference = { reuse: boolean; labelId: string }
 
 const fallback = (): AnnotationPreference => ({ reuse: false, labelId: '' })
-const key = (projectId: string) => `vdm:annotation-preference:${projectId}`
+const key = (projectId: string) => `vdw:annotation-preference:${projectId}`
 
 export function loadAnnotationPreference(projectId: string): AnnotationPreference {
   try {

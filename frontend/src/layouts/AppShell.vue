@@ -32,18 +32,18 @@ const user = ref<CurrentUser>();
 const fallbackProjects = ref<Project[]>([]);
 const activeProject = ref<Project>();
 const projectGroupOpen = ref(
-  localStorage.getItem("vdm.nav-projects-open") !== "false",
+  localStorage.getItem("vdw.nav-projects-open") !== "false",
 );
 const modelProjectGroupOpen = ref(
-  localStorage.getItem("vdm.nav-model-projects-open") !== "false",
+  localStorage.getItem("vdw.nav-model-projects-open") !== "false",
 );
 const fallbackModelProjects = ref<ModelProject[]>([]);
 const trainingTaskGroupOpen = ref(
-  localStorage.getItem("vdm.nav-training-tasks-open") !== "false",
+  localStorage.getItem("vdw.nav-training-tasks-open") !== "false",
 );
 const fallbackTrainingTasks = ref<TrainingTask[]>([]);
 const collapsed = ref(
-  localStorage.getItem("vdm.sidebar-collapsed") === "true",
+  localStorage.getItem("vdw.sidebar-collapsed") === "true",
 );
 const taskCenterOpen = ref(false);
 const taskCenterUnread = ref(false);
@@ -51,7 +51,7 @@ const taskBellPulse = ref(false);
 let taskBellTimer: number | undefined;
 let shortcutLoadVersion = 0;
 type UserMenuCommand = "account" | "admin" | "logout";
-const capabilityNoticeKey = "vdm.gpu-capability-notice-shown";
+const capabilityNoticeKey = "vdw.gpu-capability-notice-shown";
 
 const timestamp = (value: string | null | undefined) => Date.parse(value ?? "") || 0;
 const shortcuts = computed(() => [...fallbackProjects.value]
@@ -94,25 +94,25 @@ const sidebarExpanded = computed(() => !collapsed.value);
 
 function toggleSidebar() {
   collapsed.value = !collapsed.value;
-  localStorage.setItem("vdm.sidebar-collapsed", String(collapsed.value));
+  localStorage.setItem("vdw.sidebar-collapsed", String(collapsed.value));
 }
 
 function toggleProjectGroup() {
   projectGroupOpen.value = !projectGroupOpen.value;
-  localStorage.setItem("vdm.nav-projects-open", String(projectGroupOpen.value));
+  localStorage.setItem("vdw.nav-projects-open", String(projectGroupOpen.value));
 }
 
 function toggleModelProjectGroup() {
   modelProjectGroupOpen.value = !modelProjectGroupOpen.value;
   localStorage.setItem(
-    "vdm.nav-model-projects-open",
+    "vdw.nav-model-projects-open",
     String(modelProjectGroupOpen.value),
   );
 }
 function toggleTrainingTaskGroup() {
   trainingTaskGroupOpen.value = !trainingTaskGroupOpen.value;
   localStorage.setItem(
-    "vdm.nav-training-tasks-open",
+    "vdw.nav-training-tasks-open",
     String(trainingTaskGroupOpen.value),
   );
 }
@@ -178,7 +178,7 @@ function taskSettled(tasks: GlobalProjectTask[]) {
       position: "top-right",
     });
   }
-  window.dispatchEvent(new Event("vdm:tasks-settled"));
+  window.dispatchEvent(new Event("vdw:tasks-settled"));
   void refreshResourceShortcuts();
 }
 
@@ -243,7 +243,7 @@ onUnmounted(() => {
   >
     <aside class="app-sidebar">
       <RouterLink class="app-brand" data-test="brand" to="/overview">
-        <span class="app-sidebar-icon">VDM</span>
+        <span class="app-sidebar-icon">VDW</span>
       </RouterLink>
       <nav class="app-nav" aria-label="主导航">
         <RouterLink class="app-nav-entry" data-test="nav-overview" title="Overview" to="/overview">

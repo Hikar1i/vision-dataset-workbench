@@ -218,7 +218,7 @@ describe('ProjectVideosView', () => {
       '/api/v1/projects/project-id/videos/video-id/content',
     )
 
-    window.dispatchEvent(new Event('vdm:tasks-settled'))
+    window.dispatchEvent(new Event('vdw:tasks-settled'))
     await flushPromises()
     expect(wrapper.get('[data-test="video-row-video-id"]').classes()).toContain('vdw-row--recent')
 

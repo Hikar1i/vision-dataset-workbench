@@ -61,7 +61,7 @@ import {
   type XAnyLabelingSetting,
 } from '../api/models'
 import { listLLMConfigs, type LLMConfig } from '../api/llm'
-import { getImage, getImageAnnotations, replaceImageAnnotations, imageFileUrl, imageNeighbors, runImageAutoAnnotation, createImageAutoAnnotation, setImagesEnabled, type ImageAsset, type ImageFilters } from '../api/images'
+import { getImage, getImageAnnotations, replaceImageAnnotations, imageFileUrl, imageNeighbors, runImageAutoAnnotation, listImages, createFilteredImageAutoAnnotation, setImagesEnabled, type ImageAsset, type ImageFilters } from '../api/images'
 import { listTasks } from '../api/media'
 import { getProject } from '../api/projects'
 import AnnotationCanvas from '../components/AnnotationCanvas.vue'
@@ -659,28 +659,33 @@ async function runBatchAutoAnnotation() {
     notify.warning('该视频已停用，请先在视频资料库启用后再运行批量自动标注。')
     return
   }
-  if (!config || batchActive.value) return
-  const categoryText = config.categories.length ? config.categories.join(', ') : '本项目全类别'
-  try {
-    await ElMessageBox.confirm(
-      `将使用「${selectedModelName.value}」处理 ${isImage ? '当前图片' : `${enabledFrameCount.value} 个启用采样帧`}；类别：${categoryText}；${overwrite.value ? '覆盖已有标注' : '保留已有标注并追加结果'}。`,
-      '确认批量自动标注',
-      {
-        confirmButtonText: '确认运行',
-        cancelButtonText: '取消',
-        type: overwrite.value ? 'error' : 'warning',
-        customClass: 'batch-confirm-dialog',
-        modalClass: 'batch-confirm-mask',
-      },
-    )
-  } catch {
-    return
-  }
-  if (!await saveCurrent('batch')) return
+  if (!config || batchActive.value || inferenceRunning.value) return
   inferenceRunning.value = true
   try {
-    activeAutoTask.value = isImage && currentImage.value
-      ? await createImageAutoAnnotation(projectId, [currentImage.value.id], config, overwrite.value)
+    const count = isImage
+      ? (await listImages(projectId, imageFilters)).summary?.enabled_images ?? 0
+      : enabledFrameCount.value
+    if (!count) {
+      notify.warning('当前范围没有启用的图片或采样帧。')
+      return
+    }
+    const categoryText = config.categories.length ? config.categories.join(', ') : '本项目全类别'
+    try {
+      await ElMessageBox.confirm(
+        `将使用「${selectedModelName.value}」处理 ${isImage ? `当前筛选范围内 ${count} 张启用图片` : `${count} 个启用采样帧`}；类别：${categoryText}；${overwrite.value ? '覆盖已有标注' : '保留已有标注并追加结果'}。`,
+        '确认批量自动标注',
+        {
+          confirmButtonText: '确认运行',
+          cancelButtonText: '取消',
+          type: overwrite.value ? 'error' : 'warning',
+          customClass: 'batch-confirm-dialog',
+          modalClass: 'batch-confirm-mask',
+        },
+      )
+    } catch { return }
+    if (!await saveCurrent('batch')) return
+    activeAutoTask.value = isImage
+      ? await createFilteredImageAutoAnnotation(projectId, imageFilters, config, overwrite.value)
       : await createBatchAutoAnnotation(projectId, videoId, config, overwrite.value)
     notify.success('批量自动标注任务已创建。')
   } catch (reason) {
@@ -715,7 +720,7 @@ async function refreshAutoTask() {
       cache.clear()
       labels.value = await listLabels(projectId)
       await loadFrame(currentIndex.value)
-      window.dispatchEvent(new CustomEvent('vdm:tasks-settled'))
+      window.dispatchEvent(new CustomEvent('vdw:tasks-settled'))
     }
     if (inferenceModels.value.some((model) => model.status === 'copying')) {
       const modelProjectId = selectedModelProjectId()
@@ -1147,7 +1152,7 @@ watch(reuseLabel, (reuse) => {
         <label>IoU <el-input-number v-model="iou" controls-position="right" :min="0" :max="1" :step="0.05" :precision="2" :disabled="batchActive || inferenceRunning" /></label>
         <label>标签覆盖 <el-switch v-model="overwrite" data-test="overwrite-switch" :disabled="batchActive || inferenceRunning || !autoModel" /></label>
         <button data-test="run-single-auto" class="primary-action" type="button" :disabled="batchActive || inferenceRunning || !autoModel" @click="runSingleAutoAnnotation">单张运行</button>
-        <button data-test="run-batch-auto" class="primary-action" type="button" :disabled="batchActive || inferenceRunning || !autoModel || video?.enabled === false" @click="runBatchAutoAnnotation">{{ isImage ? '后台标注当前图' : '批量运行' }}</button>
+        <button data-test="run-batch-auto" class="primary-action" type="button" :disabled="batchActive || inferenceRunning || !autoModel || video?.enabled === false" @click="runBatchAutoAnnotation">批量标注</button>
         <span v-if="autoUnavailableReason" class="auto-warning" :title="autoUnavailableReason">{{ autoUnavailableText }}</span>
       </div>
       <div class="frame-controls">

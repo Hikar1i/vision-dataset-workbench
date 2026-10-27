@@ -125,9 +125,9 @@ function refreshAfterTask() {
 
 onMounted(() => {
   void load()
-  window.addEventListener('vdm:tasks-settled', refreshAfterTask)
+  window.addEventListener('vdw:tasks-settled', refreshAfterTask)
 })
-onUnmounted(() => window.removeEventListener('vdm:tasks-settled', refreshAfterTask))
+onUnmounted(() => window.removeEventListener('vdw:tasks-settled', refreshAfterTask))
 
 const headerHost = useProjectHeaderHost()
 const exportOpen = ref(false)

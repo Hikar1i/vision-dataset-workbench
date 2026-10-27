@@ -246,3 +246,5 @@ models/<model UUID>/                # 已实现：受管 `.pt` YOLO 模型文件
 `Dockerfile` 使用 Python 3.12、uv 冻结锁文件和 Node 22/npm ci，分别产出 CPU、GPU、web 目标。CPU/GPU 共用代码和数据库 schema；重依赖由既有动态加载和运行能力探测隔离。后端以 UID/GID 10001 运行，包含 FFmpeg/ffprobe，GPU 目标登记 wheel 内 CUDA 动态库。
 
 Compose 的 `home` 卷映射 `/data/home`（同时为 HOME），保存定位文件、工作区和凭据密钥；只读来源目录位于 `/data/home/imports`。Worker 等首次初始化成功后替换为既有调度进程。Nginx 保留原 Host（含端口）并关闭 API 缓冲，浏览器只访问一个 HTTP 入口。单机 SQLite，不支持通过横向扩容 API/Worker 或共享网络盘获得多节点部署。操作细节见[部署](07-deployment.md)。
+
+模型项目与训练任务的成员授权统一位于独立“权限设置”子页签，复用 ModelProjectMembersPanel 和既有模型项目权限 API；训练授权仍作用于绑定的模型项目。图像标注工作台的“批量标注”按当前筛选条件提交到服务端，服务端在创建任务时冻结启用图片的 ID/修订号/版本，复用既有 Worker，不将全部ID传回浏览器。

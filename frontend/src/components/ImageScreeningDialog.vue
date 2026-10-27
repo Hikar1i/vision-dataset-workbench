@@ -140,7 +140,7 @@ onBeforeUnmount(() => {generation++; window.removeEventListener('keydown', onKey
 
 <template>
   <el-dialog append-to-body fullscreen class="image-screening-dialog" :model-value="modelValue" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
-    <template #header><header class="screen-header vdw-dark"><div class="screen-title"><span>VDM / IMAGES</span><strong :title="projectName">{{ projectName }} · 图像筛选</strong><code>IMAGE {{ images.length ? `1–${images.length}` : '—' }}</code></div><VButton variant="quiet" icon-only label="关闭图像筛选工作台" :disabled="saving" @click="requestClose"><template #icon><el-icon><Close /></el-icon></template></VButton></header></template>
+    <template #header><header class="screen-header vdw-dark"><div class="screen-title"><span>VDW / IMAGES</span><strong :title="projectName">{{ projectName }} · 图像筛选</strong><code>IMAGE {{ images.length ? `1–${images.length}` : '—' }}</code></div><VButton variant="quiet" icon-only label="关闭图像筛选工作台" :disabled="saving" @click="requestClose"><template #icon><el-icon><Close /></el-icon></template></VButton></header></template>
     <main class="image-screening vdw-dark">
       <section class="screen-toolbar"><div class="screen-toolbar-left">
         <label>每页<el-select v-model="pageSize" aria-label="筛选每页图片数"><el-option v-for="size in [50,100,200]" :key="size" :value="size" :label="String(size)"/><el-option label="全部" value="all"/></el-select></label>

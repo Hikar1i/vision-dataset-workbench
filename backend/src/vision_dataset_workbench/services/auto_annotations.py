@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from ..capabilities import SystemCapabilities
 from ..config import RuntimeSettings
 from ..inference import Detection, InferenceRunner, InferenceUnavailable
-from ..models import Frame, ProjectLabel, Task, User, Video
+from ..models import Frame, ImageAsset, ProjectLabel, Task, User, Video
 from .images import ImageService
 from .annotations import AnnotationInput
 from .labels import (
@@ -370,18 +370,22 @@ class AutoAnnotationService:
                 source="model", confidence=self.image_confidence(d)), n) for d, n, b in valid], created)
 
     def create_image_batch(self, actor, project_id, image_ids, model_id, categories, confidence, iou,
-                           overwrite=False, scope="all", source="local", remote_task_id=None):
+                           overwrite=False, scope="all", source="local", remote_task_id=None, filters=None):
         self.images.access(actor, project_id, write=True, execute=True)
         self._validate_model(actor, AutoAnnotationModel(source, model_id, remote_task_id))
-        if len(set(image_ids)) != len(image_ids) or scope not in {"all", "unannotated"}:
+        if (image_ids is not None and len(set(image_ids)) != len(image_ids)) or scope not in {"all", "unannotated"}:
             raise ValueError("图片选择或范围无效")
         prompts = list(dict.fromkeys(normalize_label_name(c) for c in categories))
         at = datetime.now(timezone.utc).replace(tzinfo=None)
         with self._session_factory() as db:
             image_project_write_barrier(db, project_id)
             targets = []
-            for image_id in image_ids:
-                image = self.images.context(db, project_id, image_id)
+            if image_ids is None:
+                images = db.scalars(self.images.query(project_id, **(filters or {}))
+                    .where(ImageAsset.enabled.is_(True)))
+            else:
+                images = (self.images.context(db, project_id, image_id) for image_id in image_ids)
+            for image in images:
                 if image.enabled and (scope == "all" or image.annotation_status == "pending"):
                     targets.append({"id": image.id, "revision": image.annotation_revision, "version": image.version})
             if not targets:
