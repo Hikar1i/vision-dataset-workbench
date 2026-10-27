@@ -5,6 +5,7 @@ import { ArrowDown, Delete, Download, UploadFilled } from '@element-plus/icons-v
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { can } from '../api/access'
+import { getCapabilities, modelRuntimeCapability, type SystemCapabilities } from '../api/capabilities'
 
 import { getInferenceModel, modelDownloadUrl, type InferenceModel } from '../api/models'
 import { listModelArtifacts, modelArtifactDownloadUrl, type ModelArtifact } from '../api/modelArtifacts'
@@ -43,12 +44,17 @@ const parameters = ref({ confidence: 0.25, iou: 0.7, image_size: 640, max_det: 3
 let pollTimer: number | undefined
 let keepaliveTimer: number | undefined
 
+const capabilities = ref<SystemCapabilities>()
+const capabilityError = ref('')
+const runtimeCapability = computed(() => capabilityError.value
+  ? { available: false, reason: capabilityError.value }
+  : modelRuntimeCapability(capabilities.value, format.value))
 const formats = computed(() => [
-  { value: 'pt' as const, label: 'PyTorch (.pt)', enabled: true, fixed: null as number | null },
+  { value: 'pt' as const, label: 'PyTorch (.pt)', enabled: modelRuntimeCapability(capabilities.value, 'pt').available, fixed: null as number | null },
   ...artifacts.value.map((item) => ({
     value: item.format,
     label: item.format === 'onnx' ? 'ONNX' : 'TensorRT (.engine)',
-    enabled: item.status === 'ready',
+    enabled: item.status === 'ready' && modelRuntimeCapability(capabilities.value, item.format).available,
     fixed: item.export_config.dynamic ? null : item.export_config.imgsz,
   })),
 ])
@@ -81,8 +87,12 @@ watch(selectedFormat, (value) => {
 })
 
 async function load() {
-  ;[model.value, artifacts.value, current.value, saved.value] = await Promise.all([
-    getInferenceModel(modelId), listModelArtifacts(modelId), getCurrentInference(modelId), listSavedInference(modelId),
+  capabilityError.value = ''
+  ;[model.value, artifacts.value, current.value, saved.value, capabilities.value] = await Promise.all([
+    getInferenceModel(modelId), listModelArtifacts(modelId), getCurrentInference(modelId), listSavedInference(modelId), getCapabilities().catch(() => {
+      capabilityError.value = '运行能力检测失败，请刷新页面后重试'
+      return undefined
+    }),
   ])
   if (current.value) parameters.value = { ...current.value.parameters }
   if (mode.value === 'saved') {
@@ -118,6 +128,7 @@ function selected(event: Event) {
 
 async function run() {
   if (!pendingFile.value || busy.value) return
+  if (!runtimeCapability.value.available) return void notify.error(runtimeCapability.value.reason || '本地推理不可用')
   const inputType = pendingFile.value.type.startsWith('video/') ? 'video' : 'image'
   let replace = false
   if (current.value) {
@@ -210,6 +221,7 @@ onBeforeUnmount(() => {
     </PageHeader>
 
     <div class="content-body inference-body">
+      <el-alert v-if="capabilityError || capabilities && !runtimeCapability.available" :title="runtimeCapability.reason || '本地推理不可用'" type="warning" :closable="false" show-icon />
       <div class="inference-modes" role="tablist" aria-label="推理结果视图">
         <button data-test="inference-mode-current" :class="{ active: mode === 'current' }" role="tab" :aria-selected="mode === 'current'" @click="showCurrent">当前推理</button>
         <button data-test="inference-mode-saved" :class="{ active: mode === 'saved' }" role="tab" :aria-selected="mode === 'saved'" @click="openSaved()">已保存结果 <span>{{ saved.length }}</span></button>
@@ -256,7 +268,7 @@ onBeforeUnmount(() => {
             <label>图像尺寸<el-input-number v-model="parameters.image_size" :min="32" :max="8192" :step="32" :disabled="selectedFormat?.fixed != null" :title="selectedFormat?.fixed != null ? '该转换产物使用固定输入尺寸' : undefined" /><small v-if="selectedFormat?.fixed">该转换产物固定为 {{ selectedFormat.fixed }}px</small></label>
             <input ref="fileInput" class="visually-hidden" type="file" accept="image/*,video/*" @change="selected" />
             <VButton class="upload-button" @click="chooseFile"><template #icon><el-icon><UploadFilled /></el-icon></template>{{ pendingFile?.name || '选择图片或视频' }}</VButton>
-            <VButton variant="primary" :disabled="!pendingFile || isWorking" :loading="busy" :title="isWorking ? '当前推理完成后可再次开始' : !pendingFile ? '请先选择图片或视频' : '开始推理'" @click="run">开始推理</VButton>
+            <VButton variant="primary" :disabled="!runtimeCapability.available || !pendingFile || isWorking" :loading="busy" :title="!runtimeCapability.available ? runtimeCapability.reason || '本地推理不可用' : isWorking ? '当前推理完成后可再次开始' : !pendingFile ? '请先选择图片或视频' : '开始推理'" @click="run">开始推理</VButton>
           </div>
           </VPanel>
           <VPanel v-else title="已保存结果">

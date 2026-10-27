@@ -14,6 +14,7 @@ from vision_dataset_workbench.model_evaluation_task import execute_model_evaluat
 from vision_dataset_workbench.models import (
     EvaluationDataset,
     InferenceModel,
+    ModelArtifact,
     ModelEvaluation,
     ModelProject,
     Task,
@@ -92,8 +93,11 @@ def setup(tmp_path):
 
 
 @pytest.mark.parametrize("validate_with_ultralytics", [False, True])
+@pytest.mark.parametrize(
+    "artifact_format,legacy", [("pt", False), ("onnx", False), ("engine", True)]
+)
 def test_evaluation_remaps_class_order_and_persists_metrics(
-    tmp_path, monkeypatch, validate_with_ultralytics
+    tmp_path, monkeypatch, validate_with_ultralytics, artifact_format, legacy
 ):
     check_dataset = None
     if validate_with_ultralytics:
@@ -117,8 +121,32 @@ def test_evaluation_remaps_class_order_and_persists_metrics(
         dataset.label_count = 2
         dataset.negative_count = 1
         database.commit()
-    evaluation, task = service.create_evaluation(owner, "project", "model", "dataset", "pt")
+    image_size = 640 if artifact_format == "pt" else 64
+    if artifact_format != "pt":
+        with Session(engine) as database:
+            database.add(
+                ModelArtifact(
+                    model_id="model",
+                    format=artifact_format,
+                    status="ready",
+                    source_model_sha256="a" * 64,
+                    sha256="c" * 64,
+                    storage_path=f"models/model/model.{artifact_format}",
+                    export_config=json.dumps({"imgsz": image_size}),
+                    created_by_id="owner",
+                )
+            )
+            database.commit()
+    evaluation, task = service.create_evaluation(
+        owner, "project", "model", "dataset", artifact_format
+    )
+    assert json.loads(evaluation.config)["imgsz"] == image_size
     with Session(engine) as database:
+        if legacy:
+            stored_evaluation = database.get(ModelEvaluation, evaluation.id)
+            config = json.loads(stored_evaluation.config)
+            config.pop("imgsz")
+            stored_evaluation.config = json.dumps(config)
         stored = database.get(Task, task.id)
         stored.status = "running"
         database.commit()
@@ -129,10 +157,12 @@ def test_evaluation_remaps_class_order_and_persists_metrics(
         names = {0: "car", 1: "plane"}
 
         def __init__(self, _path):
-            pass
+            self.overrides = {}
 
         def val(self, **arguments):
             calls.append(arguments)
+            assert self.overrides["device"] == arguments["device"] == 1
+            assert arguments["imgsz"] == image_size
             config = json.loads(Path(arguments["data"]).read_text())
             if check_dataset:
                 checked = check_dataset(arguments["data"], autodownload=False, split="val")
@@ -170,7 +200,7 @@ def test_evaluation_remaps_class_order_and_persists_metrics(
         datetime.now,
         lambda _id, _progress: None,
         lambda _id: False,
-        GpuLeaseService(engine, devices=(GpuDevice(0, "GPU", 1024, "GPU-a", "8.6"),)),
+        GpuLeaseService(engine, devices=(GpuDevice(1, "GPU", 1024, "GPU-a", "8.6"),)),
     )
     assert len(calls) == 1
     assert (temp / "prepared" / "labels" / "sample.txt").read_text().startswith("1 ")
@@ -205,7 +235,7 @@ def test_evaluation_remaps_class_order_and_persists_metrics(
     assert service.peak_model_metric("model") == {
         "id": evaluation.id,
         "map50_95": 0.6,
-        "format": "pt",
+        "format": artifact_format,
         "dataset_name": "Eval",
         "dataset_hash": "b" * 64,
     }

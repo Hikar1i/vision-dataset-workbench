@@ -5,6 +5,7 @@ import { notify } from '../ui/notify'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { can } from '../api/access'
+import { getCapabilities, modelRuntimeCapability, type SystemCapabilities } from '../api/capabilities'
 
 import { getModelProject, listModelProjectModels, type InferenceModel, type ModelProject } from '../api/models'
 import { listModelArtifacts, type ModelArtifact } from '../api/modelArtifacts'
@@ -57,10 +58,15 @@ const readyDatasets = computed(() => datasets.value.filter((item) => item.status
 const readyModels = computed(() => models.value.filter((item) => item.status === 'ready'))
 const canExecute = computed(() => can(project.value?.access, 'task.execute'))
 const canUpdate = computed(() => can(project.value?.access, 'project.update'))
+const capabilities = ref<SystemCapabilities>()
+const capabilityError = ref('')
+const runtimeCapability = computed(() => capabilityError.value
+  ? { available: false, reason: capabilityError.value }
+  : modelRuntimeCapability(capabilities.value, format.value))
 const formats = computed(() => [
-  { value: 'pt' as const, label: 'PyTorch (.pt)', enabled: true },
-  { value: 'onnx' as const, label: 'ONNX', enabled: artifacts.value.some((item) => item.format === 'onnx' && item.status === 'ready') },
-  { value: 'engine' as const, label: 'TensorRT (.engine)', enabled: artifacts.value.some((item) => item.format === 'engine' && item.status === 'ready') },
+  { value: 'pt' as const, label: 'PyTorch (.pt)', enabled: modelRuntimeCapability(capabilities.value, 'pt').available },
+  { value: 'onnx' as const, label: 'ONNX', enabled: modelRuntimeCapability(capabilities.value, 'onnx').available && artifacts.value.some((item) => item.format === 'onnx' && item.status === 'ready') },
+  { value: 'engine' as const, label: 'TensorRT (.engine)', enabled: modelRuntimeCapability(capabilities.value, 'engine').available && artifacts.value.some((item) => item.format === 'engine' && item.status === 'ready') },
 ])
 const backTarget = computed(() => modelCapabilityBackTarget(
   projectId.value,
@@ -83,13 +89,17 @@ const status = (value: string) => STATUS[value] ?? { label: value, tone: 'idle' 
 const percent = (value: unknown) => typeof value === 'number' ? `${(value * 100).toFixed(1)}%` : '—'
 
 async function load(silent = false) {
+  capabilityError.value = ''
   if (!silent) loading.value = true
   try {
-    ;[project.value, models.value, datasets.value, evaluations.value] = await Promise.all([
+    ;[project.value, models.value, datasets.value, evaluations.value, capabilities.value] = await Promise.all([
       getModelProject(projectId.value),
       listModelProjectModels(projectId.value),
       listEvaluationDatasets(projectId.value),
-      listModelEvaluations(projectId.value),
+      listModelEvaluations(projectId.value), getCapabilities().catch(() => {
+      capabilityError.value = '运行能力检测失败，请刷新页面后重试'
+      return undefined
+    }),
     ])
     const requestedModel = String(route.query.modelId || '')
     if (!modelId.value && readyModels.value.some((item) => item.id === requestedModel)) {
@@ -135,6 +145,7 @@ async function modelChanged(value: string) {
 
 async function createEvaluation() {
   if (!modelId.value || !datasetId.value) return
+  if (!runtimeCapability.value.available) return void notify.error(runtimeCapability.value.reason || '本地评估不可用')
   submitting.value = true
   try {
     const created = await createModelEvaluation(projectId.value, modelId.value, datasetId.value, format.value)
@@ -187,9 +198,10 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
       </div>
 
       <template v-if="tab === 'records'">
+        <el-alert v-if="capabilityError || capabilities && !runtimeCapability.available" :title="runtimeCapability.reason || '本地评估不可用'" type="warning" :closable="false" show-icon />
         <div class="toolbar evaluation-toolbar">
           <span>固定参数：conf 0.001 · IOU 0.70 · batch 1 · max_det 300</span>
-          <div class="toolbar-actions"><VButton :loading="loading" @click="load()"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton><VButton v-if="canExecute" variant="primary" :disabled="!readyModels.length || !readyDatasets.length" :title="!readyModels.length ? '暂无可用模型' : !readyDatasets.length ? '请先导入并校验测试集' : '新建评估'" @click="evaluationOpen = true"><template #icon><el-icon><Plus /></el-icon></template>新建评估</VButton></div>
+          <div class="toolbar-actions"><VButton :loading="loading" @click="load()"><template #icon><el-icon><Refresh /></el-icon></template>刷新</VButton><VButton v-if="canExecute" variant="primary" :disabled="!runtimeCapability.available || !readyModels.length || !readyDatasets.length" :title="!runtimeCapability.available ? runtimeCapability.reason || '本地评估不可用' : !readyModels.length ? '暂无可用模型' : !readyDatasets.length ? '请先导入并校验测试集' : '新建评估'" @click="evaluationOpen = true"><template #icon><el-icon><Plus /></el-icon></template>新建评估</VButton></div>
         </div>
         <VPanel flush><VTable :columns="RECORD_COLUMNS" :headers="['模型', '测试集', '格式', '状态', 'mAP50-95', '操作']">
           <VRow v-for="item in evaluations" :key="item.id" :columns="RECORD_COLUMNS">

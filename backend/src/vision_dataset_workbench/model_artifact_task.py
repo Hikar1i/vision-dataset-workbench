@@ -163,6 +163,17 @@ def _validate_export(path: Path, artifact_format: str) -> None:
         return
     tensorrt = importlib.import_module("tensorrt")
     logger = tensorrt.Logger(tensorrt.Logger.ERROR)
+    serialized = path.read_bytes()
+    metadata_size = int.from_bytes(serialized[:4], "little")
+    # Ultralytics prefixes its engine with a length and JSON metadata, unlike raw TensorRT plans.
+    if 0 < metadata_size < len(serialized) - 4:
+        try:
+            metadata = json.loads(serialized[4 : 4 + metadata_size])
+        except (ValueError, UnicodeDecodeError):
+            pass
+        else:
+            if isinstance(metadata, dict):
+                serialized = serialized[4 + metadata_size :]
     with tensorrt.Runtime(logger) as runtime:
-        if runtime.deserialize_cuda_engine(path.read_bytes()) is None:
+        if runtime.deserialize_cuda_engine(serialized) is None:
             raise RuntimeError("TensorRT engine validation failed")

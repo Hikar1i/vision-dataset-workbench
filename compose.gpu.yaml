@@ -1,0 +1,18 @@
+x-gpu: &gpu
+  image: vision-dataset-workbench:gpu
+  build:
+    target: gpu
+  environment:
+    NVIDIA_DRIVER_CAPABILITIES: compute,utility
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+services:
+  api:
+    <<: *gpu
+  worker:
+    <<: *gpu

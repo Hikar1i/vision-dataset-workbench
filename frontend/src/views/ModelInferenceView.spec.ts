@@ -16,6 +16,12 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
 }))
 
+vi.mock('../api/capabilities', async () => {
+  const actual = await vi.importActual<typeof import('../api/capabilities')>('../api/capabilities')
+  const yes = { available: true, reason: null }
+  return { ...actual, getCapabilities: vi.fn().mockResolvedValue({ gpu: { ...yes, devices: [] }, pytorch_cuda: yes, features: { manual_annotation: yes, yolo_auto_annotation: yes, model_training: yes, onnx_export: yes, onnx_inference: yes, tensorrt: yes } }) }
+})
+
 vi.mock('../api/models', () => ({
   getInferenceModel: mocks.getModel,
   modelDownloadUrl: (id: string) => `/api/v1/models/${id}/download`,
@@ -109,4 +115,25 @@ describe('ModelInferenceView', () => {
     }))
     wrapper.unmount()
   })
+})
+
+it('keeps the model and existing results readable when only capability detection fails', async () => {
+  const { getCapabilities } = await import('../api/capabilities')
+  vi.mocked(getCapabilities).mockRejectedValueOnce(new Error('unavailable'))
+  mocks.getModel.mockResolvedValue({ id: 'm1', name: 'Historical model', model_code: 'M1', status: 'ready', access: { permissions: ['artifact.read', 'artifact.download', 'project.update', 'task.execute'] } })
+  mocks.listArtifacts.mockResolvedValue([])
+  mocks.getCurrent.mockResolvedValue(currentRun)
+  mocks.listSaved.mockResolvedValue([savedRun])
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/model-projects/:id/models/:modelId/inference', component: ModelInferenceView }] })
+  await router.push('/model-projects/p1/models/m1/inference'); await router.isReady()
+  const wrapper = mount(ModelInferenceView, { attachTo: document.body, global: { plugins: [router, ElementPlus] } })
+  await flushPromises()
+  expect(wrapper.text()).toContain('运行能力检测失败')
+  expect(wrapper.text()).toContain('Historical model')
+  expect(wrapper.find('a[href="/api/v1/models/m1/download"]').exists()).toBe(true)
+  expect(wrapper.find('[data-test="save-inference"]').exists()).toBe(true)
+  expect(wrapper.get('[data-test="inference-mode-saved"]').text()).toContain('1')
+  const runButton = wrapper.findAll('button').find(button => button.text() === '开始推理')!
+  expect(runButton.attributes('disabled')).toBeDefined()
+  wrapper.unmount()
 })

@@ -18,6 +18,7 @@ from ..services.model_evaluations import (
     ModelEvaluationService,
 )
 from .auth import current_user, require_same_origin
+from .capabilities import require_model_runtime
 from .media import TaskResponse, _task_response
 from .upload_filename import MAX_ENCODED_FILENAME_LENGTH, upload_filename
 
@@ -249,6 +250,8 @@ def create_evaluation(
 ):
     require_same_origin(request)
     try:
+        service(request).require_manage(user, project_id)
+        require_model_runtime(request, payload.format)
         evaluation, task = service(request).create_evaluation(
             user, project_id, payload.model_id, payload.dataset_id, payload.format
         )

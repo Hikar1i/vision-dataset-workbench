@@ -58,6 +58,8 @@ def execute_model_evaluation(
         ):
             raise RuntimeError("model or evaluation dataset changed after task creation")
         model_path = workspace / str(model.storage_path or "")
+        config = json.loads(evaluation.config)
+        image_size = config.get("imgsz", 640)
         if evaluation.format != "pt":
             artifact = database.scalar(
                 select(ModelArtifact).where(
@@ -71,6 +73,7 @@ def execute_model_evaluation(
             if artifact is None or not artifact.storage_path:
                 raise RuntimeError("selected model artifact is unavailable")
             model_path = workspace / artifact.storage_path
+            image_size = config.get("imgsz", json.loads(artifact.export_config).get("imgsz", 640))
         dataset_path = (workspace / dataset.storage_path).resolve(strict=True)
         dataset_classes = json.loads(dataset.classes)
         evaluation.status = "running"
@@ -91,6 +94,8 @@ def execute_model_evaluation(
     try:
         ultralytics = importlib.import_module("ultralytics")
         runner = ultralytics.YOLO(str(model_path))
+        # Exported models initialize their backend when names is first accessed.
+        runner.overrides["device"] = lease.gpu_index
         names = runner.names
         model_classes = (
             [str(names[index]) for index in sorted(names)]
@@ -146,7 +151,6 @@ def execute_model_evaluation(
             ),
             "utf-8",
         )
-        config = json.loads(evaluation.config)
         if canceled(task_id):
             raise ModelEvaluationCanceled("evaluation canceled")
         results = runner.val(
@@ -155,6 +159,7 @@ def execute_model_evaluation(
             conf=config["conf"],
             iou=config["iou"],
             batch=1,
+            imgsz=image_size,
             max_det=config["max_det"],
             device=lease.gpu_index,
             plots=True,

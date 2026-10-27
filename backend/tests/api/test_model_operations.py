@@ -276,3 +276,30 @@ def test_upload_endpoints_reject_invalid_filename_headers_before_writing_files(t
     with app.state.model_evaluation_service._session_factory() as database:
         assert database.query(Task).count() == 0
         assert database.query(EvaluationDataset).count() == 0
+
+
+@pytest.mark.parametrize("model_format", ["pt", "onnx", "engine"])
+def test_cpu_rejects_new_local_runs_before_upload_and_keeps_read_access(tmp_path, model_format):
+    app, admin, viewer, workspace = setup_app(tmp_path)
+    no = CapabilityStatus(False, "CPU 版本不支持本地模型运行")
+    app.state.capabilities = SystemCapabilities(
+        gpu=GpuStatus(False, no.reason, ()),
+        pytorch_cuda=no,
+        features=FeatureCapabilities(CapabilityStatus(True), no, no, no, no, no),
+    )
+    project_id = admin.get("/api/v1/models/model-id").json()["model_project_id"]
+    inference_url = f"/api/v1/models/model-id/inference?input_type=video&format={model_format}"
+    evaluation_url = f"/api/v1/model-projects/{project_id}/evaluations"
+    payload = {"model_id": "model-id", "dataset_id": "missing", "format": model_format}
+    for client in (admin, viewer):
+        expected = 409 if client is admin else 403
+        assert (
+            client.post(inference_url, headers=ORIGIN, content=b"not uploaded").status_code
+            == expected
+        )
+        assert client.post(evaluation_url, headers=ORIGIN, json=payload).status_code == expected
+    assert not (workspace / "tmp/inference-uploads").exists()
+    assert admin.get("/api/v1/models/model-id/inference/current").status_code == 200
+    assert admin.get(f"/api/v1/model-projects/{project_id}/evaluation-datasets").status_code == 200
+    with app.state.model_service._session_factory() as db:
+        assert db.query(Task).count() == 0

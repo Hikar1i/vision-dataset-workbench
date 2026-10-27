@@ -60,6 +60,10 @@ class ModelInferenceService:
         if not access.allows(permission):
             raise ModelInferenceForbidden(f"{permission} permission required")
 
+    def require_execute(self, actor: User, model_id: str) -> None:
+        self._require_model(actor, model_id, "artifact.consume")
+        self._require_model(actor, model_id, "task.execute")
+
     def current(self, actor: User, model_id: str) -> ModelInferenceRun | None:
         self._require_model(actor, model_id, "artifact.read")
         with self._session_factory() as database:
@@ -107,8 +111,7 @@ class ModelInferenceService:
         *,
         replace: bool,
     ) -> ModelInferenceRun:
-        self._require_model(actor, model_id, "artifact.consume")
-        self._require_model(actor, model_id, "task.execute")
+        self.require_execute(actor, model_id)
         if input_type not in {"image", "video"} or artifact_format not in {
             "pt",
             "onnx",

@@ -243,7 +243,11 @@ class ModelArtifactService:
         reason = None
         if artifact.source_model_sha256 != model.sha256:
             reason = "源模型已更新，请删除后重新转换"
-        elif artifact.format == "engine" and artifact.status == "ready":
+        elif (
+            artifact.format == "engine"
+            and artifact.status == "ready"
+            and self.capabilities.features.tensorrt.available
+        ):
             expected = json.loads(artifact.environment_fingerprint or "{}")
             current = self._fingerprint()
             device = next(

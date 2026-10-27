@@ -137,3 +137,12 @@
 - `chrome-extension://noofnfniimcnghnkonpdlhlaeaocidbi/content-scripts/content.js` 的 `notKey`/`Control` 错误来自 DeepTranslate；用户停用扩展后确认消失，复核未捕获同类错误。应用未添加异常屏蔽。
 - 中文上传文件名改用 ASCII 编码头，兼容旧头，推理图片/视频及评估ZIP共用严格解析。
 - 测试集评估准备 YAML 原先只有 val，触发 Ultralytics 必填 train 校验；现补齐 train/val 声明且只执行 val。后台修复需 Worker 重载；旧失败记录需重新创建评估。
+
+## 容器与转换产物兼容（2026-10-26）
+
+- 首次初始化后未接线的模型推理/评估/产物服务已补齐；不再要求初始化后重启 API 才能使用。
+- Ultralytics TensorRT 文件带长度和 JSON 元数据头；校验器现剥离合法头后反序列化引擎，保留原文件，同时兼容原始 TensorRT plan。真实转换与推理已通过。
+- 固定尺寸 ONNX/engine 不能按默认 640 评估；评估现读取导出尺寸，并在类别元数据加载前指定租用 GPU。修复需重启 Worker，历史失败任务需重新创建。
+- CPU 没有 TensorRT 时不再错误地把既有引擎判为环境失效；CPU 仍禁止执行，GPU 版继续检查源哈希和构建环境。
+- 能力接口失败现按不可执行处理，同时保留成功读取的模型、下载和历史页面；提示刷新重试。
+- Docker Desktop 的 macOS AMD 和 Windows Intel 集显按 CPU 模式运行；GPU override 只面向受支持的 NVIDIA 设备。驱动/容器运行时前提见[部署](07-deployment.md)。

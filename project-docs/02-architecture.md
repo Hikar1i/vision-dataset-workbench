@@ -213,8 +213,8 @@ SQLite             Persistent Worker
 - 项目媒体位于 `projects/<project UUID>/videos/<video short code>.<ext>`，缩略图位于 `projects/<project UUID>/thumbnails/<video short code>_thumbnail.jpg`，采样帧位于 `projects/<project UUID>/frames/<video short code>/<video short code>_frame_000001.<jpg|png>`；执行中输出位于顶层 `tmp/<task UUID>_<attempt UUID>/`，验证后原子发布。短码在项目内唯一，帧文件可按原名平铺复制；每视频子目录仍是重采样原子替换边界。
 - 数据集导出位于 `projects/<project UUID>/exports/<安全化名称>_YYYYMMDDHHMMSS[_N]/`；图像通过硬链接引用当前帧文件，类别和源数据快照、YOLO 标签、配置及统计清单随产物保存。下载按请求流式生成 ZIP，不在工作区保留额外压缩包。
 - 训练子进程在 `<workspace>/cache/ultralytics/` 运行；Ultralytics 的 AMP 辅助权重等运行缓存不会写入源码目录。单数据集运行生成绝对路径 `dataset.yaml`；多数据集准备在工作区缓存中硬链接图片、改写 YOLO 标签并原子发布 `data.yaml`，避免修改原导出或依赖子进程当前目录。
-- Linux 原生使用 systemd，Windows 使用进程启动器，同时支持 Docker Compose。
-- Docker 未提供 GPU 时正常启动并禁用训练/自动标注。
+- Docker Compose 已提供 Nginx 静态前端、单 API 和单 Worker；原生 systemd/Windows 生产启动器尚未提供。
+- Docker 默认 CPU 目标不安装 GPU extra；NVIDIA override 向 API/Worker 暴露相同设备。缺少本地运行能力时禁用本地模型执行，保留手工/远程标注及历史读取。
 - Python 核心依赖不包含本地大模型或 Agent 框架；GPU 服务器通过 uv 的 `gpu` extra 安装 CUDA 12.8 PyTorch、torchvision 和 Ultralytics。X-AnyLabeling 与在线视觉大模型均通过 HTTP 调用。
 - 只支持单机本地磁盘，不支持跨服务器 Worker 或网络文件系统上的 SQLite。
 
@@ -240,3 +240,9 @@ models/<model UUID>/                # 已实现：受管 `.pt` YOLO 模型文件
 - 在线标注已实现手动矩形框、本地 Ultralytics YOLO、X-AnyLabeling-Server 和在线视觉大模型自动标注；远程返回只接纳轴对齐矩形。
 - 批量自动标注由 Worker 按任务启动时的启用 Frame 集合处理，不依赖外部 AnnotationBatch 目录。
 - 不预建任意模型或训练脚本插件框架。
+
+## 容器运行边界
+
+`Dockerfile` 使用 Python 3.12、uv 冻结锁文件和 Node 22/npm ci，分别产出 CPU、GPU、web 目标。CPU/GPU 共用代码和数据库 schema；重依赖由既有动态加载和运行能力探测隔离。后端以 UID/GID 10001 运行，包含 FFmpeg/ffprobe，GPU 目标登记 wheel 内 CUDA 动态库。
+
+Compose 的 `home` 卷映射 `/data/home`（同时为 HOME），保存定位文件、工作区和凭据密钥；只读来源目录位于 `/data/home/imports`。Worker 等首次初始化成功后替换为既有调度进程。Nginx 保留原 Host（含端口）并关闭 API 缓冲，浏览器只访问一个 HTTP 入口。单机 SQLite，不支持通过横向扩容 API/Worker 或共享网络盘获得多节点部署。操作细节见[部署](07-deployment.md)。

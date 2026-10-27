@@ -1,27 +1,29 @@
 # 环境与启动
 
-状态：后端、前端、首次初始化、认证模式、GPU 能力与实时显存检测，以及视频导入、抽帧、模型入库、自动标注、YOLO Detect 训练、模型转换、在线推理和测试集评估可在开发环境运行；正式部署启动器尚未实现。
+状态：后端、前端、首次初始化、认证模式、GPU 能力与实时显存检测，以及视频导入、抽帧、模型入库、自动标注、YOLO Detect 训练、模型转换、在线推理和测试集评估可在开发环境运行；CPU/GPU Docker Compose 已实现；原生生产启动器尚未实现。
+
+首次开发的安装、三个终端启动顺序和账号初始化见 [README：本地开发](../README.md#本地开发)。前端开发使用 Node.js 22.13+（22 系列）和 npm；该下限同时满足 Vite 与 jsdom 的锁定依赖要求。
 
 ## 当前可执行操作
 
 安装与启动后端：
 
 ```bash
-cd backend && uv sync --python 3.12 --dev
-cd backend && uv run uvicorn vision_dataset_workbench.main:app --app-dir src --reload --port 38000
+cd backend && uv sync --python 3.12 --frozen --dev
+cd backend && uv run --no-sync uvicorn vision_dataset_workbench.main:app --app-dir src --reload --port 38000
 ```
 
 GPU 服务器安装可选模型运行依赖：
 
 ```bash
 cd backend
-uv sync --python 3.12 --dev --extra gpu
+uv sync --python 3.12 --frozen --dev --extra gpu
 uv run python -c "from vision_dataset_workbench.capabilities import detect_capabilities; print(detect_capabilities())"
 ```
 
 当前锁定组合包含 PyTorch 2.9.1/torchvision 0.24.1 CUDA 12.8、Ultralytics 8.4.x、ONNX、ONNX Runtime GPU、TensorRT 11 和 NVIDIA ModelOpt 0.44+。CUDA wheel 使用 uv 显式 PyTorch `cu128` 索引；无 GPU 实例不启用该 extra。能力检查以 ONNX Runtime 的 `CUDAExecutionProvider`、实际 TensorRT Builder 初始化结果和 ModelOpt 模块可用性为准，而不是只检查 TensorRT 包是否存在。官方兼容依据见 [uv PyTorch 指南](https://docs.astral.sh/uv/guides/integration/pytorch/)和 [PyTorch 2.9.1 CUDA 12.8 安装矩阵](https://pytorch.org/get-started/previous-versions/)。
 
-本地自动标注、训练、模型转换、在线推理和测试集评估时，API 与 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动：API 执行单张交互推理，Worker 执行批量推理、转换、评估并为每个训练模型启动独立 Python/Ultralytics 子进程。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理、转换、评估或训练预检后由运行时确认。系统可从 `.pt` 固化 ONNX 和当前主机专用 TensorRT `.engine` 产物，并用 `.pt`、ONNX 或 `.engine` 执行在线推理；不安装本地 Transformers 或 GroundingDINO。
+本地自动标注、训练、模型转换、在线推理和测试集评估时，API 与 Worker 都应从安装了 `gpu` extra 的同一 uv 环境启动；完成 `uv sync` 后用 `uv run --no-sync` 复用该环境：API 执行单张交互推理，Worker 执行批量推理、转换、评估并为每个训练模型启动独立 Python/Ultralytics 子进程。管理员只能登记 YOLO `.pt` 文件；源路径必须位于启动用户 `~` 内，入库后复制到工作区 `models/<model UUID>/`。模型显示 `ready` 代表复制完成，实际权重兼容性在首次推理、转换、评估或训练预检后由运行时确认。系统可从 `.pt` 固化 ONNX 和当前主机专用 TensorRT `.engine` 产物，并用 `.pt`、ONNX 或 `.engine` 执行在线推理；不安装本地 Transformers 或 GroundingDINO。
 
 在线推理每用户、每模型只保留一个未保存会话；图片上限 20 MB、视频上限 500 MB，未保存会话在最后访问 24 小时后清理。测试集只接收最多 1 GB 的 ZIP，解压后最多 5 GB、5000 张图片和 10500 个条目，目录固定为 `classes.txt`、`images/`、`labels/`；负样本需提供同名空标签。重复内容按 SHA-256 拒绝，不维护系统自动版本树。
 
@@ -36,15 +38,15 @@ API 的 `--reload` 不会重载独立 Worker。更新后台评估或调度代码
 安装与启动前端：
 
 ```bash
-cd frontend && npm install
+cd frontend && npm ci
 cd frontend && npm run dev
 ```
 
-在独立终端启动任务 Worker：
+首次运行先通过前端完成工作区初始化，再在独立终端启动任务 Worker（原生 Worker 未初始化时会退出；容器入口会等待）：
 
 ```bash
 cd backend
-uv run python -m vision_dataset_workbench.worker
+uv run --no-sync python -m vision_dataset_workbench.worker
 ```
 
 默认地址为后端 `http://127.0.0.1:38000`、前端 `http://127.0.0.1:35173`。前端端口被占用时会直接报错，不会静默切换端口。后端未初始化时在终端输出一次性口令；前端向导使用该口令浏览启动用户的 `~`、新建目录、创建工作区和首个管理员。Worker 与 API 必须使用相同的 `HOME`、`VDW_WORKSPACE` 和媒体配置。按 `Ctrl+C` 停止各开发进程。
@@ -133,7 +135,7 @@ VDW_CREDENTIAL_ENCRYPTION_KEY=<optional-fernet-key>
 - yt-dlp 默认不使用代理或 Cookie；仅在实例确有需要时配置上述两个变量。`YTDLP_COOKIE_FILE` 必须是 yt-dlp 可读取的 Netscape 格式文件，不是 Chrome/Firefox 的 SQLite 配置目录。推荐由运维使用专用浏览器配置登录共享下载账号后导出，API 与 Worker 读取同一份只读文件；本地文件权限使用 `0600`，容器使用 Secret 或只读单文件挂载。Cookie 更新后无需把浏览器本身放入容器。
 - `VDW_CREDENTIAL_ENCRYPTION_KEY` 可显式覆盖用于加密用户远程 API 密钥的 Fernet 密钥。未配置时，初始化后的 API 会自动创建 `<workspace>/config/credential.key`（目录权限 `0700`、文件权限 `0600`），API 与 Worker 从同一工作区读取，因此无需用户手工维护。显式配置时两者仍必须一致。
 
-上述五个变量均已实现。系统不再读取 `REGISTRATION_ENABLED`，也不开放注册。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
+上述五个变量均已实现。原生开发启动命令不自动读取仓库根 `.env`；该文件用于 Compose 插值，原生环境变量需在 API / Worker 各终端显式设置。系统不再读取 `REGISTRATION_ENABLED`，也不开放注册。单用户模式启动时撤销普通用户现有会话，但保留用户和业务数据；切回多用户后有效账号可重新登录。
 
 管理员忘记密码时，先停止 API，再在终端交互式重置；密码不会出现在命令参数中：
 
@@ -166,7 +168,7 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 后续仍需补充可复制执行的：
 
 - 依赖安装与版本检查。
-- 全栈容器启动。
+- 全栈容器已实现，启动、切换与持久化见[部署](07-deployment.md)。
 - 原生生产进程和 Windows 启动器。
 
 当前健康检查为 `GET /api/v1/health`。数据库由首次初始化创建，已有工作区在应用启动时自动执行 Alembic 升级；带备份和回滚验证的正式发布流程仍待实现。
@@ -176,3 +178,9 @@ uv run python -m vision_dataset_workbench.admin reset-password \
 视频导入和抽帧要求 `ffmpeg`、`ffprobe` 可执行；yt-dlp 是后端锁定的 Python 依赖。当前真实链路已验证三者可完成媒体探测、缩略图、本地物化、HTTP 下载、JPG/PNG 抽帧和重采样替换。本地视频物化依次尝试 reflink、hardlink 和分块 copy，并在任务结果记录实际方式；删除外部源路径不影响已落地文件，但 hardlink 回退仍共享 inode，外部程序原地改写源文件会同时改变工作区副本。需要写隔离时应确保文件系统支持 reflink，或接受 copy 回退。抽帧使用兼容较旧 FFmpeg 的 `-vsync vfr`；启动时的显式能力/版本检查仍待实现。运行时版本必须与容器和 CI 基线一致；不得重现遗留项目中 README、pyproject 和 Docker 分别声明不同 Python 版本的情况。
 
 图像目录重复导入会按项目内SHA-256跳过现有图片（含停用），预检显示新增/已存在/批内重复；源目录补图后重导只新增并复用原目录。不从来源同步删除或标注修改，同一来源路径替换图像内容需改名后导入。归档删除的资产可以重新导入。升级后需重启API与Worker加载导入逻辑，重新预检后提交，历史重复不会自动停用。
+
+## 容器环境
+
+无需宿主 Python/Node/FFmpeg；Docker Desktop 需使用 Linux containers。CPU 不安装 `gpu` extra；GPU 使用同一 uv.lock 的 extra，并禁止 Ultralytics 请求时自动安装依赖。容器中的 `HOME=/data/home`、`YOLO_CONFIG_DIR=/data/home/.config` 和 Matplotlib 缓存均位于持久卷。
+
+Compose 不自动转发宿主的标准代理变量；容器中的 `127.0.0.1` 指容器自身。远程标注或在线大模型地址必须能从 API/Worker 网络访问，访问宿主服务需使用可达主机地址（Docker Desktop 可使用 `host.docker.internal`）。Docker 启动命令、版本前提和导入映射见[部署](07-deployment.md)。

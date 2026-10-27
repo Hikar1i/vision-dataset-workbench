@@ -1,30 +1,73 @@
 # 部署
 
-状态：API、前端和独立 Worker 开发启动命令已实现；systemd、Windows 启动器和 Docker Compose 部署产物尚未实现。
+状态：CPU/GPU Docker Compose 已实现；开发启动命令可用，原生 systemd 和 Windows 生产启动器尚未提供。部署为单机 Nginx + API + Worker + SQLite，不支持跨服务器 Worker。
 
-## 目标部署
+从获取源码到首次登录的完整操作见 [README：容器部署](../README.md#容器部署)。本文件补充运行边界、GPU 兼容、密钥、备份与发布细节。项目文件名为 `compose.yaml`；从源码构建必须同时取得 Dockerfile、deploy、前后端源码和锁文件，不能只分发 Compose 文件。
 
-主部署位于一台部门 Linux 服务器，同时正式支持 Windows 本地实例和 Docker Compose。系统使用 SQLite 和同机持久 Worker，不支持跨服务器任务。
+## CPU 部署
 
-无论最终采用单机还是多节点，部署至少包含：
+要求 Docker Engine + Compose v2 或 Docker Desktop（Linux containers）。当前实测平台均为 Linux/amd64：Ubuntu 22.04、Windows 11、Intel macOS 15；未实测 ARM64。
 
-- Vue 静态资源与 FastAPI 服务。
-- 独立任务 Worker。
-- 工作区 SQLite。
-- 受控媒体存储。
-- FFmpeg/ffprobe；远程下载功能还需要 yt-dlp 及网络配置。
-- 本地自动标注、训练、ONNX CUDA 推理和 TensorRT 构建还需要 `gpu` extra、NVIDIA 驱动和已入库的 YOLO `.pt` 文件；远程自动标注要求 API 与 Worker 均可访问用户配置的 X-AnyLabeling Server。
+```bash
+cp .env.example .env
+mkdir -p imports
+docker compose up -d --build
+docker compose ps
+docker compose logs api
+```
 
-`gpu` extra 锁定 ONNX、ONNX Slim、ONNX Runtime GPU、TensorRT 与 NVIDIA ModelOpt。TensorRT 11 的 FP16 strongly typed 构建会先用 ModelOpt 把混合精度写入 ONNX；缺少 ModelOpt 时即使 Builder 可创建也不能转换。TensorRT wheel 自带的 CUDA 主版本必须与部署主机兼容；安装成功不等于可用，启动能力检查会实际创建 TensorRT Builder 并检查 ModelOpt。检查失败时 API 正常启动，但 TensorRT 转换和运行保持禁用，不允许 Ultralytics 在业务请求中自动安装依赖。生产部署优先使用与主机驱动、CUDA、TensorRT 明确匹配的 NVIDIA 容器镜像。
+Windows PowerShell 将前两行替换为 `Copy-Item .env.example .env`、`New-Item -ItemType Directory -Force imports`。浏览器打开 `http://127.0.0.1:8080`，输入 API 日志中的一次性初始化口令，选择容器 home 内父目录并创建管理员；无默认管理员账号/密码。Worker 在首次初始化完成前等待，之后自动进入调度循环。 首次管理员密码由用户自行设置，数据库只保存密码哈希；初始化口令不是登录密码。容器/原生管理员重置命令见 [README：忘记管理员密码](../README.md#忘记管理员密码)。
 
-ONNX 是可下载和可复用的通用转换产物；TensorRT `.engine` 绑定构建时的 GPU、驱动、CUDA、TensorRT 与构建参数，只保证在当前构建主机使用，不作为跨设备交付格式。转换、视频推理、测试集导入和评估由 Worker 执行，API 与 Worker 必须挂载同一工作区；评估 ZIP 上限 1 GB，解压后上限 5 GB，部署时需据此设置反向代理请求体限制和工作区磁盘告警。
+CPU 镜像只安装 `backend/uv.lock` 基础依赖，包含 FFmpeg/ffprobe 和 yt-dlp，不安装 PyTorch、Ultralytics、ONNX Runtime、TensorRT 等 GPU extra。可使用视频/图像导入、抽帧、筛选、手工标注、远程自动标注、数据集导出、模型与测试集管理、历史查询和下载。本地模型自动标注、训练、转换、在线推理和评估保持禁用。远程标注和在线视觉大模型需要另行配置可达服务和凭据，不随镜像提供服务。
 
-- Linux 原生使用两个 systemd 服务管理 API 与 Worker。
-- Windows 本地使用一个启动器管理两个子进程。
-- Docker Compose 使用 API 和 Worker 服务，共享本机工作区挂载。
-- Docker 基础配置不要求 GPU 且不应因未声明 GPU 资源而启动失败；可选 GPU 配置需要为 API 和 Worker 安装包含 PyTorch、torchvision 与 Ultralytics 的 `gpu` extra，并向两者暴露同一设备视图。API 负责能力检测和单张交互推理，Worker 负责批量推理和训练子进程，因此不能只给其中一个进程安装依赖或暴露 GPU。
+## NVIDIA GPU 部署
 
-当前可按[环境与启动](08-environments.md)运行 API、前端和 Worker，但尚无受进程管理器监管的正式部署产物。不应将 Vite 开发服务器或 Uvicorn `--reload` 用作长期部署。
+```bash
+docker compose -f compose.yaml -f compose.gpu.yaml up -d --build
+docker compose -f compose.yaml -f compose.gpu.yaml ps
+```
+
+- Linux 需要 NVIDIA 驱动及已配置的 NVIDIA Container Toolkit；Windows 需要支持 NVIDIA GPU 的 WSL2 Docker Desktop。Docker Desktop 的 macOS 不支持此 GPU 方式，AMD/Intel 显卡使用 CPU 配置。参见 [Docker Desktop GPU](https://docs.docker.com/desktop/features/gpu/)及 [Compose GPU 配置](https://docs.docker.com/compose/how-tos/gpu-support/)。
+- 当前冻结依赖包含 PyTorch 2.9.1 CUDA 12.8、ONNX Runtime GPU 1.24.4、TensorRT 11.3.0.99 和 NVIDIA ModelOpt；TensorRT 默认 wheel 为 CUDA 13 系列，完整功能要求 NVIDIA R580 或更新的兼容驱动。仅满足 PyTorch CUDA 12.8 并不代表 TensorRT 可用，参见 [TensorRT 前提](https://docs.nvidia.com/deeplearning/tensorrt/latest/installing-tensorrt/prerequisites.html)。宿主不需要安装 CUDA Toolkit；wheel 库随 GPU 镜像安装。
+- API 和 Worker 使用同一 GPU 镜像、相同全部设备视图。不能只给 Worker 暴露显卡，API 也执行交互推理及运行时检查。安装成功不等于能力可用：以系统运行能力页面中的实际探测为准。
+- TensorRT FP16 strongly typed 构建使用 ModelOpt 改写 ONNX 精度；禁止 Ultralytics 在业务请求中自动安装依赖。ONNX 可作为通用产物下载；`.engine` 绑定 GPU、驱动、CUDA、TensorRT 与构建参数，只保证当前构建环境使用，不能跨设备直接分发。
+
+## 导入、端口与持久化
+
+`.env.example` 可配置：
+
+| 变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `VDW_PORT` | `8080` | 唯一对外 HTTP 端口 |
+| `VDW_BIND_ADDRESS` | `127.0.0.1` | 改为 `0.0.0.0` 才对局域网开放，需配合主机防火墙 |
+| `VDW_IMPORTS` | `./imports` | 宿主导入目录，只读挂载；Windows 可用 `D:/datasets` |
+| `APP_MODE` | `multi` | 账号认证模式；`single` 也需管理员密码 |
+
+- 源目录在界面显示为 `~/imports`；不是宿主原绝对路径。目录需允许 UID/GID 10001 读取，Docker Desktop 还需允许目录共享。导入后由应用物化到受管工作区，TXT 标注入数据库。来源挂载与命名卷通常不在同一文件系统，reflink/hardlink 不可用时回退 copy，不能保证零复制。
+- 后端以非 root 用户 10001:10001 运行。共享 `home` 命名卷位于 `/data/home`，同时保存 home 定位文件、工作区、数据库、媒体、模型、输出和凭据密钥；必须整体持久化/备份，不能只挂载数据库目录。
+- 两个版本默认使用相同 Compose 项目名和卷。切换前先完成/取消所有排队及活动任务，停止整个栈并备份卷，再使用另一组文件启动。CPU 保留旧模型、历史评估及推理、engine 下载，不执行本地模型任务；恢复 GPU 后重新检查 engine 环境指纹。
+- API、Worker、web 必须使用同一版本代码。当前只支持一个 API 和一个 Worker，不能 `--scale` 扩容。`docker compose stop` 保留数据；**不要对需保留数据的实例执行 `down -v`**。
+- Nginx 保留原 Host（含端口），支持 SPA 深链接、流式 API/SSE，API 缓冲关闭。只开放 web 端口；当前为 HTTP 同源部署，API 禁用可信代理头。外部 TLS 终止未验收，不能直接依赖 `X-Forwarded-*` 绕过同源边界。
+- 单请求上限 1 GB，反向代理超时 600 秒。测试集 ZIP 解压上限 5 GB；需为媒体、模型、训练输出及临时目录预留磁盘空间。
+
+## 构建、离线分发与更新
+
+Dockerfile 使用 Python 3.12 slim、uv 0.11.7 冻结锁文件、Node 22/npm ci、Nginx 1.28。CPU/GPU/web 是独立 target；CPU 运行镜像不含 uv、开发工具或 GPU extra。`.dockerignore` 采用源代码白名单，排除 `.ai-local`、`.env`、依赖目录和业务数据；不要将真实密钥写为 build-arg。
+
+GPU 首次构建下载量和磁盘占用较大。实测镜像未压缩约 CPU 676 MB、web 66 MB、GPU 13.8 GB；构建缓存还需额外空间。基础镜像 tag 与冻结 Python/npm 锁文件不等同完整系统包永久复现，发布时应保存镜像摘要/归档并按组织流程扫描。
+
+若目标主机 registry mirror 不可用，可在同一目标架构机器构建后离线加载：
+
+```bash
+docker save vision-dataset-workbench:cpu vision-dataset-workbench:web -o vdw-cpu.tar
+# 将镜像归档及 compose 文件传到目标主机
+docker load -i vdw-cpu.tar
+docker compose up -d --no-build
+```
+
+GPU 分发时保存 `vision-dataset-workbench:gpu` 和 `:web` 并使用 GPU override。本轮 Windows 原生构建被已有镜像源 403 阻断，通过此加载方式部署并完成业务/持久性验证；未更改其全局镜像源。macOS 和 Linux 已完成本机构建。镜像尚未推送公共仓库。
+
+更新前停止任务并备份完整卷，然后 `docker compose stop`、构建/加载新镜像、`up -d --wait`。GPU 实例所有命令均携带 `-f compose.yaml -f compose.gpu.yaml`。API 在启动已有工作区时执行迁移，Worker 等待 API 健康后启动；不兼容 schema 回滚需恢复备份。实际验收范围见[测试策略](06-testing-strategy.md)。
 
 ## 遗留部署风险
 
@@ -72,16 +115,16 @@ API 启动会执行 Alembic 升级；升级前停止旧 API/Worker 并备份完�
 
 ## 健康与可观测性
 
-- API 提供存活与就绪检查，区分进程存活、数据库可用和迁移版本正确。
-- Worker 报告心跳、可处理任务类型和当前任务。
+- `GET /api/v1/health` 当前只返回进程存活；Compose API/web healthcheck 使用它，不代表数据库、初始化或 GPU 就绪。初始化状态另查 `/api/v1/setup/status`，GPU 能力另查 `/api/v1/capabilities`。
+- Worker 活动任务在 SQLite 中持久化租约/心跳；暂无独立空闲 Worker readiness/health HTTP 端点，需结合容器状态和任务进展检查。
 - 日志包含时间、级别、服务、请求/任务 ID 和项目 ID，不记录 Cookie、Token、完整代理 URL 或用户文件内容。
-- 指标至少覆盖请求错误、任务队列长度/耗时/失败、Worker 心跳、磁盘空间和数据库连接。
+- 尚未提供独立指标采集栈；生产需按任务失败、租约、磁盘和进程状态配置监控。
 - 长任务日志和最终错误需可由任务 ID 查询。
 - 监控转换产物、临时推理会话、保存结果和评估集占用；未保存推理会话按 24 小时访问超时由后台清理，保存结果只由用户显式删除。
 
 ## 备份与回滚
 
-- 备份范围包含数据库、项目元数据和不可重新生成的标注/配置。
+- 备份范围包含数据库、项目元数据、标注、媒体、模型、配置与凭据密钥；容器部署停止栈后备份整个 `home` 卷（含定位文件），不要只复制 SQLite 主文件。
 - 停止 API 和 Worker 后，可整体复制 `.vision-dataset-workbench` 备份数据库、配置、媒体、标注、模型和任务记录。
 - 在线备份不能只复制 SQLite 主文件；实现后需使用 SQLite backup API 或先执行安全 checkpoint。
 - 应用回滚前确认旧版本能读取迁移后 schema；不能兼容时使用预先验证的数据恢复流程。

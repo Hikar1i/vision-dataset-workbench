@@ -14,6 +14,11 @@ from ..services.training import TrainingService
 from ..services.labels import LabelService
 from ..services.media import MediaService
 from ..services.models import ModelService
+from ..services.model_artifacts import ModelArtifactService
+from ..services.model_inference import ModelInferenceService
+from ..services.model_evaluations import ModelEvaluationService
+from ..services.gpu_leases import GpuLeaseService
+from ..inference import InferenceRunner
 from ..services.projects import ProjectService
 from ..services.sampling import SamplingService
 from ..services.setup import SetupConflict, SetupService
@@ -145,6 +150,19 @@ def initialize(
         request.app.state.settings,
         workspace,
         request.app.state.project_service,
+    )
+    request.app.state.model_artifact_service = ModelArtifactService(
+        request.app.state.auth_service.engine, workspace,
+        request.app.state.capabilities, request.app.state.model_service,
+    )
+    request.app.state.model_inference_service = ModelInferenceService(
+        request.app.state.auth_service.engine, workspace,
+        InferenceRunner(GpuLeaseService(request.app.state.auth_service.engine)),
+        request.app.state.model_service,
+    )
+    request.app.state.model_evaluation_service = ModelEvaluationService(
+        request.app.state.auth_service.engine, workspace,
+        request.app.state.model_artifact_service, request.app.state.model_service,
     )
     request.app.state.dataset_export_service = DatasetExportService(
         request.app.state.auth_service.engine, workspace, request.app.state.project_service,

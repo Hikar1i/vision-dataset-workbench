@@ -129,3 +129,19 @@ def test_first_setup_wires_image_import_and_training_resources_without_restart(t
     resources = client.get("/api/v1/training/resources")
     assert resources.status_code == 200, resources.text
     assert resources.json()["image_projects"][0]["id"] == project.json()["id"]
+
+
+def test_first_setup_wires_model_capabilities_without_api_restart(tmp_path):
+    client, token, _home = make_client(tmp_path)
+    response = client.post(
+        "/api/v1/setup/initialize",
+        headers={"X-Setup-Token": token},
+        json={"parent": ".", "username": "admin", "password": "correct horse battery staple"},
+    )
+    assert response.status_code == 201, response.text
+    app = client.app
+    assert app.state.model_artifact_service is not None
+    assert app.state.model_inference_service is not None
+    assert app.state.model_evaluation_service is not None
+    assert app.state.model_artifact_service.capabilities is app.state.capabilities
+    assert app.state.model_evaluation_service.models is app.state.model_service

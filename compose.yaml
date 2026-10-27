@@ -1,0 +1,54 @@
+name: vision-dataset-workbench
+x-backend: &backend
+  image: vision-dataset-workbench:cpu
+  build:
+    context: .
+    target: cpu
+  init: true
+  restart: unless-stopped
+  stop_grace_period: 2m
+  environment:
+    APP_MODE: ${APP_MODE:-multi}
+    YTDLP_PROXY: ${YTDLP_PROXY:-}
+    YTDLP_COOKIE_FILE: ${YTDLP_COOKIE_FILE:-}
+    VDW_CREDENTIAL_ENCRYPTION_KEY: ${VDW_CREDENTIAL_ENCRYPTION_KEY:-}
+  volumes:
+    - home:/data/home
+    - type: bind
+      source: ${VDW_IMPORTS:-./imports}
+      target: /data/home/imports
+      read_only: true
+services:
+  api:
+    <<: *backend
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:38000/api/v1/health', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+  worker:
+    <<: *backend
+    command: [python, /app/deploy/worker.py]
+    shm_size: 1gb
+    depends_on:
+      api:
+        condition: service_healthy
+  web:
+    image: vision-dataset-workbench:web
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    ports:
+      - "${VDW_BIND_ADDRESS:-127.0.0.1}:${VDW_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/api/v1/health]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+volumes:
+  home:

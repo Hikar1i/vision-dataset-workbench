@@ -201,6 +201,7 @@ class ModelEvaluationService:
             ):
                 raise ModelEvaluationError("模型或测试集不可用")
             artifact_hash = None
+            image_size = 640
             if artifact_format != "pt":
                 if self.artifact_service is not None:
                     self.artifact_service.list(actor, model.id)
@@ -215,6 +216,7 @@ class ModelEvaluationService:
                 if artifact is None:
                     raise ModelEvaluationConflict("所选格式尚无可用转换产物")
                 artifact_hash = artifact.sha256
+                image_size = json.loads(artifact.export_config).get("imgsz", 640)
             evaluation = ModelEvaluation(
                 id=str(uuid4()),
                 model_project_id=project.id,
@@ -226,7 +228,9 @@ class ModelEvaluationService:
                 evaluation_dataset_id=dataset.id,
                 dataset_name=dataset.name,
                 dataset_sha256=dataset.content_sha256 or "",
-                config=json.dumps({"conf": 0.001, "iou": 0.70, "batch": 1, "max_det": 300}),
+                config=json.dumps(
+                    {"conf": 0.001, "iou": 0.70, "batch": 1, "max_det": 300, "imgsz": image_size}
+                ),
                 status="queued",
                 created_by_id=actor.id,
                 created_at=now,

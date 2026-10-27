@@ -18,6 +18,7 @@ from ..services.model_inference import (
     ModelInferenceService,
 )
 from .auth import current_user, require_same_origin
+from .capabilities import require_model_runtime
 from .upload_filename import MAX_ENCODED_FILENAME_LENGTH, upload_filename
 
 router = APIRouter(prefix="/api/v1", tags=["model-inference"])
@@ -132,6 +133,11 @@ async def create_inference(
     x_replace_inference: Annotated[bool, Header()] = False,
 ) -> ModelInferenceResponse:
     require_same_origin(request)
+    try:
+        service(request).require_execute(user, model_id)
+    except ModelInferenceError as exc:
+        _raise(exc)
+    require_model_runtime(request, format)
     filename = upload_filename(x_filename, x_filename_encoded)
     limit = IMAGE_LIMIT if input_type == "image" else VIDEO_LIMIT
     upload_root = service(request).workspace / "tmp" / "inference-uploads"

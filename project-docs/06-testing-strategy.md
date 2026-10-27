@@ -176,10 +176,21 @@ cd frontend && npm run build
 
 2026-07-28 在本地 NVMe、Python 3.12、SQLite 3.50.4 rollback journal 环境执行了一次临时容量诊断：初始生成 100 万 Frame 和每帧 5 个 Annotation，数据库在两个视频各重建 2 万 Frame 后包含 480 万 Annotation、约 794.2 MiB。热缓存中，单视频 2 万帧计数中位数 0.374 ms、末页 200 条 0.627 ms、启用帧 200 条 0.173 ms、按 Frame 主键读取 0.005 ms、单帧标注计数 0.004 ms；查询计划分别使用 `(video_id, sequence)`、Frame 主键和 `annotations.frame_id`，未依赖已删除的单列 Frame 索引。两个发布形态事务在 0.315 s 和 0.554 s 内串行完成，并发读取 0.002 s 完成，未发生锁错误。该结果只证明本机合成元数据路径，未包含真实图片写入或生产硬件，不能作为部署 SLA。
 
-GPU 实机冒烟此前已在本项目 uv `gpu` extra 中验证：PyTorch 2.9.1+cu128 可识别 RTX A4000 与 Quadro RTX 4000 并执行 CUDA 张量运算，Ultralytics 可导入。X-AnyLabeling Server 的模型目录与矩形预测协议已对用户启动的真实实例执行冒烟；本地 YOLO 路径仍使用假推理器覆盖契约，尚未用用户实际 `.pt` 权重执行端到端推理。CI 仍不要求具备 GPU 或外部标注服务。
+GPU 实机冒烟此前已在本项目 uv `gpu` extra 中验证：PyTorch 2.9.1+cu128 可识别 RTX A4000 与 Quadro RTX 4000 并执行 CUDA 张量运算，Ultralytics 可导入。X-AnyLabeling Server 的模型目录与矩形预测协议已对用户启动的真实实例执行冒烟；本地模型契约仍有假推理器覆盖；新增容器实机验证使用独立生成的合成权重，未运行用户私有模型。CI 仍不要求具备 GPU 或外部标注服务。
 
 项目权限还通过隔离工作区中的真实 Uvicorn 进程冒烟验证：多用户隔离、editor 修改、viewer 拒写、过期版本 409，以及管理员等效 owner 访问均通过；新权限重构的管理员隐式访问、模型成员和跨项目消费矩阵由自动化测试覆盖。
 
 媒体链路使用测试时生成的短 MP4、真实 ffmpeg/ffprobe、真实 yt-dlp、局域网 HTTP 服务、Uvicorn 和独立 Worker 冒烟验证：目录一级扫描、本地复制、远程解析/下载、取消后重试、API 并行可响应、持久任务成功、viewer Range 播放/下载与拒绝导入，以及跨项目 404 隔离均通过。该脚本位于本地 `.ai-local/dev/`，不是 CI 或运行时依赖。不先设置脱离实际风险的覆盖率数字。
 
 采样链路另用 120 帧测试视频、真实 FFmpeg、Uvicorn 和独立 Worker 验证：目标帧数模式精确生成 50 张 JPG、固定间隔模式生成 12 张 PNG、重采样原子替换上一代目录、原视频/缩略图/帧目录及帧文件均按响应中的视频短码命名、帧批量禁用、过期 `frame_revision` 返回 409，以及 viewer 可读图片但写操作返回 403。冒烟脚本同样位于本地 `.ai-local/dev/`，不作为运行时依赖。
+
+## Docker 验收（2026-10-26）
+
+- Linux Ubuntu 22.04、Windows 11 Docker Desktop、Intel macOS 15 Docker Desktop 均完成 CPU 实例初始化、登录、YOLO/纯图导入、重复去重、标注保存、快照导出下载、视频导入与 FFmpeg 抽帧、模型/评估集导入、GPU 功能拒绝及重启后持久性。CPU 容器断言 torch/torchvision/ultralytics/onnx/onnxruntime/tensorrt/modelopt 均未安装。
+- Linux 和 macOS 执行原生镜像构建。Windows 原有 registry mirror 对基础镜像返回 403，改用 `docker save/load` 的同一 Linux/amd64 镜像，不修改其 Docker 全局配置；此路径验证了部署，未证明该 Windows 镜像源可构建。
+- Linux NVIDIA Driver 580.95.05、Quadro RTX 4000 上执行合成 YOLO11n：单张/批量自动标注、中文文件名图片/视频推理、一次单 epoch 训练、PT/ONNX/TensorRT 评估、固定 64 输入的 ONNX/TensorRT 转换与推理。使用独立 Compose 卷及合成数据，不读取真实业务数据；不代表训练精度或长时稳定性验收。
+- 同一 GPU 工作区切换 CPU 后再恢复 GPU：历史推理和三种格式评估可读取，ONNX/engine 下载 SHA-256 不变，CPU 拒绝新执行且不覆盖当前会话；GPU 镜像未挂设备时也能启动并降级。
+- 回归覆盖 CPU 三格式拒绝且无副作用、viewer 权限优先、首次初始化装配、CPU 保留历史 engine、原始/Ultralytics 包装 TensorRT 引擎验证、转换尺寸评估及能力接口失败保留页面已有数据。
+- 前端全套存在两项既有失败：ImportImagesDialog 的旧负样本文案断言、ImportVideosDialog 的旧弹窗 top 断言；与本轮改动无关，未修改其期望以掩盖失败。实际通过数以本轮执行日志为准。
+
+浏览器主实施者与独立 reviewer 使用实际 Chrome 在 1920×1080、2560×1440 核对 CPU 提示/禁用、能力 503、历史入口、模型下载、恢复、键盘与 reduced-motion。GPU 可用状态的独立 UI 评审通过能力响应模拟；真实 GPU 计算由上述 API/Worker 实机链路覆盖。

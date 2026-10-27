@@ -229,3 +229,94 @@ def test_conversion_worker_atomically_publishes_validated_onnx(tmp_path, monkeyp
         assert (service.workspace / stored.storage_path).read_bytes() == b"valid-onnx"
         assert stored_task.status == "succeeded"
     engine.dispose()
+
+
+def test_missing_gpu_runtime_keeps_historical_engine_downloadable(tmp_path):
+    from dataclasses import replace
+
+    engine, service, owner, _viewer = setup_service(tmp_path)
+    artifact, _task = service.create(owner, "model-id", "engine")
+    target = service.workspace / "models/model-id/artifacts/model.engine"
+    target.parent.mkdir()
+    target.write_bytes(b"engine")
+    with service._session_factory() as db:
+        stored = db.get(ModelArtifact, artifact.id)
+        stored.status = "ready"
+        stored.storage_path = target.relative_to(service.workspace).as_posix()
+        stored.gpu_uuid = "GPU-a"
+        stored.environment_fingerprint = json.dumps(
+            {
+                "gpu_uuid": "GPU-a",
+                "compute_capability": "8.6",
+                "tensorrt": "11.3.0",
+                "cuda_runtime": "12.8.0",
+            }
+        )
+        db.commit()
+    original = service.capabilities
+    fingerprint = service._fingerprint
+    no = CapabilityStatus(False, "CPU")
+    service.capabilities = replace(
+        original, gpu=GpuStatus(False, "CPU", ()), features=replace(original.features, tensorrt=no)
+    )
+    service._fingerprint = lambda: pytest.fail("CPU reads must not load TensorRT")
+    assert service.downloadable(owner, artifact.id)[1] == target
+    assert service.list(owner, "model-id")[0].status == "ready"
+    service.capabilities = original
+    service._fingerprint = fingerprint
+    assert service.downloadable(owner, artifact.id)[1] == target
+    service.capabilities = replace(original, features=replace(original.features, tensorrt=no))
+    with service._session_factory() as db:
+        db.get(InferenceModel, "model-id").sha256 = "c" * 64
+        db.commit()
+    with pytest.raises(ModelArtifactConflict):
+        service.downloadable(owner, artifact.id)
+    assert service.list(owner, "model-id")[0].status == "stale"
+    engine.dispose()
+
+
+@pytest.mark.parametrize("with_metadata", [False, True])
+def test_validates_raw_and_ultralytics_tensor_rt_plans(tmp_path, monkeypatch, with_metadata):
+    from types import SimpleNamespace
+    from vision_dataset_workbench import model_artifact_task as executor
+
+    plan = b"raw-engine-plan"
+    metadata = json.dumps({"names": {"0": "object"}, "imgsz": [64, 64]}).encode()
+    path = tmp_path / "model.engine"
+    path.write_bytes(
+        (len(metadata).to_bytes(4, "little") + metadata if with_metadata else b"") + plan
+    )
+    seen = []
+
+    class Runtime:
+        def __init__(self, _logger):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def deserialize_cuda_engine(self, data):
+            seen.append(data)
+            return object() if data == plan else None
+
+    class Logger:
+        ERROR = 1
+
+        def __init__(self, _level):
+            pass
+
+    monkeypatch.setattr(
+        executor,
+        "importlib",
+        SimpleNamespace(
+            import_module=lambda _name: SimpleNamespace(Runtime=Runtime, Logger=Logger)
+        ),
+    )
+    executor._validate_export(path, "engine")
+    assert seen == [plan]
+    path.write_bytes(b"\xff\xff\xff\xffbad")
+    with pytest.raises(RuntimeError, match="TensorRT engine validation failed"):
+        executor._validate_export(path, "engine")
