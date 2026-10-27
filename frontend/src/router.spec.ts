@@ -33,12 +33,6 @@ describe('setup routing', () => {
         if (path.includes('/setup/')) {
           return Promise.resolve({ ok: true, json: async () => ({ initialized: true }) })
         }
-        if (path.includes('/auth/status')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => ({ mode: 'multi' }),
-          })
-        }
         return Promise.resolve({
           ok: false,
           status: 401,
@@ -58,12 +52,6 @@ describe('setup routing', () => {
       vi.fn().mockImplementation((path: string) => {
         if (path.includes('/setup/')) {
           return Promise.resolve({ ok: true, json: async () => ({ initialized: true }) })
-        }
-        if (path.includes('/auth/status')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => ({ mode: 'multi' }),
-          })
         }
         return Promise.resolve({
           ok: true,
@@ -87,12 +75,10 @@ describe('setup routing', () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((path: string) => {
       const value = path.includes('/setup/')
         ? { initialized: true }
-        : path.includes('/auth/status')
-          ? { mode: 'multi' }
-          : {
-              id: 'worker-id', username: 'worker', status: 'active',
-              is_system_admin: false, must_change_password: true,
-            }
+        : {
+            id: 'worker-id', username: 'worker', status: 'active',
+            is_system_admin: false, must_change_password: true,
+          }
       return Promise.resolve({ ok: true, json: async () => value })
     }))
     const router = createAppRouter()
@@ -120,8 +106,6 @@ describe('setup routing', () => {
         let value: unknown
         if (path.includes('/setup/')) {
           value = { initialized: true }
-        } else if (path.includes('/auth/status')) {
-          value = { mode: 'multi' }
         } else if (path.includes('/auth/me')) {
           value = {
             id: 'editor-id', username: 'editor', status: 'active', is_system_admin: false,

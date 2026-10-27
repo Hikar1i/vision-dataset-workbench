@@ -11,7 +11,7 @@ PASSWORD = "correct horse battery staple"
 ORIGIN = {"Origin": "http://testserver"}
 
 
-def make_app(tmp_path, mode="multi"):
+def make_app(tmp_path):
     home = tmp_path / "home"
     workspace = home / ".vision-dataset-workbench"
     (workspace / "projects").mkdir(parents=True)
@@ -40,7 +40,7 @@ def make_app(tmp_path, mode="multi"):
             )
         session.commit()
     engine.dispose()
-    settings = RuntimeSettings(home=home, workspace=workspace, app_mode=mode)
+    settings = RuntimeSettings(home=home, workspace=workspace)
     return create_app(settings), settings
 
 
@@ -252,19 +252,18 @@ def test_active_project_task_blocks_delete(tmp_path):
     assert "active tasks" in response.json()["detail"]
 
 
-def test_single_mode_admin_has_owner_equivalent_access(tmp_path):
+def test_admin_has_owner_equivalent_access_after_restart(tmp_path):
     app, settings = make_app(tmp_path)
     creator = client_for(app, "creator")
     project_id = create_project(creator).json()["id"]
 
-    single_app = create_app(
+    restarted_app = create_app(
         RuntimeSettings(
             home=settings.home,
             workspace=settings.workspace,
-            app_mode="single",
         )
     )
-    admin = client_for(single_app, "admin")
+    admin = client_for(restarted_app, "admin")
 
     access = admin.get(f"/api/v1/projects/{project_id}").json()["access"]
     assert access["role"] is None

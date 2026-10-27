@@ -1,7 +1,3 @@
-export type AuthStatus = {
-  mode: 'multi' | 'single'
-}
-
 export type CurrentUser = {
   id: string
   username: string
@@ -65,7 +61,6 @@ export async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json()
 }
 
-export const getAuthStatus = () => json<AuthStatus>('/api/v1/auth/status')
 export const getCurrentUser = () => json<CurrentUser>('/api/v1/auth/me')
 export const login = (username: string, password: string) =>
   json<CurrentUser>('/api/v1/auth/login', {

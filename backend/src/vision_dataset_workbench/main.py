@@ -80,9 +80,7 @@ def create_app(
     app.state.capabilities = capabilities or detect_capabilities()
     app.state.settings = resolved_settings
     app.state.workspace = workspace
-    auth_service = (
-        build_auth_service(workspace, resolved_settings) if workspace is not None else None
-    )
+    auth_service = build_auth_service(workspace) if workspace is not None else None
     app.state.auth_service = auth_service
     app.state.project_service = (
         ProjectService(auth_service.engine, resolved_settings, workspace)

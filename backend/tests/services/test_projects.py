@@ -100,11 +100,9 @@ def project_runtime(tmp_path):
     engine.dispose()
 
 
-def make_service(project_runtime, mode="multi"):
+def make_service(project_runtime):
     engine, workspace, _ = project_runtime
-    settings = RuntimeSettings(
-        home=workspace.parent, workspace=workspace, app_mode=mode
-    )
+    settings = RuntimeSettings(home=workspace.parent, workspace=workspace)
     return ProjectService(
         engine,
         settings,
@@ -220,13 +218,12 @@ def test_member_changes_touch_project_without_changing_metadata_version(project_
 
 
 def test_admin_has_full_access_without_membership(project_runtime):
-    multi = make_service(project_runtime)
+    service = make_service(project_runtime)
     users = project_runtime[2]
-    project = multi.create_project(users["creator-id"], "Project", "").project
-    single = make_service(project_runtime, mode="single")
+    project = service.create_project(users["creator-id"], "Project", "").project
 
-    assert single.get_project(users["admin-id"], project.id).access.source == "system_admin"
-    single.add_member(users["admin-id"], project.id, "viewer", "viewer")
+    assert service.get_project(users["admin-id"], project.id).access.source == "system_admin"
+    service.add_member(users["admin-id"], project.id, "viewer", "viewer")
     with Session(project_runtime[0]) as session:
         assert session.scalar(
             select(func.count())

@@ -2,7 +2,6 @@ import pytest
 from sqlalchemy.orm import Session
 
 from vision_dataset_workbench.admin import main
-from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.models import User
 from vision_dataset_workbench.security.passwords import hash_password
@@ -44,9 +43,7 @@ def workspace(tmp_path):
 
 def service_for(workspace):
     engine = make_engine(workspace / "db" / "workbench.sqlite3")
-    return AuthService(
-        engine, RuntimeSettings(home=workspace.parent, workspace=workspace)
-    )
+    return AuthService(engine)
 
 
 def test_reset_password_reads_secret_and_revokes_sessions(workspace):

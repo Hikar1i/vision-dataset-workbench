@@ -47,7 +47,6 @@
 | `GET /api/v1/setup/directories` | `X-Setup-Token` | 分页浏览启动用户 `~` 内目录；支持当前目录 `search` 包含过滤 |
 | `POST /api/v1/setup/directories` | `X-Setup-Token` | 在受控父目录中新建目录 |
 | `POST /api/v1/setup/initialize` | `X-Setup-Token` | 创建工作区和首个管理员 |
-| `GET /api/v1/auth/status` | 无 | 返回 `multi/single` 运行模式 |
 | `POST /api/v1/auth/login` | 同源 | 登录并设置 `vdw_session` Cookie |
 | `GET /api/v1/auth/me` | Session | 返回当前安全用户字段 |
 | `POST /api/v1/auth/logout` | 同源 | 存在 Session 时撤销，并删除 Cookie |
@@ -165,9 +164,9 @@
 
 目录接口只接受相对 `~` 的路径，拒绝绝对路径、`..` 和解析后逃逸的符号链接，并从列表隐藏当前工作区。`GET /filesystem` 的 `extensions` 可重复传入，当前只接受服务端白名单中的视频扩展名和 `pt`；不传扩展名时只返回目录。返回条目的 `type` 为小写真实类型：目录是 `dir`，文件是去掉点号的扩展名。`search` 是不区分大小写的当前目录文件名包含匹配，在分页前执行且不递归。用户名使用 3–64 个 ASCII 字母、数字、`.`、`_` 或 `-`，密码长度为 12–256；成功初始化后口令立即失效。用户、项目和任务列表最大页大小 200，视频列表最大页大小 999，帧列表保持自身接口约束。当前错误响应仍使用 FastAPI `detail`，统一业务错误模型尚未实现。
 
-认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误、状态或模式限制。普通账号由唯一系统管理员创建，创建/重置响应仅当次返回随机密码，数据库只保存 Argon2 哈希；首次改密前除 `/auth/me`、改密和退出外的业务请求返回 403 `password_change_required`。用户已通过初始密码建立会话，因此该次强制改密不重复要求当前密码；完成首次改密后的普通改密仍必须提交并校验当前密码。禁用账号立即撤销其会话；系统管理员不可禁用、重置或删除。
+认证 Cookie 为 HttpOnly、SameSite=Lax、Path=/；HTTPS 请求额外设置 Secure。服务端会话空闲 12 小时失效、创建 7 天后绝对失效。登录失败始终返回相同 401，不区分账号不存在、密码错误或账号不可用。普通账号由唯一系统管理员创建，创建/重置响应仅当次返回随机密码，数据库只保存 Argon2 哈希；首次改密前除 `/auth/me`、改密和退出外的业务请求返回 403 `password_change_required`。用户已通过初始密码建立会话，因此该次强制改密不重复要求当前密码；完成首次改密后的普通改密仍必须提交并校验当前密码。禁用账号立即撤销其会话；系统管理员不可禁用、重置或删除。
 
-项目名称允许重复，资源主键和路由身份使用 UUID。项目列表与详情的 `categories` 仅包含按标签顺序排列的启用类别；停用类别仍保留在标签和数据集映射详情中。Video 响应额外返回不可变 `short_code`，用于界面显示和本地媒体/帧文件对应；短码不是路由参数，也不替代 UUID。无访问权的项目返回 404，避免泄露项目是否存在；已知成员权限不足返回 403；版本或资源状态冲突返回 409。创建者是永久 owner，不存在 owner 成员记录或所有权转移接口。访问来源优先判定创建者，因此系统管理员自建项目返回 `access.role=owner`、`access.source=owner`；管理员访问他人项目时在 multi/single 模式下都隐式获得全部权限，返回 `access.role=null`、`access.source=system_admin`，但不写入成员表。前端将后一来源简写为“管理员”。
+项目名称允许重复，资源主键和路由身份使用 UUID。项目列表与详情的 `categories` 仅包含按标签顺序排列的启用类别；停用类别仍保留在标签和数据集映射详情中。Video 响应额外返回不可变 `short_code`，用于界面显示和本地媒体/帧文件对应；短码不是路由参数，也不替代 UUID。无访问权的项目返回 404，避免泄露项目是否存在；已知成员权限不足返回 403；版本或资源状态冲突返回 409。创建者是永久 owner，不存在 owner 成员记录或所有权转移接口。访问来源优先判定创建者，因此系统管理员自建项目返回 `access.role=owner`、`access.source=owner`；管理员访问他人项目时隐式获得全部权限，返回 `access.role=null`、`access.source=system_admin`，但不写入成员表。前端将后一来源简写为“管理员”。
 
 项目响应的 `access.permissions` 使用固定集合：`project.read`、`project.update`、`project.members.manage`、`project.delete`、`artifact.read`、`artifact.download`、`artifact.consume`、`task.read`、`task.execute`。owner 和系统管理员拥有全部权限；editor 缺少成员管理和项目删除；viewer 只有项目/产物/任务读取及产物下载。该映射同时用于数据集项目、模型项目及其子资源，不提供自定义角色或权限表。
 
@@ -373,15 +372,7 @@ FastAPI OpenAPI 是唯一契约来源。前端类型从规范生成或在 CI 中
 
 ## 认证与授权
 
-运行模式：
-
-- 默认 `multi`，内置账号密码认证。
-- `single` 只允许初始化管理员使用用户名和密码登录。
-- 两种模式共用 User、Session 和后续项目成员数据；模式切换不修改业务数据。
-
-所有模式要求：
-
-- 每个受保护请求都从服务端 Session 解析用户身份；单用户模式不会注入匿名身份。
+- 每个受保护请求都从服务端 Session 解析用户身份，不提供匿名身份。
 - 项目列表和项目子资源按成员权限过滤。
 - 查看、编辑、执行任务、导出和管理成员是可区分权限。
 - SSE/WebSocket 与文件下载执行同样的授权检查。
@@ -390,7 +381,7 @@ FastAPI OpenAPI 是唯一契约来源。前端类型从规范生成或在 CI 中
 - 系统不提供开放注册；唯一系统管理员创建普通账号并发放一次性随机初始密码。
 - 当前可信局域网部署不提供浏览器 Token、无认证、IP/CIDR 或可信代理模式。
 
-项目角色为 owner、editor、viewer。系统管理员在所有运行模式下隐式拥有全部数据集与模型项目权限，不需要 owner 授权，也不写入成员表。
+项目角色为 owner、editor、viewer。系统管理员隐式拥有全部数据集与模型项目权限，不需要 owner 授权，也不写入成员表。
 
 ## 规范与兼容性
 

@@ -4,7 +4,6 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from .config import RuntimeSettings
 from .services.auth import UserNotFound, build_auth_service, validate_password
 
 
@@ -42,8 +41,7 @@ def main(
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    settings = RuntimeSettings(home=workspace.parent, workspace=workspace)
-    service = build_auth_service(workspace, settings)
+    service = build_auth_service(workspace)
     try:
         service.reset_admin_password(args.username, first)
     except UserNotFound as exc:

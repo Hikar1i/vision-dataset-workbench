@@ -1,25 +1,18 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { Hide, View } from '@element-plus/icons-vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { getAuthStatus, login } from '../api/auth'
+import { login } from '../api/auth'
 import VButton from '../ui/VButton.vue'
 
 const router = useRouter()
 const username = ref('')
 const password = ref('')
-const mode = ref<'multi' | 'single'>('multi')
+const passwordVisible = ref(false)
+const passwordToggleLabel = computed(() => passwordVisible.value ? '隐藏密码' : '显示密码')
 const submitting = ref(false)
 const error = ref('')
-
-onMounted(async () => {
-  try {
-    const status = await getAuthStatus()
-    mode.value = status.mode
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : '无法读取实例状态'
-  }
-})
 
 async function submit() {
   submitting.value = true
@@ -40,7 +33,6 @@ async function submit() {
     <aside class="instance-panel">
       <div class="instance-heading">
         <p class="eyebrow">VDW / ACCESS</p>
-        <span class="mode-chip">{{ mode === 'multi' ? 'MULTI USER' : 'SINGLE USER' }}</span>
       </div>
 
       <div class="vision-frame" aria-hidden="true">
@@ -84,17 +76,26 @@ async function submit() {
               <el-input
                 v-model="password"
                 data-test="password"
-                type="password"
-                show-password
+                :type="passwordVisible ? 'text' : 'password'"
                 autocomplete="current-password"
                 placeholder="输入密码"
-              />
+              >
+                <template #suffix>
+                  <VButton variant="quiet" size="sm" icon-only
+                    :label="passwordToggleLabel" :title="passwordToggleLabel"
+                    :aria-pressed="passwordVisible"
+                    @click="passwordVisible = !passwordVisible">
+                    <template #icon><el-icon><Hide v-if="passwordVisible" /><View v-else /></el-icon></template>
+                  </VButton>
+                </template>
+              </el-input>
             </el-form-item>
           </el-form>
 
           <VButton variant="default" type="submit"
             :loading="submitting"
-            :disabled="!username || !password">
+            :disabled="!username || !password"
+            :title="submitting ? '正在登录' : !username ? '请输入用户名' : !password ? '请输入密码' : '登录工作台'">
             登录工作台
           </VButton>
         </form>

@@ -83,12 +83,6 @@ def set_session_cookie(response: Response, request: Request, token: str) -> None
     )
 
 
-@router.get("/status")
-def status(request: Request) -> dict[str, object]:
-    settings = request.app.state.settings
-    return {"mode": settings.app_mode}
-
-
 @router.post("/login", response_model=UserResponse)
 def login(payload: LoginRequest, request: Request, response: Response) -> UserResponse:
     require_same_origin(request)

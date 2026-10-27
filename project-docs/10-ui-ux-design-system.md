@@ -234,3 +234,9 @@ npm run build
 推理与评估页面复用既有警告、禁用和格式选项样式，显示后端能力原因；禁用新执行不阻止下载、历史切换和测试集管理。能力请求失败不能清空已成功加载的数据，也不能沿用旧 GPU 可用状态放行执行；页面给出可恢复提示。
 
 主实施者及独立 reviewer 已通过实际 Chrome 双分辨率复核，状态为 `UI/UX REVIEW PASSED`。独立复核包含 CPU、能力 503、GPU 可用响应模拟、恢复、键盘和 reduced-motion；非空真实 GPU 结果的计算验收另见[测试策略](06-testing-strategy.md)，不把模拟能力当作真实 GPU 执行证据。
+
+## 登录表单（2026-10-27）
+
+登录页使用统一账号密码表单。密码显隐使用带动态可访问名称和 `aria-pressed` 的 `VButton` 图标按钮，支持键盘 Tab、Space 和 Enter；未填写用户名或密码时，登录按钮禁用并通过 `title` 说明原因。
+
+主实施者和独立 reviewer 已实际 Chrome 核对 1920×1080、2560×1440 的布局、键盘显隐、值保持、hover/focus、禁用提示及 reduced-motion，状态为 `UI/UX REVIEW PASSED`。此次仅核对匿名登录页，未提交登录请求或验证登录后的业务流程。

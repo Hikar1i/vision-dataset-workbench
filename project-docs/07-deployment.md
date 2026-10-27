@@ -41,7 +41,6 @@ docker compose -f compose.yaml -f compose.gpu.yaml ps
 | `VDW_PORT` | `8080` | 唯一对外 HTTP 端口 |
 | `VDW_BIND_ADDRESS` | `127.0.0.1` | 改为 `0.0.0.0` 才对局域网开放，需配合主机防火墙 |
 | `VDW_IMPORTS` | `./imports` | 宿主导入目录，只读挂载；Windows 可用 `D:/datasets` |
-| `APP_MODE` | `multi` | 账号认证模式；`single` 也需管理员密码 |
 
 - 源目录在界面显示为 `~/imports`；不是宿主原绝对路径。目录需允许 UID/GID 10001 读取，Docker Desktop 还需允许目录共享。导入后由应用物化到受管工作区，TXT 标注入数据库。来源挂载与命名卷通常不在同一文件系统，reflink/hardlink 不可用时回退 copy，不能保证零复制。
 - 后端以非 root 用户 10001:10001 运行。共享 `home` 命名卷位于 `/data/home`，同时保存 home 定位文件、工作区、数据库、媒体、模型、输出和凭据密钥；必须整体持久化/备份，不能只挂载数据库目录。
@@ -84,7 +83,7 @@ GPU 分发时保存 `vision-dataset-workbench:gpu` 和 `:web` 并使用 GPU over
 - 配置启动时校验；缺失必需值时快速失败并给出变量名，不打印密钥值。
 - 当前不启用 CORS；浏览器通过同源前端/反向代理访问 API。
 - 媒体存储和任务临时目录均受工作区根约束；外部导入只在启动用户 `~` 内解析。
-- 所有运行模式都要求用户名和密码；当前不提供无认证入口。
+- 登录要求用户名和密码，不提供无认证入口。
 - 当前认证使用数据库可撤销 Session，部署时不需要共享浏览器 Token；不得记录 `vdw_session` Cookie 或数据库中的 token 摘要。
 - 当前同源校验直接使用请求 scheme 与 Host，不支持可信代理头。引入 TLS 终止代理前必须先明确并测试代理边界。
 - `YTDLP_PROXY` 可配置实例级代理，`YTDLP_COOKIE_FILE` 可指向 Netscape Cookie 文件；二者可能包含敏感信息，不得写入日志或仓库。

@@ -12,7 +12,7 @@ NEW_PASSWORD = "new correct horse battery"
 ORIGIN = {"Origin": "http://testserver"}
 
 
-def make_client(tmp_path, *, mode="multi", must_change_password=False):
+def make_client(tmp_path, *, must_change_password=False):
     home = tmp_path / "home"
     workspace = home / ".vision-dataset-workbench"
     database_path = workspace / "db" / "workbench.sqlite3"
@@ -36,7 +36,6 @@ def make_client(tmp_path, *, mode="multi", must_change_password=False):
         RuntimeSettings(
             home=home,
             workspace=workspace,
-            app_mode=mode,
         )
     )
     return TestClient(app)
@@ -50,10 +49,9 @@ def login(client, password=PASSWORD, headers=ORIGIN):
     )
 
 
-def test_status_login_cookie_and_current_user(tmp_path):
+def test_login_cookie_and_current_user(tmp_path):
     client = make_client(tmp_path)
 
-    assert client.get("/api/v1/auth/status").json() == {"mode": "multi"}
     response = login(client)
 
     assert response.status_code == 200

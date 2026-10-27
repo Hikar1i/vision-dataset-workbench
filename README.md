@@ -89,7 +89,6 @@ New-Item -ItemType Directory -Force imports
 VDW_BIND_ADDRESS=127.0.0.1
 VDW_PORT=8080
 VDW_IMPORTS=./imports
-APP_MODE=multi
 ```
 
 | 配置 | 说明 |
@@ -97,7 +96,6 @@ APP_MODE=multi
 | `VDW_BIND_ADDRESS` | `127.0.0.1` 仅部署主机本机可访问；通过局域网访问时改为 `0.0.0.0`，并允许主机防火墙对应端口 |
 | `VDW_PORT` | Web 访问端口，默认 `8080`；冲突时改为其他空闲端口 |
 | `VDW_IMPORTS` | 宿主机来源目录，相对路径以 Compose 文件所在目录为基准；Windows 可写 `D:/datasets`，带空格时用引号包裹值 |
-| `APP_MODE` | 默认 `multi`；`single` 仅允许初始化管理员登录，仍要求密码 |
 
 容器内来源目录固定为 **`~/imports`（`/data/home/imports`）**，界面中应从这里选择文件，而不是填写宿主机的绝对路径。来源为只读挂载；Linux 目录须允许容器 UID/GID `10001:10001` 读取，Docker Desktop 须允许该目录共享。
 
@@ -376,7 +374,7 @@ uv run --no-sync python -m vision_dataset_workbench.admin reset-password --works
 ## 项目文档
 
 - [部署与运维](project-docs/07-deployment.md)：GPU 前提、网络、持久化、备份和升级。
-- [开发环境与配置](project-docs/08-environments.md)：工作区定位、运行模式、远程服务与依赖。
+- [开发环境与配置](project-docs/08-environments.md)：工作区定位、账号认证、远程服务与依赖。
 - [系统架构](project-docs/02-architecture.md) · [数据库与迁移](project-docs/03-database.md) · [API](project-docs/04-api.md)。
 - [测试策略](project-docs/06-testing-strategy.md) · [代码规范](project-docs/05-code-style.md) · [UI/UX 设计系统](project-docs/10-ui-ux-design-system.md)。
 - [项目背景](project-docs/01-project-background.md) · [已知问题](project-docs/09-known-issues.md)。

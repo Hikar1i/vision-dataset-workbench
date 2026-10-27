@@ -123,9 +123,7 @@ def initialize(
             request.app.state.settings.credential_encryption_key, workspace
         ),
     )
-    request.app.state.auth_service = build_auth_service(
-        workspace, request.app.state.settings
-    )
+    request.app.state.auth_service = build_auth_service(workspace)
     request.app.state.project_service = ProjectService(
         request.app.state.auth_service.engine,
         request.app.state.settings,

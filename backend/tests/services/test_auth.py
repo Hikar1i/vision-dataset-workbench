@@ -4,7 +4,6 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from vision_dataset_workbench.config import RuntimeSettings
 from vision_dataset_workbench.database import create_workspace_database, make_engine
 from vision_dataset_workbench.models import AuthSession, User
 from vision_dataset_workbench.security.passwords import hash_password
@@ -61,10 +60,9 @@ def auth_runtime(tmp_path):
     engine.dispose()
 
 
-def make_service(auth_runtime, mode="multi"):
-    engine, clock, home = auth_runtime
-    settings = RuntimeSettings(home=home, workspace=home, app_mode=mode)
-    return AuthService(engine, settings, now=clock)
+def make_service(auth_runtime):
+    engine, clock, _home = auth_runtime
+    return AuthService(engine, now=clock)
 
 
 def test_login_authenticate_and_logout(auth_runtime):
@@ -96,17 +94,12 @@ def test_username_rules_match_setup_accounts(auth_runtime):
     assert make_service(auth_runtime).login(".OPERATOR", PASSWORD).user.username == ".operator"
 
 
-def test_login_rejects_wrong_password_and_single_mode_non_admin(auth_runtime):
-    multi = make_service(auth_runtime)
+def test_login_rejects_wrong_password(auth_runtime):
+    service = make_service(auth_runtime)
     with pytest.raises(AuthenticationFailed):
-        multi.login("missing", PASSWORD)
+        service.login("missing", PASSWORD)
     with pytest.raises(AuthenticationFailed):
-        multi.login("admin", "wrong password")
-
-    single = make_service(auth_runtime, mode="single")
-    assert single.login("admin", PASSWORD).user.is_system_admin
-    with pytest.raises(AuthenticationFailed):
-        single.login("colleague", PASSWORD)
+        service.login("admin", "wrong password")
 
 
 def test_authentication_throttles_touch_and_enforces_idle_expiry(auth_runtime):
@@ -199,14 +192,11 @@ def test_provision_and_reset_require_password_change(auth_runtime):
     assert service.login("new.user", reset.initial_password).user.must_change_password is True
 
 
-def test_single_mode_startup_revokes_non_admin_sessions(auth_runtime):
-    multi = make_service(auth_runtime)
-    admin = multi.login("admin", PASSWORD)
-    colleague = multi.login("colleague", PASSWORD)
+def test_admin_and_colleague_sessions_remain_valid_after_restart(auth_runtime):
+    service = make_service(auth_runtime)
+    admin = service.login("admin", PASSWORD)
+    colleague = service.login("colleague", PASSWORD)
 
-    single = make_service(auth_runtime, mode="single")
-    single.revoke_incompatible_sessions()
-
-    assert single.authenticate(admin.token).id == "admin-id"
-    with pytest.raises(AuthenticationFailed):
-        single.authenticate(colleague.token)
+    restarted = make_service(auth_runtime)
+    assert restarted.authenticate(admin.token).id == "admin-id"
+    assert restarted.authenticate(colleague.token).id == "user-id"

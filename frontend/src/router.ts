@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-import { ApiError, getAuthStatus, getCurrentUser } from "./api/auth";
+import { ApiError, getCurrentUser } from "./api/auth";
 import { getSetupStatus } from "./api/setup";
 import AppShell from "./layouts/AppShell.vue";
 import FocusLayout from "./layouts/FocusLayout.vue";
@@ -214,7 +214,6 @@ export function createAppRouter() {
     if (!initialized && to.path !== "/setup") return "/setup";
     if (!initialized) return;
 
-    await getAuthStatus();
     let user = null;
     try {
       user = await getCurrentUser();

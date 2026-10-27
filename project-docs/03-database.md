@@ -116,7 +116,7 @@ DatasetExport 保留 `total/train/val_frames` 列，图片也用它存样本数�
 | `enabled` | 视频是否进入后续标注、自动标注和导出；默认启用 |
 | `version` / 时间字段 | 资源版本和创建、更新时间 |
 
-短码与视频 UUID 保存在同一条 Video 记录中；UUID 继续作为主键、外键和 API 路由身份。短码由服务端在创建导入任务时生成，数据库以 `(project_id, short_code)` 唯一索引和格式 CHECK 约束兜底，冲突只重试短码分配。本地重复内容和远程重复身份通过 SQLite partial unique index 约束。每个项目最多保存 999 条 Video：导入服务先检查剩余容量并返回逐项 accepted/rejected，SQLite `trg_videos_project_limit` 插入触发器处理多用户并发越过前置检查的竞争场景。复制/下载成功前视频保持 `pending`；Worker 验证文件与元数据后才写入受管路径并切换为 `ready`。
+短码与视频 UUID 保存在同一条 Video 记录中；UUID 继续作为主键、外键和 API 路由身份。短码由服务端在创建导入任务时生成，数据库以 `(project_id, short_code)` 唯一索引和格式 CHECK 约束兜底，冲突只重试短码分配。本地重复内容和远程重复身份通过 SQLite partial unique index 约束。每个项目最多保存 999 条 Video：导入服务先检查剩余容量并返回逐项 accepted/rejected，SQLite `trg_videos_project_limit` 插入触发器处理并发请求越过前置检查的竞争场景。复制/下载成功前视频保持 `pending`；Worker 验证文件与元数据后才写入受管路径并切换为 `ready`。
 
 视频 `enabled` 与媒体 `status` 相互独立。停用不删除文件、不取消任务，也不阻止播放、采样配置、抽帧、筛帧或手动/单张自动标注；停用视频不能新建批量自动标注任务，Worker 只处理开始执行时启用的帧，后续导出也必须显式过滤 `enabled = true`。备注、遗留自由文本 `status_info` 和不可逆业务状态枚举不进入新 schema；列表业务状态由任务、视频、采样版本、帧修订及标注存在性推导。
 

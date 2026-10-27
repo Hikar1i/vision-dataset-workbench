@@ -28,7 +28,6 @@
 }
 
 .eyebrow,
-.mode-chip,
 .frame-label,
 .section-code,
 .instance-readout {
@@ -40,13 +39,6 @@
 .eyebrow {
   margin: 0;
   color: var(--vdw-focus-accent);
-}
-
-.mode-chip {
-  padding: 6px 9px;
-  color: var(--vdw-rail-ink);
-  border: 1px solid var(--vdw-rail-line);
-  border-radius: 3px;
 }
 
 /* 取景框：准星母题的来源。签名元素在系统内的原始形态。 */

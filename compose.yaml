@@ -8,7 +8,6 @@ x-backend: &backend
   restart: unless-stopped
   stop_grace_period: 2m
   environment:
-    APP_MODE: ${APP_MODE:-multi}
     YTDLP_PROXY: ${YTDLP_PROXY:-}
     YTDLP_COOKIE_FILE: ${YTDLP_COOKIE_FILE:-}
     VDW_CREDENTIAL_ENCRYPTION_KEY: ${VDW_CREDENTIAL_ENCRYPTION_KEY:-}

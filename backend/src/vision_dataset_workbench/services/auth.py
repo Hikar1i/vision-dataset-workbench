@@ -11,7 +11,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..config import RuntimeSettings
 from ..database import create_workspace_database, make_engine
 from ..models import AuthSession, User
 from ..security.passwords import hash_password, verify_password
@@ -81,11 +80,9 @@ class AuthService:
     def __init__(
         self,
         engine: Engine,
-        settings: RuntimeSettings,
         *,
         now: Callable[[], datetime] = _utc_now,
     ):
-        self.settings = settings
         self._now = now
         self.engine = engine
         self._session_factory = sessionmaker(engine, expire_on_commit=False)
@@ -108,7 +105,6 @@ class AuthService:
                 user is not None
                 and password_matches
                 and user.status == "active"
-                and (self.settings.app_mode == "multi" or user.is_system_admin)
             )
             if not allowed:
                 raise AuthenticationFailed("invalid username or password")
@@ -137,7 +133,6 @@ class AuthService:
             auth_session, user = row
             valid = (
                 user.status == "active"
-                and (self.settings.app_mode == "multi" or user.is_system_admin)
                 and now < auth_session.idle_expires_at
                 and now < auth_session.absolute_expires_at
             )
@@ -196,16 +191,6 @@ class AuthService:
         with self._session_factory() as database:
             database.execute(
                 delete(AuthSession).where(AuthSession.user_id == user_id)
-            )
-            database.commit()
-
-    def revoke_incompatible_sessions(self) -> None:
-        if self.settings.app_mode != "single":
-            return
-        non_admin_ids = select(User.id).where(User.is_system_admin.is_(False))
-        with self._session_factory() as database:
-            database.execute(
-                delete(AuthSession).where(AuthSession.user_id.in_(non_admin_ids))
             )
             database.commit()
 
@@ -336,9 +321,7 @@ class AuthService:
         return CreatedSession(token=token, user=user)
 
 
-def build_auth_service(workspace: Path, settings: RuntimeSettings) -> AuthService:
+def build_auth_service(workspace: Path) -> AuthService:
     database_path = workspace / "db" / "workbench.sqlite3"
     create_workspace_database(database_path)
-    service = AuthService(make_engine(database_path), settings)
-    service.revoke_incompatible_sessions()
-    return service
+    return AuthService(make_engine(database_path))
