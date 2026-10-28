@@ -4,6 +4,8 @@ x-backend: &backend
   build:
     context: .
     target: cpu
+    args:
+      VDW_DEBIAN_MIRROR: ${VDW_DEBIAN_MIRROR:-}
   init: true
   restart: unless-stopped
   stop_grace_period: 2m
