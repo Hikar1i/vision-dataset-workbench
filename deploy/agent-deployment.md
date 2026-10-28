@@ -36,6 +36,21 @@
 
 11. 完整源码部署：必须有 Dockerfile/deploy/backend 源码及 uv.lock/迁移/frontend 源码及 package-lock/配置，只有 compose 文件不够。允许按选型执行构建，需可访问基础镜像、Python/npm 依赖源。CPU：docker compose -p <项目名> -f compose.yaml build api web；GPU 加 -f compose.gpu.yaml。构建失败保留具体脱敏错误，不更改全局镜像源；网络阻断时优先采用匹配架构离线镜像。
 
+### 步骤11的构建网络排查
+
+根据日志定位阶段，不能把所有超时都归为 registry 或 GPU 问题：
+
+| 失败位置 | Agent 的项目内处理 |
+| --- | --- |
+| `FROM` / 拉基础镜像 | 检查 registry、daemon网络与缓存；成功拉取后不要因 apt 失败重复拉相同镜像。 |
+| `runtime-base` 的 `apt-get update/install` | 先检查源连接/索引错误；`Unable to locate package` 可能是前面索引失败的后果。按下述顺序切换项目级源或构建代理。CPU/GPU都依赖这一层，改CPU不能解决apt断网。 |
+| `uv sync` | 检查日志中的具体Python/PyTorch下载地址与构建代理；保留uv.lock及GPU专用源。 |
+| `npm ci` | 检查npm/锁文件实际下载地址与构建代理，保留package-lock，不混同apt问题。 |
+
+出现 apt 连接超时后，已有服务保持运行，先完成构建再进入升级停机流程。在项目 `.env` 更新 `VDW_DEBIAN_MIRROR`（不要覆盖已有其他配置）：可以先尝试 `https://deb.debian.org` 排除仅80端口不通；仍不可达时，尝试 `https://mirrors.tuna.tsinghua.edu.cn` 等用户/组织允许的镜像站根地址，不带 `/debian`。该参数同时影响普通与安全更新仓库；必须在实际builder内确认二者均成功更新，不以宿主网络探针代替。有限尝试后记录具体失败，不无限重试。配置格式、CPU/GPU重建命令、构建代理与签名边界统一参考 [部署文档的构建网络排查](../project-docs/07-deployment.md#构建容器无法访问-debian-源)。
+
+代理只传Docker预定义构建参数，不写入镜像ENV；代理地址须在构建容器可达。不要通过删除系统包、禁用签名/TLS校验、强制IPv4或修改宿主全局配置掩盖根因；仅当实际诊断证明需要且权限允许时处理网络本身。镜像源/代理均不通时请求同架构完整应用离线镜像，而非只收集uv/python基础镜像。项目内配置无需再次请求修改Docker全局配置的授权；驱动/daemon等全局改动仍遵循本文边界。
+
 12. 离线镜像部署：docker load -i <归档>，确认实际镜像 ID、标签、linux OS/架构与来源；CPU 需 vision-dataset-workbench:cpu 和 :web，GPU 需 :gpu 和 :web。若同标签被其他项目使用，加载前先识别，保留旧镜像 ID/恢复标签方案，避免破坏其他项目重建所需镜像。离线不构建、不拉取缺失依赖。所有方式启动均使用 docker compose -p <项目名> -f compose.yaml [GPU 时另加 -f compose.gpu.yaml] up -d --no-build --pull never --wait。方括号是说明，不要原样复制进命令。
 
 13. 确认 api/worker/web 都正常，记录实际使用配置、项目名和卷名；GPU 后续每条 Compose 操作继续携带两份 -f。API/web 有健康检查，Worker 无独立健康接口，需结合状态、日志和任务进展验收。不得只启动前端/API 就报告任务系统可用。

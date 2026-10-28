@@ -68,6 +68,44 @@ GPU 分发时保存 `vision-dataset-workbench:gpu` 和 `:web` 并使用 GPU over
 
 更新前停止任务并备份完整卷，然后 `docker compose stop`、构建/加载新镜像、`up -d --wait`。GPU 实例所有命令均携带 `-f compose.yaml -f compose.gpu.yaml`。API 在启动已有工作区时执行迁移，Worker 等待 API 健康后启动；不兼容 schema 回滚需恢复备份。实际验收范围见[测试策略](06-testing-strategy.md)。
 
+## 构建容器无法访问 Debian 源
+
+`docker pull` 成功只验证基础镜像获取；Dockerfile 中的 apt、uv、npm 下载使用构建容器网络，需分别排查。`apt-get update` 超时后出现 `Unable to locate package`，应先修复索引获取，不删除 ffmpeg/libGL 等依赖，也不反复拉取已经缓存的基础镜像。
+
+### 项目级 apt 镜像站
+
+在项目 `.env` 设置（或更新已有的同名项）：
+
+```dotenv
+VDW_DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn
+```
+
+此值为镜像站根地址，不带 `/debian`，由 Dockerfile 在构建时同时替换 `/debian` 和 `/debian-security` 的官方源域名。留空保留基础镜像原源；也可先设为 `https://deb.debian.org`，排查仅 HTTP/80 不通的情况。CPU/GPU 的 API 和 Worker 共用该参数。镜像站应同时提供 bookworm、bookworm-updates 和 bookworm-security；是否可达必须在目标 builder 中实际构建确认，宿主 curl 成功不足以证明构建网络可用。
+
+```bash
+# CPU
+docker compose build api web
+# GPU
+docker compose -f compose.yaml -f compose.gpu.yaml build api web
+```
+
+构建成功再使用相同 Compose 项目名/配置启动。已有实例在构建期间保持运行，成功后按升级流程停机备份再切换。只执行 `restart` 不会重建镜像；直接 `docker build` 时需显式添加 `--build-arg VDW_DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn`，它不会读取 Compose 的 `.env`。
+
+转换脚本只改源地址，保留发行版及 Signed-By；拒绝带账号密码、查询参数或仓库路径的镜像站值。apt 设置30秒连接/数据超时、2次重试；索引有任何下载错误即失败，禁止使用残缺索引继续安装。保留签名与TLS校验。镜像站的安全更新可能存在同步延迟，可达时优先官方安全更新服务；切换时记录来源。格式与安全更新说明见[清华镜像站](https://mirrors.tuna.tsinghua.edu.cn/help/debian/)，失败语义见[Debian apt-get手册](https://manpages.debian.org/bookworm/apt/apt-get.8.en.html)。
+
+### 构建代理与离线方式
+
+若已有代理，先在当前 shell 配置容器实际可达的 `HTTP_PROXY` / `HTTPS_PROXY`，再传递 Docker 预定义构建参数：
+
+```bash
+docker compose build --build-arg HTTP_PROXY --build-arg HTTPS_PROXY api web
+# GPU 使用同样的参数，并携带 -f compose.yaml -f compose.gpu.yaml。
+```
+
+这与 Docker daemon 拉镜像代理、应用运行时 `YTDLP_PROXY` 是不同链路。容器内 `127.0.0.1` 指向容器，不能照抄宿主回环代理；Docker Desktop 可使用其宿主地址机制，Linux 按实际网络选择可达宿主地址。不要在 Dockerfile 用 ENV 固化代理，不打印代理凭据；参见[Docker 构建代理参数](https://docs.docker.com/build/building/variables/#proxy-arguments)。本方案不修改宿主 apt、Docker daemon 或全局镜像源。
+
+镜像站和代理均不可用时，使用已构建的同架构 CPU/web 或 GPU/web 离线镜像，按前文 `docker load` 加 `up --no-build --pull never` 启动。只有 uv/python 基础镜像缓存仍不足以离线构建，apt、Python及npm依赖也需要下载。apt修复不保证后续PyPI/PyTorch/npm源可达，应依据失败阶段处理；不要为网络故障修改GPU锁文件或关闭依赖校验。
+
 ## 遗留部署风险
 
 - 遗留容器用 Flask debug server 运行后端，不是目标生产部署方式。

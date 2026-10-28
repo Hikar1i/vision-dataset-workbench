@@ -365,7 +365,7 @@ uv run --no-sync python -m vision_dataset_workbench.admin reset-password --works
 | 页面正常但导入/抽帧一直排队 | 检查 Worker 是否运行、初始化是否完成，以及 API / Worker 是否指向相同工作区 |
 | 容器中看不到宿主文件 | 检查 `VDW_IMPORTS` 和 Docker Desktop 目录共享；界面从 `~/imports` 选择，检查容器用户读取权限 |
 | 显示 CPU 降级或 GPU 功能禁用 | CPU 版为预期行为；GPU 版检查两份 Compose 配置、驱动、容器设备及运行能力原因，不要只看镜像构建是否成功 |
-| Docker 拉取或构建返回 403 / 超时 | 检查主机网络、Docker 代理/镜像源；也可从同架构主机离线加载镜像。容器中的代理地址不能直接照搬宿主 `127.0.0.1` |
+| Docker 拉取或构建返回 403 / 超时 | 先区分镜像拉取与构建容器内 apt/uv/npm 下载；apt 超时可在 `.env` 设置 `VDW_DEBIAN_MIRROR` 后重建，详见[构建网络排查](project-docs/07-deployment.md#构建容器无法访问-debian-源)。也可离线加载完整应用镜像 |
 | 更新后像全新实例 | 检查是否换了 Compose 项目名、数据卷，或原生启动用户 / `VDW_WORKSPACE`；先定位原工作区，不要覆盖旧数据 |
 | TensorRT 引擎换机器不可用 | `.engine` 与构建硬件/运行时绑定，在目标 GPU 环境重新转换；不要把它当作通用模型格式 |
 

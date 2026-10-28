@@ -152,3 +152,5 @@
 CPU 版训练详情目前仍可能显示可点击的“开始训练”，不表示支持训练；实际执行由后端能力校验拒绝。本轮仅调整权限页入口，未统一此既有按钮的能力禁用展示。
 
 同一 Docker 归档在本轮 Intel macOS Docker Desktop 加载后的 `image inspect .Id` 与 Linux/Windows 不同；归档 SHA256、RootFS层列表和镜像配置的哈希实际一致。跨这些镜像存储实现核对发布内容时，应同时验证归档和层/配置摘要，不能仅凭本地显示ID不同判断加载了旧版。
+
+基础镜像可拉取，但构建容器 apt 访问 Debian 官方源超时：后续“找不到ffmpeg/libgl”等可能由索引下载失败引起。使用项目 `VDW_DEBIAN_MIRROR` 或构建代理，保留签名校验；见[构建网络排查](07-deployment.md#构建容器无法访问-debian-源)。

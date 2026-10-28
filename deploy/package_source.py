@@ -11,7 +11,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     'Dockerfile', 'compose.yaml', 'compose.gpu.yaml', '.env.example', '.dockerignore',
-    'README.md', 'deploy/nginx.conf', 'deploy/worker.py',
+    'README.md', 'deploy/nginx.conf', 'deploy/worker.py', 'deploy/apt_mirror.py',
     'deploy/agent-deployment.md', 'deploy/package_source.py',
     'backend/pyproject.toml', 'backend/uv.lock', 'backend/alembic.ini',
     'frontend/package.json', 'frontend/package-lock.json', 'frontend/index.html',

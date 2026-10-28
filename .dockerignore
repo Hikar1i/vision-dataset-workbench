@@ -3,6 +3,7 @@
 !deploy/
 !deploy/nginx.conf
 !deploy/worker.py
+!deploy/apt_mirror.py
 !backend/
 !backend/pyproject.toml
 !backend/uv.lock

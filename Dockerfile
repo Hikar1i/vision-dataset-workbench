@@ -1,6 +1,11 @@
 FROM ghcr.io/astral-sh/uv:0.11.7 AS uv
 FROM python:3.12-slim-bookworm AS runtime-base
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG VDW_DEBIAN_MIRROR=""
+COPY deploy/apt_mirror.py /tmp/vdw-apt-mirror.py
+RUN python /tmp/vdw-apt-mirror.py && rm /tmp/vdw-apt-mirror.py
+RUN apt_options='-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30'; \
+    apt-get $apt_options -o APT::Update::Error-Mode=any update \
+    && apt-get $apt_options install -y --no-install-recommends \
     ca-certificates ffmpeg libgl1 libglib2.0-0 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
