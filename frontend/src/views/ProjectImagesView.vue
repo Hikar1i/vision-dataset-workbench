@@ -258,7 +258,8 @@ onUnmounted(() => {alive=false;requestId++; if(timer)clearTimeout(timer); if(pol
 .image-caption input[type=checkbox]{width:14px;height:14px;margin:0;flex:none;accent-color:var(--vdw-accent)}
 .image-caption label{cursor:pointer;font-weight:700;font-size:14px;line-height:1.25;flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .image-caption .vdw-btn{flex:none;padding:0 4px}
-.image-caption .image-enable-button:not(:disabled),.image-caption .image-enable-button:not(:disabled):hover{color:var(--vdw-ink);background:var(--vdw-focus-accent);border-color:var(--vdw-focus-accent)}
+.image-caption .image-enable-button:not(:disabled){color:var(--vdw-ink);background:transparent;border-color:transparent}
+.image-caption .image-enable-button:not(:disabled):hover{color:#fff;background:var(--vdw-focus-accent);border-color:var(--vdw-focus-accent)}
 .image-card footer{display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px}
 .image-source{display:flex;align-items:center;gap:4px;padding:2px 8px 4px 10px}
 .image-source small{flex:1;min-width:0;color:var(--vdw-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
