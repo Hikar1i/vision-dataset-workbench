@@ -19,10 +19,6 @@ describe('LoginView', () => {
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ mode: 'multi' }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
         json: async () => ({
           id: 'admin-id',
           username: 'admin',
@@ -40,6 +36,9 @@ describe('LoginView', () => {
     })
     await flushPromises()
 
+    expect(wrapper.get('.instance-heading img').attributes()).toMatchObject({
+      src: expect.stringMatching(/^(\/brand\/vdw-frame\.svg|data:image\/svg\+xml,)/), alt: 'VDW',
+    })
     await wrapper.get('[data-test="username"]').setValue('admin')
     await wrapper.get('[data-test="password"]').setValue('correct horse battery staple')
     await wrapper.get('form').trigger('submit')
@@ -58,10 +57,6 @@ describe('LoginView', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ mode: 'single' }),
-        })
         .mockResolvedValueOnce({
           ok: false,
           status: 401,

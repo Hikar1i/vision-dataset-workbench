@@ -32,7 +32,8 @@ async function submit() {
   <main class="access-shell">
     <aside class="instance-panel">
       <div class="instance-heading">
-        <p class="eyebrow">VDW / ACCESS</p>
+        <img class="access-brand" src="/brand/vdw-frame.svg" alt="VDW" width="264" height="116" />
+        <p class="eyebrow">ACCESS</p>
       </div>
 
       <div class="vision-frame" aria-hidden="true">

@@ -242,8 +242,8 @@ onUnmounted(() => {
     }"
   >
     <aside class="app-sidebar">
-      <RouterLink class="app-brand" data-test="brand" to="/overview">
-        <span class="app-sidebar-icon">VDW</span>
+      <RouterLink class="app-brand" data-test="brand" to="/overview" title="返回工作台首页">
+        <img class="app-brand-mark" src="/brand/vdw-frame.svg" alt="VDW" width="264" height="116" />
       </RouterLink>
       <nav class="app-nav" aria-label="主导航">
         <RouterLink class="app-nav-entry" data-test="nav-overview" title="Overview" to="/overview">

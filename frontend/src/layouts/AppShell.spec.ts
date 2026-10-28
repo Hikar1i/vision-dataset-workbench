@@ -139,7 +139,10 @@ describe('AppShell', () => {
   it('shows implemented navigation and at most five project shortcuts', async () => {
     const { wrapper } = await mountShell()
 
-    expect(wrapper.get('[data-test="brand"]').text()).toBe('VDW')
+    expect(wrapper.get('[data-test="brand"] img').attributes()).toMatchObject({
+      src: expect.stringMatching(/^(\/brand\/vdw-frame\.svg|data:image\/svg\+xml,)/), alt: 'VDW',
+    })
+    expect(wrapper.get('[data-test="brand"]').attributes('href')).toBe('/overview')
     expect(wrapper.get('[data-test="nav-projects"]').text()).toContain('数据集项目')
     expect(wrapper.findAll('[data-test="recent-project"]')).toHaveLength(5)
     expect(wrapper.findAll('[data-test="recent-project"]').map((item) => item.text()))
@@ -219,17 +222,17 @@ describe('AppShell', () => {
       .not.toContain('Project 1')
   })
 
-  it('uses fixed icon slots while the sidebar changes width', async () => {
+  it('keeps the brand image and fixed navigation icon slots while the sidebar changes width', async () => {
     const { wrapper } = await mountShell()
 
-    expect(wrapper.get('[data-test="brand"] .app-sidebar-icon').text()).toBe('VDW')
+    expect(wrapper.get('[data-test="brand"] img').attributes('alt')).toBe('VDW')
     expect(wrapper.find('[data-test="nav-projects"] .app-sidebar-icon .el-icon').exists()).toBe(true)
     expect(wrapper.find('[data-test="nav-admin-users"] .app-sidebar-icon .el-icon').exists()).toBe(true)
 
     await wrapper.get('[data-test="sidebar-toggle"]').trigger('click')
 
     expect(wrapper.get('.app-shell').classes()).toContain('app-shell--collapsed')
-    expect(wrapper.get('[data-test="brand"] .app-sidebar-icon').text()).toBe('VDW')
+    expect(wrapper.get('[data-test="brand"] img').attributes('alt')).toBe('VDW')
   })
 
   it('renders real links for navigable breadcrumb levels', async () => {

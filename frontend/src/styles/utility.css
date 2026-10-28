@@ -27,6 +27,12 @@
   justify-content: space-between;
 }
 
+.access-brand {
+  display: block;
+  width: 176px;
+  height: auto;
+}
+
 .eyebrow,
 .frame-label,
 .section-code,
