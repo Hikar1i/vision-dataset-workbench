@@ -85,3 +85,6 @@ export const cancelModelEvaluation = (id: string) =>
   json<void>(`/api/v1/model-evaluations/${id}/cancel`, { method: 'POST' })
 export const evaluationPlotUrl = (id: string, kind: 'confusion' | 'pr-curve') =>
   `/api/v1/model-evaluations/${id}/plots/${kind}`
+
+export const deleteModelEvaluation = (id: string) =>
+  json<void>(`/api/v1/model-evaluations/${id}`, { method: 'DELETE' })

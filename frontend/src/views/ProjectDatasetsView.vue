@@ -139,7 +139,7 @@ const exportOpen = ref(false)
       <span data-test="page-stat">{{ total }} 个导出产物</span>
     </Teleport>
 
-    <div class="dataset-actions"><VButton variant="primary" :disabled="!canEdit" @click="exportOpen=true"><template #icon><el-icon><Download/></el-icon></template>导出数据集快照</VButton></div>
+    <div class="dataset-actions"><VButton variant="primary" :disabled="!canEdit" @click="exportOpen=true"><template #icon><el-icon><Download/></el-icon></template>导出数据集</VButton></div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <section v-loading="loading" class="datasets-table">
       <el-table
@@ -383,7 +383,7 @@ const exportOpen = ref(false)
 </template>
 
 <style scoped>
-.dataset-actions{display:flex;padding-bottom:14px}
+.dataset-actions{display:flex;justify-content:flex-end;padding-bottom:14px}
 .datasets-view { min-height: 100%; padding: 14px; background: var(--vdw-app); }
 .datasets-view :deep(.page-header) { margin: -20px -20px 20px; }
 .datasets-table { min-height: 260px; background: white; border: 1px solid var(--vdw-line); }

@@ -77,6 +77,13 @@ const classes = computed(() => [
     box-shadow var(--vdw-motion-fast) var(--vdw-ease);
 }
 
+.vdw-btn__text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
 a.vdw-btn {
   text-decoration: none;
 }

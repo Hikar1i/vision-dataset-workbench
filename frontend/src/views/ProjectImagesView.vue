@@ -177,7 +177,7 @@ onUnmounted(() => {alive=false;requestId++; if(timer)clearTimeout(timer); if(pol
 <template>
   <main class="image-project-page">
   <Teleport defer to="#project-page-meta" :disabled="!headerHost"><span>{{ directories.length }} 个目录 · {{ totals.images }} 张图片 · {{ totals.labeled }} 张已标注</span></Teleport>
-  <div class="content-body image-body">
+  <div class="content-body image-body" style="padding-top: 0">
     <section class="image-action-lane" data-test="image-action-lane">
       <div class="image-selection-summary">
         <el-checkbox aria-label="当前页全选" :model-value="images.length>0 && selected.length===images.length" :indeterminate="selected.length>0 && selected.length<images.length" @change="(value: boolean) => selected=value ? images.map(i=>i.id) : []">当前页全选</el-checkbox>
@@ -185,8 +185,8 @@ onUnmounted(() => {alive=false;requestId++; if(timer)clearTimeout(timer); if(pol
       </div>
       <div class="image-toolbar-actions" data-test="image-toolbar-actions">
         <template v-if="selected.length">
-          <VButton :disabled="!writeAllowed || locked || writing" @click="changeEnabled(selectedImages,true)">启用</VButton>
-          <VButton :disabled="!writeAllowed || locked || writing" @click="changeEnabled(selectedImages,false)">停用</VButton>
+          <VButton :disabled="!writeAllowed || locked || writing" @click="changeEnabled(selectedImages,true)">批量启用</VButton>
+          <VButton :disabled="!writeAllowed || locked || writing" @click="changeEnabled(selectedImages,false)">批量停用</VButton>
           <VButton :disabled="!taskAllowed || locked || writing" @click="batchOpen=true">批量自动标注</VButton>
           <VButton :disabled="!writeAllowed || locked || writing" @click="enableByAnnotations">按标注启停</VButton>
           <VButton variant="danger" :disabled="!writeAllowed || locked || writing || !selectedStoppedImages.length" :title="selectedStoppedImages.length ? '仅删除选中的停用图像' : '请先停用图像再删除'" @click="deleteSelected(selectedImages)">删除 {{ selectedStoppedImages.length }} 个图像</VButton>
@@ -218,7 +218,7 @@ onUnmounted(() => {alive=false;requestId++; if(timer)clearTimeout(timer); if(pol
         <div class="image-grid" :style="{'--tile-size': `${tileSize}px`}">
           <article v-for="(image,index) in images" :key="image.id" class="image-card" :class="{selected:selected.includes(image.id)}">
             <button class="image-open" :aria-label="`预览 ${image.file_name}`" @click="openPreview(image)"><FrameAnnotationThumbnail :image-id="image.id" :image-url="imageThumbnailUrl(project.id,image.id)" :image-width="image.width" :image-height="image.height" :annotations="showBoxes ? image.annotations : []" :label-colors="colors" :disabled="!image.enabled"/></button>
-            <div class="image-caption"><input type="checkbox" :checked="selected.includes(image.id)" :aria-label="`选择 ${image.file_name}`" @click="select(index,$event.shiftKey)"/><strong :title="image.file_name">{{ image.file_name }}</strong><VButton size="sm" variant="quiet" :disabled="!writeAllowed || locked || writing" :aria-label="`${image.enabled ? '停用' : '启用'} ${image.file_name}`" @click="changeEnabled([image],!image.enabled)">{{ image.enabled ? '停用' : '启用' }}</VButton></div>
+            <div class="image-caption"><input :id="`image-select-${image.id}`" type="checkbox" :checked="selected.includes(image.id)" :aria-label="`选择 ${image.file_name}`" @click="select(index,$event.shiftKey)"/><label :for="`image-select-${image.id}`" :title="image.file_name">{{ image.file_name }}</label><VButton size="sm" :variant="image.enabled ? 'danger' : 'default'" :class="{'image-enable-button': !image.enabled}" :disabled="!writeAllowed || locked || writing" :aria-label="`${image.enabled ? '停用' : '启用'} ${image.file_name}`" @click="changeEnabled([image],!image.enabled)">{{ image.enabled ? '停用' : '启用' }}</VButton></div>
             <footer><VTag :tone="imageAnnotationStatus(image.annotation_status).tone">{{ imageAnnotationStatus(image.annotation_status).label }}</VTag><span>{{ new Set(image.annotations.map(a=>a.label_id)).size }} 类 · {{ image.annotations.length }} 目标</span></footer>
             <div class="image-source"><small :title="directories.find(d=>d.id===image.directory_id)?.name">{{ directories.find(d=>d.id===image.directory_id)?.name }}</small><VButton size="sm" variant="danger" icon-only :label="`删除图像 ${image.file_name}`" :title="image.enabled ? '请先停用图像再删除' : '删除图像'" :disabled="image.enabled || !writeAllowed || locked || writing" @click="deleteSelected([image])"><template #icon><el-icon><Delete /></el-icon></template></VButton></div>
           </article>
@@ -256,8 +256,9 @@ onUnmounted(() => {alive=false;requestId++; if(timer)clearTimeout(timer); if(pol
 .image-open{width:100%;padding:0;border:0;cursor:pointer;background:transparent}
 .image-caption{display:flex;gap:6px;align-items:center;padding:6px 8px;min-height:48px}
 .image-caption input[type=checkbox]{width:14px;height:14px;margin:0;flex:none;accent-color:var(--vdw-accent)}
-.image-caption strong{font-size:14px;line-height:1.25;flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.image-caption label{cursor:pointer;font-weight:700;font-size:14px;line-height:1.25;flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .image-caption .vdw-btn{flex:none;padding:0 4px}
+.image-caption .image-enable-button:not(:disabled),.image-caption .image-enable-button:not(:disabled):hover{color:var(--vdw-ink);background:var(--vdw-focus-accent);border-color:var(--vdw-focus-accent)}
 .image-card footer{display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px}
 .image-source{display:flex;align-items:center;gap:4px;padding:2px 8px 4px 10px}
 .image-source small{flex:1;min-width:0;color:var(--vdw-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -12,6 +12,7 @@ import { listModelArtifacts, type ModelArtifact } from '../api/modelArtifacts'
 import {
   createModelEvaluation,
   deleteEvaluationDataset,
+  deleteModelEvaluation,
   evaluationPlotUrl,
   listEvaluationDatasets,
   listModelEvaluations,
@@ -46,9 +47,10 @@ const datasetId = ref('')
 const format = ref<ModelEvaluation['format']>('pt')
 const artifacts = ref<ModelArtifact[]>([])
 const submitting = ref(false)
+const deletingEvaluation = ref<string>()
 let poll: number | undefined
 
-const RECORD_COLUMNS = 'minmax(190px,1.2fr) minmax(160px,1fr) 92px 100px 110px 132px'
+const RECORD_COLUMNS = 'minmax(190px,1.2fr) minmax(160px,1fr) 92px 100px 110px 176px'
 const DATASET_COLUMNS = 'minmax(190px,1.2fr) 90px 96px minmax(180px,1fr) 110px 120px'
 const active = computed(() =>
   evaluations.value.some((item) => ['queued', 'running'].includes(item.status))
@@ -158,6 +160,20 @@ async function createEvaluation() {
   } finally { submitting.value = false }
 }
 
+async function removeEvaluation(item: ModelEvaluation) {
+  try {
+    await ElMessageBox.confirm('删除该评估记录及结果图表？模型和测试集不受影响，模型评估汇总会重新计算。', '删除评估记录', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  } catch { return }
+  deletingEvaluation.value = item.id
+  try {
+    await deleteModelEvaluation(item.id)
+    evaluations.value = evaluations.value.filter(value => value.id !== item.id)
+    if (detail.value?.id === item.id) detail.value = undefined
+    notify.success('评估记录已删除。')
+  } catch (reason) { notify.error(reason instanceof Error ? reason.message : '评估记录删除失败') }
+  finally { deletingEvaluation.value = undefined }
+}
+
 async function removeDataset(item: EvaluationDataset) {
   try {
     await ElMessageBox.confirm(`删除测试集“${item.name}”？历史评估记录仍保留快照信息。`, '删除测试集', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
@@ -211,7 +227,8 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
             <VTag tone="idle">{{ item.format.toUpperCase() }}</VTag>
             <VTag :tone="status(item.status).tone" :title="item.error || undefined">{{ status(item.status).label }}</VTag>
             <span class="metric">{{ percent(item.metrics.map50_95) }}</span>
-            <VButton size="sm" :disabled="item.status !== 'succeeded'" :title="item.status !== 'succeeded' ? '评估完成后可查看详情' : '查看评估详情'" @click="detail = item"><template #icon><el-icon><View /></el-icon></template>详情</VButton>
+            <div class="row-actions"><VButton size="sm" :disabled="item.status !== 'succeeded'" :title="item.status !== 'succeeded' ? '评估完成后可查看详情' : '查看评估详情'" @click="detail = item"><template #icon><el-icon><View /></el-icon></template>详情</VButton>
+              <VButton v-if="canUpdate" variant="danger" size="sm" :loading="deletingEvaluation === item.id" :disabled="Boolean(deletingEvaluation) || ['queued','running'].includes(item.status)" :title="['queued','running'].includes(item.status) ? '评估结束后可删除' : '删除评估记录'" @click="removeEvaluation(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton></div>
           </VRow>
           <template #empty><VEmpty v-if="!evaluations.length" title="暂无评估记录" note="先导入测试集，再为具体模型创建一次可复现评估。" /></template>
         </VTable></VPanel>
@@ -228,7 +245,7 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
             <span class="metric">{{ item.image_count }}</span><span class="metric">{{ item.classes.length }}</span>
             <span class="mono ellipsis" :title="item.content_sha256 || ''">{{ item.content_sha256 || '校验后生成' }}</span>
             <VTag :tone="status(item.status).tone" :title="item.error || undefined">{{ status(item.status).label }}</VTag>
-            <VButton v-if="canUpdate" variant="danger" size="sm" :disabled="['queued','validating'].includes(item.status)" :title="['queued','validating'].includes(item.status) ? '测试集校验期间不可删除' : '删除测试集'" @click="removeDataset(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton>
+            <div class="row-actions"><VButton v-if="canUpdate" variant="danger" size="sm" :disabled="['queued','validating'].includes(item.status)" :title="['queued','validating'].includes(item.status) ? '测试集校验期间不可删除' : '删除测试集'" @click="removeDataset(item)"><template #icon><el-icon><Delete /></el-icon></template>删除</VButton></div>
           </VRow>
           <template #empty><VEmpty v-if="!datasets.length" title="还没有测试集" note="上传结构受控的 ZIP 后，系统会在后台完成安全校验。" /></template>
         </VTable></VPanel>
@@ -271,6 +288,8 @@ onBeforeUnmount(() => { if (poll) window.clearInterval(poll) })
 </template>
 
 <style scoped>
+.row-actions{display:flex;align-items:center;gap:6px}.row-actions>.vdw-btn{flex:none}
+
 .evaluation-body{display:grid;gap:14px;align-content:start}.subnav{display:flex;gap:4px;padding:4px;width:fit-content;background:var(--vdw-surface-2);border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-control)}.subnav button{height:32px;padding:0 14px;border:0;border-radius:calc(var(--vdw-radius-control) - 2px);color:var(--vdw-ink-2);background:transparent;cursor:pointer;font:500 14px/1 var(--vdw-sans)}.subnav button.active{color:var(--vdw-ink);background:var(--vdw-surface);box-shadow:var(--vdw-shadow-1)}.toolbar{display:flex;align-items:center;justify-content:space-between;min-height:38px;color:var(--vdw-ink-3);font-size:14px}.toolbar-actions{display:flex;gap:8px}.cell-main{min-width:0}.cell-main strong,.cell-main span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cell-main span{margin-top:4px;color:var(--vdw-ink-3);font-size:13px}.mono{font-family:var(--vdw-mono)}.ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.metric{font:600 14px/1 var(--vdw-mono)}.import-layout{display:grid;grid-template-columns:260px 1fr;gap:22px}.zip-example{padding:16px;background:#10181c;border-radius:var(--vdw-radius-card);color:#dbe4e7}.zip-example pre{margin:12px 0;color:#83d2df;font:13px/1.55 var(--vdw-mono)}.zip-example p{margin:0;color:#9eafb5;font-size:13px;line-height:1.55}.dialog-fields{display:grid;gap:18px}.dialog-fields label{display:grid;gap:8px;color:var(--vdw-ink-2);font-size:14px}.file-drop{padding:18px;border:1px dashed var(--vdw-line-strong);border-radius:var(--vdw-radius-control);cursor:pointer}.file-drop input{position:absolute;width:1px;height:1px;opacity:0}.file-drop span{color:var(--vdw-accent-ink)}.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}.metric-grid div{padding:14px;border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-control);background:var(--vdw-surface-2)}.metric-grid span,.metric-grid strong{display:block}.metric-grid span{color:var(--vdw-ink-3);font-size:13px}.metric-grid strong{margin-top:6px;font:600 22px/1 var(--vdw-mono)}.plot-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}.plot-grid figure{margin:0;padding:10px;border:1px solid var(--vdw-line);border-radius:var(--vdw-radius-card)}.plot-grid img{display:block;width:100%;max-height:360px;object-fit:contain}.plot-grid figcaption{margin-top:8px;color:var(--vdw-ink-3);text-align:center;font-size:13px}
 .cell-main small{margin-left:5px;color:var(--vdw-danger);font-size:13px;font-weight:500}
 </style>

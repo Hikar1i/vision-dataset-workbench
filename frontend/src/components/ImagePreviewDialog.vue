@@ -169,7 +169,7 @@ function toggleEnabled() {
   if (!writeDisabled.value && props.image) emit('enabled', props.image, !props.image.enabled)
 }
 function annotate() {
-  if (!writeDisabled.value && props.image) emit('annotate', props.image)
+  if (props.showAnnotationAction && !writeDisabled.value && props.image) emit('annotate', props.image)
 }
 function onKey(event: KeyboardEvent) {
   if (!props.modelValue || !props.image || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return
@@ -180,6 +180,7 @@ function onKey(event: KeyboardEvent) {
     case 'r': resetView(); break
     case 'h': if (!event.repeat) showBoxes.value = !showBoxes.value; break
     case 's': if (!event.repeat) toggleEnabled(); break
+    case 'w': if (!event.repeat) annotate(); break
     default: return
   }
   event.preventDefault()
@@ -198,7 +199,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <el-dialog append-to-body fullscreen class="image-preview-dialog vdw-dark" :model-value="modelValue" title="图片预览" :show-close="false" :close-on-click-modal="false" destroy-on-close @opened="observeStage" @update:model-value="emit('update:modelValue', $event)">
+  <el-dialog append-to-body fullscreen :modal="false" class="image-preview-dialog vdw-dark" :model-value="modelValue" title="图片预览" :show-close="false" :close-on-click-modal="false" destroy-on-close @opened="observeStage" @update:model-value="emit('update:modelValue', $event)">
     <template #header="{ titleId }">
       <header class="preview-header vdw-dark">
         <div class="preview-info"><strong :id="titleId">图片预览</strong><span v-if="positionLabel">{{ positionLabel }}</span><span v-if="image" :class="image.enabled ? 'enabled-status' : 'disabled-status'">{{ image.enabled ? '已启用' : '已停用' }}</span><span v-if="navigating" role="status">正在切换图片…</span></div>
@@ -251,7 +252,7 @@ onBeforeUnmount(() => {
         <VButton icon-only label="放大" data-test="preview-zoom-in" :disabled="zoom>=5" @click="changeZoom(.1)"><template #icon><el-icon><ZoomIn/></el-icon></template></VButton>
         <VButton @click="resetView"><el-icon><Refresh/></el-icon>重置 · R</VButton>
         <VButton :aria-pressed="!showBoxes" @click="showBoxes=!showBoxes"><el-icon><Hide v-if="showBoxes"/><View v-else/></el-icon>{{ showBoxes ? '隐藏标注框' : '显示标注框' }} · H</VButton>
-        <VButton v-if="showAnnotationAction" :disabled="writeDisabled" :title="writeTitle" @click="annotate">打开标注工作台</VButton>
+        <VButton v-if="showAnnotationAction" :disabled="writeDisabled" :title="writeTitle" aria-keyshortcuts="W" @click="annotate">打开标注工作台 · W</VButton>
       </footer>
     </section>
     <p v-else class="preview-empty vdw-dark" role="status">未选择图片，请关闭预览后选择图片。</p>
@@ -259,12 +260,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-:global(.image-preview-dialog.el-dialog){padding:0;border:0;background:var(--vdw-focus-canvas);overflow:hidden}
+:global(.image-preview-dialog.el-dialog){padding:0;border:0;background:rgb(2 6 9 / 80%);overflow:hidden}
 :global(.image-preview-dialog .el-dialog__header){padding:0;margin:0}
 :global(.image-preview-dialog .el-dialog__body){padding:0;height:calc(100dvh - 54px)}
 .preview-header{display:flex;align-items:center;justify-content:space-between;height:54px;padding:0 18px;color:var(--vdw-focus-ink);background:var(--vdw-focus-panel);border-bottom:1px solid var(--vdw-focus-line)}
 .preview-info{display:flex;align-items:center;gap:14px;min-width:0}.preview-info strong{font:650 15px var(--vdw-sans)}.preview-info span{font:13px var(--vdw-mono)}.preview-info .enabled-status,.preview-info .disabled-status{padding:3px 7px;font-size:14px;border-radius:2px}.enabled-status{color:var(--vdw-focus-canvas);background:var(--vdw-focus-accent)}.disabled-status{color:white;background:var(--vdw-danger)}
-.image-preview{display:grid;grid-template-rows:minmax(0,1fr) 62px;height:100%;min-height:0;color:var(--vdw-focus-ink);background:var(--vdw-focus-canvas);font:15px/1.5 var(--vdw-sans)}
+.image-preview{display:grid;grid-template-rows:minmax(0,1fr) 62px;height:100%;min-height:0;color:var(--vdw-focus-ink);background:transparent;font:15px/1.5 var(--vdw-sans)}
 .preview-workspace{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:0;overflow:hidden}.preview-stage{position:relative;min-width:0;min-height:0;overflow:hidden;touch-action:none;cursor:default;background:rgb(2 6 9 / 22%)}.preview-stage.pannable{cursor:grab}.preview-stage.dragging{cursor:grabbing}
 .preview-image{position:absolute;top:0;left:0;display:block;max-width:none;max-height:none;overflow:hidden;transform-origin:0 0;transition:transform 120ms ease;background:rgb(17 24 32 / 55%);box-shadow:0 12px 40px rgb(0 0 0 / 70%)}.preview-stage.dragging .preview-image{transition:none}.annotation-layer{pointer-events:none}.preview-annotation-box{stroke-width:3px}
 .preview-message{position:absolute;z-index:4;top:50%;left:50%;max-width:90%;padding:12px;color:var(--vdw-focus-ink);background:var(--vdw-focus-panel);border:1px solid var(--vdw-focus-line);transform:translate(-50%,-50%)}.preview-error{text-align:center}.preview-message p{margin:0 0 12px}

@@ -122,6 +122,7 @@
 | `DELETE /api/v1/evaluation-datasets/{id}` | 模型项目管理员 + 同源 | 逻辑删除未被活动评估使用的测试集；文件移入 `.deleted`，历史评估保留名称与哈希快照 |
 | `GET/POST /api/v1/model-projects/{id}/evaluations` | Session；写入需项目管理权与同源 | 列出评估记录，或为一个具体模型、测试集和可用格式创建固定参数评估任务 |
 | `GET /api/v1/model-evaluations/{id}` | Session | 返回冻结来源、总体/分类别指标和图表可用状态 |
+| `DELETE /api/v1/model-evaluations/{id}` | 模型项目编辑权限 + 同源 | 删除已结束的评估记录及受管结果目录；记录或关联任务仍排队/运行时409；保留模型、测试集和任务审计记录 |
 | `POST /api/v1/model-evaluations/{id}/cancel` | 模型项目管理员 + 同源 | 请求取消排队中或运行中的评估 |
 | `GET /api/v1/model-evaluations/{id}/plots/{confusion|pr-curve}` | Session | 读取受管目录内的混淆矩阵或 PR 曲线图片 |
 | `GET /api/v1/hyperparameter-catalog` | Session | 返回 Detect v1 参数目录、类型、默认值和约束 |

@@ -21,7 +21,9 @@ from vision_dataset_workbench.models import (
     User,
 )
 from vision_dataset_workbench.services.gpu_leases import GpuLeaseService
-from vision_dataset_workbench.services.model_evaluations import ModelEvaluationService
+from vision_dataset_workbench.services.model_evaluations import (
+    ModelEvaluationConflict, ModelEvaluationError, ModelEvaluationService,
+)
 from vision_dataset_workbench.services.models import ModelService
 from vision_dataset_workbench.services.projects import ProjectService
 
@@ -240,3 +242,30 @@ def test_evaluation_remaps_class_order_and_persists_metrics(
         "dataset_hash": "b" * 64,
     }
     engine.dispose()
+
+
+def test_delete_evaluation_requires_access_and_finished_task(tmp_path):
+    engine, workspace, service, owner = setup(tmp_path)
+    evaluation, task = service.create_evaluation(owner, "project", "model", "dataset", "pt")
+    with pytest.raises(ModelEvaluationConflict):
+        service.delete_evaluation(owner, evaluation.id)
+    with Session(engine) as database:
+        database.get(ModelEvaluation, evaluation.id).status = "failed"
+        database.get(Task, task.id).status = "failed"
+        outsider = User(id="outsider", username="outsider", username_normalized="outsider", password_hash="x")
+        database.add(outsider)
+        database.commit()
+        database.refresh(outsider)
+        database.expunge(outsider)
+    with pytest.raises(ModelEvaluationError):
+        service.delete_evaluation(outsider, evaluation.id)
+    directory = workspace / "model-projects/project/evaluations" / evaluation.id
+    directory.mkdir(parents=True)
+    (directory / "plot.png").write_bytes(b"plot")
+    service.delete_evaluation(owner, evaluation.id)
+    assert not directory.exists()
+    assert service.list_evaluations(owner, "project") == []
+    with Session(engine) as database:
+        assert database.get(Task, task.id) is not None
+        assert database.get(InferenceModel, "model") is not None
+        assert database.get(EvaluationDataset, "dataset") is not None

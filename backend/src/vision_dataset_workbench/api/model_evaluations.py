@@ -279,6 +279,18 @@ def get_evaluation(
         _raise(exc)
 
 
+@router.delete("/model-evaluations/{evaluation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_evaluation(
+    evaluation_id: str, request: Request, user: Annotated[User, Depends(current_user)]
+):
+    require_same_origin(request)
+    try:
+        service(request).delete_evaluation(user, evaluation_id)
+    except ModelEvaluationError as exc:
+        _raise(exc)
+    return Response(status_code=204)
+
+
 @router.post("/model-evaluations/{evaluation_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
 def cancel_evaluation(
     evaluation_id: str, request: Request, user: Annotated[User, Depends(current_user)]

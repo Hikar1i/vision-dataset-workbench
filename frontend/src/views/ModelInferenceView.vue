@@ -241,6 +241,7 @@ onBeforeUnmount(() => {
               <div v-if="displayedWorking" class="stage-overlay"><span class="stage-spinner" /><strong>{{ displayedRun.status === 'queued' ? '等待可用 GPU' : '正在生成检测结果' }}</strong><small>关闭页面不会中断任务</small></div>
               <div v-if="displayedRun.status === 'failed'" class="stage-overlay is-error"><strong>推理失败</strong><small>{{ displayedRun.error }}</small></div>
             </template>
+            <button v-else-if="mode === 'current' && canExecute" type="button" class="stage-empty stage-upload" :disabled="busy || isWorking" aria-label="点击画布选择图片或视频" @click="chooseFile"><UploadFilled /><strong>点击选择图片或视频开始推理</strong><span>上传后会保留当前会话，意外离开页面也可继续查看。</span></button>
             <div v-else class="stage-empty"><UploadFilled /><strong>{{ mode === 'saved' ? '还没有已保存结果' : '选择图片或视频开始推理' }}</strong><span>{{ mode === 'saved' ? '完成推理并保存后，可在这里再次查看。' : '上传后会保留当前会话，意外离开页面也可继续查看。' }}</span></div>
           </div>
         </VPanel>
@@ -307,6 +308,7 @@ onBeforeUnmount(() => {
 .inference-stage { position: relative; display: grid; place-items: center; min-height: 580px; overflow: hidden; background: #10181c; border-radius: 0 0 var(--vdw-radius-panel) var(--vdw-radius-panel); }
 .inference-stage img, .inference-stage video { display: block; width: 100%; height: 580px; object-fit: contain; }
 .stage-empty, .stage-overlay { display: grid; place-items: center; gap: 10px; color: #dbe4e7; text-align: center; }
+.stage-upload{align-self:stretch;justify-self:stretch;width:100%;padding:24px;border:0;background:transparent;font:inherit;cursor:pointer;align-content:center}.stage-upload:not(:disabled):hover{background:rgb(255 255 255 / 3%)}.stage-upload:focus-visible{outline:2px solid var(--vdw-focus-accent);outline-offset:-4px}.stage-upload:disabled{cursor:not-allowed}
 .stage-empty svg { width: 42px; fill: #73868d; }
 .stage-empty span, .stage-overlay small { color: #92a3a9; font-size: 14px; }
 .stage-overlay { position: absolute; inset: 0; background: rgb(10 18 22 / 82%); }

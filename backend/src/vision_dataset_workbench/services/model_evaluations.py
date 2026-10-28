@@ -264,6 +264,24 @@ class ModelEvaluationService:
             database.expunge(row)
             return row
 
+    def delete_evaluation(self, actor: User, evaluation_id: str) -> None:
+        with self._session_factory() as database:
+            row = database.get(ModelEvaluation, evaluation_id)
+            if row is None:
+                raise ModelEvaluationNotFound("评估记录不存在")
+            self._project(database, row.model_project_id)
+            self._require(actor, row.model_project_id, "project.update")
+            task = database.get(Task, row.task_id) if row.task_id else None
+            if row.status in {"queued", "running"} or (task and task.status in {"queued", "running"}):
+                raise ModelEvaluationConflict("请等待评估任务结束后再删除")
+            directory = self.workspace / "model-projects" / row.model_project_id / "evaluations" / row.id
+            database.delete(row)
+            touch_model_project(database, row.model_project_id, at=_now())
+            database.commit()
+        if directory.resolve().is_relative_to(self.workspace / "model-projects"):
+            # shortcut: cleanup failures leave unreachable plots; add retry cleanup if observed.
+            shutil.rmtree(directory, ignore_errors=True)
+
     def peak_model_metric(self, model_id: str) -> dict[str, object] | None:
         with self._session_factory() as database:
             rows = database.scalars(
